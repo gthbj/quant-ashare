@@ -43,3 +43,6 @@ logs/
 .vscode/
 *.swp
 *~
+
+# ───── 本地 review 文档（owner 指示：可读、不提交）─────
+docs/reviews/数据仓库建模方案-DWD-DIM-review.md

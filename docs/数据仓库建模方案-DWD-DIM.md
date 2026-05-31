@@ -322,7 +322,8 @@ Tushare `adj_factor` 为**累计后复权因子**。
   - `is_suspended`：停牌（骨架有行但 `daily` 无行，或 `suspend_d` 命中，或 `volume=0`）。
   - `is_limit_up` / `is_limit_down`：收盘封板（`close>=up_limit` / `close<=down_limit`）。
   - `is_one_word_limit_up` / `is_one_word_limit_down`：一字涨/跌停（`high==low` 且触及对应限价）——**区分方向**：一字涨停主要挡买入、一字跌停主要挡卖出。
-  - `can_buy_open` / `can_sell_open`：`t+1` 开盘可买/可卖的近似（非停牌 且 非对应方向一字板）。**EOD 近似**，精确可成交性需分钟数据。
+  - `is_open_limit_up` / `is_open_limit_down`：**开盘**即触及涨/跌停（`open >= up_limit` / `open <= down_limit`），比"全天一字板"更贴近 t+1 开盘可成交性。
+  - `can_buy_open` / `can_sell_open`：t+1 开盘可买/卖近似 = 非停牌 且 非 `is_open_limit_up`/`is_open_limit_down`。**仍是 EOD 近似**（开盘封板后盘中可能打开，精确需分钟数据）。
   - `is_newly_listed`（上市未满 N 日，默认 60 自然日）、`is_st`（±5%，来自 `dwd_stock_st_event`/`namechange`）。
   - `is_tradable`：综合样本掩码（非停牌 且 非一字板 且 在市）。
 - **涨跌停幅度**：直接用 `stk_limit.up_limit`/`down_limit`（Tushare 已按板块算好 ±10%/±5%/±20%/±30%），不自己硬编码。
@@ -397,7 +398,8 @@ Tushare `adj_factor` 为**累计后复权因子**。
     area, industry, market, exchange, curr_type,
     list_status,
     PARSE_DATE('%Y%m%d', list_date) AS list_date,
-    SAFE.PARSE_DATE('%Y%m%d', CAST(delist_date AS STRING)) AS delist_date,
+    CAST(NULL AS DATE) AS delist_date,   -- ⚠️ delisted 分区该列 Parquet 类型不一致、直读报错（SAFE 无效），置 NULL 由下方兜底（daily 最后交易日）补
+
     is_hs,
     -- 板块（影响涨跌幅、上市规则）
     CASE
@@ -470,7 +472,8 @@ Tushare `adj_factor` 为**累计后复权因子**。
 | `up_limit, down_limit` | stk_limit | 元，当日涨跌停价 |
 | `is_limit_up, is_limit_down` | `close>=up_limit` / `close<=down_limit` | 收盘封板 |
 | `is_one_word_limit_up`/`_down` | `high==low` 且触及涨/跌停 | 一字涨/跌停（**区分方向**） |
-| `can_buy_open`/`can_sell_open` | 非停牌 且 非对应方向一字板 | t+1 开盘可买/卖近似（EOD 近似） |
+| `is_open_limit_up`/`_down` | `open>=up_limit` / `open<=down_limit` | 开盘即涨/跌停（基于开盘价） |
+| `can_buy_open`/`can_sell_open` | 非停牌 且 非 `is_open_limit_up/down` | t+1 开盘可买/卖近似（EOD 近似） |
 | `is_suspended` | daily 无行 或 suspend_d 命中 或 volume=0 | 停牌掩码（停牌日保留行、价格 NULL） |
 | `is_tradable` | 非停牌 且 非一字板 且 在市 | **综合样本掩码** |
 | `is_newly_listed` | `trade_date - list_date < N` | 次新标记 |
@@ -523,9 +526,12 @@ Tushare `adj_factor` 为**累计后复权因子**。
     (d.sec_code IS NULL OR susp.sec_code IS NOT NULL OR COALESCE(d.volume,0)=0) AS is_suspended,
     u.list_date, u.delist_date, u.board_type,
     DATE_DIFF(u.trade_date, u.list_date, DAY) < 60 AS is_newly_listed,
-    -- t+1 开盘可买/卖近似（非停牌且非对应方向一字板）
-    (d.sec_code IS NOT NULL AND COALESCE(d.volume,0)>0 AND NOT (d.high=d.low AND d.close>=lim.up_limit))   AS can_buy_open,
-    (d.sec_code IS NOT NULL AND COALESCE(d.volume,0)>0 AND NOT (d.high=d.low AND d.close<=lim.down_limit)) AS can_sell_open,
+    -- 开盘是否封板（基于 open 价，比全天一字板更贴近 t+1 开盘可成交性）
+    (d.open >= lim.up_limit)   AS is_open_limit_up,
+    (d.open <= lim.down_limit) AS is_open_limit_down,
+    -- t+1 开盘可买/卖近似 = 非停牌 且 开盘未封对应方向（仍为 EOD 近似，盘中开板需分钟数据）
+    (d.sec_code IS NOT NULL AND COALESCE(d.volume,0)>0 AND NOT (d.open>=lim.up_limit))   AS can_buy_open,
+    (d.sec_code IS NOT NULL AND COALESCE(d.volume,0)>0 AND NOT (d.open<=lim.down_limit)) AS can_sell_open,
     (d.sec_code IS NOT NULL AND COALESCE(d.volume,0)>0
       AND NOT (d.high=d.low AND (d.close>=lim.up_limit OR d.close<=lim.down_limit))) AS is_tradable,
     COALESCE(d.source_system,'tushare') AS source_system, d.ingested_at

@@ -1,6 +1,6 @@
 # 《数据仓库建模方案-DWD-DIM》Review Response
 
-> 回应对象：`docs/数据仓库建模方案-DWD-DIM-review.md`（2026-05-31）
+> 回应对象：`docs/reviews/数据仓库建模方案-DWD-DIM-review.md`（2026-05-31）
 > 处理原则：认可的点已在 `docs/数据仓库建模方案-DWD-DIM.md` 整改，不在此重复；本文件**只记录不采纳或调整执行的点及理由**。
 > 文档维护：Claude Opus 4.8（2026-05-31）
 
@@ -13,7 +13,7 @@ review 的事实核对准确（已独立复核：ODS 为 **54 张**外部表、`
 **认可的部分**：`stock_basic_delisted.delist_date` 外部表 schema 为 `INT64`、Parquet 文件实际为 `BYTE_ARRAY`，读取报错会阻塞 `dim_stock` 构建——问题真实存在。
 
 **已在方案内整改**：
-- `dim_stock` 读取退市分区时对 `delist_date` 用 `SAFE` 容错读取；
+- `dim_stock` **不直读 `delisted` 分区的 `delist_date`**——该列在 BigQuery 读取外部 Parquet 的**类型层**就报错，`SAFE.PARSE_DATE` 救不了；临时用「该股在 `daily` 中的最后交易日」兜底退市日，待上游修复 ODS schema 后改回直读；
 - 增加数据质量门禁：`stock_basic_listed + delisted` 必须能解析 `list_date/delist_date` 为 DATE，否则告警阻断；
 - 增加从 2019+ 价格表反向补主数据的兜底校验（覆盖 review 指出的 `000043.SZ` / `300114.SZ` / `920218.BJ` 等缺失代码）。
 
@@ -23,7 +23,7 @@ review 的事实核对准确（已独立复核：ODS 为 **54 张**外部表、`
 
 ## 调整-2 ｜ 对应 P1-3：可交易性方向化
 
-**认可并整改**：价格 DWD 增加方向/时点字段 `is_one_word_limit_up` / `is_one_word_limit_down` / `can_buy_open` / `can_sell_open`；DWS 标签表增加 `entry_reachable` / `exit_reachable` / `label_valid`。`is_tradable` 保留为综合样本掩码。
+**认可并整改**：价格 DWD 增加 `is_open_limit_up` / `is_open_limit_down`（基于**开盘价** `open` vs 涨跌停价）与 `is_one_word_limit_up` / `is_one_word_limit_down`（全天一字板）；`can_buy_open` / `can_sell_open` 据 `is_open_limit_*` 定义（**不再用"全天一字板"近似**，避免命名过度承诺，但仍标注为 EOD 近似——盘中开板需分钟数据才精确）；DWS 标签表增加 `entry_reachable` / `exit_reachable` / `label_valid`。`is_tradable` 保留为综合样本掩码。
 
 **不采纳的部分**：新增 `can_buy_close` / `can_sell_close` 收盘侧四象限全集。
 
