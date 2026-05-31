@@ -2,7 +2,7 @@
 
 | 术语 | 含义 |
 |---|---|
-| ODS / DIM / DWD / DWS | 数仓分层：贴源外部表 / 维度 / 明细 / 特征汇总 |
+| ODS / DIM / DWD / DWS / ADS | 数仓分层：贴源外部表 / 维度 / 明细 / 特征汇总 / 应用消费 |
 | sec_code | 统一证券主键，数据源中性，值如 `600000.SH`（源 Tushare `ts_code` 归一） |
 | sec_type | 证券品种：stock/index/fund/cb/industry |
 | PIT (Point-In-Time) | 时点正确：只用某时点已可见的数据，杜绝未来函数 |
@@ -24,3 +24,7 @@
 | 龙虎榜 (top_list) | 交易所每日大额异动榜单 |
 | 筹码 (cyq_perf) | 筹码分布与获利盘比例 |
 | source_system / ingested_at | 血缘字段：数据来源系统 / 入库时间 |
+| feature_version / label_version / universe_version | DWS/ADS 版本字段：特征清单、标签口径、样本过滤规则版本 |
+| model_id / strategy_id / run_id | ADS 追踪字段：模型、策略、一次训练/预测/回测/调仓运行 |
+| ml_ranker_v0 | 首个建议基线策略：P0 特征横截面排序，长-only，t 日盘后信号、t+1 建仓 |
+| index_member_all / ci_index_member | Tushare 申万/中信行业个股时点归属接口；用 `in_date/out_date` 建行业 SCD2 维表 |
