@@ -1,22 +1,24 @@
 # A 股日线量化数据仓库建模方案（ODS → DWD / DIM）
 
 > 业务场景：**A 股 · 日线 · 中低频 · 小资金 · 机器学习量化**
+> 当前建模范围：**2019-01-01 之后**的 A 股日线 DWD/DWS 建模；2019 年以前数据仅作为财务/事件 PIT 前移、行情 lookback buffer、维度/日历历史支撑，正式扩展 2019 年以前样本属后续阶段。
 > 数据底座：BigQuery 项目 `data-aquarium`，ODS 层数据集 `ashare_ods`（当前来源 Tushare，未来多源；全部为 Hive 分区外部表）
 > 文档目标：基于现有 ODS 表，设计可落地的 **DWD（明细层）** 与 **DIM（维度层）**，并给出横切的工程原则（命名规范、PIT 防未来函数、复权、去重、可交易性、增量调度等）。
-> 文档维护：Claude Opus 4.8（最近更新 2026-05-31）
+> 文档维护：Claude Opus 4.8（最近更新 2026-05-31）；§4.6 回填范围修订：GPT-5（2026-05-31）
 
 ---
 
 ## 0. TL;DR（一页纸结论）
 
-1. **ODS 现状**：`ashare_ods` 下共 54 张外部表，全部以 `partition_date`（`STRING`，`YYYYMMDD`）+ `endpoint` 作为 Hive 分区键。**任何查询都必须带 `partition_date`/`endpoint` 过滤**，否则 BigQuery 直接报错（强制分区裁剪）。
-2. **三类分区语义**（建模的地基，必须先理解）：
+1. **当前建模范围**：本文当前阶段落地 **2019-01-01 之后**的 DWD/DWS；2019 年以前只在三类必要场景读取或保留：财务/事件前移到 2017 做 PIT，行情读取 lookback buffer 做 warm-up，维度/日历取最新快照或全量历史事件。不要把这理解为全历史行情建模。
+2. **ODS 现状**：`ashare_ods` 下共 54 张外部表，全部以 `partition_date`（`STRING`，`YYYYMMDD`）+ `endpoint` 作为 Hive 分区键。**任何查询都必须带 `partition_date`/`endpoint` 过滤**，否则 BigQuery 直接报错（强制分区裁剪）。
+3. **三类分区语义**（建模的地基，必须先理解）：
    - **A. 行情增量表**：`partition_date == trade_date`，单日一个分区、无重复，历史可回溯到 **1990-12-19**。例：`daily`、`adj_factor`、`daily_basic`。
    - **B. 财务/公告表**：`partition_date == end_date`（报告期，**不是公告日**），同一 `(ts_code, end_date)` 因 `report_type`/修正存在多条。例：`income`、`balancesheet`、`cashflow`、`fina_indicator`。
    - **C. 维度快照表**：每个 `partition_date` 一份**全量快照**，取最新分区即得当前全量。例：`stock_basic`、`trade_cal`、`index_classify`。注意 `stock_basic` 用 `endpoint` 区分 `listed` / `delisted`，**必须 UNION 才完整（含退市股，避免幸存者偏差）**。
-3. **建议分层**：`ashare_ods`（已有） → `ashare_dim`（维度） + `ashare_dwd`（明细） → `ashare_dws`（特征宽表/标签，下游 ML 直接消费）。本文聚焦 DIM 与 DWD，并给出 DWS 衔接。
-4. **统一命名规范（详见 §3.3，全文遵循）**：证券主键统一为 **`sec_code`**（值标准格式 `600000.SH`，源字段 `ts_code`/`con_code`/`code` 等在出口归一）；交易日 **`trade_date`**、日历日 `cal_date`；财务可见时间 **`ann_date_eff`**；量纲**统一到元/股**；DWD 事实表统一带血缘字段 **`source_system` + `ingested_at`**。
-5. **量化语境下的五条铁律**：
+4. **建议分层**：`ashare_ods`（已有） → `ashare_dim`（维度） + `ashare_dwd`（明细） → `ashare_dws`（特征宽表/标签，下游 ML 直接消费）。本文聚焦 DIM 与 DWD，并给出 DWS 衔接。
+5. **统一命名规范（详见 §3.3，全文遵循）**：证券主键统一为 **`sec_code`**（值标准格式 `600000.SH`，源字段 `ts_code`/`con_code`/`code` 等在出口归一）；交易日 **`trade_date`**、日历日 `cal_date`；财务可见时间 **`ann_date_eff`**；量纲**统一到元/股**；DWD 事实表统一带血缘字段 **`source_system` + `ingested_at`**。
+6. **量化语境下的五条铁律**：
    - **PIT（Point-In-Time）**：财务特征的可见时间一律用 `ann_date_eff`（**按表定义**，见 §4.3 表级可见日规则；如 income/bs/cf 用 `COALESCE(f_ann_date, ann_date)`，而 `fina_indicator` **无 `f_ann_date`**、仅能用 `ann_date`），严禁用 `end_date`/`partition_date` 当可见时间。
    - **复权**：收益率与技术指标统一基于 `adj_factor` 计算的**后复权**口径（`_hfq`）；前复权（`_qfq`）含未来除权信息，仅用于展示、不用于训练特征。
    - **幸存者偏差**：universe 必须包含已退市股票的历史区间。
@@ -334,11 +336,19 @@ Tushare `adj_factor` 为**累计后复权因子**。
 - ODS 是外部表且**强制分区裁剪**：所有读 ODS 的 SQL 必须含 `WHERE partition_date <谓词>`（常量比较，`partition_date` 为 `YYYYMMDD` 字符串）。
 - DWD/DIM 构建走**增量**：行情类按 `partition_date BETWEEN @start AND @end` 处理新增交易日；财务/事件类按 `partition_date`（report period）或 `ann_date` 增量 + MERGE 去重。
 - DWD 原生表自身按 `DATE` 分区，下游 `dws` 拼接时同样分区裁剪，控制扫描量。
-- **初始回填范围（重要，分层处理）**：首期仅回填 **2019-01-01 起** 的数据以控成本，但**不能一刀切**：
-  - **行情/估值/资金类**（`partition_date == trade_date`）：`WHERE partition_date >= '20190101'`。
-  - **财务/事件类**（`partition_date == 报告期/公告期`）：**起点前移到 `'20170101'`**——2019 初做 PIT 需取到"当时最新的年报/季报"（2018 报告期、甚至 2017 年报）；若也按 2019 截断，2019 年初截面会缺最近一期财务。
-  - **维度/日历**：`dim_stock` 取最新快照（含全部历史股票，按 `list_date/delist_date` 在 universe 逻辑过滤，**不按数据时间截断**）；`dim_trade_calendar` **保留全量**（至少下探到 2018），以提供 `t-1/t-k` 交易日边界。
-- **写入范围 vs 读取范围分离（lookback buffer，重要）**：DWD/DWS **对外只写 `trade_date >= 2019-01-01`**，但**计算时按指标最大 lookback 多读早期 buffer**——`ret_1d` 至少读到 2018 年最后一个交易日；MA/波动率等滚动特征按最大窗口（如 120/250 日）多读足够交易日。否则 2019 年初样本的滚动特征会因缺 warm-up 而失真。增量批次边界同理回看（§8.2）。
+- **当前阶段目标**：先把 **2019-01-01 起** 的 DWD/DWS 数据做正确；2019 年以前的正式样本/明细扩展是后续阶段。当前只在三类必要场景触碰 2019 前数据：财务/事件 PIT 前移、行情 lookback buffer、维度/日历历史快照。
+- **为支持 2019+ 所需的 2019 年前数据范围（不要混成“全历史写入”）**：
+
+  | 数据族 | ODS 读取 / 接口参数下界 | DWD 写入下界 | DWS 写入下界 | 原因 | 备注 |
+  |---|---|---|---|---|---|
+  | 财务 P0：`income` / `balancesheet` / `cashflow` / `fina_indicator` | `partition_date >= '20170101'`（或接口 `start_date/period` 从 2017 起） | `report_period >= 2017-01-01`，保留版本事实 | `trade_date >= 2019-01-01` | 2019 初 PIT 需要 2018 三季报/2017 年报；同比/基期也需去年同期 | `partition_date == end_date`，不能当可见日；可见日仍用 §4.3 表级规则 |
+  | 事件 P1：`forecast` / `express` / `dividend` / `disclosure_date` / `stk_holdernumber` / `stk_holdertrade` / `report_rc` | 从 2017 起，按 §2.4 的表级分区语义取参数 | 事件业务日期/报告期 >= 2017-01-01 | `trade_date >= 2019-01-01` | 2019 样本可能需要 2017-2018 已公告事件状态或窗口特征 | `dividend`/`report_rc` 等不是统一 `end_date` 分区，按表配置 |
+  | 事件/治理 P2：`fina_mainbz` / `fina_audit` / `top10_holders` / `top10_floatholders` / `pledge_detail` / `pledge_stat` / `repurchase` / `stk_rewards` | 从 2017 起，按表级元数据矩阵执行 | 业务日期/报告期 >= 2017-01-01 | `trade_date >= 2019-01-01` | 风控/治理类历史状态或窗口特征 | P2 落地时补齐表级规则 |
+  | 行情核心：`daily` + `adj_factor` | `@lookback_start_date`，由最大滚动窗口决定；最小读到 2018 最后一个交易日，250 日窗口可保守读 2018 全年 | `trade_date >= 2019-01-01` | `trade_date >= 2019-01-01` | `ret_1d` 需要 t-1；MA/波动率等滚动特征需要 warm-up | 2019 前行只作为构建 buffer，不落最终 DWD/DWS |
+  | 估值/资金/筹码：`daily_basic` / `moneyflow` / `cyq_perf` 等 | 若仅落 DWD 明细，读写 2019+；若构建滚动特征，则按最大窗口多读 buffer | `trade_date >= 2019-01-01` | `trade_date >= 2019-01-01` | 滚动换手、滚动资金流、筹码变化等需要 warm-up | buffer 下界与特征窗口一致 |
+  | 维度/日历：`trade_cal` / `stock_basic` / `namechange` | `trade_cal`、`stock_basic` 取最新快照；`namechange` 保留全量历史事件 | 维度全量 / SCD2 全量 | 作为 join 维度使用 | 最新快照或事件历史天然含 2019 前信息 | 不属于“按分区往前拉旧行情”；正式扩展 2019 前样本时复用 |
+
+- **写入范围 vs 读取范围分离（lookback buffer，重要）**：行情类最终 DWD/DWS 仍只写 `trade_date >= 2019-01-01`，但构建时按指标最大 lookback 多读早期 buffer。`ret_1d` 至少读到 2018 年最后一个交易日；MA/波动率等滚动特征按最大窗口（如 120/250 日）多读足够交易日。否则 2019 年初样本的滚动特征会因 warm-up 不足而失真。增量批次边界同理回看（§8.2）。
 - **强制分区过滤（控成本）**：行情类 DWD 表建表设 `OPTIONS(require_partition_filter = TRUE)`，与 ODS 一致**强制下游必须带 `trade_date` 过滤**，否则报错，杜绝误扫全史；财务类（as-of 模式）不开。注意：**只有分区列能强制，聚簇列无法强制过滤**（BigQuery 无此选项）。
 
 ---
@@ -610,7 +620,7 @@ Tushare `adj_factor` 为**累计后复权因子**。
       COALESCE(_source,'tushare')          AS source_system,
       SAFE_CAST(_ingested_at AS TIMESTAMP) AS ingested_at
     FROM ashare_ods.ods_tushare_fina_indicator
-    WHERE partition_date >= @start_period   -- 初始 '20170101'（前移~2年，保证 2019 初可见最近年报/季报）
+    WHERE partition_date >= @start_period   -- 财务/事件前移参数：首期 '20170101'，见 §4.6
       AND ann_date IS NOT NULL              -- 无公告日不可做 PIT
   )
   SELECT

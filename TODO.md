@@ -5,13 +5,17 @@
 
 ## P0 — 跑通最小可用闭环
 
-- [ ] 建 `dim_trade_calendar`（带描述、内联 DDL）
-- [ ] 建 `dim_stock`（UNION listed+delisted，含退市股）
-- [ ] 建 `dim_stock_name_hist`（SCD2，ST/曾用名时间线）
-- [ ] 建 `dwd_stock_eod_price`（复权+可交易掩码，按月分区+sec_code 聚簇+require_partition_filter，回填 2019 起）
-- [ ] 建 `dwd_stock_eod_valuation`（估值/市值/换手，单位归一）
-- [ ] 建 `dwd_fin_indicator`（PIT 去重 + `ann_date_eff`，回填 2017 起）
-- [ ] 建 `dwd_index_eod`（基准指数）
+- [x] 编写 `dim_trade_calendar` 建表 SQL（`sql/dim/01_dim_trade_calendar.sql`，dry-run 通过；尚未物化）
+- [x] 编写 `dim_stock` 建表 SQL（`sql/dim/02_dim_stock.sql`，UNION listed+delisted + 日线兜底，dry-run 通过；尚未物化）
+- [x] 编写 `dim_stock_name_hist` 建表 SQL（`sql/dim/03_dim_stock_name_hist.sql`，SCD2，dry-run 通过；尚未物化）
+- [x] 修订主方案 §4.6：当前先做 2019+，2019 前仅作财务/事件前移、行情 lookback buffer、维度/日历历史支撑
+- [x] 在 P0 SQL 中显式参数化范围（`dwd_start_date=2019-01-01`、`fin_start_period=20170101`、`lookback_start_date=2018-01-01` 默认）
+- [x] 编写 `dwd_stock_eod_price` 建表 SQL（复权+可交易掩码，月分区+sec_code 聚簇+require_partition_filter，写 2019+，构建读 lookback buffer；临时维表替换 dry-run 通过）
+- [x] 编写 `dwd_stock_eod_valuation` 建表 SQL（估值/市值/换手，单位归一，写 2019+，dry-run 通过）
+- [x] 编写 `dwd_fin_indicator` 建表 SQL（PIT 版本事实 + `ann_date_eff`，`partition_date >= 20170101`；临时维表替换 dry-run 通过）
+- [x] 编写 `dwd_index_eod` 建表 SQL（基准指数，dry-run 通过）
+- [ ] 执行 `sql/` P0 建表脚本并做基础 QA（行数、主键重复、分区范围、停牌骨架、PIT 可见日）
+- [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置
 - [ ] 写「从 ODS 继承字段描述」脚本（`bq show` → 映射 → `bq update`）
 - [ ] 衔接 `dws_stock_feature_daily` v0 + `dws_stock_label_daily`（`fwd_ret_1d/5d/10d/20d`）
 
@@ -32,5 +36,4 @@
 ## 待 owner 决策（见 OPEN_QUESTIONS）
 
 - [ ] OQ-001 行业映射缺口：是否补采 `index_member_all`
-- [ ] OQ-002 财务回填前移到 2017 是否最终接受
 - [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 bq SQL

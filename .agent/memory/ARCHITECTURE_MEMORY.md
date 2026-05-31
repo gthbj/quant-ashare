@@ -30,7 +30,13 @@ Tushare 等数据源
 | dwd | dwd_fin_indicator | fina_indicator | (sec_code, report_period) PIT |
 | dwd | dwd_index_eod | index_daily | (sec_code, trade_date) |
 
-完整 56 张 ODS→DWD/DIM 映射见 `docs/数据仓库建模方案-DWD-DIM.md` §2。
+完整 54 张 ODS→DWD/DIM 映射见 `docs/数据仓库建模方案-DWD-DIM.md` §2。
+
+## SQL 代码布局
+
+- 根目录 `sql/` 存放 P0 BigQuery Standard SQL：`00_create_datasets.sql`、`dim/*.sql`、`dwd/*.sql`。
+- 现有脚本覆盖 3 张 DIM + 4 张 DWD，使用 `CREATE OR REPLACE TABLE` + CTAS + 后置 `ALTER COLUMN SET OPTIONS`。
+- 当前脚本是 bootstrap SQL，不关闭 OQ-005；后续仍可迁移为 dbt 或纳入 Airflow 调度。
 
 ## 物理规范（BigQuery）
 
@@ -43,6 +49,7 @@ Tushare 等数据源
 
 - **按月分区**而非按天：BigQuery 单表上限 4000 分区，按天全史 ~8700 交易日会超限；本表数据量小，按天碎片化。
 - DWD/DIM 物化为**原生表**，不再是外部表；下游一律查 DWD 不直接打 ODS。
+- 2019 年前数据范围三分：财务/事件按分区前移到 `20170101`；行情 DWD/DWS 最终写 `trade_date >= 2019-01-01`、构建时读取 lookback buffer；维度/日历取最新快照或全量历史事件。
 
 ## 命名规范要点（详见 docs §3.3 + DECISION_LOG）
 
