@@ -8,7 +8,9 @@
 
 **已落地 SQL**：`sql/00_create_datasets.sql`、`sql/dim/01_dim_trade_calendar.sql`、`sql/dim/02_dim_stock.sql`、`sql/dim/03_dim_stock_name_hist.sql`、`sql/dwd/01_dwd_stock_eod_price.sql`、`sql/dwd/02_dwd_stock_eod_valuation.sql`、`sql/dwd/03_dwd_fin_indicator.sql`、`sql/dwd/04_dwd_index_eod.sql`。所有脚本已 dry-run 校验；price/finance 因 DIM 尚未物化，用临时空维表替换方式完成完整语法校验。未实际写 BigQuery。
 
-**下一步（P0）**：按 `sql/README.md` 执行建表脚本并做基础 QA（行数、主键重复、分区范围、停牌骨架、PIT 可见日）。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算。
+**评审协议（本会话确立）**：评审已提交代码/SQL 或设计文档,必须产出 `docs/reviews/` 评审文档;评审只读——不擅改被评审对象、不把发现直接写进 `.agent/memory/**`/`TODO.md`,发现是否转 OQ/TODO/决策由 owner 定（AGENTS.md §六 / DECISION-20260531-13）。首份代码评审 `docs/reviews/P0-建表SQL-review.md`：P0 建表 SQL 共 5 项发现,2 项物化前必修（README `--location=asia-east2`、`suspend_d` 复牌过滤）、3 项随 QA 补。发现尚未转 OQ/TODO（按协议待 owner 决定）。
+
+**下一步（P0）**：按 `sql/README.md` 执行建表脚本并做基础 QA（行数、主键重复、分区范围、停牌骨架、PIT 可见日）。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算。物化前先处理评审 R1（README `--location`）、R2（`suspend_event` 过滤复牌行）。
 
 **待 owner 确认**：行业映射缺口（OQ-001）；dbt vs 纯 SQL（OQ-005）。
 
@@ -248,3 +250,39 @@ Related issue/PR: —
 
 ### Memory Files Updated
 - MEMORY_INDEX、PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、DECISION_LOG、AGENT_HANDOFF；TODO.md updated.
+
+## Handoff Entry
+
+Date: 2026-05-31
+Agent ID: Agent_RD（数仓建模 / 评审）
+Agent Instance ID: claude-opus-4.8 / Claude Code 会话
+Model: Claude Opus 4.8
+Runtime: Claude Code CLI
+Run ID: —
+Related issue/PR: —
+
+### Work Completed
+- 评审已提交的 P0 建表 SQL（commit 9942f14），产出评审文档 `docs/reviews/P0-建表SQL-review.md`（5 项发现，分级 + 依据/影响/建议 + 与决策一致性核对）。
+- 按 owner 要求把「评审须产出 docs/reviews/ 评审文档、评审只读」固化为协议：AGENTS.md 新增「六、评审协议」+ DECISION-20260531-13。
+- 记忆与代码同步提交（§四）。
+
+### Important Context
+- 评审 2 项物化前必修：①README `bq query` 缺 `--location=asia-east2`（`00_create_datasets` 无法自动推断区域，新环境落 US → 建集/跨区读 ODS 失败）；②`dwd_stock_eod_price` 的 `suspend_event` 未过滤 `suspend_d` 复牌行（`suspend_type='R'`），复牌日可能被误判 `is_suspended`（须先实跑核 `suspend_type` 取值域）。
+- 3 项随 QA 补：`fina_indicator` 版本键精确去重兜底、`dim_stock` `sec_code` 唯一性断言 / 退市 heuristic、补 `dwd_fin_indicator_latest`。
+- 评审与 active 决策无冲突（DECISION-04 印证 `visible_trade_date` 右移、DECISION-09 印证版本事实表与开盘侧方向字段）。
+- 评审发现**尚未**转为 OQ/TODO —— 按新协议（§六）等 owner 决定。
+
+### Files Changed
+- `docs/reviews/P0-建表SQL-review.md`（新）、`AGENTS.md`（§六）、`.agent/memory/{DECISION_LOG,IMPLEMENTATION_STATUS,AGENT_HANDOFF}.md`。未改 `sql/`。
+
+### Tests / Validation
+- 纯静态评审，未跑 BQ；`suspend_d` 复牌行行为待实跑验证。
+
+### Blockers
+- 无硬阻塞；物化前建议先修 R1/R2。
+
+### Next Recommended Step
+- owner 决定评审发现是否转 TODO/OQ；随后按 `sql/README.md`（补 `--location`）物化 + QA，并先修 `suspend_event` 过滤。
+
+### Memory Files Updated
+- DECISION_LOG（加 13）、IMPLEMENTATION_STATUS、AGENT_HANDOFF；AGENTS.md §六。

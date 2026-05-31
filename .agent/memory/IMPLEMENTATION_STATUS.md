@@ -27,6 +27,7 @@ Last updated: 2026-05-31
 ## 进行中 / 部分（In Progress）
 
 - P0 SQL 已可执行，下一步是按 `sql/README.md` 执行物化并做基础数据质量 QA。
+- P0 建表 SQL 已评审，结论见 `docs/reviews/P0-建表SQL-review.md`：5 项发现，2 项物化前必修（README 加 `--location=asia-east2`；`suspend_d` 复牌行过滤），3 项随 QA 补（fin 版本键去重兜底、`dim_stock` 唯一性断言、补 `dwd_fin_indicator_latest`）。发现是否转 TODO/OQ 待 owner 决定。已确立评审协议（AGENTS.md §六 / DECISION-20260531-13）。
 
 ## 未开始 / 未来（Not Started / Future）
 
