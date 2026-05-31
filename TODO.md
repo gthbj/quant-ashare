@@ -16,6 +16,7 @@
 - [x] 编写并回填 `dwd_index_eod` 建表 SQL（基准指数价格 + `index_dailybasic` 估值/股本，dry-run/QA 通过）
 - [x] 修复 P0 SQL 评审发现 R1-R5（显式 `--location=asia-east2`、复牌行不判停牌、`dim_stock` 去重与派生退市宽限、`fina_indicator` 去重兜底、补 `dwd_fin_indicator_latest` 和 QA 脚本；dry-run 通过）
 - [x] 执行 `sql/` P0 建表脚本并运行 `sql/qa/01_p0_smoke_checks.sql`（已物化 3 张 DIM + 5 张 DWD，QA 通过）
+- [x] 修复 P0 SQL 二轮评审发现（盘中临停不再误标全天停牌；`dwd_fin_indicator_latest` 改为 `update_flag DESC` 优先；重建相关 DWD 并跑通 QA）
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置
 - [ ] 写「从 ODS 继承字段描述」脚本（`bq show` → 映射 → `bq update`）
 - [ ] 衔接 `dws_stock_feature_daily` v0 + `dws_stock_label_daily`（`fwd_ret_1d/5d/10d/20d`）

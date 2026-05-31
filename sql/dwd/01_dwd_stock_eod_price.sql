@@ -75,8 +75,15 @@ suspend_event AS (
   SELECT
     ts_code AS sec_code,
     SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date,
-    ANY_VALUE(suspend_timing) AS suspend_timing,
-    ANY_VALUE(suspend_type) AS suspend_type
+    STRING_AGG(DISTINCT suspend_timing, ',' ORDER BY suspend_timing) AS suspend_timing,
+    'S' AS suspend_type,
+    LOGICAL_OR(suspend_timing IS NULL) AS has_unknown_halt_timing,
+    LOGICAL_OR(
+      REGEXP_CONTAINS(
+        COALESCE(suspend_timing, ''),
+        r'(^|,)\s*(0?9:00|0?9:15|0?9:20|0?9:25|0?9:30)-'
+      )
+    ) AS has_open_halt_event
   FROM `data-aquarium.ashare_ods.ods_tushare_suspend_d`
   WHERE endpoint = 'suspend_d'
     AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', lookback_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
@@ -108,7 +115,13 @@ joined AS (
     l.down_limit,
     e.suspend_timing,
     e.suspend_type,
-    d.close IS NULL OR IFNULL(d.volume_lot, 0) = 0 OR e.sec_code IS NOT NULL AS is_suspended,
+    d.close IS NULL OR IFNULL(d.volume_lot, 0) = 0 AS is_suspended,
+    e.sec_code IS NOT NULL
+      AND d.close IS NOT NULL
+      AND IFNULL(d.volume_lot, 0) > 0 AS has_intraday_halt,
+    (COALESCE(e.has_open_halt_event, FALSE) OR COALESCE(e.has_unknown_halt_timing, FALSE))
+      AND d.close IS NOT NULL
+      AND IFNULL(d.volume_lot, 0) > 0 AS has_open_halt,
     l.sec_code IS NOT NULL AS has_limit_data,
     e.sec_code IS NOT NULL AS has_suspend_event_data,
     d.source_partition_date,
@@ -142,8 +155,8 @@ flagged AS (
       NULL,
       open <= down_limit AND high <= down_limit AND low <= down_limit
     ) AS is_one_word_limit_down,
-    IF(is_suspended, FALSE, IF(open IS NULL OR up_limit IS NULL, NULL, open < up_limit)) AS can_buy_open,
-    IF(is_suspended, FALSE, IF(open IS NULL OR down_limit IS NULL, NULL, open > down_limit)) AS can_sell_open
+    IF(is_suspended OR has_open_halt, FALSE, IF(open IS NULL OR up_limit IS NULL, NULL, open < up_limit)) AS can_buy_open,
+    IF(is_suspended OR has_open_halt, FALSE, IF(open IS NULL OR down_limit IS NULL, NULL, open > down_limit)) AS can_sell_open
   FROM joined
 ),
 calc AS (
@@ -188,10 +201,12 @@ SELECT
   is_suspended,
   suspend_timing,
   suspend_type,
+  has_intraday_halt,
+  has_open_halt,
   can_buy_open,
   can_sell_open,
   IF(
-    is_suspended,
+    is_suspended OR has_open_halt,
     FALSE,
     IF(
       is_one_word_limit_up IS NULL OR is_one_word_limit_down IS NULL,
@@ -212,5 +227,7 @@ ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'
 ALTER COLUMN sec_code SET OPTIONS (description = '证券代码，Tushare ts_code 格式'),
 ALTER COLUMN close_hfq SET OPTIONS (description = '后复权收盘价，close * adj_factor'),
 ALTER COLUMN ret_1d SET OPTIONS (description = '基于 close_hfq 的一日收益率，计算时读取 lookback buffer'),
-ALTER COLUMN is_suspended SET OPTIONS (description = '是否停牌或无成交'),
+ALTER COLUMN is_suspended SET OPTIONS (description = '是否全天停牌或无成交；有成交的盘中临停不置为 TRUE'),
+ALTER COLUMN has_intraday_halt SET OPTIONS (description = '是否发生盘中临时停牌且当日仍有成交'),
+ALTER COLUMN has_open_halt SET OPTIONS (description = '是否发生开盘时段或未知时段临停，影响开盘建仓'),
 ALTER COLUMN is_tradable SET OPTIONS (description = '是否可交易，排除停牌和一字涨跌停');

@@ -14,7 +14,7 @@ FROM (
     f.*,
     ROW_NUMBER() OVER (
       PARTITION BY sec_code, report_period
-      ORDER BY ann_date_eff DESC, update_flag DESC, ingested_at DESC, source_partition_date DESC
+      ORDER BY update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC
     ) AS version_rank
   FROM `data-aquarium.ashare_dwd.dwd_fin_indicator` AS f
 )

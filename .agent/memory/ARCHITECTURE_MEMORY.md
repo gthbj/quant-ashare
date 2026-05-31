@@ -39,6 +39,8 @@ Tushare 等数据源
 - 现有脚本覆盖 3 张 DIM + 5 张 DWD，使用 `CREATE OR REPLACE TABLE` + CTAS + 后置 `ALTER COLUMN SET OPTIONS`；`sql/qa/01_p0_smoke_checks.sql` 存放物化后基础断言。
 - 当前脚本是 bootstrap SQL，不关闭 OQ-005；后续仍可迁移为 dbt 或纳入 Airflow 调度。
 - 2026-05-31 P0 已物化到 BigQuery；`dwd_index_eod` 已恢复读取 `index_dailybasic`。该接口市值/股本单位为元/股，不做 `*10000` 换算。
+- `dwd_stock_eod_price` 中 `is_suspended` 仅表示全天停牌/无成交；有成交的 `S` 事件另用 `has_intraday_halt`，开盘时段/未知时段临停用 `has_open_halt` 并影响开盘侧可交易掩码。
+- `dwd_fin_indicator_latest` 是非 PIT 便捷表，按 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC` 取每个 `(sec_code, report_period)` 的最新修正版。
 
 ## 物理规范（BigQuery）
 

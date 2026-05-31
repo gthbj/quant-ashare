@@ -6,7 +6,7 @@ Last updated: 2026-05-31
 
 ## 当前状态
 
-项目处于**P0 DIM/DWD 已物化并通过 smoke QA**阶段。已产出 DWD/DIM 建模方案文档，并已修订 §4.6 的 2019 前数据范围。owner 澄清：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件。根目录 `sql/` 已新增 BigQuery Standard SQL 脚本，覆盖 P0 DIM/DWD 和 QA；BigQuery 目标已建 3 张 DIM + 5 张 DWD。暂无调度代码。
+项目处于**P0 DIM/DWD 已物化并通过 smoke QA**阶段。已产出 DWD/DIM 建模方案文档，并已修订 §4.6 的 2019 前数据范围。owner 澄清：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件。根目录 `sql/` 已新增 BigQuery Standard SQL 脚本，覆盖 P0 DIM/DWD 和 QA；BigQuery 目标已建 3 张 DIM + 5 张 DWD。`docs/reviews/P0-建表SQL-fix-review.md` 的二轮发现已修复并重跑 QA。暂无调度代码。
 
 ## 已完成（Completed）
 
@@ -26,6 +26,7 @@ Last updated: 2026-05-31
 - 采纳并修复 P0 SQL 评审发现：README 命令加 `--location=asia-east2`；`suspend_d` 只以 `suspend_type='S'` 标记停牌，复牌 `R` 不再误判停牌；`dim_stock` 加 `sec_code` 去重与派生退市 30 日宽限；`dwd_fin_indicator` 加版本键去重兜底；新增 `dwd_fin_indicator_latest` 与 `sql/qa/01_p0_smoke_checks.sql`。修复后相关脚本 dry-run 通过。
 - P0 物化完成并通过 smoke QA：`dim_trade_calendar` 13,162 行；`dim_stock` 5,853 行；`dim_stock_name_hist` 3,776 行；`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_index_eod` 11,922 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行。
 - 上游修复 `ods_tushare_index_dailybasic` Parquet 类型后，`dwd_index_eod` 已恢复估值/股本字段并重建：2019+ 共 11,922 行，其中 8,899 行有 `pe/pe_ttm/pb/total_mv_cny/float_mv_cny/total_share/float_share` 等 dailybasic 字段；STAR50(`000688.SH`) 和 CSI1000(`000852.SH`) 因 ODS 无 dailybasic endpoint 仍为空。
+- 修复 P0 二轮评审发现：`dwd_stock_eod_price` 将 `is_suspended` 限定为全天停牌/无成交，新增 `has_intraday_halt` 与 `has_open_halt`，开盘临停影响 `can_buy_open/can_sell_open/is_tradable`；`dwd_fin_indicator_latest` 改为 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC` 排序。相关表已重建，QA 通过；验证指标：有成交但 `is_suspended=TRUE` 为 0，latest 排序差异为 0。
 
 ## 进行中 / 部分（In Progress）
 
@@ -48,7 +49,7 @@ Last updated: 2026-05-31
 | DWD/DIM 设计 | 高 | 主文档已完成；§4.6 已修订 2019 前数据范围 |
 | 命名/单位/分区/注释规范 | 高 | 已敲定并写入文档 |
 | P0 建表 SQL | 已完成 | `sql/` 已新增 3 张 DIM + 5 张 DWD + QA；首轮评审修复后 dry-run 校验通过 |
-| P0 表物化/QA | 已完成 | 3 张 DIM + 5 张 DWD 已物化，smoke QA 通过 |
+| P0 表物化/QA | 已完成 | 3 张 DIM + 5 张 DWD 已物化，二轮评审修复后 smoke QA 通过 |
 | ETL/调度 | 未开始 | — |
 | DWS 特征/标签 | 未开始 | — |
 | 行业映射 | 受阻 | ODS 缺 index_member（OQ-001） |

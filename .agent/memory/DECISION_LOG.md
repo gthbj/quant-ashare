@@ -342,3 +342,35 @@ Tushare `index_dailybasic` 官方单位为元/股，不同于股票 `daily_basic
 ### Related Files
 
 `sql/dwd/04_dwd_index_eod.sql`, `sql/qa/01_p0_smoke_checks.sql`, `.agent/memory/OPEN_QUESTIONS.md`
+
+## DECISION-20260531-17: 拆分全天停牌与盘中临停语义，并修正财务 latest 排序
+
+Date: 2026-05-31
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5
+
+### Context
+
+`docs/reviews/P0-建表SQL-fix-review.md` 指出：`dwd_stock_eod_price` 将所有 `suspend_type='S'` 行都标为 `is_suspended=TRUE`，导致有成交的盘中临停行被误判为不可交易；`dwd_fin_indicator_latest` 的排序与方案口径不一致，晚公告的 `update_flag=0` 可能覆盖较早的修正版。
+
+### Decision
+
+价格 DWD 中 `is_suspended` 仅表示全天停牌或无成交。若 `suspend_d` 有 `S` 事件且当日 `daily` 有 close/volume，则用 `has_intraday_halt` 标记盘中临停；其中开盘时段或未知时段临停用 `has_open_halt` 标记，并影响 `can_buy_open`、`can_sell_open`、`is_tradable`。`dwd_fin_indicator_latest` 每个 `(sec_code, report_period)` 按 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC` 取最新修正版。
+
+### Rationale
+
+全天停牌与盘中临停对日线样本和开盘建仓约束不同，混用会错误丢弃可交易样本。财务 latest 是便捷消费表，应优先保留修正版，不能让更晚公告的非修正版覆盖。
+
+### Impact
+
+`dwd_stock_eod_price` 和 `dwd_fin_indicator_latest` 已重建并通过 QA。验证结果：有成交但 `is_suspended=TRUE` 的行数为 0；`dwd_fin_indicator_latest` 与方案排序差异为 0。QA 新增对应断言。
+
+### Alternatives Considered
+
+继续把所有 `S` 事件视为全天停牌；放弃，因为实测 2019+ 有 897 行盘中临停仍有成交。只改 `is_suspended` 不加 `has_intraday_halt/has_open_halt`；放弃，因为下游仍需要区分开盘建仓是否受影响。
+
+### Related Files
+
+`sql/dwd/01_dwd_stock_eod_price.sql`, `sql/dwd/05_dwd_fin_indicator_latest.sql`, `sql/qa/01_p0_smoke_checks.sql`, `docs/reviews/P0-建表SQL-fix-review.md`

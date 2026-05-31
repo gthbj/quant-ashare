@@ -6,11 +6,11 @@
 
 `quant-ashare` 已完成**P0 DIM/DWD 物化**：ODS（54 表）探查清楚三类分区语义；产出 DWD/DIM 建模方案文档 `docs/数据仓库建模方案-DWD-DIM.md`；敲定全套规范——`sec_code` 主键、单位元/股、`ann_date_eff` PIT、复权 `_hfq/_qfq`、血缘 `source_system/ingested_at`、按月分区 + `sec_code` 聚簇、行情表 `require_partition_filter`、表+字段注释（含继承 ODS）。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
 
-**已物化表**：`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`。`sql/qa/01_p0_smoke_checks.sql` 已通过。
+**已物化表**：`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`。`sql/qa/01_p0_smoke_checks.sql` 已通过。二轮评审发现已修复：盘中临停不再误标全天停牌，财务 latest 改为 `update_flag DESC` 优先。
 
 **评审协议（本会话确立）**：评审已提交代码/SQL 或设计文档,必须产出 `docs/reviews/` 评审文档;评审只读——不擅改被评审对象、不把发现直接写进 `.agent/memory/**`/`TODO.md`,发现是否转 OQ/TODO/决策由 owner 定（AGENTS.md §六 / DECISION-20260531-13）。首份代码评审 `docs/reviews/P0-建表SQL-review.md` 的 5 项发现已由 owner 要求修复并全部采纳，见 DECISION-20260531-14。
 
-**重要执行结果**：`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行；`dwd_index_eod` 11,922 行，其中 8,899 行有 `index_dailybasic` 估值/市值/股本字段。上游已修复 `index_dailybasic` Parquet 类型问题，OQ-009 已关闭；STAR50/CSI1000 因 ODS 无 dailybasic endpoint 仍为空。
+**重要执行结果**：`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行；`dwd_index_eod` 11,922 行，其中 8,899 行有 `index_dailybasic` 估值/市值/股本字段。上游已修复 `index_dailybasic` Parquet 类型问题，OQ-009 已关闭；STAR50/CSI1000 因 ODS 无 dailybasic endpoint 仍为空。最新 QA 验证：有成交但 `is_suspended=TRUE` 为 0，`has_intraday_halt` 为 897 行，`has_open_halt` 为 498 行，财务 latest 排序差异为 0。
 
 **下一步**：补 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`，或衔接 `dws_stock_feature_daily` / `dws_stock_label_daily`。后续应把 `lookback_start_date` 从固定默认值改为按最大滚动窗口计算。
 
@@ -422,3 +422,46 @@ Related issue/PR: —
 
 ### Memory Files Updated
 - MEMORY_INDEX、PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、DECISION_LOG、AGENT_HANDOFF；TODO.md updated.
+
+## Handoff Entry
+
+Date: 2026-05-31
+Agent ID: Codex
+Agent Instance ID: Codex desktop session
+Model: GPT-5
+Runtime: Codex desktop
+Run ID: —
+Related issue/PR: —
+
+### Work Completed
+- Fixed the two findings in `docs/reviews/P0-建表SQL-fix-review.md`.
+- Updated `dwd_stock_eod_price` so `is_suspended` means full-day suspension/no trade only.
+- Added `has_intraday_halt` and `has_open_halt`; open-time or unknown-time halts now block `can_buy_open`, `can_sell_open`, and `is_tradable`.
+- Updated `dwd_fin_indicator_latest` ordering to `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC`.
+- Added QA assertions for traded rows not being marked suspended and latest table ordering.
+
+### Important Context
+- BigQuery tables were rebuilt: `data-aquarium.ashare_dwd.dwd_stock_eod_price` and `data-aquarium.ashare_dwd.dwd_fin_indicator_latest`.
+- Validation metrics after rebuild: traded rows marked suspended = 0; `has_intraday_halt` = 897; `has_open_halt` = 498; `has_open_halt IS NULL` = 0; latest ordering diff = 0.
+- `has_open_halt` treats unknown halt timing as blocking open trades.
+
+### Files Changed
+- `sql/dwd/01_dwd_stock_eod_price.sql`
+- `sql/dwd/05_dwd_fin_indicator_latest.sql`
+- `sql/qa/01_p0_smoke_checks.sql`
+- `TODO.md`
+- `.agent/memory/{MEMORY_INDEX,PROJECT_CONTEXT,ARCHITECTURE_MEMORY,IMPLEMENTATION_STATUS,KNOWN_CONSTRAINTS,DECISION_LOG,AGENT_HANDOFF}.md`
+
+### Tests / Validation
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2` passed for `sql/dwd/01_dwd_stock_eod_price.sql` and `sql/qa/01_p0_smoke_checks.sql`.
+- Executed `sql/dwd/01_dwd_stock_eod_price.sql` and `sql/dwd/05_dwd_fin_indicator_latest.sql`.
+- Executed `sql/qa/01_p0_smoke_checks.sql`; all assertions passed.
+
+### Blockers
+- None.
+
+### Next Recommended Step
+- Continue with `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`, or begin DWS feature/label tables.
+
+### Memory Files Updated
+- MEMORY_INDEX、PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、DECISION_LOG、AGENT_HANDOFF；TODO.md updated.

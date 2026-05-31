@@ -34,6 +34,15 @@ ASSERT (
 
 ASSERT (
   SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price`
+  WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date
+    AND is_suspended
+    AND close IS NOT NULL
+    AND IFNULL(volume_lot, 0) > 0
+) AS 'traded intraday halt rows must not be marked is_suspended';
+
+ASSERT (
+  SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS p
   JOIN `data-aquarium.ashare_ods.ods_tushare_suspend_d` AS s
     ON p.sec_code = s.ts_code
@@ -65,6 +74,43 @@ ASSERT (
     HAVING n > 1
   )
 ) AS 'dwd_fin_indicator_latest key (sec_code, report_period) must be unique';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    WITH spec_order AS (
+      SELECT
+        sec_code,
+        report_period,
+        ann_date_eff,
+        update_flag,
+        ingested_at,
+        source_partition_date,
+        ROW_NUMBER() OVER (
+          PARTITION BY sec_code, report_period
+          ORDER BY update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC
+        ) AS rn
+      FROM `data-aquarium.ashare_dwd.dwd_fin_indicator`
+    )
+    SELECT 1
+    FROM `data-aquarium.ashare_dwd.dwd_fin_indicator_latest` AS latest
+    JOIN spec_order AS spec
+      ON latest.sec_code = spec.sec_code
+     AND latest.report_period = spec.report_period
+    WHERE spec.rn = 1
+      AND STRUCT(
+        latest.ann_date_eff,
+        latest.update_flag,
+        latest.ingested_at,
+        latest.source_partition_date
+      ) != STRUCT(
+        spec.ann_date_eff,
+        spec.update_flag,
+        spec.ingested_at,
+        spec.source_partition_date
+      )
+  )
+) AS 'dwd_fin_indicator_latest must follow spec ordering';
 
 ASSERT (
   SELECT COUNTIF(
