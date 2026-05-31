@@ -56,9 +56,9 @@ Date: 2026-05-31
 Status: active
 Owner: owner
 Context: 财务表 partition_date 是报告期，不能当可见时间，否则未来泄露。
-Decision: 统一造字段 `ann_date_eff = COALESCE(f_ann_date, ann_date)` 作为 PIT 连接键。
-Rationale: 实际公告日优先；as-of join 用 `ann_date_eff <= trade_date`。
-Impact: 所有财务/事件 DWD 必须产出 `ann_date_eff`。
+Decision: 统一造可见日字段 `ann_date_eff`，但**取法按表定义**（income/bs/cf=`COALESCE(f_ann_date, ann_date)`；`fina_indicator` 仅 `ann_date`——实测无 `f_ann_date`；事件表用各自公告/实施日）。另派生 `visible_trade_date` 把盘后/非交易日公告右移到下一可建仓交易日。
+Rationale: 不能用一个公式覆盖所有表；as-of join 用 `visible_trade_date <= feature_date`。
+Impact: 所有财务/事件 DWD 产出 `ann_date_eff`/`visible_trade_date`；表级规则见 §4.3。（经 2026-05-31 review 修订：原"统一 COALESCE 公式"不成立。）
 Related files: docs §4.3, §6.5, §7.3
 
 ## DECISION-20260531-05: 按月分区 + sec_code 聚簇
@@ -104,3 +104,14 @@ Decision: 所有 Agent 在 git commit（`Co-Authored-By: <模型名>` trailer）
 Rationale: 便于审计不同模型贡献与质量，避免笼统 "AI"。
 Impact: AGENTS.md 增「五、模型署名协议」；CLAUDE.md 同步；建模文档补署名。
 Related files: AGENTS.md, CLAUDE.md, docs/数据仓库建模方案-DWD-DIM.md
+
+## DECISION-20260531-09: 按 Review 整改建模方案（9 采纳 / 2 调整）
+
+Date: 2026-05-31
+Status: active
+Owner: owner
+Context: 收到对建模方案的实测 review（`docs/reviews/数据仓库建模方案-DWD-DIM-review.md`）。
+Decision: 9 项认可并改方案（P0-1/2/3、P1-1/2/4、P2-1/2/3）；2 项认可问题但调整执行——P0-4 不在本方案改 ODS schema（改 DWD 容错+门禁+兜底），P1-3 只加开盘侧方向字段、不加收盘四象限。理由写入 review response。
+Rationale: review 基于实测、技术正确；少数点按职责边界与项目执行假设（t+1 开盘建仓）调整。
+Impact: 方案多章节更新——财务改版本事实表、价格表改"交易日历×在市"骨架、表数订正 54、新增表级可见日规则与元数据矩阵、lookback、方向性可交易、visible_trade_date。
+Related files: docs/数据仓库建模方案-DWD-DIM.md, docs/reviews/数据仓库建模方案-DWD-DIM-review-response.md

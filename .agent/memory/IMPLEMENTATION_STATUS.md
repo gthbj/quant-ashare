@@ -17,7 +17,8 @@ Last updated: 2026-05-31
 - 回填范围敲定：行情 `>=20190101`，财务前移 `>=20170101`，维度/日历不截断。
 - 表/字段注释规范敲定：内联 DDL / 后置 ALTER / 继承 ODS 描述三法。
 - 仓库初始化：`git init` + `.gitignore` + 首个 commit（`main`）。
-- 建立 `.agent/` Agent 工作记忆体系 + 根 `AGENTS.md` 读写协议。
+- 建立 `.agent/` Agent 工作记忆体系 + 根 `AGENTS.md` 读写协议；推送 GitHub（gthbj/quant-ashare）；加模型署名协议。
+- 按实测 review 整改建模方案（9 采纳 / 2 调整）：财务版本事实表、价格表「交易日历×在市」骨架（含停牌日）、表级可见日规则（`fina_indicator` 用 `ann_date`）、ODS 元数据矩阵、lookback buffer、方向性可交易、`visible_trade_date`、表数订正 54；写 `docs/reviews/…-review-response.md`。
 
 ## 进行中 / 部分（In Progress）
 
