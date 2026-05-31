@@ -19,12 +19,18 @@
 - [x] 修复 P0 SQL 二轮评审发现（盘中临停不再误标全天停牌；`dwd_fin_indicator_latest` 改为 `update_flag DESC` 优先；重建相关 DWD 并跑通 QA）
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置
 - [ ] 写「从 ODS 继承字段描述」脚本（`bq show` → 映射 → `bq update`）
-- [ ] 衔接 `dws_stock_feature_daily` v0 + `dws_stock_label_daily`（`fwd_ret_1d/5d/10d/20d`）
+- [x] 设计 DWS/ADS 表体系（`docs/数据仓库建模方案-DWS-ADS.md`，覆盖 P0 DWS 特征/标签与 ADS 训练/预测/组合/回测/监控）
+- [x] 设计中低频小资金 ML 策略方案（`docs/A股中低频小资金机器学习策略方案.md`，首个策略 `ml_ranker_v0`）
+- [ ] 编写 P0 DWS 建表 SQL：`dws_stock_universe_daily`、`dws_stock_feature_price_daily`、`dws_stock_feature_valuation_daily`、`dws_stock_feature_fin_daily`、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`
+- [ ] 编写 P0 ADS 建表 SQL：`ads_ml_training_panel_daily`、`ads_model_registry`、`ads_model_prediction_daily`、`ads_stock_candidate_daily`、`ads_portfolio_target_daily`、`ads_order_plan_daily`、`ads_backtest_*`、`ads_signal_monitor_daily`
+- [ ] 跑通 `ml_ranker_v0` 基线：生成训练面板、训练模型、写预测/候选/组合/回测 ADS 表、输出 RankIC/分位收益/净值/换手/不可成交比例
 
 ## P1 — 特征扩展
 
 - [ ] `dwd_fin_income/balancesheet/cashflow`（单季派生）
 - [x] 修复/绕过 `index_dailybasic` Parquet 类型不一致后，回填 `dwd_index_eod` 指数估值/股本字段（ODS 已修复，DWD 已重建；STAR50/CSI1000 无 dailybasic 端点仍为空）
+- [ ] `dim_stock_sw_industry_hist`（源 `index_member_all`，按 `in_date/out_date` 建申万行业时点归属，并 QA 区间重叠/缺口）
+- [ ] `dim_stock_ci_industry_hist`（源 `ci_index_member`，中信行业时点归属，对照体系）
 - [ ] `dwd_sw_industry_eod` + 行业中性化
 - [ ] 资金面：`dwd_stock_moneyflow` / `north_hold` / `chip` / `margin` / `limit_event`
 - [ ] 事件：`dwd_event_forecast/express/dividend/holder_*`、`dwd_analyst_report`
@@ -38,5 +44,6 @@
 
 ## 待 owner 决策（见 OPEN_QUESTIONS）
 
-- [ ] OQ-001 行业映射缺口：是否补采 `index_member_all`
+- [x] OQ-001 行业映射：`index_member_all` 已补采（同时补入 `ci_index_member`），后续转为建表 SQL + QA
 - [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 bq SQL
+- [ ] OQ-010 P0 策略默认参数：成本、调仓频率、持股数/权重上限、北交所开关、训练工具链

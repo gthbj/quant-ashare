@@ -10,8 +10,8 @@
 ## 数据底座
 
 - 平台：BigQuery，项目 `data-aquarium`。
-- ODS：数据集 `ashare_ods`，54 张 Tushare 来源的 **Hive 分区外部表**（分区键 `partition_date` + `endpoint`，强制分区裁剪）。
-- 目标分层：`ashare_dim`（维度）+ `ashare_dwd`（明细）→ `ashare_dws`（特征/标签）→ 可选 `ashare_ads`（策略）。
+- ODS：数据集 `ashare_ods`，56 张 Tushare 来源的 **Hive 分区外部表**（分区键 `partition_date` + `endpoint`，强制分区裁剪）。
+- 目标分层：`ashare_dim`（维度）+ `ashare_dwd`（明细）→ `ashare_dws`（特征/标签）→ `ashare_ads`（策略消费）。
 
 ## 分层架构
 
@@ -20,6 +20,7 @@ ashare_ods (已有, 外部表)
   -> ashare_dim   维度：主数据 + 缓变维 + SCD2 时间线
   -> ashare_dwd   明细：清洗/去重/标准化/复权/PIT 对齐
   -> ashare_dws   特征宽表 + 标签（ML 直接消费）
+  -> ashare_ads   训练面板 / 模型预测 / 候选池 / 组合 / 回测 / 监控
 ```
 
 ## 核心原则（量化语境五条铁律）
@@ -33,18 +34,22 @@ ashare_ods (已有, 外部表)
 ## 当前阶段
 
 - DWD/DIM 建模方案文档已完成：`docs/数据仓库建模方案-DWD-DIM.md`。
+- DWS/ADS 表设计文档已完成：`docs/数据仓库建模方案-DWS-ADS.md`。
+- 策略设计文档已完成：`docs/A股中低频小资金机器学习策略方案.md`。
 - 2026-05-31 owner 澄清 2019 年前数据范围：财务/事件按分区前移到 2017；行情最终写 2019+、构建时按最大滚动窗口读 2018 lookback buffer；维度/日历取最新快照或全量历史事件。主方案 §4.6 已按该口径修订。
 - 命名规范、单位、分区/聚簇、表/字段注释规范均已敲定；2019 前数据范围见 `DECISION_LOG.md` 最新决策。
 - 仓库已 `git init`（默认分支 `main`）。
 - P0 建表 SQL 已落地到 `sql/`，并已按 `docs/reviews/P0-建表SQL-review.md` 修复首轮评审发现：显式 BigQuery location、复牌行过滤、`dim_stock` 稳健性、财务版本键去重兜底、`dwd_fin_indicator_latest` 与 QA 脚本。
 - P0 DIM/DWD 已物化到 BigQuery 并通过 `sql/qa/01_p0_smoke_checks.sql`。已建 3 张 DIM + 5 张 DWD；`dwd_index_eod` 已恢复 `index_dailybasic` 估值/股本字段，STAR50/CSI1000 因 ODS 暂无对应 dailybasic endpoint 仍为空。
 - P0 二轮评审发现已修复：`dwd_stock_eod_price` 拆分全天停牌与盘中临停语义；`dwd_fin_indicator_latest` 改为 `update_flag DESC` 优先取最新修正版；相关表已重建并通过 QA。
-- **下一步**：补 `income` / `balancesheet` / `cashflow` 财务三表，或进入 `dws_stock_feature_daily` / `dws_stock_label_daily`。
+- 2026-05-31 ODS 已补采 `index_member_all` 与 `ci_index_member`，可落地申万/中信个股行业时点映射维表；OQ-001 已关闭。
+- **下一步**：补 `income` / `balancesheet` / `cashflow` 财务三表；或落地 P0 DWS/ADS SQL（universe、价格/估值/财务特征、市场状态、标签、训练面板、预测/候选/组合/回测表）和 `ml_ranker_v0` 基线回测。
 
 ## 不可妥协的约定
 
 - 证券主键统一 `sec_code`（数据源中性，值标准格式 `600000.SH`）。
 - 金额单位统一「元」、数量单位统一「股」。
 - DWD 事实表统一带血缘字段 `source_system` + `ingested_at`。
+- DWS/ADS 必须带版本与运行追踪字段（如 `feature_version`、`label_version`、`universe_version`、`model_id`、`strategy_id`、`run_id`）。
 - 2019 年前数据不能混作“全历史写入”：财务/事件前移到 2017；行情写 2019+ 但读 lookback buffer；维度/日历取快照或全量历史事件。
 - 记忆文件、文档、代码中均不得出现 BigQuery key / Tushare token 等凭据。

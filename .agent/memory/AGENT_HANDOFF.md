@@ -4,7 +4,7 @@
 
 ## 当前交接摘要
 
-`quant-ashare` 已完成**P0 DIM/DWD 物化**：ODS（54 表）探查清楚三类分区语义；产出 DWD/DIM 建模方案文档 `docs/数据仓库建模方案-DWD-DIM.md`；敲定全套规范——`sec_code` 主键、单位元/股、`ann_date_eff` PIT、复权 `_hfq/_qfq`、血缘 `source_system/ingested_at`、按月分区 + `sec_code` 聚簇、行情表 `require_partition_filter`、表+字段注释（含继承 ODS）。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
+`quant-ashare` 已完成**P0 DIM/DWD 物化**并完成 DWS/ADS 与策略设计：ODS 当前 56 表（新增 `index_member_all` / `ci_index_member`）探查清楚三类分区语义；产出 DWD/DIM 建模方案 `docs/数据仓库建模方案-DWD-DIM.md`、DWS/ADS 表设计 `docs/数据仓库建模方案-DWS-ADS.md`、策略方案 `docs/A股中低频小资金机器学习策略方案.md`。全套规范已敲定：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属用 `in_date/out_date` 时点区间、血缘 `source_system/ingested_at`、版本字段 `feature_version/label_version/universe_version/model_id/strategy_id/run_id`、按月分区 + 聚簇、表+字段注释。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
 
 **已物化表**：`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`。`sql/qa/01_p0_smoke_checks.sql` 已通过。二轮评审发现已修复：盘中临停不再误标全天停牌，财务 latest 改为 `update_flag DESC` 优先。
 
@@ -12,9 +12,11 @@
 
 **重要执行结果**：`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行；`dwd_index_eod` 11,922 行，其中 8,899 行有 `index_dailybasic` 估值/市值/股本字段。上游已修复 `index_dailybasic` Parquet 类型问题，OQ-009 已关闭；STAR50/CSI1000 因 ODS 无 dailybasic endpoint 仍为空。最新 QA 验证：有成交但 `is_suspended=TRUE` 为 0，`has_intraday_halt` 为 897 行，`has_open_halt` 为 498 行，财务 latest 排序差异为 0。
 
-**下一步**：补 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`，或衔接 `dws_stock_feature_daily` / `dws_stock_label_daily`。后续应把 `lookback_start_date` 从固定默认值改为按最大滚动窗口计算。
+**DWS/ADS 设计**：P0 DWS 包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 包含训练面板、模型注册、预测、候选池、组合目标、订单计划、回测成交/持仓/NAV/绩效、信号监控。首个策略为 `ml_ranker_v0`：P0 特征横截面排序，长-only，`t` 日盘后信号、`t+1` 开盘/VWAP 建仓。
 
-**待 owner 确认**：行业映射缺口（OQ-001）；dbt vs 纯 SQL（OQ-005）。
+**下一步（P0/P1）**：补 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`，或编写 P0 DWS/ADS SQL 并跑通 `ml_ranker_v0` 基线。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算。
+
+**待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略成本/调仓/持股数/北交所/训练工具链默认参数（OQ-010）。OQ-001 已关闭：行业映射 ODS 已补采。
 
 ---
 
@@ -172,6 +174,93 @@ Related issue/PR: —
 
 ### Memory Files Updated
 - MEMORY_INDEX、PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、DECISION_LOG、AGENT_HANDOFF；TODO.md updated.
+
+## Handoff Entry
+
+Date: 2026-05-31
+Agent ID: Codex
+Agent Instance ID: Codex desktop session
+Model: GPT-5
+Runtime: Codex desktop
+Run ID: —
+Related issue/PR: —
+
+### Work Completed
+- Created branch/worktree `docs/dws-ads-strategy` at `/Users/luna/Desktop/git/quant-ashare-dws-ads-docs` from current `main` HEAD `9942f14`.
+- Added DWS/ADS design document `docs/数据仓库建模方案-DWS-ADS.md`.
+- Added strategy design document `docs/A股中低频小资金机器学习策略方案.md`.
+- Recorded DWS/ADS table families, ADS consumption tables, and first baseline strategy `ml_ranker_v0`.
+
+### Important Context
+- Current BigQuery `ashare_ods` still has 54 external tables / 1492 columns.
+- `ashare_dim` and `ashare_dwd` datasets exist but currently have no materialized tables; `ashare_dws` and `ashare_ads` datasets do not exist yet.
+- P0 DWS/ADS design depends on P0 DIM/DWD materialization first.
+- `ml_ranker_v0` assumes t-day close features, t+1 open/VWAP entry, long-only, 5/10 day rank labels.
+
+### Files Changed
+- `docs/数据仓库建模方案-DWS-ADS.md`
+- `docs/A股中低频小资金机器学习策略方案.md`
+- `TODO.md`
+- `.agent/memory/{MEMORY_INDEX,PROJECT_CONTEXT,ARCHITECTURE_MEMORY,IMPLEMENTATION_STATUS,DECISION_LOG,OPEN_QUESTIONS,GLOSSARY,AGENT_HANDOFF}.md`
+
+### Tests / Validation
+- Documentation-only change.
+- Rechecked BigQuery metadata: `ashare_ods` = 54 tables / 1492 columns; `ashare_dws` and `ashare_ads` datasets not found.
+
+### Blockers
+- None for documentation.
+- OQ-010 added for owner confirmation of P0 strategy defaults.
+
+### Next Recommended Step
+- Execute and QA P0 DIM/DWD SQL, then write P0 DWS/ADS SQL and run `ml_ranker_v0` baseline backtest.
+
+### Memory Files Updated
+- MEMORY_INDEX、PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、DECISION_LOG、OPEN_QUESTIONS、GLOSSARY、AGENT_HANDOFF；TODO.md updated.
+
+## Handoff Entry
+
+Date: 2026-05-31
+Agent ID: Codex
+Agent Instance ID: Codex desktop session
+Model: GPT-5
+Runtime: Codex desktop
+Run ID: —
+Related issue/PR: —
+
+### Work Completed
+- Rechecked BigQuery ODS after owner reported industry member tables were added.
+- Verified `ashare_ods` now has 56 tables / 1532 columns.
+- Verified new tables `ods_tushare_index_member_all` and `ods_tushare_ci_index_member` have `l1/l2/l3` industry fields, `ts_code`, `in_date`, `out_date`, `is_new`.
+- Updated DWD/DIM, DWS/ADS, and strategy docs to use industry time-range mappings instead of treating industry mapping as a missing data gap.
+- Closed OQ-001 and recorded DECISION-20260531-19.
+
+### Important Context
+- `index_member_all` has endpoint `index_member_all`, latest partition `20260531`, and contains full history ranges.
+- `ci_index_member` has endpoint `ci_index_member`, latest partition `20260531`, and contains full history ranges.
+- Historical industry joins must use `in_date/out_date`; `is_new='Y'` is current-only and must not be used for backtest history.
+- Default interval rule is `[valid_from, valid_to)`; SQL implementation should QA `out_date` boundary and overlapping/gapped intervals.
+
+### Files Changed
+- `docs/数据仓库建模方案-DWD-DIM.md`
+- `docs/数据仓库建模方案-DWS-ADS.md`
+- `docs/A股中低频小资金机器学习策略方案.md`
+- `TODO.md`
+- `.agent/memory/{PROJECT_CONTEXT,ARCHITECTURE_MEMORY,IMPLEMENTATION_STATUS,KNOWN_CONSTRAINTS,OPEN_QUESTIONS,DECISION_LOG,AGENT_HANDOFF}.md`
+
+### Tests / Validation
+- BigQuery metadata query confirmed `ashare_ods` table count 56 and column count 1532.
+- `INFORMATION_SCHEMA.COLUMNS` verified the two new ODS tables' schemas.
+- Sample rows verified `endpoint`, `in_date`, `out_date`, `is_new`, and L1/L2/L3 fields exist.
+
+### Blockers
+- None for documentation.
+- SQL implementation still needs interval QA before production use.
+
+### Next Recommended Step
+- Add SQL for `dim_stock_sw_industry_hist` and `dim_stock_ci_industry_hist`, then use those dims in P1 `dws_stock_feature_industry_daily`.
+
+### Memory Files Updated
+- PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、DECISION_LOG、AGENT_HANDOFF；TODO.md updated.
 
 ## Handoff Entry
 
@@ -465,3 +554,47 @@ Related issue/PR: —
 
 ### Memory Files Updated
 - MEMORY_INDEX、PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、DECISION_LOG、AGENT_HANDOFF；TODO.md updated.
+
+## Handoff Entry
+
+Date: 2026-05-31
+Agent ID: Codex
+Agent Instance ID: Codex desktop session
+Model: GPT-5
+Runtime: Codex desktop
+Run ID: —
+Related issue/PR: gthbj/quant-ashare#1
+
+### Work Completed
+- Committed local P0 second-review fixes as `d009b36`.
+- Merged remote PR #1 content into local `main`, preserving the later local P0 materialization/QA status.
+- Resolved memory/TODO conflicts by keeping both the DWS/ADS strategy design additions and the later P0 materialized + QA-passed state.
+- Renumbered the strategy-default open question to OQ-010 to avoid colliding with closed OQ-009 for `index_dailybasic`.
+
+### Important Context
+- PR #1 had been merged remotely first; local `main` also had later commits and local fixes.
+- Conflict resolution preserved `DECISION-20260531-13` through `17`, and recorded PR #1 decisions as `DECISION-20260531-18` and `19`.
+- No BigQuery tables were rebuilt during the merge operation.
+
+### Files Changed
+- `.agent/memory/{AGENT_HANDOFF,ARCHITECTURE_MEMORY,DECISION_LOG,GLOSSARY,IMPLEMENTATION_STATUS,KNOWN_CONSTRAINTS,MEMORY_INDEX,OPEN_QUESTIONS,PROJECT_CONTEXT}.md`
+- `TODO.md`
+- `docs/数据仓库建模方案-DWD-DIM.md`
+- `docs/数据仓库建模方案-DWS-ADS.md`
+- `docs/A股中低频小资金机器学习策略方案.md`
+- `sql/dwd/01_dwd_stock_eod_price.sql`
+- `sql/dwd/05_dwd_fin_indicator_latest.sql`
+- `sql/qa/01_p0_smoke_checks.sql`
+
+### Tests / Validation
+- Conflict markers removed from repository.
+- `git diff --check` and SQL dry-runs should be rerun before final push.
+
+### Blockers
+- None.
+
+### Next Recommended Step
+- Push merged `main`, then continue with financial statement DWDs or P0 DWS/ADS SQL.
+
+### Memory Files Updated
+- AGENT_HANDOFF、DECISION_LOG、IMPLEMENTATION_STATUS、MEMORY_INDEX、OPEN_QUESTIONS、PROJECT_CONTEXT；TODO.md updated.

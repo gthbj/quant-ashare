@@ -374,3 +374,67 @@ Model: GPT-5
 ### Related Files
 
 `sql/dwd/01_dwd_stock_eod_price.sql`, `sql/dwd/05_dwd_fin_indicator_latest.sql`, `sql/qa/01_p0_smoke_checks.sql`, `docs/reviews/P0-建表SQL-fix-review.md`
+
+## DECISION-20260531-18: DWS/ADS 采用分族特征层 + 策略消费层
+
+Date: 2026-05-31
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5
+
+### Context
+
+owner 要求在现有 ODS、DWD/DIM 设计基础上，继续设计面向 A 股日线中低频小资金机器学习量化的 DWS/ADS 表体系，并单独设计策略方案。
+
+### Decision
+
+DWS 采用“样本骨架 + 分族特征 + 标签 + 训练样本”的结构，P0 包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`。ADS 采用策略消费层，包含训练面板、模型注册、预测、候选池、组合目标、订单计划、回测成交/持仓/NAV/绩效和信号监控。首个策略定义为 `ml_ranker_v0`：P0 特征横截面排序，长-only，`t` 日盘后信号、`t+1` 开盘/VWAP 建仓。
+
+### Rationale
+
+分族 DWS 能控制宽表复杂度，允许 P0 先闭环、P1/P2 逐步接入资金/事件/行业特征；ADS 将训练、预测、组合和回测结果版本化，便于复现和审计。
+
+### Impact
+
+新增 `docs/数据仓库建模方案-DWS-ADS.md` 和 `docs/A股中低频小资金机器学习策略方案.md`。后续 TODO 新增 P0 DWS/ADS SQL、`ml_ranker_v0` 基线训练和回测。新增 OQ-010，要求 owner 确认 P0 策略成本参数、调仓频率、持股数/权重上限和北交所是否纳入。
+
+### Alternatives Considered
+
+直接生成一张超宽 DWS 表供所有模型使用；未采用，因为会把 P0/P1/P2 特征生命周期混在一起，难以做特征质量、版本和依赖管理。
+
+### Related Files
+
+`docs/数据仓库建模方案-DWS-ADS.md`, `docs/A股中低频小资金机器学习策略方案.md`, `TODO.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`
+
+## DECISION-20260531-19: 行业时点映射改用已补采的 index_member_all / ci_index_member
+
+Date: 2026-05-31
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5
+
+### Context
+
+owner 说明 `index_member_all` 和 `ci_index_member` 的 ODS 表已经补上。复核 BigQuery 后，`ashare_ods` 当前为 56 张表 / 1532 字段，新增表 `ods_tushare_index_member_all` 与 `ods_tushare_ci_index_member` 均包含 `l1/l2/l3` 行业代码名称、`ts_code`、`in_date`、`out_date`、`is_new`。
+
+### Decision
+
+关闭 OQ-001。申万行业时点归属用 `ods_tushare_index_member_all` 落 `dim_stock_sw_industry_hist`；中信行业时点归属用 `ods_tushare_ci_index_member` 落 `dim_stock_ci_industry_hist`。历史训练/回测统一用 `in_date/out_date` 区间 join，默认半开区间 `[valid_from, valid_to)`；`is_new` 仅标识当前最新归属，不能用于历史回填。
+
+### Rationale
+
+行业归属是行业中性化、行业轮动、行业暴露约束的基础。使用时点区间维表可以避免用当前行业归属回填历史造成未来函数。
+
+### Impact
+
+主方案、DWS/ADS 方案、策略方案和记忆文件已从“行业映射缺口/粗行业兜底”改为“可落地行业时点维表”。TODO 新增 `dim_stock_sw_industry_hist` / `dim_stock_ci_industry_hist` SQL 和 QA 项。
+
+### Alternatives Considered
+
+继续使用 `dim_stock.industry` 粗行业字段作为兜底；不再作为标准路径，仅保留为异常兜底或对照字段。
+
+### Related Files
+
+`docs/数据仓库建模方案-DWD-DIM.md`, `docs/数据仓库建模方案-DWS-ADS.md`, `docs/A股中低频小资金机器学习策略方案.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`

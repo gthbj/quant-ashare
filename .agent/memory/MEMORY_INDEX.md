@@ -19,5 +19,5 @@
 
 ## 当前项目一句话状态
 
-`quant-ashare` 是基于 BigQuery `data-aquarium` 的 **A 股日线量化数据仓库**（ODS→DIM/DWD→DWS）。
-当前阶段：**DWD/DIM 建模方案已完成，P0 DIM/DWD 已物化并通过 smoke QA；`dwd_index_eod` 估值/股本字段已恢复；P0 二轮评审发现已修复**。正确口径：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件；下一步是补财务三表或进入 DWS 特征/标签。
+`quant-ashare` 是基于 BigQuery `data-aquarium` 的 **A 股日线量化数据仓库**（ODS→DIM/DWD→DWS→ADS）。
+当前阶段：**DWD/DIM 建模方案、DWS/ADS 表设计文档、策略方案文档已完成；P0 DIM/DWD 已物化并通过 smoke QA；`dwd_index_eod` 估值/股本字段已恢复；P0 二轮评审发现已修复**。正确口径：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件；下一步是补财务三表，或落地 P0 DWS/ADS SQL 与 `ml_ranker_v0` 基线回测。
