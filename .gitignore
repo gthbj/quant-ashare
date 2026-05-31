@@ -1,0 +1,45 @@
+# ───── OS ─────
+.DS_Store
+Thumbs.db
+
+# ───── 凭据 / 密钥（切勿提交 BigQuery key、tushare token 等）─────
+.env
+.env.*
+*.key
+*.pem
+credentials*.json
+service-account*.json
+*service_account*.json
+gcp-*.json
+*-sa.json
+*.token
+tushare_token*
+
+# ───── 数据文件（大文件不入库，用 BQ/NAS 存）─────
+*.csv
+*.tsv
+*.parquet
+*.feather
+*.duckdb
+*.sqlite
+/data/
+
+# ───── Python（未来 ETL / 特征工程）─────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+*.egg-info/
+.pytest_cache/
+
+# ───── dbt（未来建模工程）─────
+target/
+dbt_packages/
+logs/
+
+# ───── 编辑器 ─────
+.idea/
+.vscode/
+*.swp
+*~
