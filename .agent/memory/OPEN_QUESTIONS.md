@@ -12,3 +12,4 @@
 | OQ-006 | 金额单位逐接口换算系数表尚未逐一核对（仅核对了 daily 等核心表）；其余表落库前需逐接口确认。 | open | owner | docs §3.3-G, §10 |
 | OQ-007 | ODS `stock_basic_delisted.delist_date` 外部表类型(INT64)与 Parquet 文件(BYTE_ARRAY)不一致、直读报错。是否由上游把该列统一为 STRING？在此之前 `dim_stock` 用「daily 最后交易日」兜底退市日。 | open | owner / 上游 ingestion | docs §5.2, review-response 调整-1 |
 | OQ-008 | 全历史早期可交易字段缺口：`stk_limit` 2007 前、`suspend_d` 1999 前不可用。 | **closed: not applicable**（行情最终写 2019+；2018 lookback buffer 内核心可交易辅助表可用，不构成 P0 阻塞） | owner | docs §4.6, review 修正说明 |
+| OQ-009 | ODS `index_dailybasic` 多列外部 schema 与 Parquet 物理类型不一致（如 `float_mv`、`float_share`），导致 2019+ 读取失败。 | **closed: upstream fixed + DWD restored**（已恢复 `dwd_index_eod` 估值/股本字段；STAR50/CSI1000 因 ODS 无 dailybasic 端点仍为空） | owner / 上游 ingestion | sql/dwd/04_dwd_index_eod.sql |

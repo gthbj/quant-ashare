@@ -1,6 +1,7 @@
 -- 文档维护：GPT-5（最近更新 2026-05-31）
 -- BigQuery Standard SQL
 -- 指数日线 DWD：保留 ODS 实际存在的指数代码，并补充常用 canonical_index_code。
+-- index_dailybasic 的 total_mv/float_mv 单位为元，股本字段单位为股；不同于股票 daily_basic 的万元/万股口径。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
@@ -54,16 +55,11 @@ daily_basic AS (
   SELECT
     ts_code AS sec_code,
     SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date,
-    SAFE_CAST(total_mv AS FLOAT64) AS total_mv_10k_cny,
-    SAFE_CAST(float_mv AS FLOAT64) AS float_mv_10k_cny,
-    SAFE_CAST(total_mv AS FLOAT64) * 10000.0 AS total_mv_cny,
-    SAFE_CAST(float_mv AS FLOAT64) * 10000.0 AS float_mv_cny,
-    SAFE_CAST(total_share AS FLOAT64) AS total_share_10k,
-    SAFE_CAST(float_share AS FLOAT64) AS float_share_10k,
-    SAFE_CAST(free_share AS FLOAT64) AS free_share_10k,
-    SAFE_CAST(total_share AS FLOAT64) * 10000.0 AS total_share,
-    SAFE_CAST(float_share AS FLOAT64) * 10000.0 AS float_share,
-    SAFE_CAST(free_share AS FLOAT64) * 10000.0 AS free_share,
+    SAFE_CAST(total_mv AS FLOAT64) AS total_mv_cny,
+    SAFE_CAST(float_mv AS FLOAT64) AS float_mv_cny,
+    SAFE_CAST(total_share AS FLOAT64) AS total_share,
+    SAFE_CAST(float_share AS FLOAT64) AS float_share,
+    SAFE_CAST(free_share AS FLOAT64) AS free_share,
     SAFE_CAST(turnover_rate AS FLOAT64) AS turnover_rate,
     SAFE_CAST(turnover_rate_f AS FLOAT64) AS turnover_rate_free_float,
     SAFE_CAST(pe AS FLOAT64) AS pe,
@@ -94,13 +90,8 @@ SELECT
   d.pct_chg,
   d.volume,
   d.amount,
-  b.total_mv_10k_cny,
-  b.float_mv_10k_cny,
   b.total_mv_cny,
   b.float_mv_cny,
-  b.total_share_10k,
-  b.float_share_10k,
-  b.free_share_10k,
   b.total_share,
   b.float_share,
   b.free_share,
@@ -123,4 +114,10 @@ ALTER TABLE `data-aquarium.ashare_dwd.dwd_index_eod`
 ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'),
 ALTER COLUMN sec_code SET OPTIONS (description = 'ODS 实际指数代码'),
 ALTER COLUMN canonical_index_code SET OPTIONS (description = '规范指数代码；399300.SZ 映射为 000300.SH'),
-ALTER COLUMN index_alias SET OPTIONS (description = '常用指数别名');
+ALTER COLUMN index_alias SET OPTIONS (description = '常用指数别名'),
+ALTER COLUMN total_mv_cny SET OPTIONS (description = '指数总市值，元，来自 index_dailybasic.total_mv'),
+ALTER COLUMN float_mv_cny SET OPTIONS (description = '指数流通市值，元，来自 index_dailybasic.float_mv'),
+ALTER COLUMN total_share SET OPTIONS (description = '指数总股本，股，来自 index_dailybasic.total_share'),
+ALTER COLUMN pe SET OPTIONS (description = '指数市盈率'),
+ALTER COLUMN pe_ttm SET OPTIONS (description = '指数 TTM 市盈率'),
+ALTER COLUMN pb SET OPTIONS (description = '指数市净率');

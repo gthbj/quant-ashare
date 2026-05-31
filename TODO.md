@@ -13,8 +13,9 @@
 - [x] 编写 `dwd_stock_eod_price` 建表 SQL（复权+可交易掩码，月分区+sec_code 聚簇+require_partition_filter，写 2019+，构建读 lookback buffer；临时维表替换 dry-run 通过）
 - [x] 编写 `dwd_stock_eod_valuation` 建表 SQL（估值/市值/换手，单位归一，写 2019+，dry-run 通过）
 - [x] 编写 `dwd_fin_indicator` 建表 SQL（PIT 版本事实 + `ann_date_eff`，`partition_date >= 20170101`；临时维表替换 dry-run 通过）
-- [x] 编写 `dwd_index_eod` 建表 SQL（基准指数，dry-run 通过）
-- [ ] 执行 `sql/` P0 建表脚本并做基础 QA（行数、主键重复、分区范围、停牌骨架、PIT 可见日）
+- [x] 编写并回填 `dwd_index_eod` 建表 SQL（基准指数价格 + `index_dailybasic` 估值/股本，dry-run/QA 通过）
+- [x] 修复 P0 SQL 评审发现 R1-R5（显式 `--location=asia-east2`、复牌行不判停牌、`dim_stock` 去重与派生退市宽限、`fina_indicator` 去重兜底、补 `dwd_fin_indicator_latest` 和 QA 脚本；dry-run 通过）
+- [x] 执行 `sql/` P0 建表脚本并运行 `sql/qa/01_p0_smoke_checks.sql`（已物化 3 张 DIM + 5 张 DWD，QA 通过）
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置
 - [ ] 写「从 ODS 继承字段描述」脚本（`bq show` → 映射 → `bq update`）
 - [ ] 衔接 `dws_stock_feature_daily` v0 + `dws_stock_label_daily`（`fwd_ret_1d/5d/10d/20d`）
@@ -22,6 +23,7 @@
 ## P1 — 特征扩展
 
 - [ ] `dwd_fin_income/balancesheet/cashflow`（单季派生）
+- [x] 修复/绕过 `index_dailybasic` Parquet 类型不一致后，回填 `dwd_index_eod` 指数估值/股本字段（ODS 已修复，DWD 已重建；STAR50/CSI1000 无 dailybasic 端点仍为空）
 - [ ] `dwd_sw_industry_eod` + 行业中性化
 - [ ] 资金面：`dwd_stock_moneyflow` / `north_hold` / `chip` / `margin` / `limit_event`
 - [ ] 事件：`dwd_event_forecast/express/dividend/holder_*`、`dwd_analyst_report`

@@ -80,6 +80,7 @@ suspend_event AS (
   FROM `data-aquarium.ashare_ods.ods_tushare_suspend_d`
   WHERE endpoint = 'suspend_d'
     AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', lookback_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+    AND suspend_type = 'S'
     AND trade_date IS NOT NULL
   GROUP BY sec_code, trade_date
 ),

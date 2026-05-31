@@ -4,6 +4,7 @@
 -- 注意：不读取 ods_tushare_stock_basic_delisted.delist_date，该列在 ODS 侧存在 Parquet 类型不一致问题。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE derived_delist_grace_days INT64 DEFAULT 30;
 
 CREATE OR REPLACE TABLE `data-aquarium.ashare_dim.dim_stock`
 CLUSTER BY sec_code
@@ -52,6 +53,13 @@ daily_lifecycle AS (
     AND trade_date IS NOT NULL
   GROUP BY ts_code
 ),
+latest_market_trade AS (
+  SELECT MAX(SAFE.PARSE_DATE('%Y%m%d', trade_date)) AS market_last_trade_date
+  FROM `data-aquarium.ashare_ods.ods_tushare_daily`
+  WHERE endpoint = 'daily'
+    AND partition_date >= FORMAT_DATE('%Y%m%d', dwd_start_date)
+    AND trade_date IS NOT NULL
+),
 stock_basic_enriched AS (
   SELECT
     s.ts_code AS sec_code,
@@ -89,6 +97,13 @@ stock_basic_enriched AS (
   FROM stock_basic AS s
   LEFT JOIN daily_lifecycle AS d
     ON s.ts_code = d.ts_code
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY s.ts_code
+    ORDER BY
+      IF(s.endpoint = 'stock_basic_listed', 0, 1),
+      s.partition_date DESC,
+      s.ingested_at DESC
+  ) = 1
 ),
 daily_codes_2019 AS (
   SELECT
@@ -127,15 +142,24 @@ missing_from_stock_basic AS (
     'CNY' AS curr_type,
     'UNKNOWN' AS list_status,
     d.first_trade_date AS list_date,
-    IF(d.last_trade_date < CURRENT_DATE('Asia/Shanghai'), DATE_ADD(d.last_trade_date, INTERVAL 1 DAY), NULL) AS delist_date,
+    IF(
+      d.last_trade_date < DATE_SUB(m.market_last_trade_date, INTERVAL derived_delist_grace_days DAY),
+      DATE_ADD(d.last_trade_date, INTERVAL 1 DAY),
+      NULL
+    ) AS delist_date,
     d.first_trade_date,
     d.last_trade_date,
-    d.last_trade_date < CURRENT_DATE('Asia/Shanghai') AS is_delisted,
+    d.last_trade_date < DATE_SUB(m.market_last_trade_date, INTERVAL derived_delist_grace_days DAY) AS is_delisted,
     'derived_from_daily' AS stock_master_source,
-    IF(d.last_trade_date < CURRENT_DATE('Asia/Shanghai'), 'last_trade_date_plus_1', NULL) AS delist_date_source,
+    IF(
+      d.last_trade_date < DATE_SUB(m.market_last_trade_date, INTERVAL derived_delist_grace_days DAY),
+      'last_trade_date_plus_1_after_market_grace',
+      NULL
+    ) AS delist_date_source,
     CAST(NULL AS STRING) AS source_partition_date,
     CAST(NULL AS TIMESTAMP) AS ingested_at
   FROM daily_codes_2019 AS d
+  CROSS JOIN latest_market_trade AS m
   LEFT JOIN stock_basic_enriched AS s
     ON d.ts_code = s.sec_code
   WHERE s.sec_code IS NULL

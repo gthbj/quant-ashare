@@ -12,6 +12,7 @@
 - **`fina_indicator` 无 `f_ann_date`**（实测）：其可见日只能用 `ann_date`；可见日规则**按表定义**，不可用统一 `COALESCE(f_ann_date,ann_date)` 公式覆盖所有财务表（见 docs §4.3）。
 - **`stock_basic_delisted.delist_date` 类型不一致**（外部表 `INT64` / Parquet `BYTE_ARRAY`）：直读报错、`SAFE` 无效；`dim_stock` 用「`daily` 最后交易日」兜底退市日（OQ-007）。
 - **停牌日 `daily` 无该股行**：价格 DWD 必须以「交易日历开市日 × 在市股票」为骨架（保留停牌日空行），不能从 `daily` 起表，否则停牌日整行消失、`t+k` 标签错位。
+- **`suspend_d.suspend_type` 区分停牌/复牌**：`S`=停牌，`R`=复牌。价格 DWD 只可用 `S` 标记停牌事件；`R` 复牌日若 daily 有成交，不能判 `is_suspended=TRUE`。
 - Tushare 各接口金额/量单位不一（手/千元/万股/万元）：落库须按「表+字段」归一到元/股。
 - 部分数值字段在 ODS 是 STRING（如 `moneyflow_hsgt`、`ccass_hold`）：落库须 `SAFE_CAST`。
 - 北向数据（hk_hold / moneyflow_hsgt）2024 年后部分口径变化/停更，需做可用性标记。
@@ -22,6 +23,7 @@
 - **只有分区列能 `require_partition_filter` 强制过滤；聚簇列无法强制**。
 - `CREATE TABLE AS SELECT` 不能在 SELECT 列上内联 description：维度表用内联列定义 DDL，事实表用 CTAS + 后置 `ALTER COLUMN SET OPTIONS`。
 - 外部表的列描述/分区元数据通过 `bq show`/`INFORMATION_SCHEMA` 获取。
+- `bq query` 执行本项目建表/QA 脚本时显式指定 `--location=asia-east2`，避免无源表脚本或跨数据集 CTAS 使用错误 job 区域。
 
 ## 建模约束（PIT / 量化正确性）
 
@@ -39,4 +41,5 @@
 
 - DWD/DIM 物化后，下游一律查 DWD/DIM，不直接打 ODS。
 - 大范围回填建议分批（按年/季）跑并记录批次状态；P0 行情最终写 2019+，财务/事件从 2017 起。
+- `dim_stock` 若遇到 latest `stock_basic` 缺失但 2019+ daily 有记录的代码，只能作为 `derived_from_daily` 兜底；派生退市边界用 ODS 最新交易日减宽限期判断，不能用系统当前日期直接判退市。
 - 提交（commit/push）仅在用户明确要求时进行。

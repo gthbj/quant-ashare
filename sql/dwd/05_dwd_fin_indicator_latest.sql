@@ -1,0 +1,27 @@
+-- 文档维护：GPT-5（最近更新 2026-05-31）
+-- BigQuery Standard SQL
+-- 财务指标最新版本便捷表：每个 (sec_code, report_period) 取公告/摄入最新的一版。
+-- 回测/PIT 仍应使用 dwd_fin_indicator 版本事实表做 as-of join，避免后期修正泄漏。
+
+CREATE OR REPLACE TABLE `data-aquarium.ashare_dwd.dwd_fin_indicator_latest`
+CLUSTER BY sec_code, report_period
+OPTIONS (
+  description = 'Latest convenience table derived from dwd_fin_indicator; not for PIT backtest joins'
+) AS
+SELECT * EXCEPT(version_rank)
+FROM (
+  SELECT
+    f.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY sec_code, report_period
+      ORDER BY ann_date_eff DESC, update_flag DESC, ingested_at DESC, source_partition_date DESC
+    ) AS version_rank
+  FROM `data-aquarium.ashare_dwd.dwd_fin_indicator` AS f
+)
+WHERE version_rank = 1;
+
+ALTER TABLE `data-aquarium.ashare_dwd.dwd_fin_indicator_latest`
+ALTER COLUMN sec_code SET OPTIONS (description = '证券代码，Tushare ts_code 格式'),
+ALTER COLUMN ann_date_eff SET OPTIONS (description = '该报告期最新版本的公告生效日期'),
+ALTER COLUMN report_period SET OPTIONS (description = '报告期'),
+ALTER COLUMN visible_trade_date SET OPTIONS (description = '该报告期最新版本公告后第一个上交所交易日');

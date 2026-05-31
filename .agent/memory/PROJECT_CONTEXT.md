@@ -36,7 +36,9 @@ ashare_ods (已有, 外部表)
 - 2026-05-31 owner 澄清 2019 年前数据范围：财务/事件按分区前移到 2017；行情最终写 2019+、构建时按最大滚动窗口读 2018 lookback buffer；维度/日历取最新快照或全量历史事件。主方案 §4.6 已按该口径修订。
 - 命名规范、单位、分区/聚簇、表/字段注释规范均已敲定；2019 前数据范围见 `DECISION_LOG.md` 最新决策。
 - 仓库已 `git init`（默认分支 `main`）。
-- **下一步**：按 §4.6 三类范围口径落地 P0 建表 SQL（dim_trade_calendar / dim_stock / dwd_stock_eod_price / dwd_stock_eod_valuation / dwd_fin_indicator / dwd_index_eod）。
+- P0 建表 SQL 已落地到 `sql/`，并已按 `docs/reviews/P0-建表SQL-review.md` 修复首轮评审发现：显式 BigQuery location、复牌行过滤、`dim_stock` 稳健性、财务版本键去重兜底、`dwd_fin_indicator_latest` 与 QA 脚本。
+- P0 DIM/DWD 已物化到 BigQuery 并通过 `sql/qa/01_p0_smoke_checks.sql`。已建 3 张 DIM + 5 张 DWD；`dwd_index_eod` 已恢复 `index_dailybasic` 估值/股本字段，STAR50/CSI1000 因 ODS 暂无对应 dailybasic endpoint 仍为空。
+- **下一步**：补 `income` / `balancesheet` / `cashflow` 财务三表，或进入 `dws_stock_feature_daily` / `dws_stock_label_daily`。
 
 ## 不可妥协的约定
 

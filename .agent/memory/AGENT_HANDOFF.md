@@ -4,13 +4,15 @@
 
 ## 当前交接摘要
 
-`quant-ashare` 已完成**设计阶段**并落地 P0 建表 SQL：ODS（54 表）探查清楚三类分区语义；产出 DWD/DIM 建模方案文档 `docs/数据仓库建模方案-DWD-DIM.md`；敲定全套规范——`sec_code` 主键、单位元/股、`ann_date_eff` PIT、复权 `_hfq/_qfq`、血缘 `source_system/ingested_at`、按月分区 + `sec_code` 聚簇、行情表 `require_partition_filter`、表+字段注释（含继承 ODS）。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
+`quant-ashare` 已完成**P0 DIM/DWD 物化**：ODS（54 表）探查清楚三类分区语义；产出 DWD/DIM 建模方案文档 `docs/数据仓库建模方案-DWD-DIM.md`；敲定全套规范——`sec_code` 主键、单位元/股、`ann_date_eff` PIT、复权 `_hfq/_qfq`、血缘 `source_system/ingested_at`、按月分区 + `sec_code` 聚簇、行情表 `require_partition_filter`、表+字段注释（含继承 ODS）。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
 
-**已落地 SQL**：`sql/00_create_datasets.sql`、`sql/dim/01_dim_trade_calendar.sql`、`sql/dim/02_dim_stock.sql`、`sql/dim/03_dim_stock_name_hist.sql`、`sql/dwd/01_dwd_stock_eod_price.sql`、`sql/dwd/02_dwd_stock_eod_valuation.sql`、`sql/dwd/03_dwd_fin_indicator.sql`、`sql/dwd/04_dwd_index_eod.sql`。所有脚本已 dry-run 校验；price/finance 因 DIM 尚未物化，用临时空维表替换方式完成完整语法校验。未实际写 BigQuery。
+**已物化表**：`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`。`sql/qa/01_p0_smoke_checks.sql` 已通过。
 
-**评审协议（本会话确立）**：评审已提交代码/SQL 或设计文档,必须产出 `docs/reviews/` 评审文档;评审只读——不擅改被评审对象、不把发现直接写进 `.agent/memory/**`/`TODO.md`,发现是否转 OQ/TODO/决策由 owner 定（AGENTS.md §六 / DECISION-20260531-13）。首份代码评审 `docs/reviews/P0-建表SQL-review.md`：P0 建表 SQL 共 5 项发现,2 项物化前必修（README `--location=asia-east2`、`suspend_d` 复牌过滤）、3 项随 QA 补。发现尚未转 OQ/TODO（按协议待 owner 决定）。
+**评审协议（本会话确立）**：评审已提交代码/SQL 或设计文档,必须产出 `docs/reviews/` 评审文档;评审只读——不擅改被评审对象、不把发现直接写进 `.agent/memory/**`/`TODO.md`,发现是否转 OQ/TODO/决策由 owner 定（AGENTS.md §六 / DECISION-20260531-13）。首份代码评审 `docs/reviews/P0-建表SQL-review.md` 的 5 项发现已由 owner 要求修复并全部采纳，见 DECISION-20260531-14。
 
-**下一步（P0）**：按 `sql/README.md` 执行建表脚本并做基础 QA（行数、主键重复、分区范围、停牌骨架、PIT 可见日）。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算。物化前先处理评审 R1（README `--location`）、R2（`suspend_event` 过滤复牌行）。
+**重要执行结果**：`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行；`dwd_index_eod` 11,922 行，其中 8,899 行有 `index_dailybasic` 估值/市值/股本字段。上游已修复 `index_dailybasic` Parquet 类型问题，OQ-009 已关闭；STAR50/CSI1000 因 ODS 无 dailybasic endpoint 仍为空。
+
+**下一步**：补 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`，或衔接 `dws_stock_feature_daily` / `dws_stock_label_daily`。后续应把 `lookback_start_date` 从固定默认值改为按最大滚动窗口计算。
 
 **待 owner 确认**：行业映射缺口（OQ-001）；dbt vs 纯 SQL（OQ-005）。
 
@@ -124,6 +126,49 @@ Related issue/PR: —
 
 ### Next Recommended Step
 - Superseded by DECISION-20260531-11: implement P0 for 2019+ with finance/event 2017 support and market lookback buffer.
+
+### Memory Files Updated
+- MEMORY_INDEX、PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、DECISION_LOG、AGENT_HANDOFF；TODO.md updated.
+
+## Handoff Entry
+
+Date: 2026-05-31
+Agent ID: Codex
+Agent Instance ID: Codex desktop session
+Model: GPT-5
+Runtime: Codex desktop
+Run ID: —
+Related issue/PR: —
+
+### Work Completed
+- Verified upstream GCS Parquet repair for `ods_tushare_index_dailybasic`; 2019+ reads of `float_mv`, `float_share`, `total_mv`, `total_share`, `pe`, `pe_ttm`, `pb` now succeed.
+- Restored `sql/dwd/04_dwd_index_eod.sql` to join `index_dailybasic`.
+- Rebuilt `data-aquarium.ashare_dwd.dwd_index_eod` with valuation/share fields.
+- Updated `sql/qa/01_p0_smoke_checks.sql` to assert index valuation fields exist where dailybasic endpoints are available.
+
+### Important Context
+- `index_dailybasic` units are already yuan/share, unlike stock `daily_basic`; DWD does not multiply by 10000.
+- `dwd_index_eod` now has 11,922 rows, 8,899 rows with non-null `pe`, `pe_ttm`, `pb`, `total_mv_cny`, `float_mv_cny`, `total_share`, and `float_share`.
+- STAR50 (`000688.SH`) and CSI1000 (`000852.SH`) still have NULL valuation fields because ODS has no corresponding `index_dailybasic` endpoints.
+
+### Files Changed
+- `sql/dwd/04_dwd_index_eod.sql`
+- `sql/qa/01_p0_smoke_checks.sql`
+- `sql/README.md`
+- `TODO.md`
+- `.agent/memory/{MEMORY_INDEX,PROJECT_CONTEXT,ARCHITECTURE_MEMORY,IMPLEMENTATION_STATUS,KNOWN_CONSTRAINTS,OPEN_QUESTIONS,DECISION_LOG,AGENT_HANDOFF}.md`
+
+### Tests / Validation
+- `bq query --dry_run --location=asia-east2` passed for `sql/dwd/04_dwd_index_eod.sql` and QA script.
+- Executed `sql/dwd/04_dwd_index_eod.sql`; table rebuilt successfully.
+- Executed `sql/qa/01_p0_smoke_checks.sql`; all assertions passed.
+- Queried non-null counts by index.
+
+### Blockers
+- None for OQ-009. Remaining open questions are OQ-001/OQ-003/OQ-004/OQ-005/OQ-006/OQ-007.
+
+### Next Recommended Step
+- Continue with `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`, or begin DWS feature/label tables.
 
 ### Memory Files Updated
 - MEMORY_INDEX、PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、DECISION_LOG、AGENT_HANDOFF；TODO.md updated.
@@ -286,3 +331,94 @@ Related issue/PR: —
 
 ### Memory Files Updated
 - DECISION_LOG（加 13）、IMPLEMENTATION_STATUS、AGENT_HANDOFF；AGENTS.md §六。
+
+## Handoff Entry
+
+Date: 2026-05-31
+Agent ID: Codex
+Agent Instance ID: Codex desktop session
+Model: GPT-5
+Runtime: Codex desktop
+Run ID: —
+Related issue/PR: —
+
+### Work Completed
+- Fixed all accepted findings from `docs/reviews/P0-建表SQL-review.md`.
+- Added explicit `--location=asia-east2` to `sql/README.md` execution commands.
+- Updated `dwd_stock_eod_price` so `suspend_d` only treats `suspend_type='S'` as suspension; `R` resumption rows no longer mark `is_suspended`.
+- Hardened `dim_stock`: latest `stock_basic` rows are de-duplicated by `sec_code`; `derived_from_daily` inferred delist dates use ODS latest market trade date with a 30-day grace instead of `CURRENT_DATE`.
+- Added `dwd_fin_indicator` version-key dedup, `dwd_fin_indicator_latest`, and `sql/qa/01_p0_smoke_checks.sql`.
+
+### Important Context
+- No BigQuery DWD/DIM tables were materialized in this step.
+- Verification found 2019 `suspend_d` has 585 `R` rows; 558 had same-day daily trading rows, confirming the original false-suspension risk.
+- The derived `dim_stock` fallback now marks `000043.SZ` and `300114.SZ` as inferred delisted, while leaving latest-trade `920218.BJ` active under the 30-day grace rule.
+
+### Files Changed
+- `sql/README.md`
+- `sql/dim/02_dim_stock.sql`
+- `sql/dwd/01_dwd_stock_eod_price.sql`
+- `sql/dwd/03_dwd_fin_indicator.sql`
+- `sql/dwd/05_dwd_fin_indicator_latest.sql`
+- `sql/qa/01_p0_smoke_checks.sql`
+- `TODO.md`
+- `.agent/memory/{MEMORY_INDEX,PROJECT_CONTEXT,ARCHITECTURE_MEMORY,IMPLEMENTATION_STATUS,KNOWN_CONSTRAINTS,DECISION_LOG,AGENT_HANDOFF}.md`
+
+### Tests / Validation
+- `bq query --dry_run --location=asia-east2` passed for dataset bootstrap and DIM scripts.
+- `bq query --dry_run --location=asia-east2` passed for DWD scripts; scripts depending on unmaterialized DIM/DWD were validated with temporary empty replacement tables.
+- `sql/qa/01_p0_smoke_checks.sql` dry-run passed with temporary replacement tables.
+- Read-only BigQuery checks confirmed `suspend_type` distribution and derived `dim_stock` fallback behavior.
+- `git diff --check` passed before memory updates; rerun before final response.
+
+### Blockers
+- None for SQL repair. Physical table creation and QA remain pending.
+
+### Next Recommended Step
+- Execute scripts in `sql/README.md` order, then run `sql/qa/01_p0_smoke_checks.sql`.
+
+### Memory Files Updated
+- MEMORY_INDEX、PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、DECISION_LOG、AGENT_HANDOFF；TODO.md updated.
+
+## Handoff Entry
+
+Date: 2026-05-31
+Agent ID: Codex
+Agent Instance ID: Codex desktop session
+Model: GPT-5
+Runtime: Codex desktop
+Run ID: —
+Related issue/PR: —
+
+### Work Completed
+- Executed P0 BigQuery build scripts in `sql/README.md` order.
+- Materialized 3 DIM tables and 5 DWD tables in `data-aquarium.ashare_dim` / `data-aquarium.ashare_dwd`.
+- Ran `sql/qa/01_p0_smoke_checks.sql`; all assertions passed after narrowing the resumption check to R-only rows without same-day S events.
+- Updated `dwd_index_eod` to price-only because `ods_tushare_index_dailybasic` failed at runtime with Parquet type mismatches.
+
+### Important Context
+- `dwd_index_eod` currently does not read `index_dailybasic`; valuation/share fields are NULL until OQ-009 is resolved.
+- Row counts after materialization: `dim_trade_calendar` 13,162; `dim_stock` 5,853; `dim_stock_name_hist` 3,776; `dwd_stock_eod_price` 8,495,462; `dwd_stock_eod_valuation` 8,452,073; `dwd_index_eod` 11,922; `dwd_fin_indicator` 332,960; `dwd_fin_indicator_latest` 198,030.
+- Price/valuation/index DWD min trade date is 2019-01-02; finance min `ann_date_eff` is 2017-04-06.
+
+### Files Changed
+- `sql/README.md`
+- `sql/dwd/04_dwd_index_eod.sql`
+- `sql/qa/01_p0_smoke_checks.sql`
+- `TODO.md`
+- `.agent/memory/{MEMORY_INDEX,PROJECT_CONTEXT,ARCHITECTURE_MEMORY,IMPLEMENTATION_STATUS,KNOWN_CONSTRAINTS,OPEN_QUESTIONS,DECISION_LOG,AGENT_HANDOFF}.md`
+
+### Tests / Validation
+- All build scripts executed with `bq query --use_legacy_sql=false --location=asia-east2`.
+- `sql/qa/01_p0_smoke_checks.sql` passed all assertions.
+- Queried row counts and date ranges for every materialized P0 table.
+- `git diff --check` should be rerun before final/commit.
+
+### Blockers
+- OQ-009: `index_dailybasic` external table has Parquet type mismatches (`float_mv`, `float_share`, likely more), blocking index valuation fields.
+
+### Next Recommended Step
+- Add P0/P1 finance statement DWDs (`income`, `balancesheet`, `cashflow`) or start DWS feature/label build on the materialized P0 tables.
+
+### Memory Files Updated
+- MEMORY_INDEX、PROJECT_CONTEXT、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、DECISION_LOG、AGENT_HANDOFF；TODO.md updated.

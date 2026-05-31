@@ -28,15 +28,17 @@ Tushare 等数据源
 | dwd | dwd_stock_eod_price | daily+adj_factor+stk_limit+suspend_d | (sec_code, trade_date) |
 | dwd | dwd_stock_eod_valuation | daily_basic | (sec_code, trade_date) |
 | dwd | dwd_fin_indicator | fina_indicator | (sec_code, report_period) PIT |
-| dwd | dwd_index_eod | index_daily | (sec_code, trade_date) |
+| dwd | dwd_fin_indicator_latest | dwd_fin_indicator | (sec_code, report_period) 最新版本便捷表 |
+| dwd | dwd_index_eod | index_daily + index_dailybasic | (sec_code, trade_date) |
 
 完整 54 张 ODS→DWD/DIM 映射见 `docs/数据仓库建模方案-DWD-DIM.md` §2。
 
 ## SQL 代码布局
 
 - 根目录 `sql/` 存放 P0 BigQuery Standard SQL：`00_create_datasets.sql`、`dim/*.sql`、`dwd/*.sql`。
-- 现有脚本覆盖 3 张 DIM + 4 张 DWD，使用 `CREATE OR REPLACE TABLE` + CTAS + 后置 `ALTER COLUMN SET OPTIONS`。
+- 现有脚本覆盖 3 张 DIM + 5 张 DWD，使用 `CREATE OR REPLACE TABLE` + CTAS + 后置 `ALTER COLUMN SET OPTIONS`；`sql/qa/01_p0_smoke_checks.sql` 存放物化后基础断言。
 - 当前脚本是 bootstrap SQL，不关闭 OQ-005；后续仍可迁移为 dbt 或纳入 Airflow 调度。
+- 2026-05-31 P0 已物化到 BigQuery；`dwd_index_eod` 已恢复读取 `index_dailybasic`。该接口市值/股本单位为元/股，不做 `*10000` 换算。
 
 ## 物理规范（BigQuery）
 

@@ -6,15 +6,18 @@
 
 ## 执行顺序
 
+所有 BigQuery job 显式指定 `--location=asia-east2`，与 ODS/目标数据集保持一致。
+
 ```bash
-bq query --use_legacy_sql=false < sql/00_create_datasets.sql
-bq query --use_legacy_sql=false < sql/dim/01_dim_trade_calendar.sql
-bq query --use_legacy_sql=false < sql/dim/02_dim_stock.sql
-bq query --use_legacy_sql=false < sql/dim/03_dim_stock_name_hist.sql
-bq query --use_legacy_sql=false < sql/dwd/01_dwd_stock_eod_price.sql
-bq query --use_legacy_sql=false < sql/dwd/02_dwd_stock_eod_valuation.sql
-bq query --use_legacy_sql=false < sql/dwd/03_dwd_fin_indicator.sql
-bq query --use_legacy_sql=false < sql/dwd/04_dwd_index_eod.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/00_create_datasets.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/01_dim_trade_calendar.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/02_dim_stock.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/03_dim_stock_name_hist.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/01_dwd_stock_eod_price.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/02_dwd_stock_eod_valuation.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/03_dwd_fin_indicator.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/04_dwd_index_eod.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/05_dwd_fin_indicator_latest.sql
 ```
 
 ## 范围参数
@@ -32,10 +35,21 @@ bq query --use_legacy_sql=false < sql/dwd/04_dwd_index_eod.sql
 - `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
 - `data-aquarium.ashare_dwd.dwd_fin_indicator`
 - `data-aquarium.ashare_dwd.dwd_index_eod`
+- `data-aquarium.ashare_dwd.dwd_fin_indicator_latest`
+
+## QA
+
+物化后运行基础断言：
+
+```bash
+bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/01_p0_smoke_checks.sql
+```
 
 ## 注意事项
 
 - ODS 外部表必须显式过滤 `endpoint` 和/或 `partition_date`，脚本已按该约束写入过滤条件。
 - `stock_basic_delisted.delist_date` 在 ODS 侧存在 Parquet 类型不一致问题，`dim_stock` 不读取该字段；退市边界用日线最后交易日推导。
 - `dwd_stock_eod_price` 使用交易日历乘股票生命周期生成骨架，再左连接行情，因此停牌日会保留一行。
+- `suspend_d` 同时包含停牌 `S` 与复牌 `R` 事件；价格 DWD 只把 `S` 纳入停牌事件，避免复牌日被误判不可交易。
+- `index_dailybasic` 的市值/股本单位已经是元/股，`dwd_index_eod` 不做 `*10000` 换算。
 - 价格/估值/指数 DWD 使用月分区并开启 `require_partition_filter`；财务指标按公告月分区，但不强制分区过滤，方便 PIT as-of join。

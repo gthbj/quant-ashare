@@ -246,3 +246,99 @@ AGENTS.md 新增「六、评审协议」。首份代码评审文档：`docs/revi
 ### Related Files
 
 `AGENTS.md` §六, `docs/reviews/P0-建表SQL-review.md`
+
+## DECISION-20260531-14: 采纳 P0 SQL 首轮评审并修复物化前风险
+
+Date: 2026-05-31
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5
+
+### Context
+
+owner 要求修复 `docs/reviews/P0-建表SQL-review.md` 对 commit `9942f14` 的发现。评审指出 2 项物化前风险和 3 项 QA/完整性建议。
+
+### Decision
+
+采纳评审发现并修复：README 执行命令显式加 `--location=asia-east2`；`dwd_stock_eod_price` 的 `suspend_event` 只保留 `suspend_type='S'`，复牌 `R` 不标记停牌；`dim_stock` 加 `sec_code` 去重与 `derived_from_daily` 派生退市 30 日宽限；`dwd_fin_indicator` 按 `(sec_code, report_period, ann_date_eff, update_flag)` 去重保留最新摄入；补 `dwd_fin_indicator_latest` 和 P0 smoke QA 脚本。
+
+### Rationale
+
+这些修复分别解决跨区域执行不稳、复牌日误判不可交易、股票主维兜底过早截断、重复版本防御和最新版本便利消费问题，不改变当前 2019+ 样本范围。
+
+### Impact
+
+P0 SQL 仍未实际物化。下一步按 `sql/README.md` 执行脚本，并运行 `sql/qa/01_p0_smoke_checks.sql`。
+
+### Alternatives Considered
+
+仅修 R1/R2、把 R3-R5 留到 QA 后；放弃，因为 owner 已要求修复，且这些补丁范围小、不会绑定调度选型。
+
+### Related Files
+
+`sql/README.md`, `sql/dim/02_dim_stock.sql`, `sql/dwd/01_dwd_stock_eod_price.sql`, `sql/dwd/03_dwd_fin_indicator.sql`, `sql/dwd/05_dwd_fin_indicator_latest.sql`, `sql/qa/01_p0_smoke_checks.sql`
+
+## DECISION-20260531-15: P0 先将 dwd_index_eod 物化为价格-only
+
+Date: 2026-05-31
+Status: superseded by DECISION-20260531-16
+Owner: owner
+Agent ID: Codex
+Model: GPT-5
+
+### Context
+
+执行 `sql/dwd/04_dwd_index_eod.sql` 时，`ods_tushare_index_dailybasic` 在 2019+ 分区读取失败，原因是外部表 schema 与 Parquet 物理类型不一致，已实测涉及 `float_mv`、`float_share` 等列。
+
+### Decision
+
+P0 `dwd_index_eod` 先只读取 `ods_tushare_index_daily` 价格字段并物化；保留指数估值/股本字段，但置为 NULL。`index_dailybasic` 问题作为 OQ-009 跟进。
+
+### Rationale
+
+指数价格基准对 P0 可用性更关键；因坏列阻塞整张表不划算。价格-only 表能先服务基准收益、风格对照和 DWS 标签/特征验证。
+
+### Impact
+
+`dwd_index_eod` 已物化 11,922 行，日期范围 2019-01-02 至 2026-05-28。使用估值/股本字段的下游必须先处理 NULL 或等待 OQ-009。
+
+### Alternatives Considered
+
+继续读取 `index_dailybasic` 并尝试 `SAFE_CAST`；不可行，因为 BigQuery 在读取 Parquet 列时已因物理类型不匹配失败，`SAFE_CAST` 无法兜底。
+
+### Related Files
+
+`sql/dwd/04_dwd_index_eod.sql`, `sql/README.md`, `.agent/memory/OPEN_QUESTIONS.md`
+
+## DECISION-20260531-16: 恢复 dwd_index_eod 指数估值/股本字段
+
+Date: 2026-05-31
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5
+
+### Context
+
+owner 告知 GCS `index_dailybasic` Parquet 文件已修复。复测确认 2019+ 的 `index_dailybasic_000016_SH`、`index_dailybasic_000905_SH`、`index_dailybasic_399001_SZ`、`index_dailybasic_399006_SZ`、`index_dailybasic_399300_SZ` 均可读取 `float_mv`、`float_share`、`total_mv`、`total_share`、`pe`、`pe_ttm`、`pb`。
+
+### Decision
+
+恢复 `sql/dwd/04_dwd_index_eod.sql` 对 `ods_tushare_index_dailybasic` 的读取，并将 `total_mv/float_mv` 直接落为 `total_mv_cny/float_mv_cny`，将 `total_share/float_share/free_share` 直接落为股本字段。删除指数 DWD 中误导性的 `_10k` 中间字段，不做 `*10000` 换算。
+
+### Rationale
+
+Tushare `index_dailybasic` 官方单位为元/股，不同于股票 `daily_basic` 的万元/万股口径。恢复 dailybasic 字段后，`dwd_index_eod` 可同时服务指数价格、估值和市场状态特征。
+
+### Impact
+
+`dwd_index_eod` 已重建并通过 QA。2019+ 共 11,922 行，其中 8,899 行有 dailybasic 估值/股本字段；STAR50(`000688.SH`) 与 CSI1000(`000852.SH`) 仍为空，因为 ODS 当前没有对应 `index_dailybasic` endpoint。OQ-009 已关闭。
+
+### Alternatives Considered
+
+保留价格-only 或保留 `_10k` 字段置 NULL；放弃，因为上游已修复且 `_10k` 字段会误导单位。
+
+### Related Files
+
+`sql/dwd/04_dwd_index_eod.sql`, `sql/qa/01_p0_smoke_checks.sql`, `.agent/memory/OPEN_QUESTIONS.md`

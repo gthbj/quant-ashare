@@ -65,6 +65,10 @@ valid_base AS (
   FROM base
   WHERE ann_date_eff IS NOT NULL
     AND report_period IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY sec_code, report_period, ann_date_eff, update_flag
+    ORDER BY ingested_at DESC, source_partition_date DESC
+  ) = 1
 ),
 with_visible_date AS (
   SELECT

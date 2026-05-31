@@ -6,7 +6,7 @@ Last updated: 2026-05-31
 
 ## 当前状态
 
-项目处于**设计完成、P0 建表 SQL 已落地但尚未物化**阶段。已产出 DWD/DIM 建模方案文档，并已修订 §4.6 的 2019 前数据范围。owner 澄清：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件。根目录 `sql/` 已新增 BigQuery Standard SQL 脚本，覆盖 P0 DIM/DWD；尚无任何已物化的 BigQuery DWD/DIM 表，无调度代码。
+项目处于**P0 DIM/DWD 已物化并通过 smoke QA**阶段。已产出 DWD/DIM 建模方案文档，并已修订 §4.6 的 2019 前数据范围。owner 澄清：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件。根目录 `sql/` 已新增 BigQuery Standard SQL 脚本，覆盖 P0 DIM/DWD 和 QA；BigQuery 目标已建 3 张 DIM + 5 张 DWD。暂无调度代码。
 
 ## 已完成（Completed）
 
@@ -21,17 +21,18 @@ Last updated: 2026-05-31
 - 按实测 review 整改建模方案（9 采纳 / 2 调整）：财务版本事实表、价格表「交易日历×在市」骨架（含停牌日）、表级可见日规则（`fina_indicator` 用 `ann_date`）、ODS 元数据矩阵、lookback buffer、方向性可交易、`visible_trade_date`、表数订正 54；写 `docs/reviews/…-review-response.md`。
 - 修正早先“全历史写入”误读：`docs/reviews/数据仓库建模方案-DWD-DIM-review-2019前数据范围修正.md` 已改为 2019 前数据范围修正说明；主方案 §4.6 已新增范围表。
 - 主方案文首和 TL;DR 已显式说明：当前建模范围是 2019-01-01 之后的 A 股日线 DWD/DWS；2019 年以前数据仅作为 PIT / lookback / 维度历史支撑。
-- P0 建表 SQL 已落地到 `sql/`：`00_create_datasets.sql`、3 张 DIM、4 张 DWD。脚本采用 `CREATE OR REPLACE TABLE`、月分区、`sec_code` 聚簇、范围参数 `dwd_start_date/fin_start_period/lookback_start_date`。
+- P0 建表 SQL 已落地到 `sql/`：`00_create_datasets.sql`、3 张 DIM、5 张 DWD、1 个 QA 脚本。脚本采用 `CREATE OR REPLACE TABLE`、月分区、`sec_code` 聚簇、范围参数 `dwd_start_date/fin_start_period/lookback_start_date`。
 - SQL 校验完成：dataset/DIM 脚本 dry-run 通过；`dwd_stock_eod_valuation`、`dwd_index_eod` dry-run 通过；`dwd_stock_eod_price`、`dwd_fin_indicator` 因目标 DIM 尚未物化，使用临时空维表替换后 dry-run 通过。未实际写入 BigQuery。
+- 采纳并修复 P0 SQL 评审发现：README 命令加 `--location=asia-east2`；`suspend_d` 只以 `suspend_type='S'` 标记停牌，复牌 `R` 不再误判停牌；`dim_stock` 加 `sec_code` 去重与派生退市 30 日宽限；`dwd_fin_indicator` 加版本键去重兜底；新增 `dwd_fin_indicator_latest` 与 `sql/qa/01_p0_smoke_checks.sql`。修复后相关脚本 dry-run 通过。
+- P0 物化完成并通过 smoke QA：`dim_trade_calendar` 13,162 行；`dim_stock` 5,853 行；`dim_stock_name_hist` 3,776 行；`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_index_eod` 11,922 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行。
+- 上游修复 `ods_tushare_index_dailybasic` Parquet 类型后，`dwd_index_eod` 已恢复估值/股本字段并重建：2019+ 共 11,922 行，其中 8,899 行有 `pe/pe_ttm/pb/total_mv_cny/float_mv_cny/total_share/float_share` 等 dailybasic 字段；STAR50(`000688.SH`) 和 CSI1000(`000852.SH`) 因 ODS 无 dailybasic endpoint 仍为空。
 
 ## 进行中 / 部分（In Progress）
 
-- P0 SQL 已可执行，下一步是按 `sql/README.md` 执行物化并做基础数据质量 QA。
-- P0 建表 SQL 已评审，结论见 `docs/reviews/P0-建表SQL-review.md`：5 项发现，2 项物化前必修（README 加 `--location=asia-east2`；`suspend_d` 复牌行过滤），3 项随 QA 补（fin 版本键去重兜底、`dim_stock` 唯一性断言、补 `dwd_fin_indicator_latest`）。发现是否转 TODO/OQ 待 owner 决定。已确立评审协议（AGENTS.md §六 / DECISION-20260531-13）。
+- 无。
 
 ## 未开始 / 未来（Not Started / Future）
 
-- P0 BigQuery 物化执行与 QA：行数、主键唯一性、分区范围、停牌骨架、PIT `visible_trade_date`。
 - `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置。
 - 「从 ODS 继承字段描述」的脚本（bq show → 映射 → bq update）。
 - 增量调度（dbt 或 Airflow + SQL）、数据质量断言。
@@ -46,8 +47,8 @@ Last updated: 2026-05-31
 | ODS 理解 | 高 | 54 表字段+分区语义已探明 |
 | DWD/DIM 设计 | 高 | 主文档已完成；§4.6 已修订 2019 前数据范围 |
 | 命名/单位/分区/注释规范 | 高 | 已敲定并写入文档 |
-| P0 建表 SQL | 已完成 | `sql/` 已新增 3 张 DIM + 4 张 DWD；dry-run 校验通过 |
-| P0 表物化/QA | 未开始 | 尚未执行建表脚本 |
+| P0 建表 SQL | 已完成 | `sql/` 已新增 3 张 DIM + 5 张 DWD + QA；首轮评审修复后 dry-run 校验通过 |
+| P0 表物化/QA | 已完成 | 3 张 DIM + 5 张 DWD 已物化，smoke QA 通过 |
 | ETL/调度 | 未开始 | — |
 | DWS 特征/标签 | 未开始 | — |
 | 行业映射 | 受阻 | ODS 缺 index_member（OQ-001） |
