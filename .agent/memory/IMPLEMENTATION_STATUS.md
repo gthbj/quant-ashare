@@ -6,7 +6,7 @@ Last updated: 2026-06-01
 
 ## 当前状态
 
-项目处于**P0 DIM/DWD 已物化并通过 smoke QA，策略 1 价格量价 DWS/ADS SQL 已物化并通过 QA，策略 1 BigQuery ML runner 设计与实现 PRD 已完成，OQ-003 财务报表口径已采纳并关闭**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案、策略 1 PRD、runner 设计与 runner 实现 PRD、OQ-003 财务 `report_type` 口径 PRD。owner 澄清：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件；OQ-003 已采纳 P0 默认合并报表 `report_type='1'`、DWD 保留口径字段、DWS 默认过滤默认口径。根目录 `sql/` 已覆盖 P0 DIM/DWD、策略 1 DWS、策略 1 ADS 表契约、metadata 和 QA；BigQuery 目标已建 3 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表。OQ-007 的 ODS `stock_basic_delisted.delist_date` 已复核为 `STRING` 且可解析，仓库 SQL 已改为优先使用 ODS 退市日；实际 BigQuery 依赖表仍需合并后重建。暂无调度代码和 BigQuery ML 训练/回测 runner SQL。
+项目处于**P0 DIM/DWD 已物化并通过 smoke QA，策略 1 价格量价 DWS/ADS SQL 已物化并通过 QA，策略 1 BigQuery ML runner 设计与实现 PRD 已完成，OQ-003 财务报表口径已采纳并关闭，OQ-004 基准指数口径 PRD 已完成待 owner review**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案、策略 1 PRD、runner 设计与 runner 实现 PRD、OQ-003 财务 `report_type` 口径 PRD、OQ-004 基准指数代码可用性 PRD。owner 澄清：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件；OQ-003 已采纳 P0 默认合并报表 `report_type='1'`、DWD 保留口径字段、DWS 默认过滤默认口径。根目录 `sql/` 已覆盖 P0 DIM/DWD、策略 1 DWS、策略 1 ADS 表契约、metadata 和 QA；BigQuery 目标已建 3 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表。OQ-007 的 ODS `stock_basic_delisted.delist_date` 已复核为 `STRING` 且可解析，仓库 SQL 已改为优先使用 ODS 退市日；实际 BigQuery 依赖表仍需合并后重建。OQ-004 仍需实现 `dim_index`、映射驱动 `dwd_index_eod`、QA 与 runner benchmark 窗口校验。暂无调度代码和 BigQuery ML 训练/回测 runner SQL。
 
 ## 已完成（Completed）
 
@@ -41,6 +41,7 @@ Last updated: 2026-06-01
 - 策略 1 BigQuery ML runner 设计已完成：`docs/策略1-ml_pv_clf_v0-runner设计.md`。设计限定 BigQuery SQL + BigQuery ML 执行路径，覆盖训练面板、`CREATE MODEL`、BQML `L1_REG/L2_REG` 手动候选网格、valid RankIC 选型、`ML.PREDICT`、候选池、组合、订单、回测、监控、GCS 报告产物、本地报告镜像、幂等、QA 和验收；`board` 保留为监控字段、不进 v0 主模型训练列。当前仅完成设计，尚未落地 `sql/ml/strategy1/` runner 脚本。
 - 策略 1 BigQuery ML runner 与回测闭环实现 PRD 已完成：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`。PRD 定义 `sql/ml/strategy1/01-10` 脚本交付物、输入输出、运行参数、功能需求、QA、报告产物和验收标准；卖出顺延首版采用预计算 `next_sellable_trade_date` 方案，报告渲染脚本 `scripts/strategy1/render_report.py` 是必需交付物；当前尚未落地 runner SQL。
 - OQ-003 财务 `report_type` / 报表口径维度已采纳并关闭：`docs/prd/PRD_20260601_03_财务报表口径维度.md`。P0 默认消费合并报表 `report_type='1'`，DWD 对三大财务表保留 `report_type`/`report_caliber`/`is_default_report_caliber`，DWS 财务特征默认只过滤默认口径并补 NULL-safe QA；后续实现 PR 需同步主建模方案文档和 SQL。
+- OQ-004 基准指数代码可用性 PRD 已完成：`docs/prd/PRD_20260601_04_OQ004基准指数口径.md`。PRD 将范围收窄为指数 endpoint/canonical 映射、`dim_index`、映射驱动 `dwd_index_eod`、OQ-004 QA 和 runner benchmark 窗口契约；OQ-004 仍 open，待 owner review 与后续 SQL 实现。
 - 策略 1 首个基线股票池板块纳入口径已确认：仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板。现有 `sql/dws/01_dws_stock_universe_daily.sql` 默认 `board_allowlist` 已符合该口径；已同步文档和 OQ-010，OQ-010 仅剩成本、调仓、持股数/权重上限待确认。
 - 评审协议已按 owner 最新要求更新：GitHub PR review 默认写 PR comment，一条写不下拆多条；只有 owner 明确要求或无 PR comment 承载面时才写 `docs/reviews/` 评审文档。`DECISION-20260531-13` 已被 `DECISION-20260601-03` supersede。
 - ODS 已补采 `index_member_all` 和 `ci_index_member`；主方案、DWS/ADS 文档和策略文档已更新为可落地申万/中信行业时点映射，OQ-001 已关闭。
@@ -57,6 +58,7 @@ Last updated: 2026-06-01
 - 增量调度（dbt 或 Airflow + SQL）、数据质量断言。
 - 合并 OQ-007 后重建 `dim_stock`，并按依赖重建 `dwd_stock_eod_price` 与策略 1 DWS/ADS 派生产物，随后执行 `sql/metadata/01_p0_table_column_descriptions.sql`、`sql/qa/01_p0_smoke_checks.sql` 和 `sql/qa/02_strategy1_dws_ads_checks.sql`。
 - P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily`、`dws_market_state_daily`（策略 1 价格量价首版未阻塞；财务特征按 OQ-003 PRD 默认合并报表口径消费）。
+- OQ-004 实现：新增 `dim_index`，更新 `dwd_index_eod` 从映射源驱动，补 `sql/qa/03_oq004_index_checks.sql`，并在 runner 执行前校验 benchmark 窗口覆盖。
 - 策略 1 `ml_pv_clf_v0` BigQuery ML + SQL runner：生成 `ads_ml_training_panel_daily`，训练 BQML `LOGISTIC_REG`（主）/ `LINEAR_REG`（对照），写预测/候选/组合/回测 ADS 表，输出 RankIC/分层收益/净值/换手/不可成交比例。
 - lookback-capable 价格构建输入：当前策略 1 DWS 只读取最终 DWD/DIM，不直接读 ODS；由于最终 DWD 价格表不落 2018 buffer 行，2019 年初 60 日价格窗口用 `has_full_history_60d=FALSE` 显式标记并由默认样本掩码剔除。若要求 2019-01 起 60 日窗口完整，需要补专用 lookback 构建输入或调整 DWD/DWS 构建方式。
 - P1+ 资金面/事件/行业族 DWD。
