@@ -1,0 +1,176 @@
+-- 文档维护：GPT-5（最近更新 2026-06-01）
+-- BigQuery Standard SQL
+-- 策略 1 DWS/ADS 物化后的基础断言。
+
+DECLARE dws_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE dws_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
+
+ASSERT (
+  SELECT COUNT(*) = 6
+  FROM `data-aquarium.ashare_dws.INFORMATION_SCHEMA.TABLES`
+  WHERE table_name IN (
+    'dws_stock_universe_daily',
+    'dws_stock_feature_price_daily',
+    'dws_stock_feature_valuation_daily',
+    'dws_stock_label_daily',
+    'dws_stock_feature_daily_v0',
+    'dws_stock_sample_daily'
+  )
+) AS 'strategy1 DWS tables must exist';
+
+ASSERT (
+  SELECT COUNT(*) >= 10
+  FROM `data-aquarium.ashare_ads.INFORMATION_SCHEMA.TABLES`
+  WHERE table_name IN (
+    'ads_ml_training_panel_daily',
+    'ads_model_registry',
+    'ads_model_prediction_daily',
+    'ads_stock_candidate_daily',
+    'ads_portfolio_target_daily',
+    'ads_order_plan_daily',
+    'ads_backtest_trade_daily',
+    'ads_backtest_position_daily',
+    'ads_backtest_nav_daily',
+    'ads_backtest_performance_summary',
+    'ads_signal_monitor_daily'
+  )
+) AS 'strategy1 ADS contract tables must exist';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT sec_code, trade_date, COUNT(*) AS n
+    FROM `data-aquarium.ashare_dws.dws_stock_universe_daily`
+    WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    GROUP BY sec_code, trade_date
+    HAVING n > 1
+  )
+) AS 'dws_stock_universe_daily key (sec_code, trade_date) must be unique';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT sec_code, trade_date, feature_version, COUNT(*) AS n
+    FROM `data-aquarium.ashare_dws.dws_stock_feature_price_daily`
+    WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    GROUP BY sec_code, trade_date, feature_version
+    HAVING n > 1
+  )
+) AS 'dws_stock_feature_price_daily key must be unique';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT sec_code, trade_date, feature_version, COUNT(*) AS n
+    FROM `data-aquarium.ashare_dws.dws_stock_feature_valuation_daily`
+    WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    GROUP BY sec_code, trade_date, feature_version
+    HAVING n > 1
+  )
+) AS 'dws_stock_feature_valuation_daily key must be unique';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT sec_code, trade_date, label_version, COUNT(*) AS n
+    FROM `data-aquarium.ashare_dws.dws_stock_label_daily`
+    WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    GROUP BY sec_code, trade_date, label_version
+    HAVING n > 1
+  )
+) AS 'dws_stock_label_daily key must be unique';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT sec_code, trade_date, feature_version, label_version, COUNT(*) AS n
+    FROM `data-aquarium.ashare_dws.dws_stock_sample_daily`
+    WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    GROUP BY sec_code, trade_date, feature_version, label_version
+    HAVING n > 1
+  )
+) AS 'dws_stock_sample_daily key must be unique';
+
+ASSERT (
+  SELECT COUNT(*) > 0
+  FROM `data-aquarium.ashare_dws.dws_stock_universe_daily` AS u
+  JOIN `data-aquarium.ashare_dim.dim_stock` AS s
+    ON u.sec_code = s.sec_code
+  WHERE u.trade_date BETWEEN dws_start_date AND dws_end_date
+    AND s.is_delisted
+    AND u.is_listed
+) AS 'universe must include delisted stocks during their alive intervals';
+
+ASSERT (
+  SELECT COUNT(*) > 0
+  FROM `data-aquarium.ashare_dws.dws_stock_feature_price_daily`
+  WHERE trade_date BETWEEN DATE '2019-01-01' AND DATE '2019-03-31'
+    AND has_full_history_60d = FALSE
+) AS 'price feature table must explicitly mark incomplete 60d history in early 2019 when no final DWD lookback rows exist';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dws.INFORMATION_SCHEMA.COLUMNS`
+  WHERE table_name IN (
+    'dws_stock_feature_price_daily',
+    'dws_stock_feature_daily_v0',
+    'dws_stock_sample_daily'
+  )
+    AND REGEXP_CONTAINS(LOWER(column_name), r'qfq')
+) AS 'DWS strategy1 feature/sample tables must not expose qfq columns';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dws.dws_stock_sample_daily`
+  WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    AND sample_trainable_default
+    AND rank_pct_5d IS NULL
+) AS 'default trainable samples must have universe-ranked rank_pct_5d';
+
+ASSERT (
+  SELECT MIN(trade_date) = DATE '2019-04-03'
+    AND COUNTIF(trade_date < DATE '2019-04-01') = 0
+  FROM `data-aquarium.ashare_dws.dws_stock_sample_daily`
+  WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    AND sample_trainable_default
+) AS 'default trainable samples should start on 2019-04-03 with no 2019Q1 rows under current no-2018-lookback build';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    WITH cal AS (
+      SELECT cal_date, trade_date_seq
+      FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+      WHERE exchange = 'SSE'
+        AND is_open = 1
+        AND cal_date BETWEEN dws_start_date AND dws_end_date
+    ),
+    checked AS (
+      SELECT
+        l.trade_date,
+        l.sec_code,
+        l.fwd_ret_5d,
+        SAFE_DIVIDE(x5.close_hfq, entry.open_hfq) - 1.0 AS expected_fwd_ret_5d
+      FROM `data-aquarium.ashare_dws.dws_stock_label_daily` AS l
+      JOIN cal AS c0
+        ON l.trade_date = c0.cal_date
+      JOIN cal AS ce
+        ON ce.trade_date_seq = c0.trade_date_seq + 1
+      JOIN cal AS c5
+        ON c5.trade_date_seq = c0.trade_date_seq + 5
+      JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS entry
+        ON entry.sec_code = l.sec_code
+       AND entry.trade_date = ce.cal_date
+       AND entry.trade_date BETWEEN dws_start_date AND dws_end_date
+      JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS x5
+        ON x5.sec_code = l.sec_code
+       AND x5.trade_date = c5.cal_date
+       AND x5.trade_date BETWEEN dws_start_date AND dws_end_date
+      WHERE l.trade_date BETWEEN DATE '2020-01-01' AND DATE '2020-12-31'
+        AND l.fwd_ret_5d IS NOT NULL
+    )
+    SELECT 1
+    FROM checked
+    WHERE ABS(fwd_ret_5d - expected_fwd_ret_5d) > 1e-10
+  )
+) AS 'fwd_ret_5d must equal close_hfq[t+5] / open_hfq[t+1] - 1';

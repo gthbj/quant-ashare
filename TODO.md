@@ -14,7 +14,7 @@
 - [x] 编写 `dwd_stock_eod_valuation` 建表 SQL（估值/市值/换手，单位归一，写 2019+，dry-run 通过）
 - [x] 编写 `dwd_fin_indicator` 建表 SQL（PIT 版本事实 + `ann_date_eff`，`partition_date >= 20170101`；临时维表替换 dry-run 通过）
 - [x] 编写并回填 `dwd_index_eod` 建表 SQL（基准指数价格 + `index_dailybasic` 估值/股本，dry-run/QA 通过）
-- [ ] 重建 `dwd_index_eod` 以应用 canonical `sec_code` + `source_sec_code` 指数代码归一调整（脚本 dry-run 已通过），并重新执行 metadata / QA
+- [x] 重建 `dwd_index_eod` 以应用 canonical `sec_code` + `source_sec_code` 指数代码归一调整，并重新执行 metadata / QA（2026-06-01 已物化，P0 smoke QA 通过）
 - [x] 修复 P0 SQL 评审发现 R1-R5（显式 `--location=asia-east2`、复牌行不判停牌、`dim_stock` 去重与派生退市宽限、`fina_indicator` 去重兜底、补 `dwd_fin_indicator_latest` 和 QA 脚本；dry-run 通过）
 - [x] 执行 `sql/` P0 建表脚本并运行 `sql/qa/01_p0_smoke_checks.sql`（已物化 3 张 DIM + 5 张 DWD，QA 通过）
 - [x] 修复 P0 SQL 二轮评审发现（盘中临停不再误标全天停牌；`dwd_fin_indicator_latest` 改为 `update_flag DESC` 优先；重建相关 DWD 并跑通 QA）
@@ -23,9 +23,11 @@
 - [ ] 写「从 ODS 继承字段描述」脚本（`bq show` → 映射 → `bq update`）
 - [x] 设计 DWS/ADS 表体系（`docs/数据仓库建模方案-DWS-ADS.md`，覆盖 P0 DWS 特征/标签与 ADS 训练/预测/组合/回测/监控）
 - [x] 设计中低频小资金 ML 策略方案（`docs/A股中低频小资金机器学习策略方案.md`，首个策略 `ml_ranker_v0`）
-- [ ] 编写 P0 DWS 建表 SQL：`dws_stock_universe_daily`、`dws_stock_feature_price_daily`、`dws_stock_feature_valuation_daily`、`dws_stock_feature_fin_daily`、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`
-- [ ] 编写 P0 ADS 建表 SQL：`ads_ml_training_panel_daily`、`ads_model_registry`、`ads_model_prediction_daily`、`ads_stock_candidate_daily`、`ads_portfolio_target_daily`、`ads_order_plan_daily`、`ads_backtest_*`、`ads_signal_monitor_daily`
-- [ ] 跑通 `ml_ranker_v0` 基线：生成训练面板、训练模型、写预测/候选/组合/回测 ADS 表、输出 RankIC/分位收益/净值/换手/不可成交比例
+- [x] 编写并物化策略 1 DWS 建表 SQL：`dws_stock_universe_daily`、`dws_stock_feature_price_daily`、`dws_stock_feature_valuation_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`（`sql/dws/*.sql`，dry-run / 物化 / `sql/qa/02_strategy1_dws_ads_checks.sql` 通过；PR #4 comment 已补 `label_valid` 语义说明、去冗余 JOIN、量化最早可训练日期、同步 DWD-DIM 字段名）
+- [ ] 补 P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily`、`dws_market_state_daily`、后续策略共用的财务/市场状态特征
+- [x] 编写并物化策略 1/P0 ADS 表契约：`ads_ml_training_panel_daily`、`ads_model_registry`、`ads_model_prediction_daily`、`ads_stock_candidate_daily`、`ads_portfolio_target_daily`、`ads_order_plan_daily`、`ads_backtest_*`、`ads_signal_monitor_daily`（`sql/ads/01_ads_strategy1_tables.sql`，dry-run / 物化 / QA 通过）
+- [ ] 补策略 1 训练/预测/组合/回测 Python run：生成 `ads_ml_training_panel_daily`，训练 `ml_pv_clf_v0`，写预测/候选/组合/回测 ADS 表，输出 RankIC/分位收益/净值/换手/不可成交比例
+- [ ] 补 lookback-capable 价格构建输入或调整 DWD/DWS 构建方式，使 2019-01 起 60 日价格窗口可直接读取 2018 buffer；当前策略 1 DWS 已用 `has_full_history_60d` 显式标记并默认剔除不完整窗口样本
 
 ## P1 — 特征扩展
 

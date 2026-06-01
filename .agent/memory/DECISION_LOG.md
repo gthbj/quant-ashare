@@ -453,7 +453,7 @@ Agent ID: Codex
 
 ### 影响
 
-`sql/dwd/04_dwd_index_eod.sql`、metadata、QA 和相关文档已按此口径更新。当前 BigQuery 实表尚未重建；重建后需重新执行 `sql/metadata/01_p0_table_column_descriptions.sql` 和 `sql/qa/01_p0_smoke_checks.sql`。
+`sql/dwd/04_dwd_index_eod.sql`、metadata、QA 和相关文档已按此口径更新。2026-06-01 已重建 BigQuery 实表，并重新执行 `sql/metadata/01_p0_table_column_descriptions.sql` 和 `sql/qa/01_p0_smoke_checks.sql` 通过。
 
 ### 备选方案
 

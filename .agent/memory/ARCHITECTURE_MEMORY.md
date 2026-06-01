@@ -72,14 +72,21 @@ P0 ADS 目标表：
 
 DWS/ADS 统一版本字段：`universe_version`、`feature_version`、`label_version`、`strategy_id`、`model_id`、`run_id`。首个策略为 `ml_ranker_v0`：P0 特征横截面排序，预测未来 5/10 日收益或分位，长-only，`t` 日盘后信号、`t+1` 开盘/VWAP 建仓。
 
+2026-06-01 策略 1（`ml_pv_clf_v0`）已先落地价格量价首版 DWS/ADS：
+
+- DWS 已物化 6 张表：`dws_stock_universe_daily`、`dws_stock_feature_price_daily`、`dws_stock_feature_valuation_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`。
+- ADS 已物化 11 张契约表：训练面板、模型注册、预测、候选池、组合目标、订单计划、回测成交/持仓/NAV/绩效汇总、信号监控。
+- 标签口径固定为 `close_hfq[t+H] / open_hfq[t+1] - 1`，H=1/5/10/20；`rank_pct_Hd` / `fwd_xs_ret_Hd` 按默认 universe 截面计算；`label_entry_tradable` 只用于训练有效性、回测撮合和归因，不作为 t 日选股过滤。
+- 当前策略 1 DWS 不直接读取 ODS；由于最终 DWD 价格表不落 2018 buffer 行，2019 年初 60 日窗口用 `has_full_history_60d=FALSE` 显式标记，默认样本掩码剔除不完整窗口。
+
 ## SQL 代码布局
 
-- 根目录 `sql/` 存放 P0 BigQuery Standard SQL：`00_create_datasets.sql`、`dim/*.sql`、`dwd/*.sql`。
-- 现有脚本覆盖 3 张 DIM + 5 张 DWD，使用 `CREATE OR REPLACE TABLE` + CTAS + 后置 `ALTER COLUMN SET OPTIONS`；`sql/qa/01_p0_smoke_checks.sql` 存放物化后基础断言。
+- 根目录 `sql/` 存放 P0 BigQuery Standard SQL：`00_create_datasets.sql`、`dim/*.sql`、`dwd/*.sql`、`dws/*.sql`、`ads/*.sql`。
+- 现有脚本覆盖 3 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表，使用 `CREATE OR REPLACE TABLE` + CTAS/DDL + 字段描述；`sql/qa/01_p0_smoke_checks.sql` 存放 DIM/DWD 基础断言，`sql/qa/02_strategy1_dws_ads_checks.sql` 存放策略 1 DWS/ADS 断言。
 - `sql/metadata/01_p0_table_column_descriptions.sql` 统一维护 P0 DIM/DWD 表级和字段级中文说明；每次重建 P0 表后都应重新执行该 metadata 脚本。
 - 当前脚本是 bootstrap SQL，不关闭 OQ-005；后续仍可迁移为 dbt 或纳入 Airflow 调度。
 - 2026-05-31 P0 已物化到 BigQuery；`dwd_index_eod` 已恢复读取 `index_dailybasic`。该接口市值/股本单位为元/股，不做 `*10000` 换算。
-- `dwd_index_eod` 的 `sec_code` 使用 canonical 指数代码，`source_sec_code` 保留 ODS/Tushare 实际代码；双代码指数映射先由建表脚本 CTE 维护，未来可沉淀为 `dim_index`。
+- `dwd_index_eod` 的 `sec_code` 使用 canonical 指数代码，`source_sec_code` 保留 ODS/Tushare 实际代码；双代码指数映射先由建表脚本 CTE 维护，未来可沉淀为 `dim_index`。该表已按 canonical 口径重建并通过 metadata / QA。
 - `dwd_stock_eod_price` 中 `is_suspended` 仅表示全天停牌/无成交；有成交的 `S` 事件另用 `has_intraday_halt`，开盘时段/未知时段临停用 `has_open_halt` 并影响开盘侧可交易掩码。
 - `dwd_fin_indicator_latest` 是非 PIT 便捷表，按 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC` 取每个 `(sec_code, report_period)` 的最新修正版。
 
