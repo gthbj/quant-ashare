@@ -13,7 +13,7 @@
 1. **DWS 的核心产物**是按 `(sec_code, trade_date)` 对齐的样本、特征、标签：先分族物化，再合成训练宽表，避免一张超宽表承担所有职责。
 2. **ADS 的核心产物**是面向策略执行和研究复现的消费表：训练面板、模型预测、候选池、目标组合、订单计划、回测持仓/NAV/绩效、信号监控。
 3. **PIT 与交易假设延续 DWD/DIM 方案**：`t` 日盘后生成特征，`t+1` 开盘或 VWAP 建仓；财务/事件用 `visible_trade_date <= trade_date`；标签从 `t+1` 起算。
-4. **当前 P0 只依赖已设计的 3 张 DIM + 4 张 DWD**：可先做 universe、价格/估值/财务指标特征、指数/市场状态、1/5/10/20 日标签、训练面板和基线预测表。
+4. **当前 P0 依赖已设计的 4 张 DIM + 5 张 DWD**：可先做 universe、价格/估值/财务指标特征、指数/市场状态、1/5/10/20 日标签、训练面板和基线预测表。
 5. **P1/P2 特征族增量接入**：资金、筹码、北向、两融、行业、事件、龙虎榜、大宗、质押、回购等单独进入分族 DWS，不阻塞 P0 宽表。
 6. **所有 DWS/ADS 表都必须可追溯**：保留 `feature_version`、`label_version`、`universe_version`、`model_id`、`run_id`、`created_at` 等版本字段，避免回测不可复现。
 
@@ -260,7 +260,8 @@ QUALIFY ROW_NUMBER() OVER (
 
 - DWS/ADS 只使用 `dwd_index_eod.sec_code` 作为基准指数 join key；该字段已在 DWD 层归一为 canonical 指数代码。
 - `dwd_index_eod.source_sec_code` 仅用于追溯 ODS/Tushare 实际端点代码，不进入 DWS/ADS 业务 join。例：ODS 沪深300 来源代码为 `399300.SZ`，DWD `sec_code` 输出为 canonical `000300.SH`，`source_sec_code='399300.SZ'`。
-- 双代码或多代码指数的 `source_sec_code -> sec_code` 映射先在 `dwd_index_eod` 建表脚本中维护，未来可沉淀为 `dim_index` 维表。
+- 双代码或多代码指数的 `source_sec_code -> sec_code` 映射由 `dim_index` 统一维护；`dwd_index_eod` 从 `dim_index` 读取可用端点与 canonical 映射。
+- 任何 runner / ADS 回测在写基准收益前，必须先校验 `benchmark_sec_code` 是 `dim_index.has_daily=TRUE AND is_benchmark_candidate=TRUE`，并校验完整 NAV 窗口内每个开市日 `dwd_index_eod` 有且只有一条非空价格记录。依赖 PE/PB/市值等指数估值特征时，还必须要求 `has_dailybasic=TRUE`。
 
 ### 4.6 `dws_stock_label_daily`
 

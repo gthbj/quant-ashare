@@ -20,7 +20,8 @@
 - 部分数值字段在 ODS 是 STRING（如 `moneyflow_hsgt`、`ccass_hold`）：落库须 `SAFE_CAST`。
 - 北向数据（hk_hold / moneyflow_hsgt）2024 年后部分口径变化/停更，需做可用性标记。
 - `index_member_all` / `ci_index_member` 已在 ODS 中可用，是最新分区中的全量历史行业归属区间快照；历史 join 必须用 `in_date/out_date`，不能用 `is_new` 回填历史。默认区间口径为 `[in_date, out_date)`，落地前需 QA `out_date` 当天有效性、区间重叠/缺口和 2019+ 覆盖率。
-- `dwd_index_eod.sec_code` 应输出 canonical 指数代码；若 ODS 实际代码不同，用 `source_sec_code` 保留来源代码（如 ODS `399300.SZ` → canonical `000300.SH`），DWS/ADS 基准 join 只使用 canonical `sec_code`。
+- `dim_index` 是指数 canonical 映射、ODS 实际代码、端点可用性和 benchmark 候选状态的事实来源。`dwd_index_eod.sec_code` 应输出 canonical 指数代码；若 ODS 实际代码不同，用 `source_sec_code` 保留来源代码（如 ODS `399300.SZ` → canonical `000300.SH`），DWS/ADS 基准 join 只使用 canonical `sec_code`。
+- runner 使用 `benchmark_sec_code` 前必须校验该代码在 `dim_index` 中 `has_daily=TRUE AND is_benchmark_candidate=TRUE`，并校验完整 NAV 窗口内 `dwd_index_eod` 对每个开市日有且只有一条非空价格记录。依赖指数 PE/PB/市值字段的市场状态特征必须要求 `dim_index.has_dailybasic=TRUE`。
 
 ## 平台约束（BigQuery）
 

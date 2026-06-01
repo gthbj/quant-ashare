@@ -28,6 +28,74 @@ DECLARE p_max_period INT64;
 
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
 
+-- ── OQ-004 benchmark 前置校验：必须是 dim_index 中的可用收益基准，并完整覆盖 NAV 窗口 ──
+ASSERT (
+  SELECT COUNT(*) = 1
+  FROM `data-aquarium.ashare_dim.dim_index` AS i
+  WHERE i.sec_code = p_benchmark
+    AND i.has_daily
+    AND i.is_benchmark_candidate
+) AS 'benchmark must exist in dim_index as a has_daily benchmark candidate';
+
+CREATE TEMP TABLE benchmark_window_check AS
+WITH window_calendar AS (
+  -- A 股沪深两市交易日历实际一致；这里统一用 SSE 日历代表全市场开市日。
+  SELECT cal_date AS trade_date
+  FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+  WHERE exchange = 'SSE'
+    AND is_open = 1
+    AND cal_date BETWEEN p_predict_start AND p_predict_end
+),
+benchmark AS (
+  SELECT
+    idx.trade_date,
+    COUNT(*) AS row_count,
+    COUNTIF(idx.close IS NULL OR idx.pre_close IS NULL OR idx.pct_chg IS NULL) AS bad_price_count
+  FROM `data-aquarium.ashare_dwd.dwd_index_eod` AS idx
+  WHERE idx.sec_code = p_benchmark
+    AND idx.trade_date BETWEEN p_predict_start AND p_predict_end
+  GROUP BY idx.trade_date
+),
+window_bounds AS (
+  SELECT MIN(trade_date) AS first_open_date
+  FROM window_calendar
+),
+prev_open AS (
+  SELECT MAX(cal.cal_date) AS prev_trade_date
+  FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS cal
+  CROSS JOIN window_bounds AS wb
+  WHERE cal.exchange = 'SSE'
+    AND cal.is_open = 1
+    AND cal.cal_date < wb.first_open_date
+)
+SELECT
+  COUNT(*) AS open_days,
+  COUNTIF(b.trade_date IS NULL) AS missing_open_days,
+  COUNTIF(b.row_count > 1) AS duplicate_open_days,
+  COUNTIF(b.bad_price_count > 0) AS bad_price_days,
+  (
+    SELECT COUNT(*)
+    FROM `data-aquarium.ashare_dwd.dwd_index_eod` AS idx
+    CROSS JOIN prev_open AS p
+    WHERE idx.sec_code = p_benchmark
+      AND idx.trade_date = p.prev_trade_date
+      AND idx.trade_date BETWEEN DATE_SUB(p_predict_start, INTERVAL 10 DAY) AND p_predict_start
+      AND idx.close IS NOT NULL
+  ) AS previous_close_rows
+FROM window_calendar AS c
+LEFT JOIN benchmark AS b
+  ON b.trade_date = c.trade_date;
+
+ASSERT (
+  SELECT
+    open_days > 0
+    AND missing_open_days = 0
+    AND duplicate_open_days = 0
+    AND bad_price_days = 0
+    AND previous_close_rows = 1
+  FROM benchmark_window_check
+) AS 'benchmark must have exactly one non-null close/pre_close/pct_chg row for every open day and a prior close before window start';
+
 -- ── 幂等：默认存在即报错，force_replace 才清理 ──
 IF NOT p_force_replace THEN
   -- 检查本脚本写入的所有表（含部分失败残留），任一非空即报错
