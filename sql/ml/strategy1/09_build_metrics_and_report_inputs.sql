@@ -56,10 +56,11 @@ WITH rdates AS (
     AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
 ),
 we AS (
-  SELECT r.rebalance_date,
-    (SELECT MIN(c2.trade_date) FROM cal AS c2
-     WHERE c2.trade_date_seq = (SELECT c1.trade_date_seq FROM cal AS c1 WHERE c1.trade_date = r.rebalance_date) + 1) AS exec_date
+  -- t+1 执行日：交易日历自连接按 seq+1 取下一交易日（去相关子查询）
+  SELECT r.rebalance_date, nxt.trade_date AS exec_date
   FROM rdates AS r
+  JOIN cal AS rc ON rc.trade_date = r.rebalance_date
+  LEFT JOIN cal AS nxt ON nxt.trade_date_seq = rc.trade_date_seq + 1
 )
 SELECT rebalance_date, exec_date, ROW_NUMBER() OVER (ORDER BY exec_date) AS period_idx
 FROM we WHERE exec_date IS NOT NULL;
@@ -72,6 +73,7 @@ WITH presence AS (
   JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
     ON pt.rebalance_date = pr.rebalance_date
    AND pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
+  WHERE pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
 ),
 grp AS (
   SELECT sec_code, period_idx,
@@ -97,25 +99,28 @@ exits AS (
   FROM ep_filled AS epf JOIN periods AS px ON px.period_idx = epf.last_present + 1
 ),
 with_actual AS (
+  -- desired_sell_date 起 60 交易日内首个可卖开盘日（去相关子查询，LEFT JOIN 保留无可卖日 NULL）
   SELECT
     e.sec_code, e.desired_sell_date,
-    (SELECT MIN(px2.trade_date)
-     FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px2
-     JOIN cal AS c2 ON px2.trade_date = c2.trade_date
-     JOIN cal AS c1 ON c1.trade_date = e.desired_sell_date
-     WHERE px2.sec_code = e.sec_code AND px2.trade_date >= e.desired_sell_date
-       AND c2.trade_date_seq <= c1.trade_date_seq + 60
-       AND px2.can_sell_open
-       AND px2.trade_date BETWEEN p_predict_start AND p_calendar_end) AS actual_sell_date
+    MIN(px2.trade_date) AS actual_sell_date
   FROM exits AS e
+  JOIN cal AS c1 ON c1.trade_date = e.desired_sell_date
+  LEFT JOIN cal AS c2 ON c2.trade_date_seq BETWEEN c1.trade_date_seq AND c1.trade_date_seq + 60
+  LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px2
+    ON px2.sec_code = e.sec_code
+   AND px2.trade_date = c2.trade_date
+   AND px2.trade_date >= e.desired_sell_date
+   AND px2.can_sell_open
+   AND px2.trade_date BETWEEN p_predict_start AND p_calendar_end
+  GROUP BY e.sec_code, e.desired_sell_date
 )
 SELECT
-  sec_code, desired_sell_date, actual_sell_date,
-  CASE WHEN actual_sell_date IS NULL THEN NULL
-       ELSE (SELECT ca.trade_date_seq FROM cal AS ca WHERE ca.trade_date = actual_sell_date)
-          - (SELECT cd.trade_date_seq FROM cal AS cd WHERE cd.trade_date = desired_sell_date)
-  END AS delay_td
-FROM with_actual;
+  wa.sec_code, wa.desired_sell_date, wa.actual_sell_date,
+  -- 顺延交易日数 = 实际可卖日 seq − 期望卖出日 seq（cal 自连接，去相关子查询）
+  IF(wa.actual_sell_date IS NULL, NULL, ca.trade_date_seq - cd.trade_date_seq) AS delay_td
+FROM with_actual AS wa
+LEFT JOIN cal AS ca ON ca.trade_date = wa.actual_sell_date
+JOIN cal AS cd ON cd.trade_date = wa.desired_sell_date;
 
 CREATE TEMP TABLE sell_stats AS
 SELECT
@@ -210,12 +215,17 @@ WITH t1 AS (
     ON c2.trade_date_seq = c1.trade_date_seq + 1 AND c2.exchange = 'SSE' AND c2.is_open = 1
   WHERE c1.exchange = 'SSE' AND c1.is_open = 1
     AND c1.cal_date BETWEEN p_predict_start AND p_predict_end
+),
+-- 每个交易日的训练面板样本量（预聚合，去相关子查询）
+panel_cnt AS (
+  SELECT tp.trade_date, COUNT(*) AS sample_count
+  FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+  WHERE tp.run_id = p_run_id AND tp.trade_date BETWEEN p_predict_start AND p_predict_end
+  GROUP BY tp.trade_date
 )
 SELECT
   p_strategy_id, p_selected_model_id, pred.predict_date,
-  (SELECT COUNT(*) FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-   WHERE tp.run_id = p_run_id AND tp.trade_date = pred.predict_date
-     AND tp.trade_date BETWEEN p_predict_start AND p_predict_end),
+  ANY_VALUE(pc.sample_count),
   COUNT(*),
   COUNTIF(cand.is_selected_candidate),
   AVG(pred.score), STDDEV_SAMP(pred.score),
@@ -228,6 +238,7 @@ LEFT JOIN `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
   AND cand.strategy_id = p_strategy_id AND cand.run_id = p_run_id
   AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
 LEFT JOIN t1 ON t1.signal_date = pred.predict_date
+LEFT JOIN panel_cnt AS pc ON pc.trade_date = pred.predict_date
 LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
   ON px.sec_code = pred.sec_code AND px.trade_date = t1.exec_date
   AND px.trade_date BETWEEN p_predict_start AND p_calendar_end
