@@ -355,6 +355,7 @@ Run ID: —
 - 本次只完成设计与文档/记忆同步，尚未实现 `sql/ml/strategy1/` runner SQL。
 - 策略 1 首版模型执行口径：训练面板写 `ads_ml_training_panel_daily`，BQML 模型对象放 `ashare_ads`，预测写 `ads_model_prediction_daily`，候选/组合/订单/回测/监控继续复用已物化 ADS 契约表。
 - 回测报告文件设计为 GCS-first + 本地镜像：BigQuery ADS 是结构化事实来源，Markdown/HTML/图表/JSON artifact 持久放 `gs://<ashare-artifact-bucket>/reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/`，同时镜像到本地 `reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/` 方便用户读取；本地 `reports/` 默认不提交 git。
+- PR #5 comment 已跟进：BQML 正则化改为 `L1_REG/L2_REG` 手动候选网格并按 valid RankIC/分层收益选择；`board` 从 v0 主模型训练列移除，保留为分组和暴露监控字段。PR #3 已 merged，当前 PR #5 `mergeStateStatus=CLEAN`，无需等待 PR #3。
 
 ### 改动文件
 - `docs/策略1-ml_pv_clf_v0-runner设计.md`

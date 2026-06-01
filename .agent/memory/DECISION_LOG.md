@@ -477,7 +477,7 @@ Agent ID: Codex
 
 ### 决策
 
-策略 1 `ml_pv_clf_v0` runner 采用 BigQuery SQL + BigQuery ML：用 `ads_ml_training_panel_daily` 冻结样本与预处理口径，首版用 BQML `LOGISTIC_REG` 训练 `label_top30_5d`，可用 BQML `LINEAR_REG` 作为对照；通过 `ML.PREDICT` 写预测分，再用 SQL 生成候选池、组合、订单、回测、监控和模型注册信息。回测报告 artifact 采用 GCS-first + 本地镜像：GCS 是持久存储，本地 `reports/` 只方便用户读取且默认不提交。runner SQL 后续放 `sql/ml/strategy1/`。
+策略 1 `ml_pv_clf_v0` runner 采用 BigQuery SQL + BigQuery ML：用 `ads_ml_training_panel_daily` 冻结样本与预处理口径，首版用 BQML `LOGISTIC_REG` 训练 `label_top30_5d`，可用 BQML `LINEAR_REG` 作为对照；正则化和调参使用 BQML 原生 `L1_REG` / `L2_REG` 手动候选网格，最终以验证集 RankIC/分层收益选择，不用 sklearn `l1_ratio/C` 口径作为实现参数。`board` 保留为分组和暴露监控字段，不进入 v0 主模型训练列。通过 `ML.PREDICT` 写预测分，再用 SQL 生成候选池、组合、订单、回测、监控和模型注册信息。回测报告 artifact 采用 GCS-first + 本地镜像：GCS 是持久存储，本地 `reports/` 只方便用户读取且默认不提交。runner SQL 后续放 `sql/ml/strategy1/`。
 
 ### 理由
 
@@ -485,7 +485,7 @@ Agent ID: Codex
 
 ### 影响
 
-新增 `docs/策略1-ml_pv_clf_v0-runner设计.md`。更新策略 1 PRD、DWS/ADS 方案、策略方案、SQL README、ADS 表契约注释和工作记忆，将旧的 Python runner 待办替换为 BigQuery ML + SQL runner 待办；`.gitignore` 忽略生成型本地报告镜像 `reports/`。OQ-010 不再包含训练工具链选择，但仍保留成本、调仓频率、持股数/权重上限和板块纳入参数待确认。
+新增 `docs/策略1-ml_pv_clf_v0-runner设计.md`。更新策略 1 PRD、DWS/ADS 方案、策略方案、SQL README、ADS 表契约注释和工作记忆，将旧的 Python runner 待办替换为 BigQuery ML + SQL runner 待办；`.gitignore` 忽略生成型本地报告镜像 `reports/`。PR #5 comment 后补充了 `L1_REG/L2_REG` 手动候选模型选择流程，并将 `board` 从 v0 主模型特征改为监控字段。OQ-010 不再包含训练工具链选择，但仍保留成本、调仓频率、持股数/权重上限和板块纳入参数待确认。
 
 ### 备选方案
 

@@ -150,12 +150,12 @@ Runner 以 BigQuery script variables 传参，首版参数如下：
 - 5 日标签会重叠，指标解释时必须按周频调仓或按日期聚合，避免把重叠样本当成独立日频观测。
 - 若未来做滚动训练，每个 fold 使用独立 `run_id` 或在 `split_fold` 中记录 fold，不能覆盖旧结果。
 
-### 5.2 特征白名单
+### 5.2 模型特征白名单
 
-首版特征来自 `dws_stock_sample_daily` 的价格、量价、估值、市值、板块和上市天数字段：
+首版模型特征来自 `dws_stock_sample_daily` 的价格、量价、估值、市值和上市天数字段：
 
 ```text
-board, list_age_td,
+list_age_td,
 ret_1d, ret_3d, ret_5d, ret_10d, ret_20d, ret_60d,
 mom_20_5, mom_60_20,
 vol_5d, vol_20d, vol_60d,
@@ -165,6 +165,8 @@ turnover_rate, turnover_rate_free_float, turnover_rate_ma20, volume_ratio,
 pe_ttm, pb, ps_ttm, dividend_yield_ttm, ep_ttm, bp, sp_ttm,
 log_total_mv, log_circ_mv
 ```
+
+`board` 不进入 v0 主模型。当前默认 universe 下 `board` 主要是 `SSE_MAIN` / `SZSE_MAIN` 二值暴露，信号量低；runner 只把它保留在训练面板、候选池和报告中，用于分组监控、暴露归因和后续板块纳入参数对照。
 
 首版禁止进入模型的字段：
 
@@ -183,7 +185,7 @@ fwd_*, rank_pct_*, label_*,
 
 BigQuery ML 会处理常见数值缺失和类别编码，但 runner 仍应在 SQL 中显式固化以下口径：
 
-1. `board` 保留为类别字段，由 BigQuery ML 编码。
+1. `board` 保留为分组 / 暴露字段，不进入 v0 主模型训练列。
 2. 数值字段保留原列，并为核心缺失字段增加 `is_null_<feature>` 标记。
 3. 极端值处理优先做训练窗口内分位数截尾：分位点只用 train split 计算，再应用到 valid/test/live，不能用全样本分布。
 4. `pe_ttm <= 0` 等经济含义特殊值不直接 log；使用现有 `ep_ttm` / `bp` / `sp_ttm` 与缺失标记。
@@ -198,6 +200,33 @@ BigQuery ML 会处理常见数值缺失和类别编码，但 runner 仍应在 SQ
 - 训练样本：`sample_trainable_default=TRUE AND split_tag='train'`
 - 验证/测试：用 `ML.EVALUATE` 分别在 valid/test query 上执行
 
+### 6.1 正则化与调参
+
+BigQuery ML `LOGISTIC_REG` 使用 `L1_REG` 和 `L2_REG` 两个独立正则化参数；不使用 sklearn 的 `l1_ratio`、`C` 或 `alpha` 参数化。因此 runner 不做 `l1_ratio -> L1/L2` 的机械映射，直接以 BQML 原生参数定义候选模型。
+
+首版调参流程：
+
+1. 定义一张候选参数表，至少包含 `candidate_id`、`l1_reg`、`l2_reg`、`model_id`、`run_id`。
+2. 对每个候选参数组合创建独立 BigQuery ML model object，`model_id` 中带候选后缀，避免覆盖。
+3. 在 valid 窗口对每个候选模型执行 `ML.PREDICT`，写临时或候选态预测结果。
+4. 用 SQL 计算 valid RankIC、分层收益、TopN 收益、AUC、log_loss 和样本覆盖率。
+5. 以 `valid_rank_ic_mean` 为主选择准则；若接近持平，用分层单调性、TopN 收益稳定性和 log_loss 作为 tie-breaker。
+6. 只有胜出的候选模型进入正式 `ads_model_prediction_daily` / 组合 / 回测流程；其余候选在 `ads_model_registry.status` 标为 `candidate_rejected`。
+
+候选网格建议从小规模开始，避免一次性创建过多模型对象：
+
+| candidate_id | `L1_REG` | `L2_REG` | 用途 |
+|---|---:|---:|---|
+| `l1_0_l2_0` | 0 | 0 | 无正则基线。 |
+| `l1_0_l2_1e_4` | 0 | 0.0001 | 轻 L2。 |
+| `l1_0_l2_1e_3` | 0 | 0.001 | 中 L2。 |
+| `l1_1e_5_l2_1e_4` | 0.00001 | 0.0001 | 轻 L1 + 轻 L2。 |
+| `l1_1e_4_l2_1e_3` | 0.0001 | 0.001 | 中 L1 + 中 L2。 |
+
+BigQuery ML 内置 hyperparameter tuning 可以作为辅助诊断，例如用 `HPARAM_CANDIDATES` / `HPARAM_RANGE` 和 `HPARAM_TUNING_OBJECTIVES=['ROC_AUC']` 先观察 AUC/log_loss 方向；但它不作为首版最终选型机制，因为策略验收主目标是 RankIC/分层收益，而不是分类阈值指标。
+
+### 6.2 训练 SQL 模板
+
 训练 SQL 形态：
 
 ```sql
@@ -207,11 +236,12 @@ OPTIONS (
   INPUT_LABEL_COLS = ['target_label'],
   DATA_SPLIT_METHOD = 'NO_SPLIT',
   AUTO_CLASS_WEIGHTS = TRUE,
+  L1_REG = 0.0,
+  L2_REG = 0.001,
   MAX_ITERATIONS = 50
 ) AS
 SELECT
   target_label,
-  board,
   list_age_td,
   ret_1d, ret_3d, ret_5d, ret_10d, ret_20d, ret_60d,
   mom_20_5, mom_60_20,
@@ -266,7 +296,6 @@ FROM ML.PREDICT(
     SELECT
       trade_date,
       sec_code,
-      board,
       list_age_td,
       ret_1d, ret_3d, ret_5d, ret_10d, ret_20d, ret_60d,
       mom_20_5, mom_60_20,
@@ -470,5 +499,6 @@ reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/
 
 - BigQuery ML `CREATE MODEL`：<https://cloud.google.com/bigquery/docs/reference/standard-sql/bigqueryml-syntax-create>
 - BigQuery ML generalized linear models：<https://cloud.google.com/bigquery/docs/reference/standard-sql/bigqueryml-syntax-create-glm>
+- BigQuery ML hyperparameter tuning overview：<https://cloud.google.com/bigquery/docs/hp-tuning-overview>
 - BigQuery ML `ML.PREDICT`：<https://cloud.google.com/bigquery/docs/reference/standard-sql/bigqueryml-syntax-predict>
 - BigQuery ML `ML.EVALUATE`：<https://cloud.google.com/bigquery/docs/reference/standard-sql/bigqueryml-syntax-evaluate>
