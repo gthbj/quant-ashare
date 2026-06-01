@@ -31,6 +31,8 @@
 - [x] 编写策略 1 BigQuery ML runner 设计：`docs/策略1-ml_pv_clf_v0-runner设计.md`（BigQuery SQL + BigQuery ML，覆盖训练、预测、候选、组合、订单、回测、监控、幂等和 QA）
 - [x] 编写策略 1 BigQuery ML runner 与回测闭环实现 PRD：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`
 - [x] 编写并采纳 OQ-003 财务 `report_type` 口径 PRD：`docs/prd/PRD_20260601_03_财务报表口径维度.md`（P0 默认合并报表，DWD 保留口径字段，DWS 默认过滤；PR #8 review comment 与 NULL-safe QA 已跟进）
+- [x] 编写 OQ-004 基准指数代码可用性 PRD：`docs/prd/PRD_20260601_04_OQ004基准指数口径.md`（指数 endpoint/canonical 映射、`dim_index`、benchmark 窗口契约）
+- [ ] 按 `PRD_20260601_04_OQ004基准指数口径.md` 补 `dim_index`、OQ-004 QA、映射驱动的 `dwd_index_eod` 和 runner benchmark 窗口校验
 - [ ] 按 `PRD_20260601_02_策略1BQML回测闭环.md` 补策略 1 BigQuery ML + SQL runner：生成 `ads_ml_training_panel_daily`，训练 BQML `LOGISTIC_REG` / `LINEAR_REG`，写预测/候选/组合/回测 ADS 表，输出 RankIC/分位收益/净值/换手/不可成交比例
 - [ ] 补 lookback-capable 价格构建输入或调整 DWD/DWS 构建方式，使 2019-01 起 60 日价格窗口可直接读取 2018 buffer；当前策略 1 DWS 已用 `has_full_history_60d` 显式标记并默认剔除不完整窗口样本
 
@@ -59,6 +61,7 @@
 
 - [x] OQ-001 行业映射：`index_member_all` 已补采（同时补入 `ci_index_member`），后续转为建表 SQL + QA
 - [x] OQ-003 财务 `report_type` 口径：已采纳 `docs/prd/PRD_20260601_03_财务报表口径维度.md` 推荐方案（P0 默认合并报表、DWD 保留多口径字段、DWS 默认过滤）
+- [ ] OQ-004 基准指数代码可用性：PRD 已写，待 owner review `dim_index` 和 runner benchmark 校验方案
 - [x] OQ-007 退市日类型：ODS `stock_basic_delisted.delist_date` 已修复为 `STRING`，`dim_stock` SQL 已改为优先使用 ODS 退市日
 - [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 bq SQL
 - [ ] OQ-010 P0 策略默认参数：成本、调仓频率、持股数/权重上限（训练工具链已定为 BigQuery ML + SQL runner；首个基线股票池已定为仅沪深主板，不含北交所/创业板/科创板）
