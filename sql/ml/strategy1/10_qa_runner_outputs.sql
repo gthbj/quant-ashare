@@ -131,7 +131,7 @@ GROUP BY bt.fill_status;
 ASSERT (
   SELECT COUNT(*) = 0
   FROM (
-    SELECT c.trade_date AS expected_date
+    SELECT c.cal_date AS expected_date
     FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS c
     WHERE c.exchange = 'SSE' AND c.is_open = 1
       AND c.cal_date BETWEEN p_predict_start AND p_predict_end

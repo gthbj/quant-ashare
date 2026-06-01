@@ -38,6 +38,30 @@ except ImportError as e:
     sys.exit(1)
 
 
+def make_bq_client(project: str) -> "bigquery.Client":
+    """Build a BigQuery client.
+
+    Prefer Application Default Credentials. If ADC is not configured (common on
+    machines where only the gcloud CLI is logged in, not `gcloud auth
+    application-default login`), fall back to the gcloud user access token so the
+    report can still be rendered with the existing CLI auth.
+    """
+    try:
+        return bigquery.Client(project=project)
+    except Exception as adc_err:  # DefaultCredentialsError and friends
+        import subprocess
+        import google.oauth2.credentials
+        try:
+            token = subprocess.check_output(
+                ["gcloud", "auth", "print-access-token"],
+                stderr=subprocess.DEVNULL,
+            ).decode().strip()
+        except Exception:
+            raise adc_err
+        creds = google.oauth2.credentials.Credentials(token)
+        return bigquery.Client(project=project, credentials=creds)
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Render strategy 1 backtest report")
     p.add_argument("--project", required=True)
@@ -230,10 +254,13 @@ def write_report_uri_to_ads(client: bigquery.Client, project: str,
                              backtest_id: str, gcs_uri: str, local_path: str):
     # metrics_json is a STRING column; JSON_SET needs JSON, so PARSE_JSON in and
     # TO_JSON_STRING out to keep the column a STRING while preserving existing keys.
+    # wide_number_mode => 'round': metrics_json holds wide floats (e.g. sharpe
+    # -6.2447297844571539) that PARSE_JSON rejects in the default exact mode
+    # because they cannot round-trip through their string form.
     sql = f"""
     UPDATE `{project}.ashare_ads.ads_backtest_performance_summary` AS bs
     SET bs.metrics_json = TO_JSON_STRING(JSON_SET(
-      PARSE_JSON(COALESCE(bs.metrics_json, '{{}}')),
+      PARSE_JSON(COALESCE(bs.metrics_json, '{{}}'), wide_number_mode => 'round'),
       '$.report_uri', @gcs_uri,
       '$.local_report_path', @local_path,
       '$.report_generated_utc', @ts
@@ -251,7 +278,7 @@ def write_report_uri_to_ads(client: bigquery.Client, project: str,
 
 def main():
     args = parse_args()
-    bq = bigquery.Client(project=args.project)
+    bq = make_bq_client(args.project)
 
     print("Fetching summary...")
     summary = fetch_summary(bq, args.project, args.backtest_id)
