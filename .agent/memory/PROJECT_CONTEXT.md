@@ -45,7 +45,8 @@ ashare_ods (已有, 外部表)
 - 2026-05-31 ODS 已补采 `index_member_all` 与 `ci_index_member`，可落地申万/中信个股行业时点映射维表；OQ-001 已关闭。
 - 策略 1 价格量价 DWS/ADS SQL 已落地并物化：`sql/dws/01-06_*.sql` 建成 universe、价格/估值特征、open-to-close 标签、特征宽表、样本表；`sql/ads/01_ads_strategy1_tables.sql` 建成训练、预测、候选、组合、订单、回测、监控表契约；`sql/qa/02_strategy1_dws_ads_checks.sql` 已通过。
 - 策略 1 `ml_pv_clf_v0` runner 设计已完成：`docs/策略1-ml_pv_clf_v0-runner设计.md`，执行路径收敛为 BigQuery ML + SQL，训练/预测/组合/回测结果写入既有 ADS 契约表。
-- **下一步**：落地策略 1 BigQuery ML + SQL 训练/预测/组合/回测 runner（写入 ADS 并输出 RankIC/分层收益/NAV/换手/不可成交比例）；或补 P0 通用财务/市场状态 DWS（`dws_stock_feature_fin_daily`、`dws_market_state_daily`）和财务三表。
+- 策略 1 runner 与回测闭环实现 PRD 已完成：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`。
+- **下一步**：按实现 PRD 落地策略 1 BigQuery ML + SQL 训练/预测/组合/回测 runner（写入 ADS 并输出 RankIC/分层收益/NAV/换手/不可成交比例）；或补 P0 通用财务/市场状态 DWS（`dws_stock_feature_fin_daily`、`dws_market_state_daily`）和财务三表。
 
 ## 不可妥协的约定
 

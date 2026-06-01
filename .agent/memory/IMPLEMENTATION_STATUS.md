@@ -6,7 +6,7 @@ Last updated: 2026-06-01
 
 ## 当前状态
 
-项目处于**P0 DIM/DWD 已物化并通过 smoke QA，策略 1 价格量价 DWS/ADS SQL 已物化并通过 QA，策略 1 BigQuery ML runner 设计已完成**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案、策略 1 PRD 与 runner 设计。owner 澄清：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件。根目录 `sql/` 已覆盖 P0 DIM/DWD、策略 1 DWS、策略 1 ADS 表契约、metadata 和 QA；BigQuery 目标已建 3 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表。暂无调度代码和 BigQuery ML 训练/回测 runner SQL。
+项目处于**P0 DIM/DWD 已物化并通过 smoke QA，策略 1 价格量价 DWS/ADS SQL 已物化并通过 QA，策略 1 BigQuery ML runner 设计与实现 PRD 已完成**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案、策略 1 PRD、runner 设计与 runner 实现 PRD。owner 澄清：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件。根目录 `sql/` 已覆盖 P0 DIM/DWD、策略 1 DWS、策略 1 ADS 表契约、metadata 和 QA；BigQuery 目标已建 3 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表。暂无调度代码和 BigQuery ML 训练/回测 runner SQL。
 
 ## 已完成（Completed）
 
@@ -38,6 +38,7 @@ Last updated: 2026-06-01
 - PR #4 comment 跟进修复完成：`dws_stock_label_daily` 去掉 `ce/c1` 冗余日历 JOIN；补充 `label_valid_*d` 与 `exit_reachable_*d` 字段说明，明确 `label_valid` 检查入场可交易与标签价格可用，退出可卖性交给 `exit_reachable` 和回测撮合；`sql/qa/02_strategy1_dws_ads_checks.sql` 增加默认可训练样本最早日期断言（当前 `2019-04-03`，2019Q1 无默认可训练样本）；DWD-DIM/DWS-ADS 文档同步相关口径与 `volume_share`/`amount_cny` 实表字段名。已重建 label/sample 并重跑策略 1 QA 通过。
 - PR #4 已合并到 `main`；已删除合并后不再使用的 `codex/implement-strategy1-prd` 本地分支和远端分支，并在 `KNOWN_CONSTRAINTS.md` 增加 PR 合并后清理无用 `codex/*` 分支的工程规则。
 - 策略 1 BigQuery ML runner 设计已完成：`docs/策略1-ml_pv_clf_v0-runner设计.md`。设计限定 BigQuery SQL + BigQuery ML 执行路径，覆盖训练面板、`CREATE MODEL`、BQML `L1_REG/L2_REG` 手动候选网格、valid RankIC 选型、`ML.PREDICT`、候选池、组合、订单、回测、监控、GCS 报告产物、本地报告镜像、幂等、QA 和验收；`board` 保留为监控字段、不进 v0 主模型训练列。当前仅完成设计，尚未落地 `sql/ml/strategy1/` runner 脚本。
+- 策略 1 BigQuery ML runner 与回测闭环实现 PRD 已完成：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`。PRD 定义 `sql/ml/strategy1/01-10` 脚本交付物、输入输出、运行参数、功能需求、QA、报告产物和验收标准；当前尚未落地 runner SQL。
 - ODS 已补采 `index_member_all` 和 `ci_index_member`；主方案、DWS/ADS 文档和策略文档已更新为可落地申万/中信行业时点映射，OQ-001 已关闭。
 - 工作记忆瘦身完成：旧交接归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md`；已关闭问题迁移到 `.agent/memory/archive/CLOSED_QUESTIONS.md`；`OPEN_QUESTIONS.md` 仅保留 open 项；`UPDATE_PROTOCOL.md` 增加只读任务免追加交接和归档规则。
 
@@ -68,5 +69,5 @@ Last updated: 2026-06-01
 | DWS/ADS 设计 | 高 | 两篇设计文档已完成；尚未写 SQL |
 | ETL/调度 | 未开始 | — |
 | DWS 特征/标签 SQL | 部分完成 | 策略 1 universe、价格/估值特征、标签、宽表、样本已物化并 QA；财务特征和市场状态待补 |
-| 策略/ADS 闭环 | 部分完成 | ADS 表契约已物化；`ml_pv_clf_v0` BigQuery ML runner 设计已完成，SQL runner 待实现 |
+| 策略/ADS 闭环 | 部分完成 | ADS 表契约已物化；`ml_pv_clf_v0` BigQuery ML runner 设计和实现 PRD 已完成，SQL runner 待实现 |
 | 行业映射 | 可落地设计完成 | ODS 已有 index_member_all / ci_index_member；待 SQL 和 QA |
