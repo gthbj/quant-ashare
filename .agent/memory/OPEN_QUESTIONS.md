@@ -6,7 +6,6 @@
 
 | ID | 问题 | 状态 | Owner | 相关文件 |
 |---|---|---|---|---|
-| OQ-003 | 财务 `report_type` 口径：默认取合并报表 `'1'`；是否需要母公司/单季调整等口径维度？PRD 已提出 P0 默认合并报表、DWD 保留口径字段、DWS 默认过滤的推荐方案，且已跟进 PR #8 review comment 与 NULL-safe QA 细节。 | open: PRD 待 owner review | owner | docs §6.5, §10; `docs/prd/PRD_20260601_03_财务报表口径维度.md` |
 | OQ-004 | 基准指数代码可用性：中证1000/中证2000/国证2000 等需以 ODS `index_daily` 实际存在的 `ts_code` 端点为准，并维护 `source_sec_code -> sec_code` canonical 映射；前次复核到当前实际端点不含 `000300.SH`，但可由 `399300.SZ` 映射。其余基准仍需核对端点、起点和映射。 | open | owner | docs §6.4, §10; docs/reviews/数据仓库建模方案-DWD-DIM-review-2019前数据范围修正.md; docs/prd/PRD_20260601_02_策略1BQML回测闭环.md |
 | OQ-005 | 物化与调度选型：用 dbt（含 `persist_docs` 刷描述）还是纯 `bq` SQL 脚本 + 自建调度？ | open | owner | docs §3.4, §8 |
 | OQ-006 | 金额单位逐接口换算系数表尚未逐一核对（仅核对了 daily 等核心表）；其余表落库前需逐接口确认。 | open | owner | docs §3.3-G, §10 |
