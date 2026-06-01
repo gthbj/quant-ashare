@@ -28,7 +28,7 @@
 - [x] 编写并物化策略 1/P0 ADS 表契约：`ads_ml_training_panel_daily`、`ads_model_registry`、`ads_model_prediction_daily`、`ads_stock_candidate_daily`、`ads_portfolio_target_daily`、`ads_order_plan_daily`、`ads_backtest_*`、`ads_signal_monitor_daily`（`sql/ads/01_ads_strategy1_tables.sql`，dry-run / 物化 / QA 通过）
 - [x] 编写策略 1 BigQuery ML runner 设计：`docs/策略1-ml_pv_clf_v0-runner设计.md`（BigQuery SQL + BigQuery ML，覆盖训练、预测、候选、组合、订单、回测、监控、幂等和 QA）
 - [x] 编写策略 1 BigQuery ML runner 与回测闭环实现 PRD：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`
-- [ ] 按 `PRD_20260601_02_策略1BQML回测闭环.md` 补策略 1 BigQuery ML + SQL runner：生成 `ads_ml_training_panel_daily`，训练 BQML `LOGISTIC_REG` / `LINEAR_REG`，写预测/候选/组合/回测 ADS 表，输出 RankIC/分位收益/净值/换手/不可成交比例
+- [x] 按 `PRD_20260601_02_策略1BQML回测闭环.md` 实现策略 1 BigQuery ML + SQL runner（`sql/ml/strategy1/01-10` + `scripts/strategy1/render_report.py` + README）；尚未在 BigQuery 执行
 - [ ] 补 lookback-capable 价格构建输入或调整 DWD/DWS 构建方式，使 2019-01 起 60 日价格窗口可直接读取 2018 buffer；当前策略 1 DWS 已用 `has_full_history_60d` 显式标记并默认剔除不完整窗口样本
 
 ## P1 — 特征扩展
