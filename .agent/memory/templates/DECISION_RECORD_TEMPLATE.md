@@ -1,19 +1,19 @@
 ## DECISION-YYYYMMDD-NN: <标题>
 
-Date:
-Status: active | superseded
-Owner:
+日期:
+状态: active | superseded
+负责人:
 Agent ID:
-Model:
+模型:
 
-### Context
+### 背景
 
-### Decision
+### 决策
 
-### Rationale
+### 理由
 
-### Impact
+### 影响
 
-### Alternatives Considered
+### 备选方案
 
-### Related Files
+### 相关文件

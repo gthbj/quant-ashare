@@ -1,23 +1,23 @@
-## Handoff Entry
+## 交接条目
 
-Date:
+日期:
 Agent ID:
-Agent Instance ID:
-Model:
-Runtime:
+Agent 实例 ID:
+模型:
+运行环境:
 Run ID:
-Related issue/PR:
+相关 issue/PR:
 
-### Work Completed
+### 已完成工作
 
-### Important Context
+### 重要上下文
 
-### Files Changed
+### 改动文件
 
-### Tests / Validation
+### 测试 / 验证
 
-### Blockers
+### 阻塞项
 
-### Next Recommended Step
+### 下一步建议
 
-### Memory Files Updated
+### 已更新记忆文件

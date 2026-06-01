@@ -1,23 +1,23 @@
-# Memory Update
+# 记忆更新
 
-Date:
+日期:
 Agent ID:
-Agent Instance ID:
-Model:
-Runtime:
+Agent 实例 ID:
+模型:
+运行环境:
 Run ID:
-Related issue/PR:
+相关 issue/PR:
 
-## Summary
+## 摘要
 
-## Files Updated
+## 已更新文件
 
-## Durable Changes
+## 持久变更
 
-## New Constraints
+## 新增约束
 
-## New Open Questions
+## 新增待决问题
 
-## Next Agent Should Read
+## 下一个 Agent 应读
 
-## Notes
+## 备注
