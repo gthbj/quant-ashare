@@ -10,7 +10,7 @@
 ## 数据底座
 
 - 平台：BigQuery，项目 `data-aquarium`。
-- ODS：数据集 `ashare_ods`，56 张 Tushare 来源的 **Hive 分区外部表**（分区键 `partition_date` + `endpoint`，强制分区裁剪）。
+- ODS：数据集 `ashare_ods`，57 张 Tushare 来源的 **Hive 分区外部表**（分区键 `partition_date` + `endpoint`，强制分区裁剪）。
 - 目标分层：`ashare_dim`（维度）+ `ashare_dwd`（明细）→ `ashare_dws`（特征/标签）→ `ashare_ads`（策略消费）。
 
 ## 分层架构

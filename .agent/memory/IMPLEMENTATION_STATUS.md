@@ -10,8 +10,8 @@ Last updated: 2026-05-31
 
 ## 已完成（Completed）
 
-- ODS 探查：`ashare_ods` 当前 56 张外部表的字段与分区语义已摸清（三类分区：A 行情增量 / B 财务报告期 / C 维度快照；`index_member_all`/`ci_index_member` 为最新分区全量历史区间快照）。
-- DWD/DIM 建模方案文档 `docs/数据仓库建模方案-DWD-DIM.md` 定稿：分层、56 表映射、五条铁律、DIM/DWD 逐表设计、DWS 衔接、工程建议、路线图、风险项。
+- ODS 探查：`ashare_ods` 当前 57 张外部表的字段与分区语义已摸清（三类分区：A 行情增量 / B 财务报告期 / C 维度快照；`index_member_all`/`ci_index_member` 为最新分区全量历史区间快照）。
+- DWD/DIM 建模方案文档 `docs/数据仓库建模方案-DWD-DIM.md` 定稿：分层、57 表映射、五条铁律、DIM/DWD 逐表设计、DWS 衔接、工程建议、路线图、风险项。
 - 命名规范敲定：`sec_code` 主键、`trade_date/cal_date`、`ann_date_eff`、单位元/股、复权 `_hfq/_qfq`、血缘 `source_system/ingested_at`。
 - 物理设计敲定：按月分区 + `sec_code` 聚簇、行情表 `require_partition_filter=TRUE`。
 - 2019 前数据范围敲定：财务/事件 `partition_date >= '20170101'`；行情 DWD/DWS 写 `trade_date >= 2019-01-01`、构建时按最大窗口读取 2018 lookback buffer；维度/日历取最新快照或全量历史事件。
@@ -51,7 +51,7 @@ Last updated: 2026-05-31
 
 | 能力 | 状态 | 备注 |
 |---|---|---|
-| ODS 理解 | 高 | 56 表字段+分区语义已探明 |
+| ODS 理解 | 高 | 57 表字段+分区语义已探明 |
 | DWD/DIM 设计 | 高 | 主文档已完成；§4.6 已修订 2019 前数据范围 |
 | 命名/单位/分区/注释规范 | 高 | 已敲定并写入文档 |
 | P0 建表 SQL | 已完成 | `sql/` 已新增 3 张 DIM + 5 张 DWD + QA；首轮评审修复后 dry-run 校验通过 |
