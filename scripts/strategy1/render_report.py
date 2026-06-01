@@ -161,14 +161,53 @@ def render_markdown(summary: dict, model_info: dict, args) -> str:
     return "\n".join(lines)
 
 
-def render_html(md_content: str) -> str:
-    body = html.escape(md_content).replace("\n", "<br>\n")
+def render_html(summary: dict, model_info: dict, args) -> str:
+    m = json.loads(summary.get("metrics_json") or "{}")
+
+    def row(label, value):
+        return f"<tr><th>{html.escape(label)}</th><td>{html.escape(str(value))}</td></tr>"
+
+    perf_rows = "".join([
+        row("Period", f"{summary.get('start_date', '')} to {summary.get('end_date', '')}"),
+        row("Total Return", fmt(summary.get("total_return"))),
+        row("Annual Return", fmt(summary.get("annual_return"))),
+        row("Annual Vol", fmt(summary.get("annual_vol"))),
+        row("Sharpe", fmt(summary.get("sharpe"))),
+        row("Max Drawdown", fmt(summary.get("max_drawdown"))),
+        row("Excess Return", fmt(summary.get("excess_return"))),
+        row("Information Ratio", fmt(summary.get("information_ratio"))),
+        row("Buy Fail Rate", fmt(m.get("buy_fail_rate"))),
+        row("Sell Delay Rate", fmt(m.get("sell_delay_rate"))),
+        row("Sell Blocked Count", m.get("sell_blocked_count", "N/A")),
+        row("Cost (bps)", fmt(summary.get("cost_bps"), 0)),
+        row("Benchmark", summary.get("benchmark_sec_code", "")),
+    ])
+    model_metrics = html.escape(json.dumps(json.loads(model_info.get("metrics_json") or "{}"), indent=2))
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Strategy 1 Backtest Report</title>
-<style>body{{font-family:monospace;max-width:900px;margin:auto;padding:20px}}
-table{{border-collapse:collapse}}td,th{{border:1px solid #ccc;padding:4px 8px}}
-img{{max-width:100%}}</style></head>
-<body><pre>{md_content}</pre></body></html>"""
+<style>body{{font-family:system-ui,Arial,sans-serif;max-width:960px;margin:auto;padding:24px;color:#222}}
+h1,h2{{border-bottom:1px solid #eee;padding-bottom:4px}}
+table{{border-collapse:collapse;margin:12px 0}}td,th{{border:1px solid #ccc;padding:6px 12px;text-align:left}}
+th{{background:#f6f6f6}}img{{max-width:100%;margin:8px 0}}pre{{background:#f6f6f6;padding:12px;overflow:auto}}
+.muted{{color:#888;font-size:0.9em}}</style></head>
+<body>
+<h1>Strategy 1 Backtest Report</h1>
+<ul>
+<li><b>backtest_id</b>: {html.escape(args.backtest_id)}</li>
+<li><b>run_id</b>: {html.escape(args.run_id)}</li>
+<li><b>strategy_id</b>: {html.escape(args.strategy_id)}</li>
+<li><b>model_id</b>: {html.escape(str(model_info.get('model_id', 'N/A')))}</li>
+<li><b>generated</b>: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</li>
+</ul>
+<h2>Performance Summary</h2>
+<table>{perf_rows}</table>
+<h2>Model Selection</h2>
+<pre>{model_metrics}</pre>
+<h2>Charts</h2>
+<img src="assets/nav.png" alt="NAV">
+<img src="assets/drawdown.png" alt="Drawdown">
+<p class="muted">OQ-010 parameters are example values, not business-final.</p>
+</body></html>"""
 
 
 def upload_dir_to_gcs(local_dir: Path, gcs_uri: str, skip: bool):
@@ -235,7 +274,7 @@ def main():
     print("Rendering report...")
     md = render_markdown(summary, model_info, args)
     (report_dir / "report.md").write_text(md)
-    (report_dir / "report.html").write_text(render_html(md))
+    (report_dir / "report.html").write_text(render_html(summary, model_info, args))
     metrics = {
         "backtest_id": args.backtest_id, "run_id": args.run_id,
         "strategy_id": args.strategy_id, "model_id": model_info.get("model_id"),

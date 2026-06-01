@@ -1,12 +1,12 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
--- 08: 回测。按周频 period 重构组合，用真实股数/现金/成本计 NAV。
--- 建模口径（v0，已文档化）：
---   * 每个调仓 period 在 t+1 开盘按目标权重重构持仓；不可买的目标票其权重转为现金。
---   * 持仓股数 = (period 起始资本 V_p × 权重) / 开盘后复权价；按后复权收盘价逐日估值。
---   * 现金 = V_p × (1 − 已建仓权重) − 成本；成本 = 实际换手 × cost_bps。
---   * NAV = 现金 + Σ 持仓市值；period 间用链式资本 V_p = 上一 period 末 NAV。
---   * 卖出顺延：trade 层用预计算 next-sellable（≥ 执行日，60 日窗口），
---     超窗口标记 SELL_BLOCKED_NO_NEXT_SELLABLE_60D；NAV 用 period 重构估值（顺延对 NAV 为二阶影响，已记录于 trade/统计）。
+-- 08: 回测。完全由「成交」驱动，三张表同源、可对账：
+--   * 成交：从 order_plan 出发，BUY 在 t+1 开盘成交（不可买→REJECTED 留现金）；
+--     SELL 用预计算 next-sellable（≥ 执行日，60 日窗口），超窗口→SELL_BLOCKED_NO_NEXT_SELLABLE_60D。
+--   * 订单名义按 initial_capital × |Δweight| 定（与 order_plan 一致，v0 不做按 NAV 复利的仓位放大）。
+--   * 每日净持仓股数 = Σ 已成交签名股数（BUY +、SELL −），fill_date ≤ 当日；卖出顺延/封死自然 carry。
+--   * 每日现金 = initial_capital + Σ cash_effect（fill_date ≤ 当日）；成本只在成交上计提。
+--   * NAV = 现金 + Σ(净股数 × 当日收盘价)；建仓前为全现金。
+--   * 持仓股数与价格统一用未复权口径，与成交现金口径一致（持有期内除权属 v0 简化，已记录）。
 -- 日历额外延伸 90 天用于 t+1 执行与卖出顺延查找。
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
@@ -15,8 +15,8 @@ DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_20260601_01';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;
-DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;       -- OQ-010 示例值
-DECLARE p_benchmark STRING DEFAULT '000852.SH'; -- OQ-010 示例值
+DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;        -- OQ-010 示例值
+DECLARE p_benchmark STRING DEFAULT '000852.SH';  -- OQ-010 示例值
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 DECLARE p_calendar_end DATE;
 
@@ -35,97 +35,19 @@ SELECT cal_date AS trade_date, trade_date_seq
 FROM `data-aquarium.ashare_dim.dim_trade_calendar`
 WHERE exchange = 'SSE' AND is_open = 1 AND cal_date BETWEEN p_predict_start AND p_calendar_end;
 
--- ── period 结构：rebalance_date → t+1 exec_date → period_idx / next_exec_date ──
-CREATE TEMP TABLE periods AS
-WITH rdates AS (
-  SELECT DISTINCT pt.rebalance_date
-  FROM `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
-  WHERE pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
-    AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
-),
-we AS (
-  SELECT r.rebalance_date,
-    (SELECT MIN(c2.trade_date) FROM cal AS c2
-     WHERE c2.trade_date_seq = (SELECT c1.trade_date_seq FROM cal AS c1 WHERE c1.trade_date = r.rebalance_date) + 1) AS exec_date
-  FROM rdates AS r
-)
-SELECT rebalance_date, exec_date,
-  ROW_NUMBER() OVER (ORDER BY exec_date) AS period_idx,
-  LEAD(exec_date) OVER (ORDER BY exec_date) AS next_exec_date
-FROM we WHERE exec_date IS NOT NULL;
+-- ── 每个调仓日 → t+1 执行日 ──
+CREATE TEMP TABLE rebalance_exec AS
+SELECT r.rebalance_date,
+  (SELECT MIN(c2.trade_date) FROM cal AS c2
+   WHERE c2.trade_date_seq = (SELECT c1.trade_date_seq FROM cal AS c1 WHERE c1.trade_date = r.rebalance_date) + 1) AS exec_date
+FROM (
+  SELECT DISTINCT op.rebalance_date
+  FROM `data-aquarium.ashare_ads.ads_order_plan_daily` AS op
+  WHERE op.strategy_id = p_strategy_id AND op.run_id = p_run_id
+    AND op.rebalance_date BETWEEN p_predict_start AND p_predict_end
+) AS r;
 
--- ── 每个交易日归属的 period（exec_date <= day < next_exec_date，且 <= predict_end）──
-CREATE TEMP TABLE day_period AS
-SELECT c.trade_date, pr.period_idx, pr.exec_date
-FROM cal AS c
-JOIN periods AS pr
-  ON c.trade_date >= pr.exec_date
- AND c.trade_date < COALESCE(pr.next_exec_date, DATE_ADD(p_predict_end, INTERVAL 1 DAY))
-WHERE c.trade_date <= p_predict_end;
-
--- ── period 初始持仓：权重 + t+1 开盘后复权价 + 可买性 ──
-CREATE TEMP TABLE pos_init AS
-SELECT
-  pr.period_idx, pr.exec_date, pr.next_exec_date,
-  pt.sec_code, pt.target_weight AS w,
-  px.open_hfq AS open_hfq_exec,
-  COALESCE(px.can_buy_open, FALSE) AS acquirable
-FROM periods AS pr
-JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
-  ON pt.rebalance_date = pr.rebalance_date
- AND pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
-LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
-  ON px.sec_code = pt.sec_code AND px.trade_date = pr.exec_date
-  AND px.trade_date BETWEEN p_predict_start AND p_calendar_end;
-
--- ── period 换手率（来自 order_plan 实际买卖 delta，用于成本）──
-CREATE TEMP TABLE period_turnover AS
-SELECT pr.period_idx, COALESCE(SUM(ABS(op.order_weight_delta)), 0) AS turnover_frac
-FROM periods AS pr
-LEFT JOIN `data-aquarium.ashare_ads.ads_order_plan_daily` AS op
-  ON op.rebalance_date = pr.rebalance_date
- AND op.strategy_id = p_strategy_id AND op.run_id = p_run_id
-GROUP BY pr.period_idx;
-
--- ── period 现金占比（净额，扣成本）──
-CREATE TEMP TABLE period_frac AS
-SELECT
-  pi.period_idx,
-  SUM(IF(pi.acquirable, pi.w, 0)) AS invested_frac,
-  COALESCE(ANY_VALUE(pt.turnover_frac), 0) * p_cost_bps / 10000.0 AS cost_frac
-FROM pos_init AS pi
-LEFT JOIN period_turnover AS pt ON pt.period_idx = pi.period_idx
-GROUP BY pi.period_idx;
-
--- ── period 末日 ──
-CREATE TEMP TABLE period_end_day AS
-SELECT dp.period_idx, MAX(dp.trade_date) AS end_day
-FROM day_period AS dp GROUP BY dp.period_idx;
-
--- ── period 末 scale-free ratio（用于链式资本）──
-CREATE TEMP TABLE period_ratio AS
-SELECT
-  pf.period_idx,
-  (1.0 - pf.invested_frac - pf.cost_frac)
-  + COALESCE(SUM(IF(pi.acquirable, pi.w * SAFE_DIVIDE(pe.close_hfq, NULLIF(pi.open_hfq_exec, 0)), 0)), 0) AS end_ratio,
-  (1.0 - pf.invested_frac - pf.cost_frac) AS net_cash_frac
-FROM period_frac AS pf
-JOIN pos_init AS pi ON pi.period_idx = pf.period_idx
-JOIN period_end_day AS ped ON ped.period_idx = pf.period_idx
-LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS pe
-  ON pe.sec_code = pi.sec_code AND pe.trade_date = ped.end_day
-  AND pe.trade_date BETWEEN p_predict_start AND p_calendar_end
-GROUP BY pf.period_idx, pf.invested_frac, pf.cost_frac;
-
--- ── 链式起始资本 V_p = initial × Π(前序 end_ratio) ──
-CREATE TEMP TABLE period_capital AS
-SELECT
-  period_idx, net_cash_frac,
-  p_initial_capital * EXP(COALESCE(
-    SUM(LN(NULLIF(end_ratio, 0))) OVER (ORDER BY period_idx ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0)) AS v_start
-FROM period_ratio;
-
--- ── 成交明细（来自 order_plan，按 V_p 定 turnover；卖出用 next-sellable）──
+-- ── next-sellable（≥ 执行日，60 交易日窗口）──
 CREATE TEMP TABLE next_sellable AS
 SELECT
   px.sec_code, px.trade_date AS desired_date,
@@ -141,35 +63,28 @@ SELECT
 FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
 WHERE px.trade_date BETWEEN p_predict_start AND p_calendar_end;
 
+-- ── 成交明细 ──
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_trade_daily`
 (backtest_id, trade_date, sec_code, side, planned_shares, filled_shares,
  fill_price, turnover_cny, fee_cny, tax_cny, slippage_cny, cash_effect_cny,
  fill_status, run_id, created_at)
 WITH mapped AS (
-  SELECT op.rebalance_date, op.sec_code, op.side, op.order_weight_delta,
-         pr.exec_date, cap.v_start
+  SELECT op.sec_code, op.side, op.order_weight_delta, re.exec_date,
+         ABS(op.order_weight_delta) * p_initial_capital AS planned_amount
   FROM `data-aquarium.ashare_ads.ads_order_plan_daily` AS op
-  JOIN periods AS pr ON op.rebalance_date = pr.rebalance_date
-  JOIN period_capital AS cap ON cap.period_idx = pr.period_idx
+  JOIN rebalance_exec AS re ON op.rebalance_date = re.rebalance_date
   WHERE op.strategy_id = p_strategy_id AND op.run_id = p_run_id
     AND op.rebalance_date BETWEEN p_predict_start AND p_predict_end
 ),
 fills AS (
   SELECT
-    m.sec_code, m.side, m.order_weight_delta, m.exec_date, m.v_start,
-    ABS(m.order_weight_delta) * m.v_start AS planned_amount,
-    CASE
-      WHEN m.side = 'BUY' THEN IF(COALESCE(pe.can_buy_open, FALSE), m.exec_date, NULL)
-      WHEN m.side = 'SELL' THEN ns.actual_sell_date
-    END AS fill_date,
-    CASE
-      WHEN m.side = 'BUY' THEN IF(COALESCE(pe.can_buy_open, FALSE), 'FILLED', 'REJECTED')
-      WHEN m.side = 'SELL' THEN IF(ns.actual_sell_date IS NOT NULL, 'FILLED', 'SELL_BLOCKED_NO_NEXT_SELLABLE_60D')
-    END AS fill_status,
-    CASE
-      WHEN m.side = 'BUY' AND COALESCE(pe.can_buy_open, FALSE) THEN pe.open
-      WHEN m.side = 'SELL' AND ns.actual_sell_date IS NOT NULL THEN ps.open
-    END AS fill_price
+    m.sec_code, m.side, m.planned_amount, m.exec_date,
+    CASE WHEN m.side = 'BUY' THEN IF(COALESCE(pe.can_buy_open, FALSE), m.exec_date, NULL)
+         WHEN m.side = 'SELL' THEN ns.actual_sell_date END AS fill_date,
+    CASE WHEN m.side = 'BUY' THEN IF(COALESCE(pe.can_buy_open, FALSE), 'FILLED', 'REJECTED')
+         WHEN m.side = 'SELL' THEN IF(ns.actual_sell_date IS NOT NULL, 'FILLED', 'SELL_BLOCKED_NO_NEXT_SELLABLE_60D') END AS fill_status,
+    CASE WHEN m.side = 'BUY' AND COALESCE(pe.can_buy_open, FALSE) THEN pe.open
+         WHEN m.side = 'SELL' AND ns.actual_sell_date IS NOT NULL THEN ps.open END AS fill_price
   FROM mapped AS m
   LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS pe
     ON pe.sec_code = m.sec_code AND pe.trade_date = m.exec_date
@@ -181,7 +96,7 @@ fills AS (
 )
 SELECT
   p_backtest_id,
-  COALESCE(f.fill_date, f.exec_date),
+  COALESCE(f.fill_date, f.exec_date) AS trade_date,
   f.sec_code, f.side,
   SAFE_DIVIDE(f.planned_amount, NULLIF(f.fill_price, 0)) AS planned_shares,
   IF(f.fill_status = 'FILLED', SAFE_DIVIDE(f.planned_amount, NULLIF(f.fill_price, 0)), 0) AS filled_shares,
@@ -189,93 +104,111 @@ SELECT
   IF(f.fill_status = 'FILLED', f.planned_amount, 0) AS turnover_cny,
   IF(f.fill_status = 'FILLED', f.planned_amount * p_cost_bps / 10000.0, 0) AS fee_cny,
   0.0, 0.0,
-  CASE
-    WHEN f.side = 'BUY' AND f.fill_status = 'FILLED' THEN -f.planned_amount * (1 + p_cost_bps / 10000.0)
-    WHEN f.side = 'SELL' AND f.fill_status = 'FILLED' THEN f.planned_amount * (1 - p_cost_bps / 10000.0)
-    ELSE 0
-  END AS cash_effect_cny,
+  CASE WHEN f.side = 'BUY' AND f.fill_status = 'FILLED' THEN -f.planned_amount * (1 + p_cost_bps / 10000.0)
+       WHEN f.side = 'SELL' AND f.fill_status = 'FILLED' THEN f.planned_amount * (1 - p_cost_bps / 10000.0)
+       ELSE 0 END AS cash_effect_cny,
   f.fill_status, p_run_id, CURRENT_TIMESTAMP()
 FROM fills AS f;
 
--- ── 每日持仓（真实股数、市值、漂移权重）──
-CREATE TEMP TABLE pos_daily AS
-SELECT
-  dp.trade_date, pi.sec_code, cap.v_start,
-  SAFE_DIVIDE(cap.v_start * pi.w, NULLIF(pi.open_hfq_exec, 0)) AS shares,
-  px.close AS close_raw, px.close_hfq,
-  SAFE_DIVIDE(cap.v_start * pi.w, NULLIF(pi.open_hfq_exec, 0)) * px.close_hfq AS market_value
-FROM pos_init AS pi
-JOIN period_capital AS cap ON cap.period_idx = pi.period_idx
-JOIN day_period AS dp ON dp.period_idx = pi.period_idx
-LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
-  ON px.sec_code = pi.sec_code AND px.trade_date = dp.trade_date
-  AND px.trade_date BETWEEN p_predict_start AND p_calendar_end
-WHERE pi.acquirable;
+-- ── 由成交派生每日净持仓（签名股数累加）──
+CREATE TEMP TABLE signed_fills AS
+SELECT t.sec_code, t.trade_date AS fill_date,
+       IF(t.side = 'BUY', t.filled_shares, -t.filled_shares) AS signed_shares,
+       t.cash_effect_cny
+FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
+WHERE t.backtest_id = p_backtest_id AND t.fill_status = 'FILLED'
+  AND t.trade_date BETWEEN p_predict_start AND p_calendar_end;
 
--- ── 每日 NAV：现金 + 持仓市值（spine 覆盖全部开市日，建仓前为全现金）──
-CREATE TEMP TABLE nav_value_daily AS
-WITH mv AS (
-  SELECT trade_date, SUM(market_value) AS mv_sum FROM pos_daily GROUP BY trade_date
-),
-cash AS (
-  SELECT dp.trade_date, cap.v_start * cap.net_cash_frac AS cash_cny
-  FROM day_period AS dp JOIN period_capital AS cap ON cap.period_idx = dp.period_idx
-),
-spine AS (
-  SELECT c.trade_date FROM cal AS c WHERE c.trade_date BETWEEN p_predict_start AND p_predict_end
+-- 每只有成交的股票，从首次成交日到 predict_end 的每日净股数
+CREATE TEMP TABLE stock_daily_shares AS
+WITH traded AS (
+  SELECT sec_code, MIN(fill_date) AS first_fill FROM signed_fills GROUP BY sec_code
 )
 SELECT
-  s.trade_date,
-  COALESCE(cash.cash_cny, p_initial_capital) AS cash_cny,
-  COALESCE(mv.mv_sum, 0) AS mv_sum,
-  COALESCE(cash.cash_cny, p_initial_capital) + COALESCE(mv.mv_sum, 0) AS nav_value
-FROM spine AS s
-LEFT JOIN cash ON cash.trade_date = s.trade_date
-LEFT JOIN mv ON mv.trade_date = s.trade_date;
+  tr.sec_code, c.trade_date,
+  (SELECT SUM(sf.signed_shares) FROM signed_fills AS sf
+   WHERE sf.sec_code = tr.sec_code AND sf.fill_date <= c.trade_date) AS net_shares
+FROM traded AS tr
+JOIN cal AS c ON c.trade_date >= tr.first_fill AND c.trade_date <= p_predict_end;
 
--- ── 写持仓表（weight = 市值/当日 NAV）──
+-- 每日持仓市值（净股数 > 0）
+CREATE TEMP TABLE pos_value AS
+SELECT
+  sds.trade_date, sds.sec_code, sds.net_shares,
+  px.close AS close_raw,
+  sds.net_shares * px.close AS market_value
+FROM stock_daily_shares AS sds
+LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
+  ON px.sec_code = sds.sec_code AND px.trade_date = sds.trade_date
+  AND px.trade_date BETWEEN p_predict_start AND p_calendar_end
+WHERE sds.net_shares > 1e-6;
+
+-- 每日现金（initial + 累计 cash_effect）与换手/成本
+CREATE TEMP TABLE daily_cash AS
+WITH cf AS (
+  SELECT fill_date AS trade_date, SUM(cash_effect_cny) AS day_cash_effect
+  FROM signed_fills GROUP BY fill_date
+),
+cost AS (
+  SELECT t.trade_date, SUM(t.fee_cny) AS cost_cny, SUM(t.turnover_cny) AS turnover_cny
+  FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
+  WHERE t.backtest_id = p_backtest_id AND t.fill_status = 'FILLED'
+    AND t.trade_date BETWEEN p_predict_start AND p_calendar_end
+  GROUP BY t.trade_date
+)
+SELECT
+  c.trade_date,
+  p_initial_capital + COALESCE((SELECT SUM(cf2.day_cash_effect) FROM cf AS cf2 WHERE cf2.trade_date <= c.trade_date), 0) AS cash_cny,
+  COALESCE(cost.cost_cny, 0) AS cost_cny,
+  COALESCE(cost.turnover_cny, 0) AS turnover_cny
+FROM cal AS c
+LEFT JOIN cost ON cost.trade_date = c.trade_date
+WHERE c.trade_date BETWEEN p_predict_start AND p_predict_end;
+
+-- ── 写持仓表（weight = 市值 / 当日 NAV）──
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_position_daily`
 (backtest_id, trade_date, sec_code, shares, close, market_value_cny, weight,
  unrealized_pnl_cny, run_id, created_at)
+WITH nav AS (
+  SELECT dc.trade_date, dc.cash_cny + COALESCE(pv.mv_sum, 0) AS nav_value
+  FROM daily_cash AS dc
+  LEFT JOIN (SELECT trade_date, SUM(market_value) AS mv_sum FROM pos_value GROUP BY trade_date) AS pv
+    ON pv.trade_date = dc.trade_date
+)
 SELECT
-  p_backtest_id, pd.trade_date, pd.sec_code,
-  pd.shares, pd.close_raw, pd.market_value,
-  SAFE_DIVIDE(pd.market_value, NULLIF(nv.nav_value, 0)),
-  CAST(NULL AS FLOAT64),
-  p_run_id, CURRENT_TIMESTAMP()
-FROM pos_daily AS pd
-JOIN nav_value_daily AS nv ON nv.trade_date = pd.trade_date;
+  p_backtest_id, pv.trade_date, pv.sec_code, pv.net_shares, pv.close_raw, pv.market_value,
+  SAFE_DIVIDE(pv.market_value, NULLIF(nav.nav_value, 0)),
+  CAST(NULL AS FLOAT64), p_run_id, CURRENT_TIMESTAMP()
+FROM pos_value AS pv
+JOIN nav ON nav.trade_date = pv.trade_date;
 
 -- ── 写 NAV 表 ──
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_nav_daily`
 (backtest_id, trade_date, nav, cash_cny, net_value_cny, gross_exposure,
  turnover_cny, cost_cny, daily_return, benchmark_sec_code, benchmark_return,
  excess_return, run_id, created_at)
-WITH daily_cost AS (
-  SELECT t.trade_date, SUM(t.fee_cny) AS cost_cny, SUM(t.turnover_cny) AS turnover_cny
-  FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
-  WHERE t.backtest_id = p_backtest_id AND t.fill_status = 'FILLED'
-    AND t.trade_date BETWEEN p_predict_start AND p_calendar_end
-  GROUP BY t.trade_date
+WITH nav_calc AS (
+  SELECT
+    dc.trade_date, dc.cash_cny, dc.turnover_cny, dc.cost_cny,
+    COALESCE(pv.mv_sum, 0) AS mv_sum,
+    dc.cash_cny + COALESCE(pv.mv_sum, 0) AS nav_value
+  FROM daily_cash AS dc
+  LEFT JOIN (SELECT trade_date, SUM(market_value) AS mv_sum FROM pos_value GROUP BY trade_date) AS pv
+    ON pv.trade_date = dc.trade_date
 ),
 nav_norm AS (
-  SELECT
-    nv.trade_date,
-    nv.nav_value / p_initial_capital AS nav,
-    nv.cash_cny, nv.nav_value, nv.mv_sum,
-    nv.nav_value / NULLIF(LAG(nv.nav_value) OVER (ORDER BY nv.trade_date), 0) - 1.0 AS daily_return
-  FROM nav_value_daily AS nv
+  SELECT *, nav_value / p_initial_capital AS nav,
+         nav_value / NULLIF(LAG(nav_value) OVER (ORDER BY trade_date), 0) - 1.0 AS daily_return
+  FROM nav_calc
 )
 SELECT
   p_backtest_id, n.trade_date, n.nav, n.cash_cny, n.nav_value,
   SAFE_DIVIDE(n.mv_sum, NULLIF(n.nav_value, 0)) AS gross_exposure,
-  COALESCE(dc.turnover_cny, 0), COALESCE(dc.cost_cny, 0),
-  n.daily_return, p_benchmark,
+  n.turnover_cny, n.cost_cny, n.daily_return, p_benchmark,
   idx.pct_chg / 100.0,
   n.daily_return - COALESCE(idx.pct_chg / 100.0, 0),
   p_run_id, CURRENT_TIMESTAMP()
 FROM nav_norm AS n
-LEFT JOIN daily_cost AS dc ON dc.trade_date = n.trade_date
 LEFT JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS idx
   ON idx.sec_code = p_benchmark AND idx.trade_date = n.trade_date
   AND idx.trade_date BETWEEN p_predict_start AND p_calendar_end;

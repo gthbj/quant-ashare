@@ -12,11 +12,28 @@ DECLARE p_train_start DATE DEFAULT DATE '2019-04-03';
 DECLARE p_train_end DATE DEFAULT DATE '2023-12-31';
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_valid_end DATE DEFAULT DATE '2024-12-31';
+DECLARE p_force_replace BOOL DEFAULT FALSE;
 DECLARE p_run_safe STRING;
 DECLARE p_feat_sql STRING;
 
 -- run_id 净化为合法 BigQuery 标识符片段
 SET p_run_safe = REGEXP_REPLACE(p_run_id, r'[^A-Za-z0-9_]', '_');
+
+-- ── registry 幂等：同 run_id 已登记则按 force_replace 决定报错或清理 ──
+IF NOT p_force_replace THEN
+  IF (SELECT COUNT(*) > 0
+      FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+      WHERE reg.strategy_id = p_strategy_id
+        AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id) THEN
+    RAISE USING MESSAGE = CONCAT('registry already has candidates for run_id ', p_run_id, '. Set p_force_replace=TRUE to retrain.');
+  END IF;
+END IF;
+
+IF p_force_replace THEN
+  DELETE FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.strategy_id = p_strategy_id
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id;
+END IF;
 
 -- 特征抽取片段（JSON_VALUE → SAFE_CAST），训练/预测复用
 SET p_feat_sql = """

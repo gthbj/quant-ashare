@@ -158,7 +158,8 @@ SET reg.status = 'selected',
         'selected: highest valid rank_ic_mean (tie-break layer_spread, log_loss)' AS select_reason))
       FROM candidate_metrics AS m WHERE m.cand_id = p_selected_cand)
 WHERE reg.model_id = CONCAT(p_run_safe, '__', p_selected_cand)
-  AND reg.strategy_id = p_strategy_id;
+  AND reg.strategy_id = p_strategy_id
+  AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id;
 
 -- ── 更新 registry：rejected ──
 UPDATE `data-aquarium.ashare_ads.ads_model_registry` AS reg
