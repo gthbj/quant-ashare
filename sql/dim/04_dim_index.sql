@@ -1,6 +1,9 @@
 -- 文档维护：GPT-5（最近更新 2026-06-01）
 -- BigQuery Standard SQL
 -- 指数主维表：维护 canonical 指数代码、ODS 实际代码、端点可用性和 benchmark 候选状态。
+-- 只 seed 当前 ODS index_daily source URI 中真实存在的端点；中证2000、国证2000等候选指数
+-- 当前未见可用 ODS 端点，需上游补采后再加入 dim_index，不能提前写入默认 benchmark。
+-- 字段描述由 sql/metadata/01_p0_table_column_descriptions.sql 统一维护。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
@@ -153,23 +156,3 @@ LEFT JOIN daily_stats AS d
 LEFT JOIN dailybasic_stats AS b
   ON b.endpoint = s.dailybasic_endpoint
  AND b.source_sec_code = s.source_sec_code;
-
-ALTER TABLE `data-aquarium.ashare_dim.dim_index`
-ALTER COLUMN sec_code SET OPTIONS (description = 'canonical 指数代码，供 DWD/DWS/ADS 业务 join 使用'),
-ALTER COLUMN source_sec_code SET OPTIONS (description = 'ODS/Tushare 实际指数代码，保留来源端点代码'),
-ALTER COLUMN index_alias SET OPTIONS (description = '常用英文别名，如 CSI300、CSI1000'),
-ALTER COLUMN index_name SET OPTIONS (description = '中文指数名称'),
-ALTER COLUMN index_family SET OPTIONS (description = '指数体系或交易所族，如 CSI、SSE、SZSE'),
-ALTER COLUMN daily_endpoint SET OPTIONS (description = 'ODS index_daily 端点名'),
-ALTER COLUMN dailybasic_endpoint SET OPTIONS (description = 'ODS index_dailybasic 端点名；无可用端点时为空'),
-ALTER COLUMN daily_first_trade_date SET OPTIONS (description = '当前 DWD 范围内 index_daily 首个可用交易日'),
-ALTER COLUMN daily_last_trade_date SET OPTIONS (description = '当前 DWD 范围内 index_daily 最后可用交易日'),
-ALTER COLUMN dailybasic_first_trade_date SET OPTIONS (description = '当前 DWD 范围内 index_dailybasic 首个可用交易日'),
-ALTER COLUMN dailybasic_last_trade_date SET OPTIONS (description = '当前 DWD 范围内 index_dailybasic 最后可用交易日'),
-ALTER COLUMN has_daily SET OPTIONS (description = '是否有 index_daily 价格端点和当前范围内数据'),
-ALTER COLUMN has_dailybasic SET OPTIONS (description = '是否有 index_dailybasic 估值/市值端点和当前范围内数据'),
-ALTER COLUMN is_benchmark_candidate SET OPTIONS (description = '是否可作为收益 benchmark 候选；必须满足 has_daily=TRUE'),
-ALTER COLUMN benchmark_note SET OPTIONS (description = 'benchmark 可用性说明和限制'),
-ALTER COLUMN source_system SET OPTIONS (description = '源系统标识，当前为 tushare'),
-ALTER COLUMN source_partition_date SET OPTIONS (description = '来源 ODS 最大分区日期，YYYYMMDD 字符串'),
-ALTER COLUMN ingested_at SET OPTIONS (description = '来源 ODS 最大摄入时间');

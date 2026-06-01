@@ -39,6 +39,7 @@ ASSERT (
 
 CREATE TEMP TABLE benchmark_window_check AS
 WITH window_calendar AS (
+  -- A 股沪深两市交易日历实际一致；这里统一用 SSE 日历代表全市场开市日。
   SELECT cal_date AS trade_date
   FROM `data-aquarium.ashare_dim.dim_trade_calendar`
   WHERE exchange = 'SSE'

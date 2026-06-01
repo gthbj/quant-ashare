@@ -1,6 +1,9 @@
 -- 文档维护：GPT-5（最近更新 2026-06-01）
 -- BigQuery Standard SQL
 -- OQ-004 指数 canonical 映射、端点可用性与 runner benchmark 窗口断言。
+-- 本脚本校验 OQ-004 示例 benchmark/window；真实 runner 参数窗口由 08_run_backtest.sql
+-- 的前置 ASSERT 使用 p_benchmark / p_predict_start / p_predict_end 再校验。
+-- A 股沪深两市交易日历实际一致，窗口覆盖断言统一使用 SSE 日历代表全市场开市日。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');

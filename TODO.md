@@ -33,6 +33,7 @@
 - [x] 编写并采纳 OQ-003 财务 `report_type` 口径 PRD：`docs/prd/PRD_20260601_03_财务报表口径维度.md`（P0 默认合并报表，DWD 保留口径字段，DWS 默认过滤；PR #8 review comment 与 NULL-safe QA 已跟进）
 - [x] 编写 OQ-004 基准指数代码可用性 PRD：`docs/prd/PRD_20260601_04_OQ004基准指数口径.md`（指数 endpoint/canonical 映射、`dim_index`、benchmark 窗口契约）
 - [x] 按 `PRD_20260601_04_OQ004基准指数口径.md` 补 `dim_index`、OQ-004 QA、映射驱动的 `dwd_index_eod` 和 runner benchmark 窗口校验（`sql/dim/04_dim_index.sql`、`sql/qa/03_oq004_index_checks.sql`、runner 08 前置校验；BigQuery 已重建并通过 OQ-004 QA）
+- [x] 跟进 PR #11 review feedback：补 ODS 端点准入说明，`dim_index` 字段描述收敛到 metadata，补 `qa/03` 示例窗口和 runner SSE 日历假设说明；BigQuery 已重建 `dim_index`、执行 metadata 并通过 OQ-004 QA
 - [x] 按 `PRD_20260601_02` 编写策略 1 BQML runner 脚本（`sql/ml/strategy1/01-10` + `scripts/strategy1/render_report.py` + README，全部 bq dry-run 通过；PR #7）
 - [ ] 在 BigQuery 上执行策略 1 runner 01-10 并跑通 QA（含 v0 守卫断言；若 cash/gross/持仓唯一 QA 失败则按 DECISION-20260601-07 升级账户级 ledger）
 - [ ] 补 lookback-capable 价格构建输入或调整 DWD/DWS 构建方式，使 2019-01 起 60 日价格窗口可直接读取 2018 buffer；当前策略 1 DWS 已用 `has_full_history_60d` 显式标记并默认剔除不完整窗口样本

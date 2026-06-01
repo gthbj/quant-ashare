@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-`quant-ashare` 已完成**P0 DIM/DWD 物化**、**OQ-004 指数基准口径实现**、**策略 1 价格量价 DWS/ADS SQL 物化**和**策略 1 BigQuery ML runner 脚本合并**：ODS 当前 57 表（含 `index_member_all` / `ci_index_member` / `bak_basic`）探查清楚三类分区语义；产出 DWD/DIM 建模方案 `docs/数据仓库建模方案-DWD-DIM.md`、DWS/ADS 表设计 `docs/数据仓库建模方案-DWS-ADS.md`、策略方案 `docs/A股中低频小资金机器学习策略方案.md`、策略 1 PRD `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`、策略 1 runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`、OQ-003 财务报表口径 PRD `docs/prd/PRD_20260601_03_财务报表口径维度.md`、OQ-004 基准指数口径 PRD `docs/prd/PRD_20260601_04_OQ004基准指数口径.md`。OQ-004 已关闭：`dim_index` 已物化为指数 canonical 映射与端点可用性维表，`dwd_index_eod` 已从 `dim_index` 读取映射并重建，`sql/qa/03_oq004_index_checks.sql` 通过，runner 08 增加 benchmark 可用性与窗口覆盖前置校验。策略 1 runner 代码已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`、`scripts/strategy1/requirements.txt`；PR #7 记录全部 runner SQL dry-run 通过，尚未端到端实跑并产出完整 `run_id/backtest_id`。全套规范已敲定：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属用 `in_date/out_date` 时点区间、血缘 `source_system/ingested_at`、版本字段 `feature_version/label_version/universe_version/model_id/strategy_id/run_id`、按月分区 + 聚簇、表+字段注释。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步；OQ-003 已采纳 P0 默认合并报表 `report_type='1'`、DWD 保留口径字段、DWS 默认过滤默认口径。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
+`quant-ashare` 已完成**P0 DIM/DWD 物化**、**OQ-004 指数基准口径实现**、**策略 1 价格量价 DWS/ADS SQL 物化**和**策略 1 BigQuery ML runner 脚本合并**：ODS 当前 57 表（含 `index_member_all` / `ci_index_member` / `bak_basic`）探查清楚三类分区语义；产出 DWD/DIM 建模方案 `docs/数据仓库建模方案-DWD-DIM.md`、DWS/ADS 表设计 `docs/数据仓库建模方案-DWS-ADS.md`、策略方案 `docs/A股中低频小资金机器学习策略方案.md`、策略 1 PRD `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`、策略 1 runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`、OQ-003 财务报表口径 PRD `docs/prd/PRD_20260601_03_财务报表口径维度.md`、OQ-004 基准指数口径 PRD `docs/prd/PRD_20260601_04_OQ004基准指数口径.md`。OQ-004 已关闭：`dim_index` 已物化为指数 canonical 映射与端点可用性维表，`dwd_index_eod` 已从 `dim_index` 读取映射并重建，`sql/qa/03_oq004_index_checks.sql` 通过，runner 08 增加 benchmark 可用性与窗口覆盖前置校验；PR #11 review feedback 已跟进，`dim_index` 建表脚本明确只 seed ODS 真实存在端点并把字段描述收敛到 metadata，QA/runner 已注明示例窗口和 SSE 日历假设。策略 1 runner 代码已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`、`scripts/strategy1/requirements.txt`；PR #7 记录全部 runner SQL dry-run 通过，尚未端到端实跑并产出完整 `run_id/backtest_id`。全套规范已敲定：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属用 `in_date/out_date` 时点区间、血缘 `source_system/ingested_at`、版本字段 `feature_version/label_version/universe_version/model_id/strategy_id/run_id`、按月分区 + 聚簇、表+字段注释。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步；OQ-003 已采纳 P0 默认合并报表 `report_type='1'`、DWD 保留口径字段、DWS 默认过滤默认口径。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
 
 **已物化表**：`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`、`dim_index`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`；`data-aquarium.ashare_dws` 下策略 1 六表（universe、价格特征、估值特征、标签、特征宽表、样本表）；`data-aquarium.ashare_ads` 下 11 张训练/预测/组合/回测/监控契约表。`sql/qa/02_strategy1_dws_ads_checks.sql` 与 `sql/qa/03_oq004_index_checks.sql` 均通过；`sql/qa/01_p0_smoke_checks.sql` 历史通过但本轮未重跑，因 PR #9 合并后的 `dim_stock` 依赖表仍待重建。二轮评审发现已修复：盘中临停不再误标全天停牌，财务 latest 改为 `update_flag DESC` 优先。`sql/metadata/01_p0_table_column_descriptions.sql` 已补齐全部 P0 DIM/DWD 表/字段说明。
 
@@ -27,6 +27,60 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-02
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: gthbj/quant-ashare#11
+
+### 已完成工作
+
+- 查看 PR #11 comment 4594329002，并按问题逐项处理。
+- 认可并修复 M1/L1/L2/L3：`dim_index` 建表脚本补充 ODS 端点准入说明；字段描述从 `sql/dim/04_dim_index.sql` 收敛到 `sql/metadata/01_p0_table_column_descriptions.sql`；`sql/qa/03_oq004_index_checks.sql` 明确示例 benchmark/window；runner 08 注明统一使用 SSE 日历代表 A 股开市日。
+- 不认可 M2：`sql/metadata/01_p0_table_column_descriptions.sql` 在 PR 前后均已覆盖 `dwd_index_eod` 全 26 列；BigQuery 复核 `dwd_index_eod` missing description = 0。
+- 重新物化 `data-aquarium.ashare_dim.dim_index` 并执行 metadata，保证 `dim_index` 字段描述由集中 metadata 脚本恢复。
+
+### 重要上下文
+
+- ODS `ods_tushare_index_daily` 的 `sourceUris` 当前只有 7 个 endpoint：SSE50、STAR50、CSI1000、CSI500、深成指、创业板指、CSI300 来源 `399300.SZ`。未见中证2000/国证2000相关 endpoint，因此不应 seed 到 `dim_index`。
+- `sql/qa/03_oq004_index_checks.sql` 是 OQ-004 示例窗口门禁；真实 runner 参数窗口仍由 `sql/ml/strategy1/08_run_backtest.sql` 前置 ASSERT 负责。
+
+### 改动文件
+
+- `sql/dim/04_dim_index.sql`
+- `sql/qa/03_oq004_index_checks.sql`
+- `sql/ml/strategy1/08_run_backtest.sql`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/dim/04_dim_index.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/qa/03_oq004_index_checks.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/08_run_backtest.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/04_dim_index.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/metadata/01_p0_table_column_descriptions.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/03_oq004_index_checks.sql`
+- BigQuery metadata 复核：`dim_index` missing description = 0；`dwd_index_eod` missing description = 0。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 将本次修复提交并推送到 PR #11 分支，等待 owner/Claude 复核。
+
+### 已更新记忆文件
+
+- `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## Handoff Entry
 
