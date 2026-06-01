@@ -116,7 +116,18 @@ SELECT cand_id, AVG(fwd_ret_5d) AS topn_fwd_ret_mean
 FROM ranked_preds WHERE score_desc_rank <= p_topn
 GROUP BY cand_id;
 
--- 汇总
+-- 样本量/缺失计数（预聚合，避免汇总里写相关子查询）
+CREATE TEMP TABLE sample_counts AS
+SELECT cand_id, COUNT(*) AS n_samples, COUNTIF(score IS NULL) AS n_missing
+FROM ranked_preds GROUP BY cand_id;
+
+-- 按年 RankIC 的 JSON 串（预聚合，避免汇总里写相关子查询）
+CREATE TEMP TABLE yearly_rank_ic_json AS
+SELECT cand_id,
+  TO_JSON_STRING(ARRAY_AGG(STRUCT(yr, rank_ic_year) ORDER BY yr)) AS rank_ic_by_year_json
+FROM yearly_rank_ic GROUP BY cand_id;
+
+-- 汇总（全部用 LEFT JOIN 预聚合表，BigQuery 不支持引用其它表的相关子查询）
 CREATE TEMP TABLE candidate_metrics AS
 SELECT
   ic.cand_id,
@@ -128,14 +139,15 @@ SELECT
   ANY_VALUE(ev.log_loss) AS log_loss,
   ANY_VALUE(ls.top_minus_bottom) AS layer_spread,
   ANY_VALUE(tn.topn_fwd_ret_mean) AS topn_fwd_ret_mean,
-  (SELECT COUNT(*) FROM ranked_preds rp WHERE rp.cand_id = ic.cand_id) AS n_samples,
-  (SELECT COUNTIF(rp.score IS NULL) FROM ranked_preds rp WHERE rp.cand_id = ic.cand_id) AS n_missing,
-  (SELECT TO_JSON_STRING(ARRAY_AGG(STRUCT(y.yr, y.rank_ic_year) ORDER BY y.yr))
-   FROM yearly_rank_ic y WHERE y.cand_id = ic.cand_id) AS rank_ic_by_year_json
+  ANY_VALUE(sc.n_samples) AS n_samples,
+  ANY_VALUE(sc.n_missing) AS n_missing,
+  ANY_VALUE(yj.rank_ic_by_year_json) AS rank_ic_by_year_json
 FROM daily_rank_ic AS ic
 LEFT JOIN candidate_eval AS ev ON ic.cand_id = ev.cand_id
 LEFT JOIN layer_spread AS ls ON ic.cand_id = ls.cand_id
 LEFT JOIN topn_ret AS tn ON ic.cand_id = tn.cand_id
+LEFT JOIN sample_counts AS sc ON ic.cand_id = sc.cand_id
+LEFT JOIN yearly_rank_ic_json AS yj ON ic.cand_id = yj.cand_id
 GROUP BY ic.cand_id;
 
 -- ── 选优：rank_ic_mean → layer_spread → log_loss ──
