@@ -1,6 +1,6 @@
 -- 文档维护：GPT-5（最近更新 2026-06-01）
 -- BigQuery Standard SQL
--- 策略 1 ADS 表契约。计算逻辑由 Python/训练任务写入，SQL 只创建消费表结构。
+-- 策略 1 ADS 表契约。计算逻辑由 BigQuery ML + SQL runner 写入，当前脚本只创建消费表结构。
 
 CREATE OR REPLACE TABLE `data-aquarium.ashare_ads.ads_ml_training_panel_daily` (
   run_id STRING OPTIONS(description = '训练 run id'),

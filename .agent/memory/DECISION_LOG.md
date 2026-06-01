@@ -462,3 +462,35 @@ Agent ID: Codex
 ### 相关文件
 
 `sql/dwd/04_dwd_index_eod.sql`, `sql/metadata/01_p0_table_column_descriptions.sql`, `sql/qa/01_p0_smoke_checks.sql`, `docs/数据仓库建模方案-DWD-DIM.md`, `docs/数据仓库建模方案-DWS-ADS.md`, `docs/A股中低频小资金机器学习策略方案.md`
+
+## DECISION-20260601-02: 策略 1 runner 采用 BigQuery ML + SQL 执行路径
+
+日期: 2026-06-01
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+策略 1 DWS/ADS 表契约已物化，下一步需要设计并实现训练、预测、候选池、组合、回测 runner。owner 明确要求 runner 设计只保留 BigQuery ML 方案，不考虑 BigQuery 之外的训练执行路径。
+
+### 决策
+
+策略 1 `ml_pv_clf_v0` runner 采用 BigQuery SQL + BigQuery ML：用 `ads_ml_training_panel_daily` 冻结样本与预处理口径，首版用 BQML `LOGISTIC_REG` 训练 `label_top30_5d`，可用 BQML `LINEAR_REG` 作为对照；正则化和调参使用 BQML 原生 `L1_REG` / `L2_REG` 手动候选网格，最终以验证集 RankIC/分层收益选择，不用 sklearn `l1_ratio/C` 口径作为实现参数。`board` 保留为分组和暴露监控字段，不进入 v0 主模型训练列。通过 `ML.PREDICT` 写预测分，再用 SQL 生成候选池、组合、订单、回测、监控和模型注册信息。回测报告 artifact 采用 GCS-first + 本地镜像：GCS 是持久存储，本地 `reports/` 只方便用户读取且默认不提交。runner SQL 后续放 `sql/ml/strategy1/`。
+
+### 理由
+
+策略 1 首版是探针和基线，BigQuery ML 能避免导出数据和额外模型文件管理，使 PIT 数据、模型对象和 ADS 结果留在同一 BigQuery 项目内，便于复现、权限控制和成本审计。
+
+### 影响
+
+新增 `docs/策略1-ml_pv_clf_v0-runner设计.md`。更新策略 1 PRD、DWS/ADS 方案、策略方案、SQL README、ADS 表契约注释和工作记忆，将旧的 Python runner 待办替换为 BigQuery ML + SQL runner 待办；`.gitignore` 忽略生成型本地报告镜像 `reports/`。PR #5 comment 后补充了 `L1_REG/L2_REG` 手动候选模型选择流程，并将 `board` 从 v0 主模型特征改为监控字段。OQ-010 不再包含训练工具链选择，但仍保留成本、调仓频率、持股数/权重上限和板块纳入参数待确认。
+
+### 备选方案
+
+用 BigQuery 导出样本后在外部环境训练 Logistic/Ridge/ElasticNet，再把结果回写 ADS；放弃，因为 owner 已要求本 runner 不考虑该路径，且首版基线不需要承担外部模型 artifact 管理复杂度。
+
+### 相关文件
+
+`docs/策略1-ml_pv_clf_v0-runner设计.md`, `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`, `docs/数据仓库建模方案-DWS-ADS.md`, `docs/A股中低频小资金机器学习策略方案.md`, `sql/README.md`, `sql/ads/01_ads_strategy1_tables.sql`, `.gitignore`, `TODO.md`

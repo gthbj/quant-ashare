@@ -14,11 +14,11 @@
 
 **重要执行结果**：`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行；`dwd_index_eod` 11,922 行，其中 8,899 行有 `index_dailybasic` 估值/市值/股本字段，且沪深300已归一为 `sec_code='000300.SH'` / `source_sec_code='399300.SZ'`。策略 1 DWS 行数：universe 8,495,462 行（默认池 3,403,501 行）、价格特征 8,495,462 行（完整 60 日历史 7,936,431 行）、估值特征 8,452,073 行、标签 8,495,462 行（5 日有效标签 8,388,177 行）、样本表 8,495,462 行（默认可训练 3,274,084 行）。上游已修复 `index_dailybasic` Parquet 类型问题，OQ-009 已关闭；STAR50/CSI1000 因 ODS 无 dailybasic endpoint 仍为空。
 
-**DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 先落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，财务特征和市场状态待补。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`，后续 Python run 负责训练、预测、候选、组合、回测并写入 ADS。
+**DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 先落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，财务特征和市场状态待补。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md` 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。
 
-**下一步（P0/P1）**：补策略 1 Python 训练/预测/组合/回测 run（生成 `ads_ml_training_panel_daily`，训练 Logistic/Ridge/ElasticNet，写预测/候选/组合/回测 ADS 表，输出 RankIC/分层收益/NAV/换手/不可成交比例）；或补 P0 通用 DWS 扩展表（财务特征、市场状态）与 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：落地策略 1 BigQuery ML + SQL runner（生成 `ads_ml_training_panel_daily`，训练 BQML `LOGISTIC_REG` 主模型和 `LINEAR_REG` 对照，写预测/候选/组合/回测 ADS 表，输出 RankIC/分层收益/NAV/换手/不可成交比例）；或补 P0 通用 DWS 扩展表（财务特征、市场状态）与 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略成本/调仓/持股数/北交所/训练工具链默认参数（OQ-010）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001 已关闭：行业映射 ODS 已补采。
+**待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略成本/调仓/持股数/北交所默认参数（OQ-010，训练工具链已定为 BigQuery ML + SQL runner）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001 已关闭：行业映射 ODS 已补采。
 
 **分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 已在本地和远端删除。
 
@@ -334,3 +334,49 @@ Run ID: —
 
 ### 已更新记忆文件
 - KNOWN_CONSTRAINTS、AGENT_HANDOFF、IMPLEMENTATION_STATUS.
+
+## 交接条目
+
+日期: 2026-06-01
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: —
+
+### 已完成工作
+- 新增策略 1 runner 设计文档 `docs/策略1-ml_pv_clf_v0-runner设计.md`，限定执行路径为 BigQuery SQL + BigQuery ML。
+- 文档覆盖 runner 参数、训练面板、BQML `LOGISTIC_REG` 主模型、`LINEAR_REG` 对照、`ML.PREDICT`、候选池、组合、订单、回测、GCS 报告产物、本地报告镜像、幂等、安全、QA 和验收。
+- 同步策略 1 PRD、策略方案、SQL README 与 ADS 表契约注释，将旧的 Python runner 表述改为 BigQuery ML + SQL runner。
+- 记录 DECISION-20260601-02，并更新 TODO、架构记忆、实现状态、项目上下文和开放问题；OQ-010 不再包含训练工具链选择。
+
+### 重要上下文
+- 本次只完成设计与文档/记忆同步，尚未实现 `sql/ml/strategy1/` runner SQL。
+- 策略 1 首版模型执行口径：训练面板写 `ads_ml_training_panel_daily`，BQML 模型对象放 `ashare_ads`，预测写 `ads_model_prediction_daily`，候选/组合/订单/回测/监控继续复用已物化 ADS 契约表。
+- 回测报告文件设计为 GCS-first + 本地镜像：BigQuery ADS 是结构化事实来源，Markdown/HTML/图表/JSON artifact 持久放 `gs://<ashare-artifact-bucket>/reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/`，同时镜像到本地 `reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/` 方便用户读取；本地 `reports/` 默认不提交 git。
+- PR #5 comment 已跟进：BQML 正则化改为 `L1_REG/L2_REG` 手动候选网格并按 valid RankIC/分层收益选择；`board` 从 v0 主模型训练列移除，保留为分组和暴露监控字段。PR #3 已 merged，当前 PR #5 `mergeStateStatus=CLEAN`，无需等待 PR #3。
+
+### 改动文件
+- `docs/策略1-ml_pv_clf_v0-runner设计.md`
+- `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`
+- `docs/数据仓库建模方案-DWS-ADS.md`
+- `docs/A股中低频小资金机器学习策略方案.md`
+- `.gitignore`
+- `sql/README.md`
+- `sql/ads/01_ads_strategy1_tables.sql`
+- `.agent/memory/{AGENT_HANDOFF,ARCHITECTURE_MEMORY,DECISION_LOG,IMPLEMENTATION_STATUS,MEMORY_INDEX,OPEN_QUESTIONS,PROJECT_CONTEXT}.md`
+- `TODO.md`
+
+### 测试 / 验证
+- 待提交前运行 `git diff --check`。
+- 本次未执行 BigQuery SQL；无运行时表变更。
+
+### 阻塞项
+- 无。实现阶段仍需 owner 确认 OQ-010 的成本、调仓、持股数/权重上限和板块纳入参数。
+
+### 下一步建议
+- 实现 `sql/ml/strategy1/` BigQuery ML runner 脚本，并补 `10_qa_runner_outputs.sql`。
+
+### 已更新记忆文件
+- AGENT_HANDOFF、ARCHITECTURE_MEMORY、DECISION_LOG、IMPLEMENTATION_STATUS、MEMORY_INDEX、OPEN_QUESTIONS、PROJECT_CONTEXT；TODO.md updated.

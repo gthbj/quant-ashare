@@ -24,6 +24,9 @@ tushare_token*
 *.sqlite
 /data/
 
+# ───── 生成型报告（GCS 为持久 artifact，仓库本地只保留用户读取镜像）─────
+/reports/
+
 # ───── Python（未来 ETL / 特征工程）─────
 __pycache__/
 *.py[cod]

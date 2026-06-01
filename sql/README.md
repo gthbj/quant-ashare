@@ -88,4 +88,4 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_
 - `dwd_index_eod.sec_code` 输出 canonical 指数代码，`source_sec_code` 保留 ODS/Tushare 实际代码；例如沪深300 来源 `399300.SZ` 输出为 `sec_code='000300.SH'`。
 - 价格/估值/指数 DWD 使用月分区并开启 `require_partition_filter`；财务指标按公告月分区，但不强制分区过滤，方便 PIT as-of join。
 - 策略 1 标签口径为 `close_hfq[t+H] / open_hfq[t+1] - 1`，H 为 1/5/10/20；`rank_pct_Hd` / `fwd_xs_ret_Hd` 按默认 universe 截面计算；`label_valid_Hd` 检查 t+1 入场可交易和标签价格可用，退出日可卖性单独由 `exit_reachable_Hd` 标记并交给回测撮合处理；`label_entry_tradable` 不能在 t 日选股时预先过滤。
-- 策略 1 ADS SQL 只创建表契约；训练、预测、候选池、组合与回测结果由后续 Python run 写入。
+- 策略 1 ADS SQL 只创建表契约；训练、预测、候选池、组合与回测结果由后续 BigQuery ML + SQL runner 写入。
