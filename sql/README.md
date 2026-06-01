@@ -1,4 +1,4 @@
-> 文档维护：GPT-5（最近更新 2026-05-31）
+> 文档维护：GPT-5（最近更新 2026-06-01）
 
 # A 股 DIM/DWD/DWS/ADS 建表 SQL
 
@@ -94,7 +94,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_
 ## 注意事项
 
 - ODS 外部表必须显式过滤 `endpoint` 和/或 `partition_date`，脚本已按该约束写入过滤条件。
-- `stock_basic_delisted.delist_date` 在 ODS 侧存在 Parquet 类型不一致问题，`dim_stock` 不读取该字段；退市边界用日线最后交易日推导。
+- `stock_basic_delisted.delist_date` 当前在 ODS 侧为 `STRING` 且可解析；`dim_stock` 优先使用该字段作为正式退市边界，仅在缺值时回退到日线最后交易日加一天。
 - `dwd_stock_eod_price` 使用交易日历乘股票生命周期生成骨架，再左连接行情，因此停牌日会保留一行。
 - `suspend_d` 同时包含停牌 `S` 与复牌 `R` 事件；价格 DWD 只把 `S` 纳入停牌事件，避免复牌日被误判不可交易。
 - `index_dailybasic` 的市值/股本单位已经是元/股，`dwd_index_eod` 不做 `*10000` 换算。

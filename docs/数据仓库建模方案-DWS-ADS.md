@@ -153,6 +153,7 @@ ashare_dim / ashare_dwd
 - `sample_basic = is_listed_on_date AND NOT is_suspended AND NOT is_st AND NOT is_newly_listed`
 - `sample_liquid = sample_basic AND amount_cny_20d_avg >= @min_amount_cny`
 - 小资金策略可把 `@min_amount_cny` 设得较低，但仍应剔除极端无成交和长期停牌股票。
+- 策略 1 首个基线默认 `board_allowlist = ['SSE_MAIN','SZSE_MAIN']`，仅沪深主板，不含北交所、创业板、科创板；其他策略或对照实验可用不同板块参数。
 
 **注意**：训练特征在 `t` 日可计算，是否能买入要看 `t+1`，因此 `can_buy_next_open` 需要通过交易日序列右移取得，不能用 `t` 日 `can_buy_open` 代替。
 

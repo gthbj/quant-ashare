@@ -4,7 +4,7 @@
 > 当前建模范围：**2019-01-01 之后**的 A 股日线 DWD/DWS 建模；2019 年以前数据仅作为财务/事件 PIT 前移、行情 lookback buffer、维度/日历历史支撑，正式扩展 2019 年以前样本属后续阶段。
 > 数据底座：BigQuery 项目 `data-aquarium`，ODS 层数据集 `ashare_ods`（当前来源 Tushare，未来多源；全部为 Hive 分区外部表）
 > 文档目标：基于现有 ODS 表，设计可落地的 **DWD（明细层）** 与 **DIM（维度层）**，并给出横切的工程原则（命名规范、PIT 防未来函数、复权、去重、可交易性、增量调度等）。
-> 文档维护：Claude Opus 4.8（最近更新 2026-05-31）；§4.6 回填范围与 ODS 清单更新：GPT-5（2026-05-31）；P0 实表字段名同步：GPT-5（2026-06-01）
+> 文档维护：Claude Opus 4.8（最近更新 2026-05-31）；§4.6 回填范围与 ODS 清单更新：GPT-5（2026-05-31）；P0 实表字段名与 OQ-007 同步：GPT-5（2026-06-01）
 
 ---
 
@@ -270,7 +270,7 @@ bq update --schema dwd.json data-aquarium:ashare_dwd.dwd_fin_income
 
 ### 4.1 标识与日期标准化
 - 证券主键统一 `sec_code`（见 §3.3-A）。源字段 `ts_code`/`con_code`/`code`/`index_code` 在 ODS→DWD/DIM 出口统一为 canonical `sec_code`；若源代码与 canonical 代码不同，保留 `source_sec_code` 做血缘追溯；保留 `sec_symbol` 仅供展示，不作 join 键；并用 `sec_type` 区分品种，使股票/指数/基金/可转债共用一套主键与连接逻辑。
-- 所有 `*_date` 落库转 `DATE`。`stock_basic.delist_date` 在 ODS 中是 `INT64`，需 `SAFE.PARSE_DATE('%Y%m%d', CAST(delist_date AS STRING))`。
+- 所有 `*_date` 落库转 `DATE`。`stock_basic.delist_date` 当前在 ODS 中是 `STRING`，用 `SAFE.PARSE_DATE('%Y%m%d', NULLIF(delist_date, ''))` 解析。
 - 交易日对齐一律以 `dim_trade_calendar`（`exchange='SSE'`）为准，禁止用自然日 `lag`。
 
 ### 4.2 复权（Adjustment）—— 收益率与价格特征的正确口径
@@ -414,7 +414,7 @@ Tushare `adj_factor` 为**累计后复权因子**。
     area, industry, market, exchange, curr_type,
     list_status,
     PARSE_DATE('%Y%m%d', list_date) AS list_date,
-    CAST(NULL AS DATE) AS delist_date,   -- ⚠️ delisted 分区该列 Parquet 类型不一致、直读报错（SAFE 无效），置 NULL 由下方兜底（daily 最后交易日）补
+    SAFE.PARSE_DATE('%Y%m%d', NULLIF(delist_date, '')) AS delist_date,
 
     is_hs,
     -- 板块（影响涨跌幅、上市规则）
@@ -432,10 +432,10 @@ Tushare `adj_factor` 为**累计后复权因子**。
   ```
   > **退市股一定要进表**（实测 delisted endpoint 每日 ~325 行）。回测 universe = `dim_stock` 中 `list_date <= trade_date AND (delist_date IS NULL OR trade_date < delist_date)`。
 
-- **⚠️ 退市日读取问题与兜底（实测）**：`stock_basic_delisted` 分区的 `delist_date` 外部表 schema 为 `INT64`、Parquet 文件实际是 `BYTE_ARRAY`，**直接读该列会报类型错，`SAFE` 也救不了（错在读取层而非 parse）**。处理：
-  - **兜底**：退市日不直读 delisted 分区，改用「该股在 `daily` 中的最后交易日」近似（`MAX(trade_date)` per 退市 `sec_code`），或待上游修复后直读。上面 SQL 中 `delist_date` 一列以此兜底替换。
-  - **质量门禁**：建表前断言 `listed + delisted` 能读出 `list_date`，且 2019+ `daily` 出现过的代码都能在 `dim_stock` 命中（实测缺 `000043.SZ` / `300114.SZ` / `920218.BJ` 等），缺失则从价格表补主数据或入异常表。
-  - **上游建议**：把 ODS `delist_date` 类型统一为 `STRING`（属上游 ingestion 职责，记 OQ-007；本方案不改 ODS schema，理由见 `docs/reviews/…-review-response.md` 调整-1）。
+- **退市日读取口径（OQ-007 已关闭）**：`stock_basic_delisted.delist_date` 当前已由上游统一为 `STRING`，最新 delisted 分区可直读并解析为 `DATE`。处理：
+  - **主口径**：`dim_stock.delist_date` 对 `list_status='D'` 优先使用 ODS `stock_basic_delisted.delist_date`，作为生命周期半开区间 `[list_date, delist_date)` 的正式边界。
+  - **兜底**：仅当 ODS `delist_date` 缺失时，才使用该股在 `daily` 中的最后交易日加一天（`MAX(trade_date) + 1`）近似。
+  - **质量门禁**：P0 QA 断言 `stock_basic_delisted.delist_date` 可读、可解析，且 `dim_stock` 中有 ODS 退市日的代码必须与 ODS 退市日一致；2019+ `daily` 出现但 `stock_basic` 缺失的代码仍从价格表补主数据或入异常表。
 
 ### 5.3 `dim_stock_name_hist` —— 名称/ST 状态时间线（P0，SCD2）
 - **源**：`ods_tushare_namechange`（事件流：`start_date`/`end_date`/`change_reason`）。
@@ -778,7 +778,7 @@ JOIN px c ON c.sec_code=a.sec_code AND c.seq=a.seq+5              -- t+5
    - 行情：每日 `COUNT(DISTINCT sec_code)` 在合理区间（~5500）；`high>=low`、`high>=close>=low`、`volume>=0`；`adj_factor` 单调非降（除特殊处理）。
    - 复权交叉校验：`ABS(ret_1d - pct_chg/100) < 阈值`（非除权日应几乎相等）。
    - 财务：`(sec_code, report_period)` 去重后唯一；`ann_date_eff >= report_period`（公告晚于报告期）。
-   - 维度：`dim_stock` 主键唯一；`delist_date IS NULL OR delist_date > list_date`。
+   - 维度：`dim_stock` 主键唯一；退市股必须有合法退市边界（`is_delisted` 时 `delist_date IS NOT NULL` 且 `delist_date > list_date`，并禁止 `delist_date_source='missing_delist_date'`）。
 5. **多源治理与可复现**
    - 每行带 `source_system`/`ingested_at`，多源并存时按来源优先级 `MERGE`（如自采 > Tushare），并保留血缘以便排查。
    - DWD/DIM 的构建 SQL 全部入 git（本仓库），参数化 `@start/@end`；保留财务"修正历史"快照以支持严格 PIT 回测复算。
@@ -845,7 +845,7 @@ JOIN px c ON c.sec_code=a.sec_code AND c.seq=a.seq+5              -- t+5
 | P0-1 | `fina_indicator` 无 `f_ann_date` | 采纳：可见日**按表定义** + 表级规则表 | §0 / §3.3-B / §4.3 / §6.5 |
 | P0-2 | 只留最新修正不满足严格 PIT | 采纳：**版本事实表** + 最新快照分离 | §4.4 / §6.5 / §7.3 |
 | P0-3 | `daily` 起表漏停牌日 | 采纳：**交易日历×在市骨架** + 标签用市场交易日序列 | §4.5 / §6.1 / §7.4 |
-| P0-4 | `delist_date` Parquet 类型不一致 | 采纳问题（DWD 容错+门禁+兜底）；**调整：不改 ODS** | §5.2 + response |
+| P0-4 | `delist_date` Parquet 类型不一致 | 2026-06-01 上游已修复为 `STRING`；`dim_stock` 改为优先直读 ODS 退市日，保留 daily 兜底和 QA 门禁 | §5.2 + response |
 | P1-1 | 事件表分区语义被一概而论 | 采纳：**ODS 表级元数据矩阵** | §2.4 / §4.3 |
 | P1-2 | 缺 lookback buffer | 采纳：**写入 vs 读取范围分离** | §4.6 |
 | P1-3 | 可交易性需方向化 | 采纳开盘侧 + reachable；**调整：不加收盘四象限** | §4.5 / §6.1 / §7.4 + response |

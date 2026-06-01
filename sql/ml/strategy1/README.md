@@ -67,4 +67,4 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一三条断言会在该边界
 真实发生时报错。**一旦这些 QA 在真实回测里失败，该回测结果不可接受**，必须升级为账户级有状态
 ledger 循环（逐调仓日维护现金/持仓、卖出先于买入、买入受可用现金约束、对实际持仓 netting）。
-详见 runner 设计 §14.1 与 `.agent/memory/DECISION_LOG.md` DECISION-20260601-03。
+详见 runner 设计 §14.1 与 `.agent/memory/DECISION_LOG.md` DECISION-20260601-07。

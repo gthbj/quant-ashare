@@ -15,7 +15,7 @@ Tushare 等数据源
 | 类 | 语义 | 例 | 处理方式 |
 |---|---|---|---|
 | A 行情增量 | `partition_date == trade_date`，单日单分区、无重复，历史自 1990-12-19 | daily, adj_factor, daily_basic, bak_basic, moneyflow, stk_limit, suspend_d | 按 partition_date 增量裁剪 |
-| B 财务/公告 | `partition_date == 报告期(end_date)`，**非公告日**；同期多 report_type/修正 | income, balancesheet, cashflow, fina_indicator | 用 ann_date_eff 做 PIT；按 (sec_code,报告期) 去重 |
+| B 财务/公告 | `partition_date == 报告期(end_date)`，**非公告日**；同期多 report_type/修正 | income, balancesheet, cashflow, fina_indicator | 用 ann_date_eff 做 PIT；P0 默认合并报表 report_type='1'，DWD 保留口径字段 |
 | C 维度快照 | 每个 partition_date 一份全量，取最新分区 | stock_basic, trade_cal, index_classify | 取 MAX(partition_date)；stock_basic 需 UNION listed+delisted |
 | C* 历史区间快照 | 最新 partition_date 保存全量历史区间 | index_member_all, ci_index_member | 取最新分区，用 in_date/out_date 建 SCD2 时点维表 |
 
@@ -79,6 +79,7 @@ DWS/ADS 统一版本字段：`universe_version`、`feature_version`、`label_ver
 - DWS 已物化 6 张表：`dws_stock_universe_daily`、`dws_stock_feature_price_daily`、`dws_stock_feature_valuation_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`。
 - ADS 已物化 11 张契约表：训练面板、模型注册、预测、候选池、组合目标、订单计划、回测成交/持仓/NAV/绩效汇总、信号监控。
 - 标签口径固定为 `close_hfq[t+H] / open_hfq[t+1] - 1`，H=1/5/10/20；`rank_pct_Hd` / `fwd_xs_ret_Hd` 按默认 universe 截面计算；`label_entry_tradable` 只用于训练有效性、回测撮合和归因，不作为 t 日选股过滤。
+- 首个基线默认股票池仅纳入沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；后续如需纳入其他板块，用 `board_allowlist` 另开对照实验或单独模型。
 - 当前策略 1 DWS 不直接读取 ODS；由于最终 DWD 价格表不落 2018 buffer 行，2019 年初 60 日窗口用 `has_full_history_60d=FALSE` 显式标记，默认样本掩码剔除不完整窗口。
 - 策略 1 runner 执行路径已收敛为 BigQuery SQL + BigQuery ML：用 `ads_ml_training_panel_daily` 冻结样本，BQML `LOGISTIC_REG` 训练 `label_top30_5d`，正则化用 BQML 原生 `L1_REG/L2_REG` 手动候选网格并按 valid RankIC/分层收益选择，`ML.PREDICT` 写 `ads_model_prediction_daily`，后续候选池、组合、订单、回测和监控全部写既有 ADS 表。`board` 仅作分组/暴露监控，不进入 v0 主模型训练列。设计文档为 `docs/策略1-ml_pv_clf_v0-runner设计.md`；runner SQL 计划放 `sql/ml/strategy1/`。
 - runner 实现 PRD 为 `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`，要求交付 `sql/ml/strategy1/01-10` 脚本、README、QA、GCS 报告产物、本地 `reports/` 镜像和必需报告渲染脚本 `scripts/strategy1/render_report.py`。卖出顺延首版用预计算 `next_sellable_trade_date` 转换为 join，不采用逐日 `WHILE` 回测循环。
@@ -93,6 +94,7 @@ DWS/ADS 统一版本字段：`universe_version`、`feature_version`、`label_ver
 - 2026-05-31 P0 已物化到 BigQuery；`dwd_index_eod` 已恢复读取 `index_dailybasic`。该接口市值/股本单位为元/股，不做 `*10000` 换算。
 - `dwd_index_eod` 的 `sec_code` 使用 canonical 指数代码，`source_sec_code` 保留 ODS/Tushare 实际代码；双代码指数映射先由建表脚本 CTE 维护，未来可沉淀为 `dim_index`。该表已按 canonical 口径重建并通过 metadata / QA。
 - `dwd_stock_eod_price` 中 `is_suspended` 仅表示全天停牌/无成交；有成交的 `S` 事件另用 `has_intraday_halt`，开盘时段/未知时段临停用 `has_open_halt` 并影响开盘侧可交易掩码。
+- `dim_stock.delist_date` 优先使用 ODS `stock_basic_delisted.delist_date`（当前为可解析 `STRING`）；只有 ODS 退市日缺失时才用 `daily` 最后交易日加一天兜底。
 - `dwd_fin_indicator_latest` 是非 PIT 便捷表，按 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC` 取每个 `(sec_code, report_period)` 的最新修正版。
 
 ## 物理规范（BigQuery）
