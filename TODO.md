@@ -61,4 +61,4 @@
 - [x] OQ-003 财务 `report_type` 口径：已采纳 `docs/prd/PRD_20260601_03_财务报表口径维度.md` 推荐方案（P0 默认合并报表、DWD 保留多口径字段、DWS 默认过滤）
 - [x] OQ-007 退市日类型：ODS `stock_basic_delisted.delist_date` 已修复为 `STRING`，`dim_stock` SQL 已改为优先使用 ODS 退市日
 - [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 bq SQL
-- [ ] OQ-010 P0 策略默认参数：成本、调仓频率、持股数/权重上限、北交所开关（训练工具链已定为 BigQuery ML + SQL runner）
+- [ ] OQ-010 P0 策略默认参数：成本、调仓频率、持股数/权重上限（训练工具链已定为 BigQuery ML + SQL runner；首个基线股票池已定为仅沪深主板，不含北交所/创业板/科创板）

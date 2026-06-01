@@ -124,12 +124,13 @@ Runner 以 BigQuery script variables 传参，首版参数如下：
 | `test_start_date` / `test_end_date` | `2025-01-01` / `2025-12-31` | 测试窗口。 |
 | `predict_start_date` / `predict_end_date` | `2026-01-01` / `CURRENT_DATE` | 预测窗口。 |
 | `rebalance_frequency` | `WEEKLY_LAST_OPEN_DAY` | 周频，每周最后一个开市日。 |
+| `board_allowlist` | `['SSE_MAIN','SZSE_MAIN']` | 首个基线股票池仅沪深主板，不含北交所、创业板、科创板。 |
 | `target_holdings` | 待 owner 确认 | 目标持股数。 |
 | `max_single_weight` | 待 owner 确认 | 单票权重上限。 |
 | `cost_bps` | 待 owner 确认 | 回测成本假设。 |
 | `benchmark_sec_code` | 待 owner 确认 | 基准指数 canonical `sec_code`。 |
 
-`OQ-010` 仍需 owner 确认成本、持股数、权重上限、北交所开关等参数；训练工具链已收敛为 BigQuery ML。
+`OQ-010` 仍需 owner 确认成本、调仓频率、持股数、权重上限等参数；训练工具链已收敛为 BigQuery ML，首个基线板块纳入口径已定为仅沪深主板。
 
 ## 5. 训练面板
 
@@ -166,7 +167,7 @@ pe_ttm, pb, ps_ttm, dividend_yield_ttm, ep_ttm, bp, sp_ttm,
 log_total_mv, log_circ_mv
 ```
 
-`board` 不进入 v0 主模型。当前默认 universe 下 `board` 主要是 `SSE_MAIN` / `SZSE_MAIN` 二值暴露，信号量低；runner 只把它保留在训练面板、候选池和报告中，用于分组监控、暴露归因和后续板块纳入参数对照。
+`board` 不进入 v0 主模型。当前默认 universe 下 `board` 仅为 `SSE_MAIN` / `SZSE_MAIN` 二值暴露，信号量低；runner 只把它保留在训练面板、候选池和报告中，用于分组监控、暴露归因和后续板块纳入对照实验。
 
 首版禁止进入模型的字段：
 

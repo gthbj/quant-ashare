@@ -8,6 +8,7 @@ DECLARE universe_version STRING DEFAULT 'universe_pv_v0_20260601';
 DECLARE min_list_age_td INT64 DEFAULT 120;
 DECLARE min_amount_ma20_cny FLOAT64 DEFAULT 50000000.0;
 DECLARE min_close_price FLOAT64 DEFAULT 3.0;
+-- 首个基线仅沪深主板，不含北交所、创业板、科创板。
 DECLARE board_allowlist ARRAY<STRING> DEFAULT ['SSE_MAIN', 'SZSE_MAIN'];
 
 CREATE OR REPLACE TABLE `data-aquarium.ashare_dws.dws_stock_universe_daily`

@@ -590,3 +590,35 @@ OQ-003 关闭并归档。后续实现 `dwd_fin_income` / `dwd_fin_balancesheet` 
 ### 相关文件
 
 `docs/prd/PRD_20260601_03_财务报表口径维度.md`, `.agent/memory/archive/CLOSED_QUESTIONS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `TODO.md`
+
+## DECISION-20260601-06: 策略 1 首个基线仅纳入沪深主板
+
+日期: 2026-06-01
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+OQ-010 中仍有一项股票池板块纳入口径未确认：首个策略基线是否纳入北交所、创业板、科创板。现有 `sql/dws/01_dws_stock_universe_daily.sql` 默认 `board_allowlist` 已为 `['SSE_MAIN','SZSE_MAIN']`，但文档和记忆中仍保留“待确认”表述。
+
+### 决策
+
+策略 1 `ml_pv_clf_v0` 首个基线默认股票池仅纳入沪深主板：`SSE_MAIN`、`SZSE_MAIN`。不纳入北交所、创业板、科创板。后续如需研究这些板块，应通过 `board_allowlist` 另开对照实验或单独模型，不混入首个基线。
+
+### 理由
+
+首个基线的目标是建立稳定、可解释、可复现的参照组。北交所、创业板、科创板在涨跌幅、流动性和风格暴露上与主板差异较大，混入首个基线会增加结果解释成本。
+
+### 影响
+
+OQ-010 不再包含板块纳入口径待确认项；仍保留回测成本参数、默认调仓频率、持股数和单票权重上限待 owner 确认。现有策略 1 universe SQL 的默认 `board_allowlist` 已符合本决策，仅补充注释和文档同步。
+
+### 备选方案
+
+首个基线纳入全 A 普通股；放弃，因为不同板块交易制度和流动性差异会降低基线可解释性。保留北交所为默认研究开关；放弃，因为 owner 已明确首个基线不包含北交所。
+
+### 相关文件
+
+`docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`, `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`, `docs/策略1-ml_pv_clf_v0-runner设计.md`, `docs/A股中低频小资金机器学习策略方案.md`, `docs/数据仓库建模方案-DWS-ADS.md`, `sql/dws/01_dws_stock_universe_daily.sql`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`

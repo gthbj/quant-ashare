@@ -14,11 +14,11 @@
 
 **重要执行结果**：`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行；`dwd_index_eod` 11,922 行，其中 8,899 行有 `index_dailybasic` 估值/市值/股本字段，且沪深300已归一为 `sec_code='000300.SH'` / `source_sec_code='399300.SZ'`。策略 1 DWS 行数：universe 8,495,462 行（默认池 3,403,501 行）、价格特征 8,495,462 行（完整 60 日历史 7,936,431 行）、估值特征 8,452,073 行、标签 8,495,462 行（5 日有效标签 8,388,177 行）、样本表 8,495,462 行（默认可训练 3,274,084 行）。上游已修复 `index_dailybasic` Parquet 类型问题，OQ-009 已关闭；STAR50/CSI1000 因 ODS 无 dailybasic endpoint 仍为空。2026-06-01 复核 OQ-007：`stock_basic_delisted.delist_date` 已为可解析 `STRING`，`dim_stock` SQL 已改为优先使用 ODS 退市日；实际 BigQuery 依赖表需合并后重建。
 
-**DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 先落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，财务特征和市场状态待补。财务特征口径 PRD 已采纳并关闭 OQ-003：P0 默认消费合并报表 `report_type='1'`，DWD 保留 `report_type`/`report_caliber`，DWS 默认过滤默认口径，后续实现 PR 需同步主建模方案文档和 SQL。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md` 已完成，runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。
+**DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 先落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，财务特征和市场状态待补。财务特征口径 PRD 已采纳并关闭 OQ-003：P0 默认消费合并报表 `report_type='1'`，DWD 保留 `report_type`/`report_caliber`，DWS 默认过滤默认口径，后续实现 PR 需同步主建模方案文档和 SQL。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md` 已完成，runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。
 
 **下一步（P0/P1）**：OQ-007 合并后先重建 `dim_stock`，并按依赖重建 `dwd_stock_eod_price` 与策略 1 DWS/ADS 派生产物，执行 metadata / P0 QA / 策略 1 QA；或按 `PRD_20260601_02_策略1BQML回测闭环.md` 落地策略 1 BigQuery ML + SQL runner（生成 `ads_ml_training_panel_daily`，训练 BQML `LOGISTIC_REG` 主模型和 `LINEAR_REG` 对照，写预测/候选/组合/回测 ADS 表，输出 RankIC/分层收益/NAV/换手/不可成交比例）；也可按 `PRD_20260601_03_财务报表口径维度.md` 的默认合并报表口径补 P0 通用 DWS 扩展表（财务特征、市场状态）与 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略成本/调仓/持股数/北交所默认参数（OQ-010，训练工具链已定为 BigQuery ML + SQL runner）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-007 已关闭。
+**待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略成本/调仓/持股数/单票权重上限（OQ-010，训练工具链已定为 BigQuery ML + SQL runner，首个基线股票池已定为仅沪深主板）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-007 已关闭。
 
 **分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 已在本地和远端删除。
 
@@ -715,3 +715,57 @@ Run ID: —
 ### 已更新记忆文件
 
 - AGENT_HANDOFF、ARCHITECTURE_MEMORY、DECISION_LOG、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、archive/CLOSED_QUESTIONS；TODO.md updated.
+
+## 交接条目
+
+日期: 2026-06-01
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: OQ-010 board scope update
+
+### 已完成工作
+
+- 按 owner 最新确认同步策略 1 首个基线股票池口径：仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`）。
+- 明确首个基线不纳入北交所、创业板、科创板；后续如需纳入，应通过 `board_allowlist` 另开对照实验或单独模型。
+- 将 OQ-010 缩小为成本、调仓频率、持股数和单票权重上限待确认；训练工具链和板块纳入口径均已定。
+- 追加 `DECISION-20260601-06` 记录该板块范围决策。
+
+### 重要上下文
+
+- `sql/dws/01_dws_stock_universe_daily.sql` 原本默认 `board_allowlist = ['SSE_MAIN','SZSE_MAIN']`，本次仅补充注释和文档/记忆同步，未改变 SQL 行为。
+- 现有已物化策略 1 DWS 默认池口径与本决策一致；未重跑 BigQuery 表。
+
+### 改动文件
+
+- `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`
+- `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`
+- `docs/策略1-ml_pv_clf_v0-runner设计.md`
+- `docs/A股中低频小资金机器学习策略方案.md`
+- `docs/数据仓库建模方案-DWS-ADS.md`
+- `sql/dws/01_dws_stock_universe_daily.sql`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 提交前运行 `git diff --check`。
+- 本次未执行 BigQuery SQL；无运行时表变更。
+
+### 阻塞项
+
+- 无。OQ-010 仍需 owner 确认成本、调仓频率、持股数和单票权重上限。
+
+### 下一步建议
+
+- 继续确认 OQ-010 剩余参数，或在实现 `sql/ml/strategy1/` runner 时先以配置参数保留占位。
+
+### 已更新记忆文件
+
+- AGENT_HANDOFF、ARCHITECTURE_MEMORY、DECISION_LOG、IMPLEMENTATION_STATUS、OPEN_QUESTIONS；TODO.md updated.

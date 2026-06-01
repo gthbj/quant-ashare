@@ -79,6 +79,7 @@ DWS/ADS 统一版本字段：`universe_version`、`feature_version`、`label_ver
 - DWS 已物化 6 张表：`dws_stock_universe_daily`、`dws_stock_feature_price_daily`、`dws_stock_feature_valuation_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`。
 - ADS 已物化 11 张契约表：训练面板、模型注册、预测、候选池、组合目标、订单计划、回测成交/持仓/NAV/绩效汇总、信号监控。
 - 标签口径固定为 `close_hfq[t+H] / open_hfq[t+1] - 1`，H=1/5/10/20；`rank_pct_Hd` / `fwd_xs_ret_Hd` 按默认 universe 截面计算；`label_entry_tradable` 只用于训练有效性、回测撮合和归因，不作为 t 日选股过滤。
+- 首个基线默认股票池仅纳入沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；后续如需纳入其他板块，用 `board_allowlist` 另开对照实验或单独模型。
 - 当前策略 1 DWS 不直接读取 ODS；由于最终 DWD 价格表不落 2018 buffer 行，2019 年初 60 日窗口用 `has_full_history_60d=FALSE` 显式标记，默认样本掩码剔除不完整窗口。
 - 策略 1 runner 执行路径已收敛为 BigQuery SQL + BigQuery ML：用 `ads_ml_training_panel_daily` 冻结样本，BQML `LOGISTIC_REG` 训练 `label_top30_5d`，正则化用 BQML 原生 `L1_REG/L2_REG` 手动候选网格并按 valid RankIC/分层收益选择，`ML.PREDICT` 写 `ads_model_prediction_daily`，后续候选池、组合、订单、回测和监控全部写既有 ADS 表。`board` 仅作分组/暴露监控，不进入 v0 主模型训练列。设计文档为 `docs/策略1-ml_pv_clf_v0-runner设计.md`；runner SQL 计划放 `sql/ml/strategy1/`。
 - runner 实现 PRD 为 `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`，要求交付 `sql/ml/strategy1/01-10` 脚本、README、QA、GCS 报告产物、本地 `reports/` 镜像和必需报告渲染脚本 `scripts/strategy1/render_report.py`。卖出顺延首版用预计算 `next_sellable_trade_date` 转换为 join，不采用逐日 `WHILE` 回测循环。

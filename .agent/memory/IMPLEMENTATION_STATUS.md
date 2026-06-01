@@ -41,6 +41,7 @@ Last updated: 2026-06-01
 - 策略 1 BigQuery ML runner 设计已完成：`docs/策略1-ml_pv_clf_v0-runner设计.md`。设计限定 BigQuery SQL + BigQuery ML 执行路径，覆盖训练面板、`CREATE MODEL`、BQML `L1_REG/L2_REG` 手动候选网格、valid RankIC 选型、`ML.PREDICT`、候选池、组合、订单、回测、监控、GCS 报告产物、本地报告镜像、幂等、QA 和验收；`board` 保留为监控字段、不进 v0 主模型训练列。当前仅完成设计，尚未落地 `sql/ml/strategy1/` runner 脚本。
 - 策略 1 BigQuery ML runner 与回测闭环实现 PRD 已完成：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`。PRD 定义 `sql/ml/strategy1/01-10` 脚本交付物、输入输出、运行参数、功能需求、QA、报告产物和验收标准；卖出顺延首版采用预计算 `next_sellable_trade_date` 方案，报告渲染脚本 `scripts/strategy1/render_report.py` 是必需交付物；当前尚未落地 runner SQL。
 - OQ-003 财务 `report_type` / 报表口径维度已采纳并关闭：`docs/prd/PRD_20260601_03_财务报表口径维度.md`。P0 默认消费合并报表 `report_type='1'`，DWD 对三大财务表保留 `report_type`/`report_caliber`/`is_default_report_caliber`，DWS 财务特征默认只过滤默认口径并补 NULL-safe QA；后续实现 PR 需同步主建模方案文档和 SQL。
+- 策略 1 首个基线股票池板块纳入口径已确认：仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板。现有 `sql/dws/01_dws_stock_universe_daily.sql` 默认 `board_allowlist` 已符合该口径；已同步文档和 OQ-010，OQ-010 仅剩成本、调仓、持股数/权重上限待确认。
 - 评审协议已按 owner 最新要求更新：GitHub PR review 默认写 PR comment，一条写不下拆多条；只有 owner 明确要求或无 PR comment 承载面时才写 `docs/reviews/` 评审文档。`DECISION-20260531-13` 已被 `DECISION-20260601-03` supersede。
 - ODS 已补采 `index_member_all` 和 `ci_index_member`；主方案、DWS/ADS 文档和策略文档已更新为可落地申万/中信行业时点映射，OQ-001 已关闭。
 - 工作记忆瘦身完成：旧交接归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md`；已关闭问题迁移到 `.agent/memory/archive/CLOSED_QUESTIONS.md`；`OPEN_QUESTIONS.md` 仅保留 open 项；`UPDATE_PROTOCOL.md` 增加只读任务免追加交接和归档规则。
@@ -72,6 +73,6 @@ Last updated: 2026-06-01
 | P0 表物化/QA | 已完成 | 3 张 DIM + 5 张 DWD 已物化，二轮评审修复后 smoke QA 通过；表/字段说明已补齐 |
 | DWS/ADS 设计 | 高 | 两篇设计文档已完成；尚未写 SQL |
 | ETL/调度 | 未开始 | — |
-| DWS 特征/标签 SQL | 部分完成 | 策略 1 universe、价格/估值特征、标签、宽表、样本已物化并 QA；财务特征和市场状态待补，财务口径 PRD 已完成待 review |
+| DWS 特征/标签 SQL | 部分完成 | 策略 1 universe、价格/估值特征、标签、宽表、样本已物化并 QA；财务特征和市场状态待补，财务口径已采纳 |
 | 策略/ADS 闭环 | 部分完成 | ADS 表契约已物化；`ml_pv_clf_v0` BigQuery ML runner 设计和实现 PRD 已完成，SQL runner 待实现 |
 | 行业映射 | 可落地设计完成 | ODS 已有 index_member_all / ci_index_member；待 SQL 和 QA |
