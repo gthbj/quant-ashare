@@ -1,4 +1,4 @@
--- 文档维护：GPT-5（最近更新 2026-05-31）
+-- 文档维护：GPT-5（最近更新 2026-06-01）
 -- BigQuery Standard SQL
 -- P0 DIM/DWD 表级与字段级说明补齐脚本。
 -- 用法：P0 建表或重建后执行本脚本；本脚本只更新 BigQuery metadata，不重写表数据。
@@ -17,7 +17,7 @@ ALTER COLUMN source_partition_date SET OPTIONS (description = '来源 ODS 分区
 ALTER COLUMN ingested_at SET OPTIONS (description = '来源 ODS 摄入时间');
 
 ALTER TABLE `data-aquarium.ashare_dim.dim_stock`
-SET OPTIONS (description = '股票主维表。合并 stock_basic 上市与退市最新快照，并用日线交易记录兜底生命周期边界，避免幸存者偏差。');
+SET OPTIONS (description = '股票主维表。合并 stock_basic 上市与退市最新快照，优先使用 ODS delist_date，并用日线交易记录兜底缺主数据代码的生命周期边界，避免幸存者偏差。');
 
 ALTER TABLE `data-aquarium.ashare_dim.dim_stock`
 ALTER COLUMN sec_code SET OPTIONS (description = '统一证券代码，Tushare ts_code 格式，如 600000.SH'),
@@ -37,7 +37,7 @@ ALTER COLUMN first_trade_date SET OPTIONS (description = 'ODS daily 中可见的
 ALTER COLUMN last_trade_date SET OPTIONS (description = 'ODS daily 中可见的最后交易日'),
 ALTER COLUMN is_delisted SET OPTIONS (description = '是否退市或按日线兜底规则推断为已退市'),
 ALTER COLUMN stock_master_source SET OPTIONS (description = '股票主数据来源：stock_basic 或 derived_from_daily'),
-ALTER COLUMN delist_date_source SET OPTIONS (description = '退市边界来源；当前不读取 ODS delist_date，主要使用最后交易日加一天'),
+ALTER COLUMN delist_date_source SET OPTIONS (description = '退市边界来源：stock_basic_delist_date、last_trade_date_plus_1_fallback 或 derived_from_daily 兜底'),
 ALTER COLUMN source_partition_date SET OPTIONS (description = '来源 stock_basic ODS 分区日期；日线兜底记录为空'),
 ALTER COLUMN ingested_at SET OPTIONS (description = '来源 ODS 摄入时间；日线兜底记录为空');
 

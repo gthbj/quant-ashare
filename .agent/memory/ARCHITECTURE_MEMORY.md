@@ -93,6 +93,7 @@ DWS/ADS 统一版本字段：`universe_version`、`feature_version`、`label_ver
 - 2026-05-31 P0 已物化到 BigQuery；`dwd_index_eod` 已恢复读取 `index_dailybasic`。该接口市值/股本单位为元/股，不做 `*10000` 换算。
 - `dwd_index_eod` 的 `sec_code` 使用 canonical 指数代码，`source_sec_code` 保留 ODS/Tushare 实际代码；双代码指数映射先由建表脚本 CTE 维护，未来可沉淀为 `dim_index`。该表已按 canonical 口径重建并通过 metadata / QA。
 - `dwd_stock_eod_price` 中 `is_suspended` 仅表示全天停牌/无成交；有成交的 `S` 事件另用 `has_intraday_halt`，开盘时段/未知时段临停用 `has_open_halt` 并影响开盘侧可交易掩码。
+- `dim_stock.delist_date` 优先使用 ODS `stock_basic_delisted.delist_date`（当前为可解析 `STRING`）；只有 ODS 退市日缺失时才用 `daily` 最后交易日加一天兜底。
 - `dwd_fin_indicator_latest` 是非 PIT 便捷表，按 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC` 取每个 `(sec_code, report_period)` 的最新修正版。
 
 ## 物理规范（BigQuery）

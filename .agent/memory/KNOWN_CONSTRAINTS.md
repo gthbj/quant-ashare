@@ -12,7 +12,7 @@
 - 行情 lookback buffer 不落最终 DWD/DWS；`ret_1d` 至少读到 2018 年最后一个交易日，120/250 日滚动特征按窗口多读。
 - 当前已物化的策略 1 价格 DWS 只读取最终 DWD/DIM，不直接打 ODS；最终 DWD 价格表不落 2018 buffer 行，因此 2019 年初 60 日窗口以 `has_full_history_60d=FALSE` 显式标记，默认样本掩码剔除这些不完整窗口。若需要 2019-01 起完整 60 日特征，需补专用 lookback-capable 构建输入或调整 DWD/DWS 构建方式。
 - **`fina_indicator` 无 `f_ann_date`**（实测）：其可见日只能用 `ann_date`；可见日规则**按表定义**，不可用统一 `COALESCE(f_ann_date,ann_date)` 公式覆盖所有财务表（见 docs §4.3）。
-- **`stock_basic_delisted.delist_date` 类型不一致**（外部表 `INT64` / Parquet `BYTE_ARRAY`）：直读报错、`SAFE` 无效；`dim_stock` 用「`daily` 最后交易日」兜底退市日（OQ-007）。
+- `stock_basic_delisted.delist_date` 已由上游统一为 `STRING` 并可直读解析；`dim_stock` 应优先使用 ODS 退市日，只有缺值时才用 `daily` 最后交易日加一天兜底（OQ-007 已关闭）。
 - **停牌日 `daily` 无该股行**：价格 DWD 必须以「交易日历开市日 × 在市股票」为骨架（保留停牌日空行），不能从 `daily` 起表，否则停牌日整行消失、`t+k` 标签错位。
 - **`suspend_d.suspend_type` 区分停牌/复牌**：`S`=停牌，`R`=复牌。价格 DWD 只可用 `S` 标记停牌事件；`R` 复牌日若 daily 有成交，不能判 `is_suspended=TRUE`。
 - `S` 事件也可能是盘中临停。若当日 `daily` 有 close 且 volume > 0，不能把该行标为全天停牌；DWD 用 `has_intraday_halt` 标记盘中临停，用 `has_open_halt` 标记开盘时段或未知时段临停并影响开盘建仓掩码。
