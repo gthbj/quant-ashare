@@ -11,6 +11,7 @@
 | KNOWN_CONSTRAINTS.md | 已知约束（数据/平台/PIT 等） | 每个任务开始时 | 约束变化时 |
 | OPEN_QUESTIONS.md | 未决问题 | 每个任务开始时 | 新增或关闭问题时 |
 | GLOSSARY.md | 项目术语 | 术语需澄清时 | 出现新术语时 |
+| DOC_CONVENTIONS.md | 文档 / PRD 存放与命名规范 | 写文档 / PRD 时 | 文档规范变化时 |
 | AGENT_HANDOFF.md | 跨会话交接摘要 | 每个任务开始时 | 每个任务结束时 |
 | UPDATE_PROTOCOL.md | 记忆更新规则 | 每个任务结束前 | 协议本身变化时 |
 | templates/ | 交接/决策/更新模板 | 需要追加条目时 | 模板格式调整时 |
@@ -20,4 +21,4 @@
 ## 当前项目一句话状态
 
 `quant-ashare` 是基于 BigQuery `data-aquarium` 的 **A 股日线量化数据仓库**（ODS→DIM/DWD→DWS→ADS）。
-当前阶段：**DWD/DIM 建模方案、DWS/ADS 表设计文档、策略方案文档已完成；P0 DIM/DWD 已物化并通过 smoke QA；`dwd_index_eod` 估值/股本字段已恢复；P0 二轮评审发现已修复**。正确口径：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件；下一步是补财务三表，或落地 P0 DWS/ADS SQL 与 `ml_ranker_v0` 基线回测。
+当前阶段：**DWD/DIM 建模方案、DWS/ADS 表设计文档、策略方案文档已完成；P0 DIM/DWD 已物化并通过 smoke QA；P0 表/字段说明已补齐；`dwd_index_eod` 估值/股本字段已恢复；P0 二轮评审发现已修复**。正确口径：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件；下一步是补财务三表，或落地 P0 DWS/ADS SQL 与 `ml_ranker_v0` 基线回测。
