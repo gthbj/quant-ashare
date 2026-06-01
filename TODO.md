@@ -28,12 +28,13 @@
 - [x] 编写并物化策略 1/P0 ADS 表契约：`ads_ml_training_panel_daily`、`ads_model_registry`、`ads_model_prediction_daily`、`ads_stock_candidate_daily`、`ads_portfolio_target_daily`、`ads_order_plan_daily`、`ads_backtest_*`、`ads_signal_monitor_daily`（`sql/ads/01_ads_strategy1_tables.sql`，dry-run / 物化 / QA 通过）
 - [x] 编写策略 1 BigQuery ML runner 设计：`docs/策略1-ml_pv_clf_v0-runner设计.md`（BigQuery SQL + BigQuery ML，覆盖训练、预测、候选、组合、订单、回测、监控、幂等和 QA）
 - [x] 编写策略 1 BigQuery ML runner 与回测闭环实现 PRD：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`
+- [x] 编写 OQ-003 财务 `report_type` 口径 PRD：`docs/prd/PRD_20260601_03_财务报表口径维度.md`（定义 P0 默认合并报表、DWD 保留口径字段、DWS 默认过滤和 QA；待 owner review）
 - [ ] 按 `PRD_20260601_02_策略1BQML回测闭环.md` 补策略 1 BigQuery ML + SQL runner：生成 `ads_ml_training_panel_daily`，训练 BQML `LOGISTIC_REG` / `LINEAR_REG`，写预测/候选/组合/回测 ADS 表，输出 RankIC/分位收益/净值/换手/不可成交比例
 - [ ] 补 lookback-capable 价格构建输入或调整 DWD/DWS 构建方式，使 2019-01 起 60 日价格窗口可直接读取 2018 buffer；当前策略 1 DWS 已用 `has_full_history_60d` 显式标记并默认剔除不完整窗口样本
 
 ## P1 — 特征扩展
 
-- [ ] `dwd_fin_income/balancesheet/cashflow`（单季派生）
+- [ ] `dwd_fin_income/balancesheet/cashflow`（按 OQ-003 PRD 保留 `report_type`/`report_caliber`；单季派生）
 - [x] 修复/绕过 `index_dailybasic` Parquet 类型不一致后，回填 `dwd_index_eod` 指数估值/股本字段（ODS 已修复，DWD 已重建；STAR50/CSI1000 无 dailybasic 端点仍为空）
 - [ ] `dim_stock_sw_industry_hist`（源 `index_member_all`，按 `in_date/out_date` 建申万行业时点归属，并 QA 区间重叠/缺口）
 - [ ] `dim_stock_ci_industry_hist`（源 `ci_index_member`，中信行业时点归属，对照体系）
@@ -55,5 +56,6 @@
 ## 待 owner 决策（见 OPEN_QUESTIONS）
 
 - [x] OQ-001 行业映射：`index_member_all` 已补采（同时补入 `ci_index_member`），后续转为建表 SQL + QA
+- [ ] OQ-003 财务 `report_type` 口径：审阅 `docs/prd/PRD_20260601_03_财务报表口径维度.md`，确认 P0 是否采纳默认合并报表、DWD 保留多口径字段、DWS 默认过滤
 - [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 bq SQL
 - [ ] OQ-010 P0 策略默认参数：成本、调仓频率、持股数/权重上限、北交所开关（训练工具链已定为 BigQuery ML + SQL runner）
