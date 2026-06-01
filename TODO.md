@@ -18,9 +18,9 @@
 - [x] 修复 P0 SQL 评审发现 R1-R5（显式 `--location=asia-east2`、复牌行不判停牌、`dim_stock` 去重与派生退市宽限、`fina_indicator` 去重兜底、补 `dwd_fin_indicator_latest` 和 QA 脚本；dry-run 通过）
 - [x] 执行 `sql/` P0 建表脚本并运行 `sql/qa/01_p0_smoke_checks.sql`（初版已物化 3 张 DIM + 5 张 DWD，QA 通过；OQ-004 后增补 `dim_index`）
 - [x] 修复 P0 SQL 二轮评审发现（盘中临停不再误标全天停牌；`dwd_fin_indicator_latest` 改为 `update_flag DESC` 优先；重建相关 DWD 并跑通 QA）
-- [x] 补齐 P0 DIM/DWD 表说明和字段说明（`sql/metadata/01_p0_table_column_descriptions.sql` 已执行，8 张表 missing description=0）
+- [x] 补齐 P0 DIM/DWD 表说明和字段说明（`sql/metadata/01_p0_table_column_descriptions.sql` 已执行，9 张表 missing description=0）
 - [x] 复核并关闭 OQ-007：ODS `stock_basic_delisted.delist_date` 已统一为 `STRING` 且可解析；`dim_stock` SQL 改为优先使用 ODS 退市日，并补 P0 QA 断言
-- [ ] PR #9 合并后重建 `dim_stock`，并按依赖重建 `dwd_stock_eod_price` 与策略 1 DWS/ADS 派生产物，执行 metadata / P0 QA / 策略 1 QA
+- [x] PR #9 合并后重建 `dim_stock`，并按依赖重建 `dwd_stock_eod_price` 与策略 1 DWS/ADS 派生产物，执行 metadata / P0 QA / 策略 1 QA（2026-06-02 已重建 `dim_stock`、`dwd_stock_eod_price`、策略 1 DWS 六表与 ADS 契约表；已执行 metadata，P0 QA 与策略 1 QA 通过）
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置
 - [ ] 写「从 ODS 继承字段描述」脚本（`bq show` → 映射 → `bq update`）
 - [x] 设计 DWS/ADS 表体系（`docs/数据仓库建模方案-DWS-ADS.md`，覆盖 P0 DWS 特征/标签与 ADS 训练/预测/组合/回测/监控）
