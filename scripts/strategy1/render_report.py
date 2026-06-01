@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Strategy 1 backtest report renderer.
 
-Reads metrics from BigQuery ADS tables (or exported metrics.json),
-renders Markdown/HTML report and PNG charts, uploads to GCS,
-and writes a local mirror under reports/.
+Reads metrics from BigQuery ADS tables, renders Markdown + HTML report
+and PNG charts, uploads to GCS, writes a local mirror, and updates
+ads_backtest_performance_summary.metrics_json with report_uri.
 
 Usage:
     python scripts/strategy1/render_report.py \
@@ -13,14 +13,14 @@ Usage:
         --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
         --local-mirror-root reports/strategy1
 
-Requirements: google-cloud-bigquery, google-cloud-storage, matplotlib, jinja2
+Requirements: google-cloud-bigquery, google-cloud-storage, matplotlib, pandas
 """
 
 from __future__ import annotations
 
 import argparse
+import html
 import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -31,8 +31,10 @@ try:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    import pandas as pd
 except ImportError as e:
-    print(f"Missing dependency: {e}. Install: pip install google-cloud-bigquery google-cloud-storage matplotlib", file=sys.stderr)
+    print(f"Missing dependency: {e}.", file=sys.stderr)
+    print("Install: pip install google-cloud-bigquery google-cloud-storage matplotlib pandas db-dtypes", file=sys.stderr)
     sys.exit(1)
 
 
@@ -48,176 +50,207 @@ def parse_args():
     return p.parse_args()
 
 
-def fetch_nav(client, project: str, backtest_id: str):
+def fetch_summary(client: bigquery.Client, project: str, backtest_id: str) -> dict:
     sql = f"""
-    SELECT trade_date, nav, daily_return, benchmark_return, excess_return
-    FROM `{project}.ashare_ads.ads_backtest_nav_daily`
-    WHERE backtest_id = @backtest_id
-    ORDER BY trade_date
+    SELECT bs.* FROM `{project}.ashare_ads.ads_backtest_performance_summary` AS bs
+    WHERE bs.backtest_id = @bid LIMIT 1
     """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[bigquery.ScalarQueryParameter("backtest_id", "STRING", backtest_id)]
-    )
-    return client.query(sql, job_config=job_config).to_dataframe()
+    job_cfg = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("bid", "STRING", backtest_id)])
+    rows = client.query(sql, job_config=job_cfg).to_dataframe()
+    if rows.empty:
+        raise SystemExit(f"No summary found for backtest_id={backtest_id}")
+    return rows.iloc[0].to_dict()
 
 
-def fetch_summary(client, project: str, backtest_id: str):
+def fetch_nav(client: bigquery.Client, project: str, backtest_id: str,
+              start_date: str, end_date: str) -> pd.DataFrame:
     sql = f"""
-    SELECT *
-    FROM `{project}.ashare_ads.ads_backtest_performance_summary`
-    WHERE backtest_id = @backtest_id
-    LIMIT 1
+    SELECT n.trade_date, n.nav, n.daily_return, n.benchmark_return, n.excess_return
+    FROM `{project}.ashare_ads.ads_backtest_nav_daily` AS n
+    WHERE n.backtest_id = @bid
+      AND n.trade_date BETWEEN @sd AND @ed
+    ORDER BY n.trade_date
     """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[bigquery.ScalarQueryParameter("backtest_id", "STRING", backtest_id)]
-    )
-    rows = client.query(sql, job_config=job_config).to_dataframe()
-    return rows.iloc[0].to_dict() if len(rows) > 0 else {}
+    job_cfg = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("bid", "STRING", backtest_id),
+        bigquery.ScalarQueryParameter("sd", "DATE", start_date),
+        bigquery.ScalarQueryParameter("ed", "DATE", end_date)])
+    df = client.query(sql, job_config=job_cfg).to_dataframe()
+    if df.empty:
+        raise SystemExit(f"No NAV data for backtest_id={backtest_id}")
+    return df
 
 
-def fetch_model_info(client, project: str, strategy_id: str):
+def fetch_model_info(client: bigquery.Client, project: str,
+                     strategy_id: str, run_id: str) -> dict:
     sql = f"""
-    SELECT model_id, model_params_json, metrics_json, model_uri
-    FROM `{project}.ashare_ads.ads_model_registry`
-    WHERE strategy_id = @strategy_id AND status = 'selected'
-    ORDER BY created_at DESC LIMIT 1
+    SELECT reg.model_id, reg.model_params_json, reg.metrics_json, reg.model_uri
+    FROM `{project}.ashare_ads.ads_model_registry` AS reg
+    WHERE reg.strategy_id = @sid AND reg.status = 'selected'
+      AND JSON_VALUE(reg.model_params_json, '$.run_id') = @rid
+    ORDER BY reg.created_at DESC LIMIT 1
     """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[bigquery.ScalarQueryParameter("strategy_id", "STRING", strategy_id)]
-    )
-    rows = client.query(sql, job_config=job_config).to_dataframe()
-    return rows.iloc[0].to_dict() if len(rows) > 0 else {}
+    job_cfg = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("sid", "STRING", strategy_id),
+        bigquery.ScalarQueryParameter("rid", "STRING", run_id)])
+    rows = client.query(sql, job_config=job_cfg).to_dataframe()
+    return rows.iloc[0].to_dict() if not rows.empty else {}
 
 
-def plot_nav(nav_df, out_path: Path):
+def plot_nav(nav_df: pd.DataFrame, out_path: Path):
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.plot(nav_df["trade_date"], nav_df["nav"], label="Portfolio NAV", linewidth=1.2)
-    bench_nav = (1 + nav_df["benchmark_return"].fillna(0)).cumprod()
-    ax.plot(nav_df["trade_date"], bench_nav, label="Benchmark", linewidth=1.0, alpha=0.7)
-    ax.set_title("NAV Curve")
-    ax.set_ylabel("NAV")
-    ax.legend()
+    bench = (1 + nav_df["benchmark_return"].fillna(0)).cumprod()
+    ax.plot(nav_df["trade_date"], bench, label="Benchmark", linewidth=1.0, alpha=0.7)
+    ax.set_title("NAV Curve"); ax.set_ylabel("NAV"); ax.legend()
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
-    fig.autofmt_xdate()
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
+    fig.autofmt_xdate(); fig.tight_layout(); fig.savefig(out_path, dpi=150); plt.close(fig)
 
 
-def plot_drawdown(nav_df, out_path: Path):
-    nav_series = nav_df["nav"]
-    running_max = nav_series.cummax()
-    drawdown = nav_series / running_max - 1
+def plot_drawdown(nav_df: pd.DataFrame, out_path: Path):
+    dd = nav_df["nav"] / nav_df["nav"].cummax() - 1
     fig, ax = plt.subplots(figsize=(12, 3))
-    ax.fill_between(nav_df["trade_date"], drawdown, 0, alpha=0.5, color="red")
-    ax.set_title("Drawdown")
-    ax.set_ylabel("Drawdown")
+    ax.fill_between(nav_df["trade_date"], dd, 0, alpha=0.5, color="red")
+    ax.set_title("Drawdown"); ax.set_ylabel("Drawdown")
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    fig.autofmt_xdate()
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
+    fig.autofmt_xdate(); fig.tight_layout(); fig.savefig(out_path, dpi=150); plt.close(fig)
+
+
+def fmt(v, decimals=4):
+    if v is None or (isinstance(v, float) and v != v):
+        return "N/A"
+    return f"{v:.{decimals}f}"
 
 
 def render_markdown(summary: dict, model_info: dict, args) -> str:
+    m = json.loads(summary.get("metrics_json") or "{}")
     lines = [
-        f"# Strategy 1 Backtest Report",
-        f"",
+        "# Strategy 1 Backtest Report", "",
         f"- **backtest_id**: `{args.backtest_id}`",
         f"- **run_id**: `{args.run_id}`",
         f"- **strategy_id**: `{args.strategy_id}`",
         f"- **model_id**: `{model_info.get('model_id', 'N/A')}`",
-        f"- **generated**: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
-        f"",
-        f"## Performance Summary",
-        f"",
-        f"| Metric | Value |",
-        f"|---|---|",
+        f"- **generated**: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}", "",
+        "## Performance Summary", "",
+        "| Metric | Value |", "|---|---|",
         f"| Period | {summary.get('start_date', '')} to {summary.get('end_date', '')} |",
-        f"| Total Return | {summary.get('total_return', 0):.4f} |",
-        f"| Annual Return | {summary.get('annual_return', 0):.4f} |",
-        f"| Annual Vol | {summary.get('annual_vol', 0):.4f} |",
-        f"| Sharpe | {summary.get('sharpe', 0):.4f} |",
-        f"| Max Drawdown | {summary.get('max_drawdown', 0):.4f} |",
-        f"| Excess Return | {summary.get('excess_return', 0):.4f} |",
-        f"| Information Ratio | {summary.get('information_ratio', 0):.4f} |",
-        f"| Cost (bps) | {summary.get('cost_bps', 0):.0f} |",
-        f"| Benchmark | `{summary.get('benchmark_sec_code', '')}` |",
-        f"",
-        f"## Model Selection",
-        f"",
-        f"```json",
-        f"{json.dumps(json.loads(model_info.get('metrics_json', '{}') or '{}'), indent=2)}",
-        f"```",
-        f"",
-        f"## Charts",
-        f"",
-        f"![NAV](assets/nav.png)",
-        f"",
-        f"![Drawdown](assets/drawdown.png)",
-        f"",
-        f"---",
-        f"",
-        f"*OQ-010 parameters are example values, not business-final.*",
+        f"| Total Return | {fmt(summary.get('total_return'))} |",
+        f"| Annual Return | {fmt(summary.get('annual_return'))} |",
+        f"| Annual Vol | {fmt(summary.get('annual_vol'))} |",
+        f"| Sharpe | {fmt(summary.get('sharpe'))} |",
+        f"| Max Drawdown | {fmt(summary.get('max_drawdown'))} |",
+        f"| Excess Return | {fmt(summary.get('excess_return'))} |",
+        f"| Information Ratio | {fmt(summary.get('information_ratio'))} |",
+        f"| Buy Fail Rate | {fmt(m.get('buy_fail_rate'))} |",
+        f"| Sell Delay Rate | {fmt(m.get('sell_delay_rate'))} |",
+        f"| Sell Blocked Count | {m.get('sell_blocked_count', 'N/A')} |",
+        f"| Cost (bps) | {fmt(summary.get('cost_bps'), 0)} |",
+        f"| Benchmark | `{summary.get('benchmark_sec_code', '')}` |", "",
+        "## Model Selection", "",
+        "```json",
+        json.dumps(json.loads(model_info.get("metrics_json") or "{}"), indent=2),
+        "```", "",
+        "## Charts", "",
+        "![NAV](assets/nav.png)", "",
+        "![Drawdown](assets/drawdown.png)", "",
+        "---", "",
+        "*OQ-010 parameters are example values, not business-final.*",
     ]
     return "\n".join(lines)
 
 
-def upload_directory_to_gcs(local_dir: Path, gcs_uri: str, skip: bool):
+def render_html(md_content: str) -> str:
+    body = html.escape(md_content).replace("\n", "<br>\n")
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Strategy 1 Backtest Report</title>
+<style>body{{font-family:monospace;max-width:900px;margin:auto;padding:20px}}
+table{{border-collapse:collapse}}td,th{{border:1px solid #ccc;padding:4px 8px}}
+img{{max-width:100%}}</style></head>
+<body><pre>{md_content}</pre></body></html>"""
+
+
+def upload_dir_to_gcs(local_dir: Path, gcs_uri: str, skip: bool):
     if skip:
-        print(f"Skipping GCS upload (--skip-gcs-upload). Local: {local_dir}")
-        return
+        print(f"  Skipping GCS upload. Local: {local_dir}")
+        return gcs_uri
     bucket_name = gcs_uri.replace("gs://", "").split("/")[0]
     prefix = "/".join(gcs_uri.replace("gs://", "").split("/")[1:])
     client = storage.Client()
     bucket = client.bucket(bucket_name)
     for path in local_dir.rglob("*"):
         if path.is_file():
-            blob_name = f"{prefix}/{path.relative_to(local_dir)}"
-            blob = bucket.blob(blob_name)
+            blob = bucket.blob(f"{prefix}/{path.relative_to(local_dir)}")
             blob.upload_from_filename(str(path))
-            print(f"  Uploaded {blob_name}")
+            print(f"  Uploaded {blob.name}")
+    return gcs_uri
+
+
+def write_report_uri_to_ads(client: bigquery.Client, project: str,
+                             backtest_id: str, gcs_uri: str, local_path: str):
+    sql = f"""
+    UPDATE `{project}.ashare_ads.ads_backtest_performance_summary` AS bs
+    SET bs.metrics_json = JSON_SET(
+      COALESCE(bs.metrics_json, '{{}}'),
+      '$.report_uri', @gcs_uri,
+      '$.local_report_path', @local_path,
+      '$.report_generated_utc', @ts
+    )
+    WHERE bs.backtest_id = @bid
+    """
+    job_cfg = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("bid", "STRING", backtest_id),
+        bigquery.ScalarQueryParameter("gcs_uri", "STRING", gcs_uri),
+        bigquery.ScalarQueryParameter("local_path", "STRING", local_path),
+        bigquery.ScalarQueryParameter("ts", "STRING", datetime.utcnow().isoformat())])
+    client.query(sql, job_config=job_cfg).result()
+    print(f"  Updated ads_backtest_performance_summary.metrics_json with report_uri")
 
 
 def main():
     args = parse_args()
-    bq_client = bigquery.Client(project=args.project)
+    bq = bigquery.Client(project=args.project)
+
+    print("Fetching summary...")
+    summary = fetch_summary(bq, args.project, args.backtest_id)
+    sd, ed = str(summary.get("start_date", "2024-01-01")), str(summary.get("end_date", "2025-12-31"))
+
+    print("Fetching NAV...")
+    nav_df = fetch_nav(bq, args.project, args.backtest_id, sd, ed)
+
+    print("Fetching model info...")
+    model_info = fetch_model_info(bq, args.project, args.strategy_id, args.run_id)
 
     report_dir = Path(args.local_mirror_root) / f"ml_pv_clf_v0/run_id={args.run_id}/backtest_id={args.backtest_id}"
     assets_dir = report_dir / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
-
-    print("Fetching data from BigQuery...")
-    nav_df = fetch_nav(bq_client, args.project, args.backtest_id)
-    summary = fetch_summary(bq_client, args.project, args.backtest_id)
-    model_info = fetch_model_info(bq_client, args.project, args.strategy_id)
 
     print("Rendering charts...")
     plot_nav(nav_df, assets_dir / "nav.png")
     plot_drawdown(nav_df, assets_dir / "drawdown.png")
 
     print("Rendering report...")
-    md_content = render_markdown(summary, model_info, args)
-    (report_dir / "report.md").write_text(md_content)
-
+    md = render_markdown(summary, model_info, args)
+    (report_dir / "report.md").write_text(md)
+    (report_dir / "report.html").write_text(render_html(md))
     metrics = {
-        "backtest_id": args.backtest_id,
-        "run_id": args.run_id,
-        "strategy_id": args.strategy_id,
-        "model_id": model_info.get("model_id"),
-        "summary": summary,
-        "model_selection": json.loads(model_info.get("metrics_json", "{}") or "{}"),
+        "backtest_id": args.backtest_id, "run_id": args.run_id,
+        "strategy_id": args.strategy_id, "model_id": model_info.get("model_id"),
+        "summary": {k: str(v) if not isinstance(v, (int, float, bool, type(None))) else v
+                     for k, v in summary.items()},
         "generated_utc": datetime.utcnow().isoformat(),
     }
     (report_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str))
 
     gcs_uri = f"{args.artifact_base_uri}/ml_pv_clf_v0/run_id={args.run_id}/backtest_id={args.backtest_id}"
     print(f"Uploading to GCS: {gcs_uri}")
-    upload_directory_to_gcs(report_dir, gcs_uri, args.skip_gcs_upload)
+    upload_dir_to_gcs(report_dir, gcs_uri, args.skip_gcs_upload)
 
-    print(f"Done. Local mirror: {report_dir}")
-    print(f"GCS URI: {gcs_uri}")
+    print("Writing report_uri back to ADS...")
+    write_report_uri_to_ads(bq, args.project, args.backtest_id, gcs_uri, str(report_dir))
+
+    print(f"Done. Local: {report_dir}")
 
 
 if __name__ == "__main__":
