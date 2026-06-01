@@ -24,9 +24,15 @@ SET p_selected_model_id = (
 
 -- ── 幂等 ──
 IF NOT p_force_replace THEN
-  IF (SELECT COUNT(*) > 0 FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
-      WHERE bs.backtest_id = p_backtest_id) THEN
-    RAISE USING MESSAGE = CONCAT('performance summary already exists for backtest_id ', p_backtest_id, '. Set p_force_replace=TRUE.');
+  -- 检查本脚本写入的所有表（summary + signal monitor）
+  IF (
+    (SELECT COUNT(*) FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+       WHERE bs.backtest_id = p_backtest_id)
+  + (SELECT COUNT(*) FROM `data-aquarium.ashare_ads.ads_signal_monitor_daily` AS sm
+       WHERE sm.strategy_id = p_strategy_id AND sm.run_id = p_run_id
+         AND sm.trade_date BETWEEN p_predict_start AND p_predict_end)
+  ) > 0 THEN
+    RAISE USING MESSAGE = CONCAT('summary/monitor already exist for backtest_id ', p_backtest_id, '. Set p_force_replace=TRUE.');
   END IF;
 END IF;
 IF p_force_replace THEN
@@ -73,11 +79,22 @@ grp AS (
   FROM presence
 ),
 ep AS (
-  SELECT sec_code, MAX(period_idx) AS last_present FROM grp GROUP BY sec_code, island
+  SELECT sec_code, island, MIN(period_idx) AS entry_period, MAX(period_idx) AS last_present
+  FROM grp GROUP BY sec_code, island
+),
+-- 只保留「建仓成功」的 episode（与 08 的 filled_shares>0 对齐），避免把买入失败的目标退出误计入顺延
+ep_filled AS (
+  SELECT ep.sec_code, ep.last_present
+  FROM ep
+  JOIN periods AS pen ON pen.period_idx = ep.entry_period
+  JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS pe
+    ON pe.sec_code = ep.sec_code AND pe.trade_date = pen.exec_date
+    AND pe.trade_date BETWEEN p_predict_start AND p_calendar_end
+  WHERE COALESCE(pe.can_buy_open, FALSE)
 ),
 exits AS (
-  SELECT ep.sec_code, px.exec_date AS desired_sell_date
-  FROM ep JOIN periods AS px ON px.period_idx = ep.last_present + 1
+  SELECT epf.sec_code, px.exec_date AS desired_sell_date
+  FROM ep_filled AS epf JOIN periods AS px ON px.period_idx = epf.last_present + 1
 ),
 with_actual AS (
   SELECT

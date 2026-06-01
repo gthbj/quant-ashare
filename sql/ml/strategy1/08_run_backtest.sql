@@ -27,9 +27,18 @@ SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
 
 -- ── 幂等：默认存在即报错，force_replace 才清理 ──
 IF NOT p_force_replace THEN
-  IF (SELECT COUNT(*) > 0 FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS t
-      WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end) THEN
-    RAISE USING MESSAGE = CONCAT('backtest_id ', p_backtest_id, ' already has results. Set p_force_replace=TRUE.');
+  -- 检查本脚本写入的所有表（含部分失败残留），任一非空即报错
+  IF (
+    (SELECT COUNT(*) FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS t
+       WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end)
+  + (SELECT COUNT(*) FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
+       WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end)
+  + (SELECT COUNT(*) FROM `data-aquarium.ashare_ads.ads_backtest_position_daily` AS t
+       WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end)
+  + (SELECT COUNT(*) FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS t
+       WHERE t.backtest_id = p_backtest_id)
+  ) > 0 THEN
+    RAISE USING MESSAGE = CONCAT('backtest_id ', p_backtest_id, ' already has results (trade/position/nav/summary). Set p_force_replace=TRUE.');
   END IF;
 END IF;
 IF p_force_replace THEN
@@ -97,13 +106,17 @@ JOIN periods AS pe ON pe.period_idx = ep.entry_period
 LEFT JOIN periods AS px ON px.period_idx = ep.last_present_period + 1;
 
 -- ── 建仓成交（BUY at entry_exec）──
+-- 预算口径：每个仓位「含成本的总现金支出」= initial_capital × weight（slot budget）。
+-- 故买入额 invest_amount = budget /(1+费率)，买入额+成本 = budget；首个调仓 Σbudget = capital → 现金归零不为负。
 CREATE TEMP TABLE entry_fills AS
 SELECT
   e.sec_code, e.entry_period, e.exit_period, e.entry_exec_date, e.exit_exec_date,
-  p_initial_capital * e.entry_weight AS planned_amount,
+  p_initial_capital * e.entry_weight AS slot_budget,
+  p_initial_capital * e.entry_weight / (1 + p_cost_bps / 10000.0) AS invest_amount,
   COALESCE(pe.can_buy_open, FALSE) AS can_buy,
   pe.open AS buy_price,
-  IF(COALESCE(pe.can_buy_open, FALSE), SAFE_DIVIDE(p_initial_capital * e.entry_weight, NULLIF(pe.open, 0)), 0) AS filled_shares
+  IF(COALESCE(pe.can_buy_open, FALSE),
+     SAFE_DIVIDE(p_initial_capital * e.entry_weight / (1 + p_cost_bps / 10000.0), NULLIF(pe.open, 0)), 0) AS filled_shares
 FROM episodes AS e
 LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS pe
   ON pe.sec_code = e.sec_code AND pe.trade_date = e.entry_exec_date
@@ -131,15 +144,15 @@ INSERT INTO `data-aquarium.ashare_ads.ads_backtest_trade_daily`
 (backtest_id, trade_date, sec_code, side, planned_shares, filled_shares,
  fill_price, turnover_cny, fee_cny, tax_cny, slippage_cny, cash_effect_cny,
  fill_status, run_id, created_at)
--- 建仓
+-- 建仓：现金支出 = invest_amount + 成本 = slot_budget（含成本不超预算，杜绝负现金）
 SELECT
   p_backtest_id, ef.entry_exec_date, ef.sec_code, 'BUY',
-  SAFE_DIVIDE(ef.planned_amount, NULLIF(ef.buy_price, 0)),
+  SAFE_DIVIDE(ef.invest_amount, NULLIF(ef.buy_price, 0)),
   ef.filled_shares, ef.buy_price,
-  IF(ef.can_buy, ef.planned_amount, 0),
-  IF(ef.can_buy, ef.planned_amount * p_cost_bps / 10000.0, 0),
+  IF(ef.can_buy, ef.invest_amount, 0),
+  IF(ef.can_buy, ef.invest_amount * p_cost_bps / 10000.0, 0),
   0.0, 0.0,
-  IF(ef.can_buy, -ef.planned_amount * (1 + p_cost_bps / 10000.0), 0),
+  IF(ef.can_buy, -ef.slot_budget, 0),
   IF(ef.can_buy, 'FILLED', 'REJECTED'),
   p_run_id, CURRENT_TIMESTAMP()
 FROM entry_fills AS ef

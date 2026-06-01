@@ -143,6 +143,34 @@ ASSERT (
   WHERE nav.trade_date IS NULL
 ) AS 'NAV must cover all open market days in predict window';
 
+-- ── 无负现金（long-only 不允许隐性杠杆；容忍 1 元舍入）──
+ASSERT (
+  SELECT COUNTIF(nav.cash_cny < -1.0) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+  WHERE nav.backtest_id = p_backtest_id
+    AND nav.trade_date BETWEEN p_predict_start AND p_predict_end
+) AS 'cash_cny must not go negative (no implicit leverage)';
+
+-- ── 总暴露不超过 1（含 0.5% 容忍，long-only 无杠杆）──
+ASSERT (
+  SELECT COUNTIF(nav.gross_exposure > 1.005) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+  WHERE nav.backtest_id = p_backtest_id
+    AND nav.trade_date BETWEEN p_predict_start AND p_predict_end
+) AS 'gross_exposure must not exceed 1 (no leverage)';
+
+-- ── 同一 (backtest_id, trade_date, sec_code) 持仓唯一（重叠 episode 诊断）──
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT pos.trade_date, pos.sec_code, COUNT(*) AS n
+    FROM `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+    WHERE pos.backtest_id = p_backtest_id
+      AND pos.trade_date BETWEEN p_predict_start AND p_predict_end
+    GROUP BY pos.trade_date, pos.sec_code HAVING n > 1
+  )
+) AS 'position rows must be unique per (trade_date, sec_code) — overlapping episodes would duplicate';
+
 -- ── selected model 唯一（run-scoped）──
 ASSERT (
   SELECT COUNT(*) = 1
