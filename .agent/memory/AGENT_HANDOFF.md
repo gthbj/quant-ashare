@@ -10,7 +10,7 @@
 
 **已物化表**：`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`；`data-aquarium.ashare_dws` 下策略 1 六表（universe、价格特征、估值特征、标签、特征宽表、样本表）；`data-aquarium.ashare_ads` 下 11 张训练/预测/组合/回测/监控契约表。`sql/qa/01_p0_smoke_checks.sql` 与 `sql/qa/02_strategy1_dws_ads_checks.sql` 均通过。二轮评审发现已修复：盘中临停不再误标全天停牌，财务 latest 改为 `update_flag DESC` 优先。`sql/metadata/01_p0_table_column_descriptions.sql` 已补齐全部 P0 DIM/DWD 表/字段说明，BigQuery 验证 missing description = 0。
 
-**评审协议（本会话确立）**：评审已提交代码/SQL 或设计文档,必须产出 `docs/reviews/` 评审文档;评审只读——不擅改被评审对象、不把发现直接写进 `.agent/memory/**`/`TODO.md`,发现是否转 OQ/TODO/决策由 owner 定（AGENTS.md §六 / DECISION-20260531-13）。首份代码评审 `docs/reviews/P0-建表SQL-review.md` 的 5 项发现已由 owner 要求修复并全部采纳，见 DECISION-20260531-14。
+**评审协议（2026-06-01 更新）**：评审已提交代码/SQL 或设计文档时，GitHub PR review 默认写 PR comment；一条写不下拆多条。只有 owner 明确要求或无 PR comment 承载面时，才另写 `docs/reviews/` 评审文档。评审只读——不擅改被评审对象、不把发现直接写进 `.agent/memory/**`/`TODO.md`，发现是否转 OQ/TODO/决策由 owner 定（AGENTS.md §六 / DECISION-20260601-03）。历史 `docs/reviews/P0-建表SQL-review.md` 等评审文档保留作审计记录。
 
 **重要执行结果**：`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行；`dwd_index_eod` 11,922 行，其中 8,899 行有 `index_dailybasic` 估值/市值/股本字段，且沪深300已归一为 `sec_code='000300.SH'` / `source_sec_code='399300.SZ'`。策略 1 DWS 行数：universe 8,495,462 行（默认池 3,403,501 行）、价格特征 8,495,462 行（完整 60 日历史 7,936,431 行）、估值特征 8,452,073 行、标签 8,495,462 行（5 日有效标签 8,388,177 行）、样本表 8,495,462 行（默认可训练 3,274,084 行）。上游已修复 `index_dailybasic` Parquet 类型问题，OQ-009 已关闭；STAR50/CSI1000 因 ODS 无 dailybasic endpoint 仍为空。
 
@@ -419,3 +419,51 @@ Run ID: —
 
 ### 已更新记忆文件
 - AGENT_HANDOFF、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、MEMORY_INDEX、OPEN_QUESTIONS、PROJECT_CONTEXT；TODO.md updated.
+
+## 交接条目
+
+日期: 2026-06-01
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #7 review protocol update
+
+### 已完成工作
+
+- 按 owner 最新要求更新评审协议：GitHub PR review 默认写 PR comment；一条写不下拆多条。
+- 明确只有 owner 明确要求或无 PR comment 承载面时，才另写 `docs/reviews/` 评审文档。
+- 将 DECISION-20260531-13 标记为被 DECISION-20260601-03 supersede。
+
+### 重要上下文
+
+- 历史 `docs/reviews/` 评审文档继续保留作审计记录。
+- 评审过程仍保持只读：不擅改被评审对象，不把发现直接写进 `.agent/memory/**` 或 `TODO.md`；发现是否转 OQ/TODO/决策由 owner 拍板。
+
+### 改动文件
+
+- `AGENTS.md`
+- `.agent/memory/UPDATE_PROTOCOL.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+
+### 测试 / 验证
+
+- 使用 `rg` 检查旧“评审必须产出文档”规则的位置并同步更新当前协议入口。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 后续 PR review 直接在 GitHub PR comment 中写发现；长评审拆多条 comment。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/UPDATE_PROTOCOL.md`

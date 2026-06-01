@@ -30,7 +30,7 @@
 5. `KNOWN_CONSTRAINTS.md` — 仅当约束变化时更新。
 6. 根目录 `TODO.md` — 勾选已完成项、补充新发现项，保持反映真实进度。
 
-例外：纯只读盘点 / 问答 / 评审，且未改项目文件、未产生 owner 已采纳的状态变化或新决策时，不追加 handoff、不更新状态/TODO。评审仍按 AGENTS.md §六产出评审文档。
+例外：纯只读盘点 / 问答 / 评审，且未改项目文件、未产生 owner 已采纳的状态变化或新决策时，不追加 handoff、不更新状态/TODO。评审按 AGENTS.md §六优先写 GitHub PR comment；一条写不下拆多条。只有 owner 明确要求或无 PR comment 承载面时，才产出 `docs/reviews/` 评审文档。
 
 ## 归档与瘦身
 
