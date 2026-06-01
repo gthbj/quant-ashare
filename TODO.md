@@ -26,7 +26,8 @@
 - [x] 编写并物化策略 1 DWS 建表 SQL：`dws_stock_universe_daily`、`dws_stock_feature_price_daily`、`dws_stock_feature_valuation_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`（`sql/dws/*.sql`，dry-run / 物化 / `sql/qa/02_strategy1_dws_ads_checks.sql` 通过；PR #4 comment 已补 `label_valid` 语义说明、去冗余 JOIN、量化最早可训练日期、同步 DWD-DIM 字段名）
 - [ ] 补 P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily`、`dws_market_state_daily`、后续策略共用的财务/市场状态特征
 - [x] 编写并物化策略 1/P0 ADS 表契约：`ads_ml_training_panel_daily`、`ads_model_registry`、`ads_model_prediction_daily`、`ads_stock_candidate_daily`、`ads_portfolio_target_daily`、`ads_order_plan_daily`、`ads_backtest_*`、`ads_signal_monitor_daily`（`sql/ads/01_ads_strategy1_tables.sql`，dry-run / 物化 / QA 通过）
-- [ ] 补策略 1 训练/预测/组合/回测 Python run：生成 `ads_ml_training_panel_daily`，训练 `ml_pv_clf_v0`，写预测/候选/组合/回测 ADS 表，输出 RankIC/分位收益/净值/换手/不可成交比例
+- [x] 编写策略 1 BigQuery ML runner 设计：`docs/策略1-ml_pv_clf_v0-runner设计.md`（BigQuery SQL + BigQuery ML，覆盖训练、预测、候选、组合、订单、回测、监控、幂等和 QA）
+- [ ] 补策略 1 BigQuery ML + SQL runner：生成 `ads_ml_training_panel_daily`，训练 BQML `LOGISTIC_REG` / `LINEAR_REG`，写预测/候选/组合/回测 ADS 表，输出 RankIC/分位收益/净值/换手/不可成交比例
 - [ ] 补 lookback-capable 价格构建输入或调整 DWD/DWS 构建方式，使 2019-01 起 60 日价格窗口可直接读取 2018 buffer；当前策略 1 DWS 已用 `has_full_history_60d` 显式标记并默认剔除不完整窗口样本
 
 ## P1 — 特征扩展
@@ -54,4 +55,4 @@
 
 - [x] OQ-001 行业映射：`index_member_all` 已补采（同时补入 `ci_index_member`），后续转为建表 SQL + QA
 - [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 bq SQL
-- [ ] OQ-010 P0 策略默认参数：成本、调仓频率、持股数/权重上限、北交所开关、训练工具链
+- [ ] OQ-010 P0 策略默认参数：成本、调仓频率、持股数/权重上限、北交所开关（训练工具链已定为 BigQuery ML + SQL runner）
