@@ -778,7 +778,7 @@ JOIN px c ON c.sec_code=a.sec_code AND c.seq=a.seq+5              -- t+5
    - 行情：每日 `COUNT(DISTINCT sec_code)` 在合理区间（~5500）；`high>=low`、`high>=close>=low`、`volume>=0`；`adj_factor` 单调非降（除特殊处理）。
    - 复权交叉校验：`ABS(ret_1d - pct_chg/100) < 阈值`（非除权日应几乎相等）。
    - 财务：`(sec_code, report_period)` 去重后唯一；`ann_date_eff >= report_period`（公告晚于报告期）。
-   - 维度：`dim_stock` 主键唯一；`delist_date IS NULL OR delist_date > list_date`。
+   - 维度：`dim_stock` 主键唯一；退市股必须有合法退市边界（`is_delisted` 时 `delist_date IS NOT NULL` 且 `delist_date > list_date`，并禁止 `delist_date_source='missing_delist_date'`）。
 5. **多源治理与可复现**
    - 每行带 `source_system`/`ingested_at`，多源并存时按来源优先级 `MERGE`（如自采 > Tushare），并保留血缘以便排查。
    - DWD/DIM 的构建 SQL 全部入 git（本仓库），参数化 `@start/@end`；保留财务"修正历史"快照以支持严格 PIT 回测复算。

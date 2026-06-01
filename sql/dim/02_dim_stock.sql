@@ -182,4 +182,4 @@ ALTER COLUMN sec_code SET OPTIONS (description = '证券代码，Tushare ts_code
 ALTER COLUMN list_date SET OPTIONS (description = '上市日期'),
 ALTER COLUMN delist_date SET OPTIONS (description = '退市后第一天，用于生命周期半开区间 trade_date < delist_date'),
 ALTER COLUMN stock_master_source SET OPTIONS (description = '股票主数据来源：stock_basic 或 derived_from_daily'),
-ALTER COLUMN delist_date_source SET OPTIONS (description = '退市边界来源：stock_basic_delist_date、last_trade_date_plus_1_fallback 或 derived_from_daily 兜底');
+ALTER COLUMN delist_date_source SET OPTIONS (description = '退市边界来源：stock_basic_delist_date、last_trade_date_plus_1_fallback、last_trade_date_plus_1_after_market_grace、missing_delist_date（QA 阻断态）或 NULL');

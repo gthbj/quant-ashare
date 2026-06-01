@@ -29,7 +29,7 @@ Last updated: 2026-06-01
 - `dwd_index_eod` 脚本已按 owner 确认调整为 canonical `sec_code` + `source_sec_code` 血缘口径，并已重建 BigQuery 实表；重新执行 `sql/metadata/01_p0_table_column_descriptions.sql` 和 `sql/qa/01_p0_smoke_checks.sql` 通过。验证：沪深300 `sec_code='000300.SH'`、`source_sec_code='399300.SZ'`，STAR50/CSI1000 估值字段仍因 ODS 无 dailybasic endpoint 为空。
 - 修复 P0 二轮评审发现：`dwd_stock_eod_price` 将 `is_suspended` 限定为全天停牌/无成交，新增 `has_intraday_halt` 与 `has_open_halt`，开盘临停影响 `can_buy_open/can_sell_open/is_tradable`；`dwd_fin_indicator_latest` 改为 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC` 排序。相关表已重建，QA 通过；验证指标：有成交但 `is_suspended=TRUE` 为 0，latest 排序差异为 0。
 - P0 表/字段说明补齐：新增并执行 `sql/metadata/01_p0_table_column_descriptions.sql`，8 张 P0 DIM/DWD 表的 table description 和所有 schema field description 均已补齐；验证 missing description = 0。
-- OQ-007 已复核并关闭：`stock_basic_delisted.delist_date` 在 ODS 中已统一为 `STRING`，最新 delisted 分区 326 行全部可解析；`dim_stock` SQL 改为优先使用 ODS 退市日，daily 最后交易日加一天仅作缺值兜底，并补 P0 QA 断言。BigQuery 实表需合并后按依赖重建。
+- OQ-007 已复核并关闭：`stock_basic_delisted.delist_date` 在 ODS 中已统一为 `STRING`，最新 delisted 分区 326 行全部可解析；`dim_stock` SQL 改为优先使用 ODS 退市日，daily 最后交易日加一天仅作缺值兜底，并补 P0 QA 断言（含退市股生命周期合法性）。BigQuery 实表需合并后按依赖重建。
 - DWS/ADS 表设计文档已完成：`docs/数据仓库建模方案-DWS-ADS.md`。定义 P0 DWS（universe、价格/估值/财务特征、市场状态、标签、样本）与 ADS（训练面板、模型预测、候选池、组合、订单计划、回测/监控）表体系。
 - 策略方案文档已完成：`docs/A股中低频小资金机器学习策略方案.md`。定义首个 `ml_ranker_v0` 机器学习横截面排序策略，以及小盘质量反转、趋势延续、财务事件、资金筹码、行业轮动等后续策略族。
 - 策略 1 PRD 已完成并通过 review 修订：`docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`。首版落地名称为 `ml_pv_clf_v0`，范围限定价格量价 + 估值特征、open-to-close 标签和通用 DWS/ADS 表契约。

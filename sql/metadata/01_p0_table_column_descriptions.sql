@@ -37,7 +37,7 @@ ALTER COLUMN first_trade_date SET OPTIONS (description = 'ODS daily 中可见的
 ALTER COLUMN last_trade_date SET OPTIONS (description = 'ODS daily 中可见的最后交易日'),
 ALTER COLUMN is_delisted SET OPTIONS (description = '是否退市或按日线兜底规则推断为已退市'),
 ALTER COLUMN stock_master_source SET OPTIONS (description = '股票主数据来源：stock_basic 或 derived_from_daily'),
-ALTER COLUMN delist_date_source SET OPTIONS (description = '退市边界来源：stock_basic_delist_date、last_trade_date_plus_1_fallback 或 derived_from_daily 兜底'),
+ALTER COLUMN delist_date_source SET OPTIONS (description = '退市边界来源：stock_basic_delist_date、last_trade_date_plus_1_fallback、last_trade_date_plus_1_after_market_grace、missing_delist_date（QA 阻断态）或 NULL'),
 ALTER COLUMN source_partition_date SET OPTIONS (description = '来源 stock_basic ODS 分区日期；日线兜底记录为空'),
 ALTER COLUMN ingested_at SET OPTIONS (description = '来源 ODS 摄入时间；日线兜底记录为空');
 

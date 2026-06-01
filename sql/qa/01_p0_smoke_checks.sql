@@ -17,6 +17,17 @@ ASSERT (
 
 ASSERT (
   SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dim.dim_stock`
+  WHERE is_delisted
+    AND (
+      delist_date IS NULL
+      OR delist_date_source = 'missing_delist_date'
+      OR (list_date IS NOT NULL AND delist_date <= list_date)
+    )
+) AS 'delisted dim_stock rows must have valid delist_date after list_date';
+
+ASSERT (
+  SELECT COUNT(*) = 0
   FROM (
     WITH latest AS (
       SELECT MAX(partition_date) AS partition_date
