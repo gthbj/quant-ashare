@@ -134,10 +134,11 @@ WITH rdates AS (
     AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
 ),
 we AS (
-  SELECT r.rebalance_date,
-    (SELECT MIN(c2.trade_date) FROM cal AS c2
-     WHERE c2.trade_date_seq = (SELECT c1.trade_date_seq FROM cal AS c1 WHERE c1.trade_date = r.rebalance_date) + 1) AS exec_date
+  -- t+1 执行日：用交易日历自连接按 seq+1 取下一交易日（去相关子查询）
+  SELECT r.rebalance_date, nxt.trade_date AS exec_date
   FROM rdates AS r
+  JOIN cal AS rc ON rc.trade_date = r.rebalance_date
+  LEFT JOIN cal AS nxt ON nxt.trade_date_seq = rc.trade_date_seq + 1
 )
 SELECT rebalance_date, exec_date, ROW_NUMBER() OVER (ORDER BY exec_date) AS period_idx
 FROM we WHERE exec_date IS NOT NULL;
@@ -150,7 +151,8 @@ SELECT pr.period_idx, pr.exec_date, pt.sec_code, pt.target_weight AS w
 FROM periods AS pr
 JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
   ON pt.rebalance_date = pr.rebalance_date
- AND pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id;
+ AND pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
+WHERE pt.rebalance_date BETWEEN p_predict_start AND p_predict_end;
 
 -- ── episode：gaps-and-islands 切分连续持有段 ──
 CREATE TEMP TABLE episodes AS
@@ -194,21 +196,31 @@ LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS pe
   AND pe.trade_date BETWEEN p_predict_start AND p_calendar_end;
 
 -- ── 退出成交（SELL = 建仓实际股数；卖出日用 next-sellable 顺延）──
+-- 卖出顺延：desired_sell_date 起 60 交易日窗口内首个可卖开盘日（去相关子查询，LEFT JOIN 保留无可卖日的 NULL）
 CREATE TEMP TABLE exit_fills AS
+WITH base AS (
+  SELECT
+    ef.sec_code, ef.entry_period, ef.entry_exec_date, ef.filled_shares,
+    ef.exit_exec_date AS desired_sell_date,
+    c1.trade_date_seq AS desired_seq
+  FROM entry_fills AS ef
+  JOIN cal AS c1 ON c1.trade_date = ef.exit_exec_date
+  WHERE ef.exit_exec_date IS NOT NULL AND ef.filled_shares > 0
+)
 SELECT
-  ef.sec_code, ef.entry_period, ef.entry_exec_date, ef.filled_shares,
-  ef.exit_exec_date AS desired_sell_date,
-  (SELECT MIN(px2.trade_date)
-   FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px2
-   JOIN cal AS c2 ON px2.trade_date = c2.trade_date
-   JOIN cal AS c1 ON c1.trade_date = ef.exit_exec_date
-   WHERE px2.sec_code = ef.sec_code
-     AND px2.trade_date >= ef.exit_exec_date
-     AND c2.trade_date_seq <= c1.trade_date_seq + 60
-     AND px2.can_sell_open
-     AND px2.trade_date BETWEEN p_predict_start AND p_calendar_end) AS actual_sell_date
-FROM entry_fills AS ef
-WHERE ef.exit_exec_date IS NOT NULL AND ef.filled_shares > 0;
+  b.sec_code, b.entry_period, b.entry_exec_date, b.filled_shares,
+  b.desired_sell_date,
+  MIN(px2.trade_date) AS actual_sell_date
+FROM base AS b
+LEFT JOIN cal AS c2
+  ON c2.trade_date_seq BETWEEN b.desired_seq AND b.desired_seq + 60
+LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px2
+  ON px2.sec_code = b.sec_code
+ AND px2.trade_date = c2.trade_date
+ AND px2.trade_date >= b.desired_sell_date
+ AND px2.can_sell_open
+ AND px2.trade_date BETWEEN p_predict_start AND p_calendar_end
+GROUP BY b.sec_code, b.entry_period, b.entry_exec_date, b.filled_shares, b.desired_sell_date;
 
 -- ── 写成交表（建仓 BUY + 退出 SELL）──
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_trade_daily`
@@ -286,7 +298,9 @@ WITH cf AS (
 )
 SELECT
   c.trade_date,
-  p_initial_capital + COALESCE((SELECT SUM(cf2.day_cash_effect) FROM cf AS cf2 WHERE cf2.trade_date <= c.trade_date), 0) AS cash_cny,
+  -- 累计现金 = 初始资金 + 截至当日的累计现金流（窗口累计，去相关子查询）
+  p_initial_capital + COALESCE(
+    SUM(cf.day_cash_effect) OVER (ORDER BY c.trade_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0) AS cash_cny,
   COALESCE(cf.cost_cny, 0) AS cost_cny,
   COALESCE(cf.turnover_cny, 0) AS turnover_cny
 FROM cal AS c
