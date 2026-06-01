@@ -257,8 +257,9 @@ QUALIFY ROW_NUMBER() OVER (
 
 **基准代码**：
 
-- 以 `dwd_index_eod` 实际可用代码为准。
-- 已知 ODS 中沪深 300 通过 `399300.SZ` 端点存在，DWD 可映射到 canonical `000300.SH`；正式使用前仍需核对 `canonical_index_code`。
+- DWS/ADS 只使用 `dwd_index_eod.sec_code` 作为基准指数 join key；该字段已在 DWD 层归一为 canonical 指数代码。
+- `dwd_index_eod.source_sec_code` 仅用于追溯 ODS/Tushare 实际端点代码，不进入 DWS/ADS 业务 join。例：ODS 沪深300 来源代码为 `399300.SZ`，DWD `sec_code` 输出为 canonical `000300.SH`，`source_sec_code='399300.SZ'`。
+- 双代码或多代码指数的 `source_sec_code -> sec_code` 映射先在 `dwd_index_eod` 建表脚本中维护，未来可沉淀为 `dim_index` 维表。
 
 ### 4.6 `dws_stock_label_daily`
 
