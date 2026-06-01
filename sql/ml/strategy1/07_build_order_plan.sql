@@ -48,6 +48,8 @@ prev AS (
     ON pt.rebalance_date = rs.prev_rebalance_date
    AND pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
   WHERE rs.prev_rebalance_date IS NOT NULL
+    -- 强制分区裁剪：prev_rebalance_date 同在窗口内，等值 JOIN 不足以裁剪分区
+    AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
 ),
 combined AS (
   SELECT
