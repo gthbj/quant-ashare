@@ -393,13 +393,14 @@ Run ID: —
 
 ### 已完成工作
 - 新增实现型 PRD：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`。
-- PRD 范围限定为策略 1 BigQuery ML + SQL runner 与回测闭环实现，定义 `sql/ml/strategy1/01-10` 脚本、README、QA、GCS 报告产物和本地 `reports/` 镜像。
+- PRD 范围限定为策略 1 BigQuery ML + SQL runner 与回测闭环实现，定义 `sql/ml/strategy1/01-10` 脚本、README、QA、GCS 报告产物、本地 `reports/` 镜像和必需报告渲染脚本 `scripts/strategy1/render_report.py`。
 - PRD 明确不回改上一份已通过策略 1 PRD，不解决 OQ-010/OQ-004/OQ-011，只把相关参数暴露为 runner 配置。
 - 更新 TODO 和工作记忆，记录 runner 实现 PRD 已完成、runner SQL 仍未实现。
 
 ### 重要上下文
 - 当前仍不能直接跑回测；下一步是按 `PRD_20260601_02_策略1BQML回测闭环.md` 实现 `sql/ml/strategy1/` 脚本。
 - 结构化回测结果事实来源仍是 BigQuery ADS；人读报告持久化到 GCS，并镜像到本地 `reports/`。
+- PR #6 comment 已跟进：卖出顺延首版采用预计算 `next_sellable_trade_date` 方案；连续超过 60 个交易日仍不可卖时标记异常并继续估值；报告渲染由 `scripts/strategy1/render_report.py` 完成；“候选池禁用 t+1 字段”作为 code review 项，运行时 QA 改为统计 t+1 不可买但仍入选样本和买入失败率。
 
 ### 改动文件
 - `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`
