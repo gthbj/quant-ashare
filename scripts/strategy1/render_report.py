@@ -189,14 +189,16 @@ def upload_dir_to_gcs(local_dir: Path, gcs_uri: str, skip: bool):
 
 def write_report_uri_to_ads(client: bigquery.Client, project: str,
                              backtest_id: str, gcs_uri: str, local_path: str):
+    # metrics_json is a STRING column; JSON_SET needs JSON, so PARSE_JSON in and
+    # TO_JSON_STRING out to keep the column a STRING while preserving existing keys.
     sql = f"""
     UPDATE `{project}.ashare_ads.ads_backtest_performance_summary` AS bs
-    SET bs.metrics_json = JSON_SET(
-      COALESCE(bs.metrics_json, '{{}}'),
+    SET bs.metrics_json = TO_JSON_STRING(JSON_SET(
+      PARSE_JSON(COALESCE(bs.metrics_json, '{{}}')),
       '$.report_uri', @gcs_uri,
       '$.local_report_path', @local_path,
       '$.report_generated_utc', @ts
-    )
+    ))
     WHERE bs.backtest_id = @bid
     """
     job_cfg = bigquery.QueryJobConfig(query_parameters=[

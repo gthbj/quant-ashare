@@ -5,6 +5,7 @@ DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
+DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;  -- OQ-010 示例值，用于估算订单金额
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 
 IF p_force_replace THEN
@@ -58,11 +59,11 @@ orders AS (
          ELSE 'rebalance' END AS reason
   FROM combined WHERE new_w != old_w
 )
-SELECT p_strategy_id, o.rebalance_date, o.sec_code, o.side, o.delta,
-       CAST(NULL AS FLOAT64),
-       px.close,
-       CAST(NULL AS FLOAT64),
-       o.reason, p_run_id, CURRENT_TIMESTAMP()
+SELECT p_strategy_id, o.rebalance_date, o.sec_code, o.side, o.delta AS order_weight_delta,
+       SAFE_DIVIDE(ABS(o.delta) * p_initial_capital, NULLIF(px.close, 0)) AS order_shares,
+       px.close AS expected_price,
+       ABS(o.delta) * p_initial_capital AS expected_amount_cny,
+       o.reason AS order_reason, p_run_id, CURRENT_TIMESTAMP()
 FROM orders AS o
 LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
   ON px.sec_code = o.sec_code AND px.trade_date = o.rebalance_date

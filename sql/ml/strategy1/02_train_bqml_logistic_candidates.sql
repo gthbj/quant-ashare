@@ -1,5 +1,6 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
--- 02: 训练 5 个 LOGISTIC_REG 候选模型（run-scoped model names）并登记到 registry。
+-- 02: 训练 5 个 LOGISTIC_REG 候选模型。模型对象名嵌入 sanitized run_id（真正 run-scoped）。
+-- 特征从 feature_values_json 抽取（ADS 契约不变）。用 FOR + EXECUTE IMMEDIATE 动态建模。
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
@@ -11,133 +12,90 @@ DECLARE p_train_start DATE DEFAULT DATE '2019-04-03';
 DECLARE p_train_end DATE DEFAULT DATE '2023-12-31';
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_valid_end DATE DEFAULT DATE '2024-12-31';
--- run_id 嵌入模型对象名，避免跨 run 覆盖
--- 模型对象名中 run_id 的 '-' '.' 需替换为 '_'
+DECLARE p_run_safe STRING;
+DECLARE p_feat_sql STRING;
 
--- ── 候选 1: l1_0_l2_0 ──
-CREATE OR REPLACE MODEL `data-aquarium.ashare_ads.s1_bqml_20260601_01__l1_0_l2_0`
-OPTIONS (
-  MODEL_TYPE = 'LOGISTIC_REG', INPUT_LABEL_COLS = ['target_label'],
-  DATA_SPLIT_METHOD = 'NO_SPLIT', AUTO_CLASS_WEIGHTS = TRUE,
-  L1_REG = 0.0, L2_REG = 0.0, MAX_ITERATIONS = 50
-) AS
-SELECT tp.target_label,
-       tp.list_age_td, tp.ret_1d, tp.ret_3d, tp.ret_5d, tp.ret_10d, tp.ret_20d, tp.ret_60d,
-       tp.mom_20_5, tp.mom_60_20, tp.vol_5d, tp.vol_20d, tp.vol_60d,
-       tp.drawdown_20d, tp.hl_range_20d, tp.amount_ma20_cny, tp.amount_zscore_20d,
-       tp.turnover_rate, tp.turnover_rate_free_float, tp.turnover_rate_ma20, tp.volume_ratio,
-       tp.pe_ttm, tp.pb, tp.ps_ttm, tp.dividend_yield_ttm, tp.ep_ttm, tp.bp, tp.sp_ttm,
-       tp.log_total_mv, tp.log_circ_mv
-FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-WHERE tp.run_id = p_run_id AND tp.split_tag = 'train'
-  AND tp.trade_date BETWEEN p_train_start AND p_train_end;
+-- run_id 净化为合法 BigQuery 标识符片段
+SET p_run_safe = REGEXP_REPLACE(p_run_id, r'[^A-Za-z0-9_]', '_');
 
--- ── 候选 2: l1_0_l2_1e_4 ──
-CREATE OR REPLACE MODEL `data-aquarium.ashare_ads.s1_bqml_20260601_01__l1_0_l2_1e_4`
-OPTIONS (
-  MODEL_TYPE = 'LOGISTIC_REG', INPUT_LABEL_COLS = ['target_label'],
-  DATA_SPLIT_METHOD = 'NO_SPLIT', AUTO_CLASS_WEIGHTS = TRUE,
-  L1_REG = 0.0, L2_REG = 0.0001, MAX_ITERATIONS = 50
-) AS
-SELECT tp.target_label,
-       tp.list_age_td, tp.ret_1d, tp.ret_3d, tp.ret_5d, tp.ret_10d, tp.ret_20d, tp.ret_60d,
-       tp.mom_20_5, tp.mom_60_20, tp.vol_5d, tp.vol_20d, tp.vol_60d,
-       tp.drawdown_20d, tp.hl_range_20d, tp.amount_ma20_cny, tp.amount_zscore_20d,
-       tp.turnover_rate, tp.turnover_rate_free_float, tp.turnover_rate_ma20, tp.volume_ratio,
-       tp.pe_ttm, tp.pb, tp.ps_ttm, tp.dividend_yield_ttm, tp.ep_ttm, tp.bp, tp.sp_ttm,
-       tp.log_total_mv, tp.log_circ_mv
-FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-WHERE tp.run_id = p_run_id AND tp.split_tag = 'train'
-  AND tp.trade_date BETWEEN p_train_start AND p_train_end;
+-- 特征抽取片段（JSON_VALUE → SAFE_CAST），训练/预测复用
+SET p_feat_sql = """
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.list_age_td') AS FLOAT64) AS list_age_td,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ret_1d') AS FLOAT64) AS ret_1d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ret_3d') AS FLOAT64) AS ret_3d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ret_5d') AS FLOAT64) AS ret_5d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ret_10d') AS FLOAT64) AS ret_10d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ret_20d') AS FLOAT64) AS ret_20d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ret_60d') AS FLOAT64) AS ret_60d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.mom_20_5') AS FLOAT64) AS mom_20_5,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.mom_60_20') AS FLOAT64) AS mom_60_20,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.vol_5d') AS FLOAT64) AS vol_5d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.vol_20d') AS FLOAT64) AS vol_20d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.vol_60d') AS FLOAT64) AS vol_60d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.drawdown_20d') AS FLOAT64) AS drawdown_20d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.hl_range_20d') AS FLOAT64) AS hl_range_20d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.amount_ma20_cny') AS FLOAT64) AS amount_ma20_cny,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.amount_zscore_20d') AS FLOAT64) AS amount_zscore_20d,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.turnover_rate') AS FLOAT64) AS turnover_rate,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.turnover_rate_free_float') AS FLOAT64) AS turnover_rate_free_float,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.turnover_rate_ma20') AS FLOAT64) AS turnover_rate_ma20,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.volume_ratio') AS FLOAT64) AS volume_ratio,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.pe_ttm') AS FLOAT64) AS pe_ttm,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.pb') AS FLOAT64) AS pb,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ps_ttm') AS FLOAT64) AS ps_ttm,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.dividend_yield_ttm') AS FLOAT64) AS dividend_yield_ttm,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ep_ttm') AS FLOAT64) AS ep_ttm,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.bp') AS FLOAT64) AS bp,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.sp_ttm') AS FLOAT64) AS sp_ttm,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.log_total_mv') AS FLOAT64) AS log_total_mv,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.log_circ_mv') AS FLOAT64) AS log_circ_mv
+""";
 
--- ── 候选 3: l1_0_l2_1e_3 ──
-CREATE OR REPLACE MODEL `data-aquarium.ashare_ads.s1_bqml_20260601_01__l1_0_l2_1e_3`
-OPTIONS (
-  MODEL_TYPE = 'LOGISTIC_REG', INPUT_LABEL_COLS = ['target_label'],
-  DATA_SPLIT_METHOD = 'NO_SPLIT', AUTO_CLASS_WEIGHTS = TRUE,
-  L1_REG = 0.0, L2_REG = 0.001, MAX_ITERATIONS = 50
-) AS
-SELECT tp.target_label,
-       tp.list_age_td, tp.ret_1d, tp.ret_3d, tp.ret_5d, tp.ret_10d, tp.ret_20d, tp.ret_60d,
-       tp.mom_20_5, tp.mom_60_20, tp.vol_5d, tp.vol_20d, tp.vol_60d,
-       tp.drawdown_20d, tp.hl_range_20d, tp.amount_ma20_cny, tp.amount_zscore_20d,
-       tp.turnover_rate, tp.turnover_rate_free_float, tp.turnover_rate_ma20, tp.volume_ratio,
-       tp.pe_ttm, tp.pb, tp.ps_ttm, tp.dividend_yield_ttm, tp.ep_ttm, tp.bp, tp.sp_ttm,
-       tp.log_total_mv, tp.log_circ_mv
-FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-WHERE tp.run_id = p_run_id AND tp.split_tag = 'train'
-  AND tp.trade_date BETWEEN p_train_start AND p_train_end;
+-- ── 逐候选训练（run-scoped 模型名）──
+FOR cand IN (
+  SELECT id, l1, l2 FROM UNNEST([
+    STRUCT('l1_0_l2_0' AS id, 0.0 AS l1, 0.0 AS l2),
+    STRUCT('l1_0_l2_1e_4' AS id, 0.0 AS l1, 0.0001 AS l2),
+    STRUCT('l1_0_l2_1e_3' AS id, 0.0 AS l1, 0.001 AS l2),
+    STRUCT('l1_1e_5_l2_1e_4' AS id, 0.00001 AS l1, 0.0001 AS l2),
+    STRUCT('l1_1e_4_l2_1e_3' AS id, 0.0001 AS l1, 0.001 AS l2)
+  ])
+) DO
+  EXECUTE IMMEDIATE FORMAT("""
+    CREATE OR REPLACE MODEL `data-aquarium.ashare_ads.%s__%s`
+    OPTIONS (MODEL_TYPE='LOGISTIC_REG', INPUT_LABEL_COLS=['target_label'],
+             DATA_SPLIT_METHOD='NO_SPLIT', AUTO_CLASS_WEIGHTS=TRUE,
+             L1_REG=%f, L2_REG=%f, MAX_ITERATIONS=50) AS
+    SELECT target_label, %s
+    FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily`
+    WHERE run_id='%s' AND split_tag='train' AND trade_date BETWEEN '%s' AND '%s'
+  """, p_run_safe, cand.id, cand.l1, cand.l2, p_feat_sql,
+       p_run_id, CAST(p_train_start AS STRING), CAST(p_train_end AS STRING));
+END FOR;
 
--- ── 候选 4: l1_1e_5_l2_1e_4 ──
-CREATE OR REPLACE MODEL `data-aquarium.ashare_ads.s1_bqml_20260601_01__l1_1e_5_l2_1e_4`
-OPTIONS (
-  MODEL_TYPE = 'LOGISTIC_REG', INPUT_LABEL_COLS = ['target_label'],
-  DATA_SPLIT_METHOD = 'NO_SPLIT', AUTO_CLASS_WEIGHTS = TRUE,
-  L1_REG = 0.00001, L2_REG = 0.0001, MAX_ITERATIONS = 50
-) AS
-SELECT tp.target_label,
-       tp.list_age_td, tp.ret_1d, tp.ret_3d, tp.ret_5d, tp.ret_10d, tp.ret_20d, tp.ret_60d,
-       tp.mom_20_5, tp.mom_60_20, tp.vol_5d, tp.vol_20d, tp.vol_60d,
-       tp.drawdown_20d, tp.hl_range_20d, tp.amount_ma20_cny, tp.amount_zscore_20d,
-       tp.turnover_rate, tp.turnover_rate_free_float, tp.turnover_rate_ma20, tp.volume_ratio,
-       tp.pe_ttm, tp.pb, tp.ps_ttm, tp.dividend_yield_ttm, tp.ep_ttm, tp.bp, tp.sp_ttm,
-       tp.log_total_mv, tp.log_circ_mv
-FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-WHERE tp.run_id = p_run_id AND tp.split_tag = 'train'
-  AND tp.trade_date BETWEEN p_train_start AND p_train_end;
-
--- ── 候选 5: l1_1e_4_l2_1e_3 ──
-CREATE OR REPLACE MODEL `data-aquarium.ashare_ads.s1_bqml_20260601_01__l1_1e_4_l2_1e_3`
-OPTIONS (
-  MODEL_TYPE = 'LOGISTIC_REG', INPUT_LABEL_COLS = ['target_label'],
-  DATA_SPLIT_METHOD = 'NO_SPLIT', AUTO_CLASS_WEIGHTS = TRUE,
-  L1_REG = 0.0001, L2_REG = 0.001, MAX_ITERATIONS = 50
-) AS
-SELECT tp.target_label,
-       tp.list_age_td, tp.ret_1d, tp.ret_3d, tp.ret_5d, tp.ret_10d, tp.ret_20d, tp.ret_60d,
-       tp.mom_20_5, tp.mom_60_20, tp.vol_5d, tp.vol_20d, tp.vol_60d,
-       tp.drawdown_20d, tp.hl_range_20d, tp.amount_ma20_cny, tp.amount_zscore_20d,
-       tp.turnover_rate, tp.turnover_rate_free_float, tp.turnover_rate_ma20, tp.volume_ratio,
-       tp.pe_ttm, tp.pb, tp.ps_ttm, tp.dividend_yield_ttm, tp.ep_ttm, tp.bp, tp.sp_ttm,
-       tp.log_total_mv, tp.log_circ_mv
-FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-WHERE tp.run_id = p_run_id AND tp.split_tag = 'train'
-  AND tp.trade_date BETWEEN p_train_start AND p_train_end;
-
--- ── 登记全部候选到 model registry ──
--- model_id 包含 run_id 以保证 run 隔离
+-- ── 登记全部候选到 registry（model_id 含 run_safe，model_uri 指向真实对象）──
 INSERT INTO `data-aquarium.ashare_ads.ads_model_registry`
 (model_id, strategy_id, model_family, horizon,
  feature_version, label_version, preprocess_version,
  train_start_date, train_end_date, valid_start_date, valid_end_date,
  model_params_json, metrics_json, model_uri, git_commit, status, created_at)
-SELECT * FROM UNNEST([
-  STRUCT(
-    CONCAT(p_run_id, '__l1_0_l2_0') AS model_id,
-    p_strategy_id AS strategy_id, 'bqml_logistic_reg' AS model_family, p_horizon AS horizon,
-    p_feature_version AS feature_version, p_label_version AS label_version, p_preprocess_version AS preprocess_version,
-    p_train_start AS train_start_date, p_train_end AS train_end_date,
-    p_valid_start AS valid_start_date, p_valid_end AS valid_end_date,
-    CONCAT('{"l1_reg":0,"l2_reg":0,"max_iterations":50,"auto_class_weights":true,"run_id":"', p_run_id, '"}') AS model_params_json,
-    CAST(NULL AS STRING) AS metrics_json,
-    CONCAT('bq://data-aquarium.ashare_ads.', p_run_id, '__l1_0_l2_0') AS model_uri,
-    CAST(NULL AS STRING) AS git_commit,
-    'candidate' AS status,
-    CURRENT_TIMESTAMP() AS created_at),
-  STRUCT(CONCAT(p_run_id, '__l1_0_l2_1e_4'), p_strategy_id, 'bqml_logistic_reg', p_horizon,
-    p_feature_version, p_label_version, p_preprocess_version, p_train_start, p_train_end, p_valid_start, p_valid_end,
-    CONCAT('{"l1_reg":0,"l2_reg":0.0001,"max_iterations":50,"auto_class_weights":true,"run_id":"', p_run_id, '"}'),
-    NULL, CONCAT('bq://data-aquarium.ashare_ads.', p_run_id, '__l1_0_l2_1e_4'), NULL, 'candidate', CURRENT_TIMESTAMP()),
-  STRUCT(CONCAT(p_run_id, '__l1_0_l2_1e_3'), p_strategy_id, 'bqml_logistic_reg', p_horizon,
-    p_feature_version, p_label_version, p_preprocess_version, p_train_start, p_train_end, p_valid_start, p_valid_end,
-    CONCAT('{"l1_reg":0,"l2_reg":0.001,"max_iterations":50,"auto_class_weights":true,"run_id":"', p_run_id, '"}'),
-    NULL, CONCAT('bq://data-aquarium.ashare_ads.', p_run_id, '__l1_0_l2_1e_3'), NULL, 'candidate', CURRENT_TIMESTAMP()),
-  STRUCT(CONCAT(p_run_id, '__l1_1e_5_l2_1e_4'), p_strategy_id, 'bqml_logistic_reg', p_horizon,
-    p_feature_version, p_label_version, p_preprocess_version, p_train_start, p_train_end, p_valid_start, p_valid_end,
-    CONCAT('{"l1_reg":0.00001,"l2_reg":0.0001,"max_iterations":50,"auto_class_weights":true,"run_id":"', p_run_id, '"}'),
-    NULL, CONCAT('bq://data-aquarium.ashare_ads.', p_run_id, '__l1_1e_5_l2_1e_4'), NULL, 'candidate', CURRENT_TIMESTAMP()),
-  STRUCT(CONCAT(p_run_id, '__l1_1e_4_l2_1e_3'), p_strategy_id, 'bqml_logistic_reg', p_horizon,
-    p_feature_version, p_label_version, p_preprocess_version, p_train_start, p_train_end, p_valid_start, p_valid_end,
-    CONCAT('{"l1_reg":0.0001,"l2_reg":0.001,"max_iterations":50,"auto_class_weights":true,"run_id":"', p_run_id, '"}'),
-    NULL, CONCAT('bq://data-aquarium.ashare_ads.', p_run_id, '__l1_1e_4_l2_1e_3'), NULL, 'candidate', CURRENT_TIMESTAMP())
-]);
+SELECT
+  CONCAT(p_run_safe, '__', g.id),
+  p_strategy_id, 'bqml_logistic_reg', p_horizon,
+  p_feature_version, p_label_version, p_preprocess_version,
+  p_train_start, p_train_end, p_valid_start, p_valid_end,
+  CONCAT('{"l1_reg":', CAST(g.l1 AS STRING), ',"l2_reg":', CAST(g.l2 AS STRING),
+         ',"max_iterations":50,"auto_class_weights":true,"candidate_id":"', g.id,
+         '","run_id":"', p_run_id, '"}'),
+  CAST(NULL AS STRING),
+  CONCAT('bq://data-aquarium.ashare_ads.', p_run_safe, '__', g.id),
+  CAST(NULL AS STRING),
+  'candidate',
+  CURRENT_TIMESTAMP()
+FROM UNNEST([
+  STRUCT('l1_0_l2_0' AS id, 0.0 AS l1, 0.0 AS l2),
+  STRUCT('l1_0_l2_1e_4' AS id, 0.0 AS l1, 0.0001 AS l2),
+  STRUCT('l1_0_l2_1e_3' AS id, 0.0 AS l1, 0.001 AS l2),
+  STRUCT('l1_1e_5_l2_1e_4' AS id, 0.00001 AS l1, 0.0001 AS l2),
+  STRUCT('l1_1e_4_l2_1e_3' AS id, 0.0001 AS l1, 0.001 AS l2)
+]) AS g;

@@ -25,14 +25,16 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/06_buil
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/07_build_order_plan.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/08_run_backtest.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/09_build_metrics_and_report_inputs.sql
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql
 
+# render_report 必须在 10 之前：它把 report_uri 回写 summary.metrics_json，10 会断言其存在
 python scripts/strategy1/render_report.py \
     --project data-aquarium \
     --backtest-id bt_s1_bqml_20260601_01 \
     --run-id s1_bqml_20260601_01 \
     --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
     --local-mirror-root reports/strategy1
+
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql
 ```
 
 ## 参数说明

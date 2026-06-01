@@ -1,8 +1,8 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
 -- 01: 从 DWS sample 构建冻结训练面板，写入 ads_ml_training_panel_daily。
--- 同时写入物理特征列（供 BQML CREATE MODEL 直接读取）和 feature_values_json（审计快照）。
+-- 不改 ADS 契约：特征存入 feature_values_json（键=特征名），下游训练/预测用 JSON_VALUE 抽取。
+-- target_label / target_return 是契约里的物理列，直接写。
 
--- ── 运行参数（p_ 前缀避免与表列同名）──
 DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_preprocess_version STRING DEFAULT 'raw_v0';
@@ -16,38 +16,6 @@ DECLARE p_valid_end DATE DEFAULT DATE '2024-12-31';
 DECLARE p_test_start DATE DEFAULT DATE '2025-01-01';
 DECLARE p_test_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_force_replace BOOL DEFAULT FALSE;
-
--- ── ADS 契约扩展：确保物理特征列存在 ──
--- 首次运行时需要 ALTER TABLE 添加特征列；后续运行列已存在则跳过。
--- BigQuery ALTER COLUMN ADD IF NOT EXISTS 不支持，用 INFORMATION_SCHEMA 检查。
-BEGIN
-  DECLARE cols_exist INT64;
-  SET cols_exist = (
-    SELECT COUNT(*)
-    FROM `data-aquarium.ashare_ads.INFORMATION_SCHEMA.COLUMNS`
-    WHERE table_name = 'ads_ml_training_panel_daily' AND column_name = 'list_age_td'
-  );
-  IF cols_exist = 0 THEN
-    ALTER TABLE `data-aquarium.ashare_ads.ads_ml_training_panel_daily`
-    ADD COLUMN IF NOT EXISTS list_age_td INT64,
-    ADD COLUMN IF NOT EXISTS ret_1d FLOAT64, ADD COLUMN IF NOT EXISTS ret_3d FLOAT64,
-    ADD COLUMN IF NOT EXISTS ret_5d FLOAT64, ADD COLUMN IF NOT EXISTS ret_10d FLOAT64,
-    ADD COLUMN IF NOT EXISTS ret_20d FLOAT64, ADD COLUMN IF NOT EXISTS ret_60d FLOAT64,
-    ADD COLUMN IF NOT EXISTS mom_20_5 FLOAT64, ADD COLUMN IF NOT EXISTS mom_60_20 FLOAT64,
-    ADD COLUMN IF NOT EXISTS vol_5d FLOAT64, ADD COLUMN IF NOT EXISTS vol_20d FLOAT64,
-    ADD COLUMN IF NOT EXISTS vol_60d FLOAT64,
-    ADD COLUMN IF NOT EXISTS drawdown_20d FLOAT64, ADD COLUMN IF NOT EXISTS hl_range_20d FLOAT64,
-    ADD COLUMN IF NOT EXISTS amount_ma20_cny FLOAT64, ADD COLUMN IF NOT EXISTS amount_zscore_20d FLOAT64,
-    ADD COLUMN IF NOT EXISTS turnover_rate FLOAT64, ADD COLUMN IF NOT EXISTS turnover_rate_free_float FLOAT64,
-    ADD COLUMN IF NOT EXISTS turnover_rate_ma20 FLOAT64, ADD COLUMN IF NOT EXISTS volume_ratio FLOAT64,
-    ADD COLUMN IF NOT EXISTS pe_ttm FLOAT64, ADD COLUMN IF NOT EXISTS pb FLOAT64,
-    ADD COLUMN IF NOT EXISTS ps_ttm FLOAT64, ADD COLUMN IF NOT EXISTS dividend_yield_ttm FLOAT64,
-    ADD COLUMN IF NOT EXISTS ep_ttm FLOAT64, ADD COLUMN IF NOT EXISTS bp FLOAT64,
-    ADD COLUMN IF NOT EXISTS sp_ttm FLOAT64,
-    ADD COLUMN IF NOT EXISTS log_total_mv FLOAT64, ADD COLUMN IF NOT EXISTS log_circ_mv FLOAT64,
-    ADD COLUMN IF NOT EXISTS board STRING;
-  END IF;
-END;
 
 -- ── 幂等检查 ──
 IF NOT p_force_replace THEN
@@ -65,19 +33,12 @@ IF p_force_replace THEN
     AND tp.trade_date BETWEEN p_train_start AND p_test_end;
 END IF;
 
--- ── 写入训练面板 ──
+-- ── 写入训练面板（特征进 JSON，target 进物理列）──
 INSERT INTO `data-aquarium.ashare_ads.ads_ml_training_panel_daily`
 (run_id, strategy_id, model_id, preprocess_version, feature_version, label_version,
  universe_version, trade_date, sec_code, horizon, split_fold, split_tag,
  sample_weight, target_label, target_return,
- feature_values_json, feature_column_list,
- list_age_td, ret_1d, ret_3d, ret_5d, ret_10d, ret_20d, ret_60d,
- mom_20_5, mom_60_20, vol_5d, vol_20d, vol_60d,
- drawdown_20d, hl_range_20d, amount_ma20_cny, amount_zscore_20d,
- turnover_rate, turnover_rate_free_float, turnover_rate_ma20, volume_ratio,
- pe_ttm, pb, ps_ttm, dividend_yield_ttm, ep_ttm, bp, sp_ttm,
- log_total_mv, log_circ_mv, board,
- created_at)
+ feature_values_json, feature_column_list, created_at)
 SELECT
   p_run_id,
   p_strategy_id,
@@ -100,12 +61,19 @@ SELECT
   s.label_top30_5d,
   s.fwd_xs_ret_5d,
   TO_JSON_STRING(STRUCT(
-    s.list_age_td, s.ret_1d, s.ret_3d, s.ret_5d, s.ret_10d, s.ret_20d, s.ret_60d,
-    s.mom_20_5, s.mom_60_20, s.vol_5d, s.vol_20d, s.vol_60d,
-    s.drawdown_20d, s.hl_range_20d, s.amount_ma20_cny, s.amount_zscore_20d,
-    s.turnover_rate, s.turnover_rate_free_float, s.turnover_rate_ma20, s.volume_ratio,
-    s.pe_ttm, s.pb, s.ps_ttm, s.dividend_yield_ttm, s.ep_ttm, s.bp, s.sp_ttm,
-    s.log_total_mv, s.log_circ_mv, s.board
+    s.list_age_td AS list_age_td,
+    s.ret_1d AS ret_1d, s.ret_3d AS ret_3d, s.ret_5d AS ret_5d,
+    s.ret_10d AS ret_10d, s.ret_20d AS ret_20d, s.ret_60d AS ret_60d,
+    s.mom_20_5 AS mom_20_5, s.mom_60_20 AS mom_60_20,
+    s.vol_5d AS vol_5d, s.vol_20d AS vol_20d, s.vol_60d AS vol_60d,
+    s.drawdown_20d AS drawdown_20d, s.hl_range_20d AS hl_range_20d,
+    s.amount_ma20_cny AS amount_ma20_cny, s.amount_zscore_20d AS amount_zscore_20d,
+    s.turnover_rate AS turnover_rate, s.turnover_rate_free_float AS turnover_rate_free_float,
+    s.turnover_rate_ma20 AS turnover_rate_ma20, s.volume_ratio AS volume_ratio,
+    s.pe_ttm AS pe_ttm, s.pb AS pb, s.ps_ttm AS ps_ttm,
+    s.dividend_yield_ttm AS dividend_yield_ttm, s.ep_ttm AS ep_ttm, s.bp AS bp, s.sp_ttm AS sp_ttm,
+    s.log_total_mv AS log_total_mv, s.log_circ_mv AS log_circ_mv,
+    s.board AS board
   )),
   ['list_age_td','ret_1d','ret_3d','ret_5d','ret_10d','ret_20d','ret_60d',
    'mom_20_5','mom_60_20','vol_5d','vol_20d','vol_60d',
@@ -113,13 +81,6 @@ SELECT
    'turnover_rate','turnover_rate_free_float','turnover_rate_ma20','volume_ratio',
    'pe_ttm','pb','ps_ttm','dividend_yield_ttm','ep_ttm','bp','sp_ttm',
    'log_total_mv','log_circ_mv'],
-  -- 物理特征列
-  s.list_age_td, s.ret_1d, s.ret_3d, s.ret_5d, s.ret_10d, s.ret_20d, s.ret_60d,
-  s.mom_20_5, s.mom_60_20, s.vol_5d, s.vol_20d, s.vol_60d,
-  s.drawdown_20d, s.hl_range_20d, s.amount_ma20_cny, s.amount_zscore_20d,
-  s.turnover_rate, s.turnover_rate_free_float, s.turnover_rate_ma20, s.volume_ratio,
-  s.pe_ttm, s.pb, s.ps_ttm, s.dividend_yield_ttm, s.ep_ttm, s.bp, s.sp_ttm,
-  s.log_total_mv, s.log_circ_mv, s.board,
   CURRENT_TIMESTAMP()
 FROM `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
 WHERE s.trade_date BETWEEN p_train_start AND p_test_end

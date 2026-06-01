@@ -158,3 +158,11 @@ ASSERT (
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
 ) AS 'backtest summary must exist with metrics_json';
+
+-- ── 报告 URI 已回写（render_report.py 必须在本 QA 之前运行）──
+-- 见 README：执行顺序为 01-09 → render_report.py → 10。
+ASSERT (
+  SELECT COUNTIF(JSON_VALUE(bs.metrics_json, '$.report_uri') IS NOT NULL) > 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'report_uri must be written back to summary metrics_json (run render_report.py before this QA)';
