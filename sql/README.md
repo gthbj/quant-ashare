@@ -18,6 +18,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/02_dwd_stock_eod
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/03_dwd_fin_indicator.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/04_dwd_index_eod.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/05_dwd_fin_indicator_latest.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/metadata/01_p0_table_column_descriptions.sql
 ```
 
 ## 范围参数
@@ -44,6 +45,10 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/05_dwd_fin_indic
 ```bash
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/01_p0_smoke_checks.sql
 ```
+
+## Metadata
+
+`sql/metadata/01_p0_table_column_descriptions.sql` 统一维护 P0 DIM/DWD 表级和字段级中文说明。每次 `CREATE OR REPLACE TABLE` 重建 P0 表后，都应重新执行该 metadata 脚本，避免字段 description 被 CTAS 覆盖或遗漏。
 
 ## 注意事项
 

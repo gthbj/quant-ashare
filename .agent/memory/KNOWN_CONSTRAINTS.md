@@ -25,6 +25,7 @@
 - **单表最多 4000 个分区**：行情表必须按月分区（`DATE_TRUNC(trade_date, MONTH)`），不能按天。
 - **只有分区列能 `require_partition_filter` 强制过滤；聚簇列无法强制**。
 - `CREATE TABLE AS SELECT` 不能在 SELECT 列上内联 description：维度表用内联列定义 DDL，事实表用 CTAS + 后置 `ALTER COLUMN SET OPTIONS`。
+- P0 表重建后必须执行 `sql/metadata/01_p0_table_column_descriptions.sql`，集中恢复/补齐表级和字段级中文说明。
 - 外部表的列描述/分区元数据通过 `bq show`/`INFORMATION_SCHEMA` 获取。
 - `bq query` 执行本项目建表/QA 脚本时显式指定 `--location=asia-east2`，避免无源表脚本或跨数据集 CTAS 使用错误 job 区域。
 

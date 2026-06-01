@@ -438,3 +438,35 @@ owner 说明 `index_member_all` 和 `ci_index_member` 的 ODS 表已经补上。
 ### Related Files
 
 `docs/数据仓库建模方案-DWD-DIM.md`, `docs/数据仓库建模方案-DWS-ADS.md`, `docs/A股中低频小资金机器学习策略方案.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`
+
+## DECISION-20260531-20: P0 表字段说明由集中 metadata 脚本补齐
+
+Date: 2026-05-31
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5
+
+### Context
+
+P0 DIM/DWD 表已物化，但 CTAS 建表脚本只给部分字段补了 description，导致 BigQuery 中表级和字段级说明不完整。BigQuery CTAS 无法在 SELECT 列上直接内联字段 description。
+
+### Decision
+
+新增 `sql/metadata/01_p0_table_column_descriptions.sql`，集中维护 3 张 DIM + 5 张 DWD 的表级和字段级中文说明。P0 表每次 `CREATE OR REPLACE TABLE` 重建后，都应重新执行该 metadata 脚本。
+
+### Rationale
+
+集中 metadata 脚本能原地更新说明，不重写数据；也避免在每个 CTAS 脚本里维护大量重复 ALTER 片段。后续若采用 dbt，可迁移到 `persist_docs`，但当前纯 SQL bootstrap 先用显式 ALTER 保证 BigQuery 元数据完整。
+
+### Impact
+
+已在 BigQuery 执行 metadata 脚本。8 张 P0 DIM/DWD 表的 table description 和所有 schema field description 均已补齐，验证 missing description = 0。`sql/README.md` 已把 metadata 脚本加入执行顺序。
+
+### Alternatives Considered
+
+逐个重建脚本内补齐全部 ALTER；放弃作为唯一方案，因为每次只需补 metadata 时不应重写全量数据。等待后续 dbt `persist_docs`；暂缓，因为 OQ-005 尚未决定调度/物化工具。
+
+### Related Files
+
+`sql/metadata/01_p0_table_column_descriptions.sql`, `sql/README.md`
