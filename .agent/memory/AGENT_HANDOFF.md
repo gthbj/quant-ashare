@@ -14,6 +14,8 @@
 
 **重要执行结果**：`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行；`dwd_index_eod` 11,922 行，其中 8,899 行有 `index_dailybasic` 估值/市值/股本字段。上游已修复 `index_dailybasic` Parquet 类型问题，OQ-009 已关闭；STAR50/CSI1000 因 ODS 无 dailybasic endpoint 仍为空。最新 QA 验证：有成交但 `is_suspended=TRUE` 为 0，`has_intraday_halt` 为 897 行，`has_open_halt` 为 498 行，财务 latest 排序差异为 0。
 
+**待重建提醒**：2026-06-01 已按 owner 口径更新 `dwd_index_eod` 脚本，改为 canonical `sec_code` + `source_sec_code`；当前 BigQuery 实表尚未按该脚本重建，重建后需重新执行 metadata 和 QA。
+
 **DWS/ADS 设计**：P0 DWS 包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 包含训练面板、模型注册、预测、候选池、组合目标、订单计划、回测成交/持仓/NAV/绩效、信号监控。首个策略为 `ml_ranker_v0`：P0 特征横截面排序，长-only，`t` 日盘后信号、`t+1` 开盘/VWAP 建仓。
 
 **下一步（P0/P1）**：补 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`，或编写 P0 DWS/ADS SQL 并跑通 `ml_ranker_v0` 基线。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算。
@@ -156,3 +158,48 @@ Related issue/PR: —
 
 ### Memory Files Updated
 - AGENT_HANDOFF、MEMORY_INDEX、UPDATE_PROTOCOL、OPEN_QUESTIONS、DECISION_LOG、IMPLEMENTATION_STATUS；TODO.md updated.
+
+## 交接条目
+
+日期: 2026-06-01
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: —
+
+### 已完成工作
+- 根据 owner 对 DWS-ADS review P1-5 的确认，调整指数代码归一口径：`dwd_index_eod.sec_code` 输出 canonical 指数代码，新增 `source_sec_code` 保留 ODS/Tushare 实际代码。
+- 更新 `sql/dwd/04_dwd_index_eod.sql`、metadata 描述脚本和 QA 断言，使沪深300来源 `399300.SZ` 输出为 `sec_code='000300.SH'` 并保留 `source_sec_code='399300.SZ'`。
+- 更新 DWD-DIM、DWS-ADS、策略方案和策略 1 PRD，明确 DWS/ADS 基准指数 join 只使用 canonical `sec_code`。
+- 记录 DECISION-20260601-01，并更新约束、架构记忆、开放问题和 TODO。
+
+### 重要上下文
+- 本次只改仓库 SQL/文档/记忆，未重建 BigQuery `data-aquarium.ashare_dwd.dwd_index_eod` 实表。
+- 重建 `dwd_index_eod` 后必须重新执行 `sql/metadata/01_p0_table_column_descriptions.sql` 和 `sql/qa/01_p0_smoke_checks.sql`。
+
+### 改动文件
+- `sql/dwd/04_dwd_index_eod.sql`
+- `sql/metadata/01_p0_table_column_descriptions.sql`
+- `sql/qa/01_p0_smoke_checks.sql`
+- `sql/README.md`
+- `docs/数据仓库建模方案-DWD-DIM.md`
+- `docs/数据仓库建模方案-DWS-ADS.md`
+- `docs/A股中低频小资金机器学习策略方案.md`
+- `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`
+- `.agent/memory/{AGENT_HANDOFF,ARCHITECTURE_MEMORY,DECISION_LOG,IMPLEMENTATION_STATUS,KNOWN_CONSTRAINTS,OPEN_QUESTIONS}.md`
+- `TODO.md`
+
+### 测试 / 验证
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/dwd/04_dwd_index_eod.sql` 通过。
+- 当前 BigQuery 实表未重建，metadata/QA 需在重建后运行。
+
+### 阻塞项
+- 无。
+
+### 下一步建议
+- 重建 `dwd_index_eod`，执行 metadata 与 QA；或继续处理 DWS-ADS review 的 P0/P1 其余发现。
+
+### 已更新记忆文件
+- AGENT_HANDOFF、ARCHITECTURE_MEMORY、DECISION_LOG、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、OPEN_QUESTIONS；TODO.md updated.

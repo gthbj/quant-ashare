@@ -114,10 +114,18 @@ ASSERT (
 
 ASSERT (
   SELECT COUNTIF(
-    sec_code IN ('000016.SH', '000905.SH', '399001.SZ', '399006.SZ', '399300.SZ')
+    sec_code IN ('000016.SH', '000905.SH', '399001.SZ', '399006.SZ', '000300.SH')
     AND pe IS NOT NULL
     AND total_mv_cny IS NOT NULL
   ) > 0
   FROM `data-aquarium.ashare_dwd.dwd_index_eod`
   WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date
 ) AS 'dwd_index_eod must include index_dailybasic valuation fields where available';
+
+ASSERT (
+  SELECT COUNT(*) > 0
+  FROM `data-aquarium.ashare_dwd.dwd_index_eod`
+  WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date
+    AND sec_code = '000300.SH'
+    AND source_sec_code = '399300.SZ'
+) AS 'dwd_index_eod must expose canonical sec_code and preserve source_sec_code for CSI300';

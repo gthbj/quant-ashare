@@ -1,6 +1,6 @@
 -- 文档维护：GPT-5（最近更新 2026-05-31）
 -- BigQuery Standard SQL
--- 指数日线 DWD：保留 ODS 实际存在的指数代码，并补充常用 canonical_index_code。
+-- 指数日线 DWD：sec_code 输出规范指数代码；source_sec_code 保留 ODS 实际指数代码。
 -- index_dailybasic 的 total_mv/float_mv 单位为元，股本字段单位为股；不同于股票 daily_basic 的万元/万股口径。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
@@ -10,11 +10,11 @@ CREATE OR REPLACE TABLE `data-aquarium.ashare_dwd.dwd_index_eod`
 PARTITION BY DATE_TRUNC(trade_date, MONTH)
 CLUSTER BY sec_code
 OPTIONS (
-  description = 'Daily index price and valuation DWD for available Tushare index_daily/index_dailybasic endpoints; rows written from 2019-01-01',
+  description = 'Daily index price and valuation DWD for available Tushare index_daily/index_dailybasic endpoints; sec_code is canonical and source_sec_code preserves the original Tushare code; rows written from 2019-01-01',
   require_partition_filter = TRUE
 ) AS
 WITH index_map AS (
-  SELECT '000016.SH' AS sec_code, '000016.SH' AS canonical_index_code, 'SSE50' AS index_alias UNION ALL
+  SELECT '000016.SH' AS source_sec_code, '000016.SH' AS sec_code, 'SSE50' AS index_alias UNION ALL
   SELECT '000688.SH', '000688.SH', 'STAR50' UNION ALL
   SELECT '000852.SH', '000852.SH', 'CSI1000' UNION ALL
   SELECT '000905.SH', '000905.SH', 'CSI500' UNION ALL
@@ -24,7 +24,7 @@ WITH index_map AS (
 ),
 daily AS (
   SELECT
-    ts_code AS sec_code,
+    ts_code AS source_sec_code,
     SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date,
     SAFE_CAST(open AS FLOAT64) AS open,
     SAFE_CAST(high AS FLOAT64) AS high,
@@ -53,7 +53,7 @@ daily AS (
 ),
 daily_basic AS (
   SELECT
-    ts_code AS sec_code,
+    ts_code AS source_sec_code,
     SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date,
     SAFE_CAST(total_mv AS FLOAT64) AS total_mv_cny,
     SAFE_CAST(float_mv AS FLOAT64) AS float_mv_cny,
@@ -78,8 +78,8 @@ daily_basic AS (
 )
 SELECT
   d.trade_date,
-  d.sec_code,
-  m.canonical_index_code,
+  COALESCE(m.sec_code, d.source_sec_code) AS sec_code,
+  d.source_sec_code,
   m.index_alias,
   d.open,
   d.high,
@@ -105,15 +105,15 @@ SELECT
   d.ingested_at
 FROM daily AS d
 LEFT JOIN daily_basic AS b
-  ON d.sec_code = b.sec_code
+  ON d.source_sec_code = b.source_sec_code
  AND d.trade_date = b.trade_date
 LEFT JOIN index_map AS m
-  ON d.sec_code = m.sec_code;
+  ON d.source_sec_code = m.source_sec_code;
 
 ALTER TABLE `data-aquarium.ashare_dwd.dwd_index_eod`
 ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'),
-ALTER COLUMN sec_code SET OPTIONS (description = 'ODS 实际指数代码'),
-ALTER COLUMN canonical_index_code SET OPTIONS (description = '规范指数代码；399300.SZ 映射为 000300.SH'),
+ALTER COLUMN sec_code SET OPTIONS (description = '规范指数代码；沪深300 等双代码指数在此归一，如 ODS 399300.SZ 映射为 000300.SH'),
+ALTER COLUMN source_sec_code SET OPTIONS (description = '来源 ODS 实际指数代码，Tushare ts_code 格式，用于血缘追溯'),
 ALTER COLUMN index_alias SET OPTIONS (description = '常用指数别名'),
 ALTER COLUMN total_mv_cny SET OPTIONS (description = '指数总市值，元，来自 index_dailybasic.total_mv'),
 ALTER COLUMN float_mv_cny SET OPTIONS (description = '指数流通市值，元，来自 index_dailybasic.float_mv'),

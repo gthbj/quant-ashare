@@ -430,3 +430,35 @@ P0 DIM/DWD 表已物化，但 CTAS 建表脚本只给部分字段补了 descript
 ### 相关文件
 
 `sql/metadata/01_p0_table_column_descriptions.sql`, `sql/README.md`
+
+## DECISION-20260601-01: 指数 DWD 使用 canonical sec_code 并保留 source_sec_code
+
+日期: 2026-06-01
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+`docs/reviews/数据仓库建模方案-DWS-ADS-review.md` 的 P1-5 指出：沪深300 等指数存在 ODS 实际代码与业务 canonical 代码不一致的问题。当前 `dwd_index_eod` 已有 `canonical_index_code`，但 `sec_code` 仍保留 ODS `ts_code`，容易导致 DWS/ADS 既有按 `sec_code` join 规范被破坏。
+
+### 决策
+
+`dwd_index_eod.sec_code` 输出 canonical 指数代码；新增 `source_sec_code` 保留 ODS/Tushare 实际代码。DWS/ADS 基准指数 join、benchmark 配置和超额收益计算只使用 canonical `sec_code`。双代码或多代码指数的 `source_sec_code -> sec_code` 映射先由 `dwd_index_eod` 建表脚本 CTE 维护，未来可沉淀为 `dim_index` 维表。
+
+### 理由
+
+该方案与 DWD-DIM §3.3-A 的主键归一规则一致：DWD/DIM 出口字段名和值都应使用统一 `sec_code`，来源差异进入血缘字段而不是泄漏到 DWS/ADS join 逻辑。`source_sec_code` 保留了追溯 ODS endpoint 和排查数据问题所需的信息。
+
+### 影响
+
+`sql/dwd/04_dwd_index_eod.sql`、metadata、QA 和相关文档已按此口径更新。当前 BigQuery 实表尚未重建；重建后需重新执行 `sql/metadata/01_p0_table_column_descriptions.sql` 和 `sql/qa/01_p0_smoke_checks.sql`。
+
+### 备选方案
+
+保留当前 `sec_code=ODS 实际代码` 并要求 DWS/ADS 使用 `canonical_index_code` join；放弃，因为这会让指数表成为 `sec_code` 统一主键规范的例外，增加下游实现负担。
+
+### 相关文件
+
+`sql/dwd/04_dwd_index_eod.sql`, `sql/metadata/01_p0_table_column_descriptions.sql`, `sql/qa/01_p0_smoke_checks.sql`, `docs/数据仓库建模方案-DWD-DIM.md`, `docs/数据仓库建模方案-DWS-ADS.md`, `docs/A股中低频小资金机器学习策略方案.md`

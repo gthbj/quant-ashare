@@ -226,12 +226,12 @@ ALTER COLUMN ingested_at SET OPTIONS (description = '来源 ODS 摄入时间'),
 ALTER COLUMN visible_trade_date SET OPTIONS (description = '该报告期最新版本公告后第一个上交所交易日');
 
 ALTER TABLE `data-aquarium.ashare_dwd.dwd_index_eod`
-SET OPTIONS (description = '指数日线 DWD。保留 ODS 实际可用指数代码，补充规范指数代码和别名，并从 index_dailybasic 写入可用指数的估值、市值和股本字段。');
+SET OPTIONS (description = '指数日线 DWD。sec_code 输出规范指数代码，source_sec_code 保留 ODS 实际代码，并从 index_dailybasic 写入可用指数的估值、市值和股本字段。');
 
 ALTER TABLE `data-aquarium.ashare_dwd.dwd_index_eod`
 ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'),
-ALTER COLUMN sec_code SET OPTIONS (description = 'ODS 实际指数代码，Tushare ts_code 格式'),
-ALTER COLUMN canonical_index_code SET OPTIONS (description = '规范指数代码；399300.SZ 映射为 000300.SH'),
+ALTER COLUMN sec_code SET OPTIONS (description = '规范指数代码；沪深300 等双代码指数在此归一，如 ODS 399300.SZ 映射为 000300.SH'),
+ALTER COLUMN source_sec_code SET OPTIONS (description = '来源 ODS 实际指数代码，Tushare ts_code 格式，用于血缘追溯'),
 ALTER COLUMN index_alias SET OPTIONS (description = '常用指数别名，如 SSE50、CSI300、CSI500'),
 ALTER COLUMN open SET OPTIONS (description = '指数开盘点位'),
 ALTER COLUMN high SET OPTIONS (description = '指数最高点位'),
