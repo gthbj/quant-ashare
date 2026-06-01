@@ -39,7 +39,7 @@ Last updated: 2026-06-01
 - PR #4 已合并到 `main`；已删除合并后不再使用的 `codex/implement-strategy1-prd` 本地分支和远端分支，并在 `KNOWN_CONSTRAINTS.md` 增加 PR 合并后清理无用 `codex/*` 分支的工程规则。
 - 策略 1 BigQuery ML runner 设计已完成：`docs/策略1-ml_pv_clf_v0-runner设计.md`。设计限定 BigQuery SQL + BigQuery ML 执行路径，覆盖训练面板、`CREATE MODEL`、BQML `L1_REG/L2_REG` 手动候选网格、valid RankIC 选型、`ML.PREDICT`、候选池、组合、订单、回测、监控、GCS 报告产物、本地报告镜像、幂等、QA 和验收；`board` 保留为监控字段、不进 v0 主模型训练列。当前仅完成设计，尚未落地 `sql/ml/strategy1/` runner 脚本。
 - 策略 1 BigQuery ML runner 与回测闭环实现 PRD 已完成：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`。PRD 定义 `sql/ml/strategy1/01-10` 脚本交付物、输入输出、运行参数、功能需求、QA、报告产物和验收标准；卖出顺延首版采用预计算 `next_sellable_trade_date` 方案，报告渲染脚本 `scripts/strategy1/render_report.py` 是必需交付物；当前尚未落地 runner SQL。
-- OQ-003 财务 `report_type` / 报表口径维度 PRD 已完成：`docs/prd/PRD_20260601_03_财务报表口径维度.md`。PRD 推荐 P0 默认消费合并报表 `report_type='1'`，DWD 对三大财务表保留 `report_type`/`report_caliber`/`is_default_report_caliber`，DWS 财务特征默认只过滤默认口径并补 QA；OQ-003 仍待 owner review 后关闭。
+- OQ-003 财务 `report_type` / 报表口径维度 PRD 已完成：`docs/prd/PRD_20260601_03_财务报表口径维度.md`。PRD 推荐 P0 默认消费合并报表 `report_type='1'`，DWD 对三大财务表保留 `report_type`/`report_caliber`/`is_default_report_caliber`，DWS 财务特征默认只过滤默认口径并补 QA；PR #8 review comment 已跟进，OQ-003 仍待 owner review 后关闭。
 - 评审协议已按 owner 最新要求更新：GitHub PR review 默认写 PR comment，一条写不下拆多条；只有 owner 明确要求或无 PR comment 承载面时才写 `docs/reviews/` 评审文档。`DECISION-20260531-13` 已被 `DECISION-20260601-03` supersede。
 - ODS 已补采 `index_member_all` 和 `ci_index_member`；主方案、DWS/ADS 文档和策略文档已更新为可落地申万/中信行业时点映射，OQ-001 已关闭。
 - 工作记忆瘦身完成：旧交接归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md`；已关闭问题迁移到 `.agent/memory/archive/CLOSED_QUESTIONS.md`；`OPEN_QUESTIONS.md` 仅保留 open 项；`UPDATE_PROTOCOL.md` 增加只读任务免追加交接和归档规则。
