@@ -1,4 +1,4 @@
--- 文档维护：GPT-5（最近更新 2026-05-31）
+-- 文档维护：GPT-5（最近更新 2026-06-01）
 -- BigQuery Standard SQL
 -- P0 DIM/DWD 物化后的基础断言。全部通过才进入 DWS 特征构建。
 
@@ -14,6 +14,65 @@ ASSERT (
     HAVING n > 1
   )
 ) AS 'dim_stock.sec_code must be unique';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dim.dim_stock`
+  WHERE is_delisted
+    AND (
+      delist_date IS NULL
+      OR delist_date_source = 'missing_delist_date'
+      OR (list_date IS NOT NULL AND delist_date <= list_date)
+    )
+) AS 'delisted dim_stock rows must have valid delist_date after list_date';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    WITH latest AS (
+      SELECT MAX(partition_date) AS partition_date
+      FROM `data-aquarium.ashare_ods.ods_tushare_stock_basic`
+      WHERE endpoint = 'stock_basic_delisted'
+        AND partition_date BETWEEN '00000000' AND '99999999'
+    )
+    SELECT 1
+    FROM `data-aquarium.ashare_ods.ods_tushare_stock_basic` AS s
+    JOIN latest AS l
+      ON s.partition_date = l.partition_date
+    WHERE s.endpoint = 'stock_basic_delisted'
+      AND s.partition_date BETWEEN '00000000' AND '99999999'
+      AND NULLIF(s.delist_date, '') IS NOT NULL
+      AND SAFE.PARSE_DATE('%Y%m%d', NULLIF(s.delist_date, '')) IS NULL
+  )
+) AS 'stock_basic_delisted.delist_date must be readable and parseable';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    WITH latest AS (
+      SELECT MAX(partition_date) AS partition_date
+      FROM `data-aquarium.ashare_ods.ods_tushare_stock_basic`
+      WHERE endpoint = 'stock_basic_delisted'
+        AND partition_date BETWEEN '00000000' AND '99999999'
+    ),
+    delisted AS (
+      SELECT
+        s.ts_code AS sec_code,
+        SAFE.PARSE_DATE('%Y%m%d', NULLIF(s.delist_date, '')) AS ods_delist_date
+      FROM `data-aquarium.ashare_ods.ods_tushare_stock_basic` AS s
+      JOIN latest AS l
+        ON s.partition_date = l.partition_date
+      WHERE s.endpoint = 'stock_basic_delisted'
+        AND s.partition_date BETWEEN '00000000' AND '99999999'
+    )
+    SELECT 1
+    FROM delisted AS d
+    LEFT JOIN `data-aquarium.ashare_dim.dim_stock` AS s
+      ON d.sec_code = s.sec_code
+    WHERE d.ods_delist_date IS NOT NULL
+      AND (s.sec_code IS NULL OR s.delist_date IS NULL OR s.delist_date != d.ods_delist_date)
+  )
+) AS 'dim_stock.delist_date must use stock_basic_delisted.delist_date when ODS provides it';
 
 ASSERT (
   SELECT COUNT(*) = 0

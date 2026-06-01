@@ -526,3 +526,35 @@ PR comment 能把发现、修复、反驳和后续讨论保留在同一上下文
 ### 相关文件
 
 `AGENTS.md`, `.agent/memory/UPDATE_PROTOCOL.md`, `.agent/memory/AGENT_HANDOFF.md`, `.agent/memory/DECISION_LOG.md`
+
+## DECISION-20260601-04: dim_stock 退市日优先使用 ODS delist_date
+
+日期: 2026-06-01
+状态: active
+负责人: owner / 上游 ingestion
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+OQ-007 记录过 `stock_basic_delisted.delist_date` 外部表类型与 Parquet 文件类型不一致，导致 BigQuery 直读报错。2026-06-01 复核发现 ODS schema 已修复为 `STRING`，最新 `stock_basic_delisted` 分区 326 行退市日均可解析。
+
+### 决策
+
+`dim_stock.delist_date` 对 `list_status='D'` 的股票优先使用 ODS `stock_basic_delisted.delist_date` 解析结果。仅当 ODS 退市日缺失时，才回退到 `daily` 最后交易日加一天。P0 QA 增加 ODS 退市日可读/可解析断言，并要求 `dim_stock` 与 ODS 退市日一致。
+
+### 理由
+
+ODS 退市日是正式生命周期边界；`daily` 最后交易日只代表最后有成交日，部分退市股最后成交日到正式退市日之间存在停牌区间。继续用 daily 兜底会提前截断 universe，影响幸存者偏差治理和停牌期不可交易标记。
+
+### 影响
+
+`sql/dim/02_dim_stock.sql`、metadata、QA、SQL README 和 DWD-DIM 文档已更新。合并后需要重建 `dim_stock`，并按依赖重建 `dwd_stock_eod_price` 与下游策略 1 DWS/ADS 派生产物后执行 metadata 与 QA。
+
+### 备选方案
+
+继续使用 `daily` 最后交易日加一天；放弃，因为 ODS 已可用且 daily 口径会把最后成交日至正式退市日之间的停牌生命周期截断。
+
+### 相关文件
+
+`sql/dim/02_dim_stock.sql`, `sql/qa/01_p0_smoke_checks.sql`, `sql/metadata/01_p0_table_column_descriptions.sql`, `docs/数据仓库建模方案-DWD-DIM.md`, `.agent/memory/archive/CLOSED_QUESTIONS.md`
