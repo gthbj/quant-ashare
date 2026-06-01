@@ -45,7 +45,7 @@ raw AS (
     b.sec_code,
     label_version,
     ce.cal_date AS entry_trade_date,
-    c1.cal_date AS exit_trade_date_1d,
+    ce.cal_date AS exit_trade_date_1d,
     c5.cal_date AS exit_trade_date_5d,
     c10.cal_date AS exit_trade_date_10d,
     c20.cal_date AS exit_trade_date_20d,
@@ -72,8 +72,6 @@ raw AS (
   FROM price AS b
   LEFT JOIN cal AS ce
     ON ce.trade_date_seq = b.trade_date_seq + 1
-  LEFT JOIN cal AS c1
-    ON c1.trade_date_seq = b.trade_date_seq + 1
   LEFT JOIN cal AS c5
     ON c5.trade_date_seq = b.trade_date_seq + 5
   LEFT JOIN cal AS c10
@@ -85,7 +83,7 @@ raw AS (
    AND entry.trade_date = ce.cal_date
   LEFT JOIN price AS x1
     ON x1.sec_code = b.sec_code
-   AND x1.trade_date = c1.cal_date
+   AND x1.trade_date = ce.cal_date
   LEFT JOIN price AS x5
     ON x5.sec_code = b.sec_code
    AND x5.trade_date = c5.cal_date
@@ -207,6 +205,14 @@ ALTER TABLE `data-aquarium.ashare_dws.dws_stock_label_daily`
 ALTER COLUMN trade_date SET OPTIONS (description = '信号日 t，月分区字段'),
 ALTER COLUMN label_version SET OPTIONS (description = '标签口径版本；当前为 t+1 开盘入场、t+H 收盘退出'),
 ALTER COLUMN label_entry_tradable SET OPTIONS (description = 't+1 开盘是否可买入；仅用于训练有效性、回测撮合和归因，不得用于 t 日预先选股'),
+ALTER COLUMN exit_reachable_1d SET OPTIONS (description = 't+1 退出日是否近似可卖：未停牌、非一字跌停且退出收盘价非空；标签本身不顺延'),
+ALTER COLUMN exit_reachable_5d SET OPTIONS (description = 't+5 退出日是否近似可卖：未停牌、非一字跌停且退出收盘价非空；标签本身不顺延'),
+ALTER COLUMN exit_reachable_10d SET OPTIONS (description = 't+10 退出日是否近似可卖：未停牌、非一字跌停且退出收盘价非空；标签本身不顺延'),
+ALTER COLUMN exit_reachable_20d SET OPTIONS (description = 't+20 退出日是否近似可卖：未停牌、非一字跌停且退出收盘价非空；标签本身不顺延'),
 ALTER COLUMN fwd_ret_5d SET OPTIONS (description = 't+1 开盘买入至 t+5 收盘退出的后复权收益'),
 ALTER COLUMN rank_pct_5d SET OPTIONS (description = '默认 universe 内当日 fwd_ret_5d 横截面分位，0 为最低，1 为最高；非默认 universe 样本为空'),
-ALTER COLUMN label_top30_5d SET OPTIONS (description = '主分类标签：rank_pct_5d >= 0.7');
+ALTER COLUMN label_top30_5d SET OPTIONS (description = '主分类标签：rank_pct_5d >= 0.7'),
+ALTER COLUMN label_valid_1d SET OPTIONS (description = '1 日标签训练有效性：t+1 入场可交易且标签价格可用；不要求退出日可卖，退出侧用 exit_reachable_1d 单独标记并由回测撮合处理'),
+ALTER COLUMN label_valid_5d SET OPTIONS (description = '5 日标签训练有效性：t+1 入场可交易且标签价格可用；不要求退出日可卖，退出侧用 exit_reachable_5d 单独标记并由回测撮合处理'),
+ALTER COLUMN label_valid_10d SET OPTIONS (description = '10 日标签训练有效性：t+1 入场可交易且标签价格可用；不要求退出日可卖，退出侧用 exit_reachable_10d 单独标记并由回测撮合处理'),
+ALTER COLUMN label_valid_20d SET OPTIONS (description = '20 日标签训练有效性：t+1 入场可交易且标签价格可用；不要求退出日可卖，退出侧用 exit_reachable_20d 单独标记并由回测撮合处理');

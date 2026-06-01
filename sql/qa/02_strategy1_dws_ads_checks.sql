@@ -128,6 +128,14 @@ ASSERT (
 ) AS 'default trainable samples must have universe-ranked rank_pct_5d';
 
 ASSERT (
+  SELECT MIN(trade_date) = DATE '2019-04-03'
+    AND COUNTIF(trade_date < DATE '2019-04-01') = 0
+  FROM `data-aquarium.ashare_dws.dws_stock_sample_daily`
+  WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    AND sample_trainable_default
+) AS 'default trainable samples should start on 2019-04-03 with no 2019Q1 rows under current no-2018-lookback build';
+
+ASSERT (
   SELECT COUNT(*) = 0
   FROM (
     WITH cal AS (

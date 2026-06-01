@@ -4,7 +4,7 @@
 > 当前建模范围：**2019-01-01 之后**的 DWS/ADS；2019 年以前数据仅作为财务/事件 PIT 前移、行情 lookback buffer、维度/日历历史支撑。
 > 上游依赖：`data-aquarium.ashare_dim`、`data-aquarium.ashare_dwd`，设计口径以 `docs/数据仓库建模方案-DWD-DIM.md` 为准。
 > 文档目标：设计可落地的 `ashare_dws`（特征/标签/样本层）与 `ashare_ads`（训练、预测、组合、回测、监控消费层）表体系。
-> 文档维护：GPT-5（最近更新 2026-05-31）
+> 文档维护：GPT-5（最近更新 2026-06-01）
 
 ---
 
@@ -281,7 +281,7 @@ QUALIFY ROW_NUMBER() OVER (
 | `top_quantile_5d` | 是否进入当日未来收益 top q |
 | `entry_reachable_k` | `t+1` 是否可买 |
 | `exit_reachable_k` | 退出日是否可卖 |
-| `label_valid_k` | 入场/退出价格均非空且可成交 |
+| `label_valid_k` | 入场可成交且标签入场/退出价格非空；退出日可卖性由 `exit_reachable_k` 单独标记，回测撮合层处理顺延或持仓延续 |
 
 **标签 SQL 要点**：
 
@@ -289,6 +289,7 @@ QUALIFY ROW_NUMBER() OVER (
 - 入场价使用 `open_hfq` 或未来扩展的 `vwap_hfq`，不能用 `t` 日收盘。
 - 若 `t+1` 一字涨停或停牌，则 `entry_reachable=false`；训练可剔除，也可保留并作为无法成交样本分析。
 - 如果退出日一字跌停/停牌，应设 `exit_reachable=false`，回测层选择顺延卖出或按无法卖出持仓延续。
+- 当前策略 1 SQL 中 `label_valid_k` 用于训练样本有效性，只要求 `label_entry_tradable` 和 `fwd_ret_kd IS NOT NULL`；不把退出日不可卖并入 `label_valid_k`，避免把标签口径与回测顺延撮合混在一起。
 
 ### 4.7 `dws_stock_feature_daily_v0`
 

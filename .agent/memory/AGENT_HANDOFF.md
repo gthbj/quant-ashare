@@ -14,7 +14,7 @@
 
 **重要执行结果**：`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行；`dwd_index_eod` 11,922 行，其中 8,899 行有 `index_dailybasic` 估值/市值/股本字段，且沪深300已归一为 `sec_code='000300.SH'` / `source_sec_code='399300.SZ'`。策略 1 DWS 行数：universe 8,495,462 行（默认池 3,403,501 行）、价格特征 8,495,462 行（完整 60 日历史 7,936,431 行）、估值特征 8,452,073 行、标签 8,495,462 行（5 日有效标签 8,388,177 行）、样本表 8,495,462 行（默认可训练 3,274,084 行）。上游已修复 `index_dailybasic` Parquet 类型问题，OQ-009 已关闭；STAR50/CSI1000 因 ODS 无 dailybasic endpoint 仍为空。
 
-**DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 先落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，财务特征和市场状态待补。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`，后续 Python run 负责训练、预测、候选、组合、回测并写入 ADS。
+**DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 先落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，财务特征和市场状态待补。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`，后续 Python run 负责训练、预测、候选、组合、回测并写入 ADS。
 
 **下一步（P0/P1）**：补策略 1 Python 训练/预测/组合/回测 run（生成 `ads_ml_training_panel_daily`，训练 Logistic/Ridge/ElasticNet，写预测/候选/组合/回测 ADS 表，输出 RankIC/分层收益/NAV/换手/不可成交比例）；或补 P0 通用 DWS 扩展表（财务特征、市场状态）与 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
@@ -251,3 +251,47 @@ Run ID: —
 
 ### 已更新记忆文件
 - AGENT_HANDOFF、ARCHITECTURE_MEMORY、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、MEMORY_INDEX、OPEN_QUESTIONS、PROJECT_CONTEXT；TODO.md updated.
+
+## 交接条目
+
+日期: 2026-06-01
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #4 comment `4592089459`
+
+### 已完成工作
+- 跟进 PR #4 owner comment 的 P1/P2 建议。
+- `sql/dws/04_dws_stock_label_daily.sql` 去掉 `ce/c1` 冗余日历 JOIN，复用 `ce` 作为 1 日入场/退出日期。
+- 补充 `label_valid_*d` 与 `exit_reachable_*d` 字段说明，明确 `label_valid` 只检查入场可交易和标签价格可用；退出可卖性交给 `exit_reachable` 与回测撮合。
+- `sql/qa/02_strategy1_dws_ads_checks.sql` 增加默认可训练样本最早日期断言：当前为 `2019-04-03`，2019Q1 无默认可训练样本。
+- 更新 DWS-ADS 与 DWD-DIM 文档：同步 `label_valid` 语义和 `dwd_stock_eod_price` 实表字段名 `volume_share` / `amount_cny`。
+
+### 重要上下文
+- 本次未改变标签收益公式，也未把退出不可卖合并进 `label_valid_*d`；这是按 PRD 的“标签不顺延，退出侧由回测撮合处理”口径执行。
+
+### 改动文件
+- `sql/dws/04_dws_stock_label_daily.sql`
+- `sql/qa/02_strategy1_dws_ads_checks.sql`
+- `sql/README.md`
+- `docs/数据仓库建模方案-DWS-ADS.md`
+- `docs/数据仓库建模方案-DWD-DIM.md`
+- `.agent/memory/{AGENT_HANDOFF,IMPLEMENTATION_STATUS}.md`
+- `TODO.md`
+
+### 测试 / 验证
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/dws/04_dws_stock_label_daily.sql` 通过。
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_ads_checks.sql` 通过。
+- 已重建 `data-aquarium.ashare_dws.dws_stock_label_daily` 和 `dws_stock_sample_daily`。
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_ads_checks.sql` 全部 assertion successful。
+
+### 阻塞项
+- 无。
+
+### 下一步建议
+- 将本次修复提交并推送到 `codex/implement-strategy1-prd`，更新 PR #4。
+
+### 已更新记忆文件
+- AGENT_HANDOFF、IMPLEMENTATION_STATUS；TODO.md updated.
