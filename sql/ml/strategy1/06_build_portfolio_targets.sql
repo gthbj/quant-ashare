@@ -19,6 +19,13 @@ SET p_selected_model_id = (
   ORDER BY reg.created_at DESC LIMIT 1
 );
 
+IF NOT p_force_replace THEN
+  IF (SELECT COUNT(*) > 0 FROM `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
+      WHERE pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
+        AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end) THEN
+    RAISE USING MESSAGE = CONCAT('portfolio targets already exist for run_id ', p_run_id, '. Set p_force_replace=TRUE.');
+  END IF;
+END IF;
 IF p_force_replace THEN
   DELETE FROM `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
   WHERE pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id

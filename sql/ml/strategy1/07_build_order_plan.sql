@@ -8,6 +8,13 @@ DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;  -- OQ-010 示例值，用于估算订单金额
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 
+IF NOT p_force_replace THEN
+  IF (SELECT COUNT(*) > 0 FROM `data-aquarium.ashare_ads.ads_order_plan_daily` AS op
+      WHERE op.strategy_id = p_strategy_id AND op.run_id = p_run_id
+        AND op.rebalance_date BETWEEN p_predict_start AND p_predict_end) THEN
+    RAISE USING MESSAGE = CONCAT('order plan already exists for run_id ', p_run_id, '. Set p_force_replace=TRUE.');
+  END IF;
+END IF;
 IF p_force_replace THEN
   DELETE FROM `data-aquarium.ashare_ads.ads_order_plan_daily` AS op
   WHERE op.strategy_id = p_strategy_id AND op.run_id = p_run_id

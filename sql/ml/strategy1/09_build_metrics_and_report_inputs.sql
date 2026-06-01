@@ -11,6 +11,7 @@ DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;
 DECLARE p_benchmark STRING DEFAULT '000852.SH';
 DECLARE p_calendar_end DATE;
 DECLARE p_selected_model_id STRING;
+DECLARE p_force_replace BOOL DEFAULT FALSE;
 
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
 SET p_selected_model_id = (
@@ -21,32 +22,97 @@ SET p_selected_model_id = (
   ORDER BY reg.created_at DESC LIMIT 1
 );
 
--- exec_date 集合（用于判定卖出是否顺延）
-CREATE TEMP TABLE exec_dates AS
+-- ── 幂等 ──
+IF NOT p_force_replace THEN
+  IF (SELECT COUNT(*) > 0 FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+      WHERE bs.backtest_id = p_backtest_id) THEN
+    RAISE USING MESSAGE = CONCAT('performance summary already exists for backtest_id ', p_backtest_id, '. Set p_force_replace=TRUE.');
+  END IF;
+END IF;
+IF p_force_replace THEN
+  DELETE FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs WHERE bs.backtest_id = p_backtest_id;
+  DELETE FROM `data-aquarium.ashare_ads.ads_signal_monitor_daily` AS sm
+    WHERE sm.strategy_id = p_strategy_id AND sm.run_id = p_run_id
+      AND sm.trade_date BETWEEN p_predict_start AND p_predict_end;
+END IF;
+
+-- ── 卖出顺延统计：重建 episode 退出，精确比对「期望卖出日 vs 实际可卖日」──
+CREATE TEMP TABLE cal AS
+SELECT cal_date AS trade_date, trade_date_seq
+FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+WHERE exchange = 'SSE' AND is_open = 1 AND cal_date BETWEEN p_predict_start AND p_calendar_end;
+
+CREATE TEMP TABLE periods AS
 WITH rdates AS (
   SELECT DISTINCT pt.rebalance_date
   FROM `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
   WHERE pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
     AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
+),
+we AS (
+  SELECT r.rebalance_date,
+    (SELECT MIN(c2.trade_date) FROM cal AS c2
+     WHERE c2.trade_date_seq = (SELECT c1.trade_date_seq FROM cal AS c1 WHERE c1.trade_date = r.rebalance_date) + 1) AS exec_date
+  FROM rdates AS r
 )
-SELECT (SELECT MIN(c2.cal_date) FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS c2
-        WHERE c2.exchange = 'SSE' AND c2.is_open = 1
-          AND c2.trade_date_seq = (SELECT c1.trade_date_seq FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS c1
-                                   WHERE c1.exchange = 'SSE' AND c1.cal_date = r.rebalance_date) + 1) AS exec_date
-FROM rdates AS r;
+SELECT rebalance_date, exec_date, ROW_NUMBER() OVER (ORDER BY exec_date) AS period_idx
+FROM we WHERE exec_date IS NOT NULL;
 
--- 卖出统计
+-- episode 退出（期望卖出日）+ next-sellable（实际可卖日）+ 顺延交易日数
+CREATE TEMP TABLE sell_delay AS
+WITH presence AS (
+  SELECT pr.period_idx, pt.sec_code
+  FROM periods AS pr
+  JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
+    ON pt.rebalance_date = pr.rebalance_date
+   AND pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
+),
+grp AS (
+  SELECT sec_code, period_idx,
+    period_idx - ROW_NUMBER() OVER (PARTITION BY sec_code ORDER BY period_idx) AS island
+  FROM presence
+),
+ep AS (
+  SELECT sec_code, MAX(period_idx) AS last_present FROM grp GROUP BY sec_code, island
+),
+exits AS (
+  SELECT ep.sec_code, px.exec_date AS desired_sell_date
+  FROM ep JOIN periods AS px ON px.period_idx = ep.last_present + 1
+),
+with_actual AS (
+  SELECT
+    e.sec_code, e.desired_sell_date,
+    (SELECT MIN(px2.trade_date)
+     FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px2
+     JOIN cal AS c2 ON px2.trade_date = c2.trade_date
+     JOIN cal AS c1 ON c1.trade_date = e.desired_sell_date
+     WHERE px2.sec_code = e.sec_code AND px2.trade_date >= e.desired_sell_date
+       AND c2.trade_date_seq <= c1.trade_date_seq + 60
+       AND px2.can_sell_open
+       AND px2.trade_date BETWEEN p_predict_start AND p_calendar_end) AS actual_sell_date
+  FROM exits AS e
+)
+SELECT
+  sec_code, desired_sell_date, actual_sell_date,
+  CASE WHEN actual_sell_date IS NULL THEN NULL
+       ELSE (SELECT ca.trade_date_seq FROM cal AS ca WHERE ca.trade_date = actual_sell_date)
+          - (SELECT cd.trade_date_seq FROM cal AS cd WHERE cd.trade_date = desired_sell_date)
+  END AS delay_td
+FROM with_actual;
+
 CREATE TEMP TABLE sell_stats AS
 SELECT
-  COUNTIF(t.side = 'SELL') AS sell_total,
-  COUNTIF(t.side = 'SELL' AND t.fill_status = 'SELL_BLOCKED_NO_NEXT_SELLABLE_60D') AS sell_blocked_count,
-  COUNTIF(t.side = 'SELL' AND t.fill_status = 'FILLED'
-          AND t.trade_date NOT IN (SELECT exec_date FROM exec_dates)) AS sell_delayed_count,
-  COUNTIF(t.side = 'BUY' AND t.fill_status != 'FILLED') AS buy_fail_count,
-  COUNTIF(t.side = 'BUY') AS buy_total
-FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
-WHERE t.backtest_id = p_backtest_id
-  AND t.trade_date BETWEEN p_predict_start AND p_calendar_end;
+  (SELECT COUNT(*) FROM sell_delay) AS sell_total,
+  (SELECT COUNTIF(actual_sell_date IS NULL) FROM sell_delay) AS sell_blocked_count,
+  (SELECT COUNTIF(delay_td > 0) FROM sell_delay) AS sell_delayed_count,
+  (SELECT AVG(delay_td) FROM sell_delay WHERE delay_td IS NOT NULL) AS sell_delay_td_avg,
+  (SELECT MAX(delay_td) FROM sell_delay WHERE delay_td IS NOT NULL) AS sell_delay_td_max,
+  (SELECT COUNTIF(t.side = 'BUY' AND t.fill_status != 'FILLED')
+   FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
+   WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end) AS buy_fail_count,
+  (SELECT COUNTIF(t.side = 'BUY')
+   FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
+   WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end) AS buy_total;
 
 -- 汇总绩效
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_performance_summary`
@@ -108,7 +174,8 @@ SELECT
     SAFE_DIVIDE(a.excess_annual, NULLIF(a.tracking_error, 0)) AS information_ratio,
     SAFE_DIVIDE(CAST(ss.buy_fail_count AS FLOAT64), NULLIF(ss.buy_total, 0)) AS buy_fail_rate,
     SAFE_DIVIDE(CAST(ss.sell_delayed_count AS FLOAT64), NULLIF(ss.sell_total, 0)) AS sell_delay_rate,
-    ss.sell_blocked_count,
+    ss.sell_blocked_count, ss.sell_delayed_count, ss.sell_total,
+    ss.sell_delay_td_avg, ss.sell_delay_td_max,
     a.total_turnover, a.total_cost
   )),
   CURRENT_TIMESTAMP()
