@@ -6,7 +6,7 @@ Last updated: 2026-06-01
 
 ## 当前状态
 
-项目处于**P0 DIM/DWD 已物化并通过 smoke QA，DWS/ADS 与策略设计完成**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案，并已修订 §4.6 的 2019 前数据范围。owner 澄清：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件。根目录 `sql/` 已新增 BigQuery Standard SQL 脚本，覆盖 P0 DIM/DWD、metadata 和 QA；BigQuery 目标已建 3 张 DIM + 5 张 DWD，表级和字段级说明已补齐。`docs/reviews/P0-建表SQL-fix-review.md` 的二轮发现已修复并重跑 QA。暂无调度代码。
+项目处于**P0 DIM/DWD 已物化并通过 smoke QA，策略 1 价格量价 DWS/ADS SQL 已物化并通过 QA**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案与策略 1 PRD。owner 澄清：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件。根目录 `sql/` 已覆盖 P0 DIM/DWD、策略 1 DWS、策略 1 ADS 表契约、metadata 和 QA；BigQuery 目标已建 3 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表。暂无调度代码和模型训练/回测 Python run。
 
 ## 已完成（Completed）
 
@@ -26,11 +26,15 @@ Last updated: 2026-06-01
 - 采纳并修复 P0 SQL 评审发现：README 命令加 `--location=asia-east2`；`suspend_d` 只以 `suspend_type='S'` 标记停牌，复牌 `R` 不再误判停牌；`dim_stock` 加 `sec_code` 去重与派生退市 30 日宽限；`dwd_fin_indicator` 加版本键去重兜底；新增 `dwd_fin_indicator_latest` 与 `sql/qa/01_p0_smoke_checks.sql`。修复后相关脚本 dry-run 通过。
 - P0 物化完成并通过 smoke QA：`dim_trade_calendar` 13,162 行；`dim_stock` 5,853 行；`dim_stock_name_hist` 3,776 行；`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_index_eod` 11,922 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行。
 - 上游修复 `ods_tushare_index_dailybasic` Parquet 类型后，`dwd_index_eod` 已恢复估值/股本字段并重建：2019+ 共 11,922 行，其中 8,899 行有 `pe/pe_ttm/pb/total_mv_cny/float_mv_cny/total_share/float_share` 等 dailybasic 字段；STAR50(`000688.SH`) 和 CSI1000(`000852.SH`) 因 ODS 无 dailybasic endpoint 仍为空。
-- `dwd_index_eod` 脚本已按 owner 确认调整为 canonical `sec_code` + `source_sec_code` 血缘口径，脚本 dry-run 通过；尚未重建 BigQuery 实表，重建后需重新执行 metadata 和 QA。
+- `dwd_index_eod` 脚本已按 owner 确认调整为 canonical `sec_code` + `source_sec_code` 血缘口径，并已重建 BigQuery 实表；重新执行 `sql/metadata/01_p0_table_column_descriptions.sql` 和 `sql/qa/01_p0_smoke_checks.sql` 通过。验证：沪深300 `sec_code='000300.SH'`、`source_sec_code='399300.SZ'`，STAR50/CSI1000 估值字段仍因 ODS 无 dailybasic endpoint 为空。
 - 修复 P0 二轮评审发现：`dwd_stock_eod_price` 将 `is_suspended` 限定为全天停牌/无成交，新增 `has_intraday_halt` 与 `has_open_halt`，开盘临停影响 `can_buy_open/can_sell_open/is_tradable`；`dwd_fin_indicator_latest` 改为 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC` 排序。相关表已重建，QA 通过；验证指标：有成交但 `is_suspended=TRUE` 为 0，latest 排序差异为 0。
 - P0 表/字段说明补齐：新增并执行 `sql/metadata/01_p0_table_column_descriptions.sql`，8 张 P0 DIM/DWD 表的 table description 和所有 schema field description 均已补齐；验证 missing description = 0。
 - DWS/ADS 表设计文档已完成：`docs/数据仓库建模方案-DWS-ADS.md`。定义 P0 DWS（universe、价格/估值/财务特征、市场状态、标签、样本）与 ADS（训练面板、模型预测、候选池、组合、订单计划、回测/监控）表体系。
 - 策略方案文档已完成：`docs/A股中低频小资金机器学习策略方案.md`。定义首个 `ml_ranker_v0` 机器学习横截面排序策略，以及小盘质量反转、趋势延续、财务事件、资金筹码、行业轮动等后续策略族。
+- 策略 1 PRD 已完成并通过 review 修订：`docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`。首版落地名称为 `ml_pv_clf_v0`，范围限定价格量价 + 估值特征、open-to-close 标签和通用 DWS/ADS 表契约。
+- 策略 1 DWS SQL 已落地并物化：`sql/dws/01_dws_stock_universe_daily.sql`、`02_dws_stock_feature_price_daily.sql`、`03_dws_stock_feature_valuation_daily.sql`、`04_dws_stock_label_daily.sql`、`05_dws_stock_feature_daily_v0.sql`、`06_dws_stock_sample_daily.sql`。物化行数：universe 8,495,462 行（默认池 3,403,501 行）、价格特征 8,495,462 行（完整 60 日历史 7,936,431 行）、估值特征 8,452,073 行、标签 8,495,462 行（5 日有效标签 8,388,177 行）、特征宽表 8,495,462 行、样本表 8,495,462 行（默认可训练 3,274,084 行）。
+- 策略 1/P0 ADS 表契约已落地并物化：`sql/ads/01_ads_strategy1_tables.sql` 创建训练面板、模型注册、预测、候选池、组合目标、订单计划、回测成交/持仓/NAV/绩效汇总、信号监控 11 张表。
+- 策略 1 DWS/ADS QA 已落地并通过：`sql/qa/02_strategy1_dws_ads_checks.sql` 校验 DWS/ADS 表存在、DWS 主键唯一、universe 含退市股存活区间、不暴露 qfq 字段、2019 初 60 日历史不完整显式标记、默认可训练样本具备 universe-ranked `rank_pct_5d`、`fwd_ret_5d = close_hfq[t+5] / open_hfq[t+1] - 1`。
 - ODS 已补采 `index_member_all` 和 `ci_index_member`；主方案、DWS/ADS 文档和策略文档已更新为可落地申万/中信行业时点映射，OQ-001 已关闭。
 - 工作记忆瘦身完成：旧交接归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md`；已关闭问题迁移到 `.agent/memory/archive/CLOSED_QUESTIONS.md`；`OPEN_QUESTIONS.md` 仅保留 open 项；`UPDATE_PROTOCOL.md` 增加只读任务免追加交接和归档规则。
 
@@ -43,9 +47,9 @@ Last updated: 2026-06-01
 - `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置。
 - 「从 ODS 继承字段描述」的脚本（bq show → 映射 → bq update）。
 - 增量调度（dbt 或 Airflow + SQL）、数据质量断言。
-- DWS 特征宽表 + 标签（`fwd_ret_1d/5d/10d/20d`）+ 基线模型。
-- P0 DWS/ADS 建表 SQL：`dws_stock_universe_daily`、`dws_stock_feature_*_daily`、`dws_stock_label_daily`、`dws_stock_sample_daily`、`ads_ml_training_panel_daily`、`ads_model_prediction_daily`、`ads_stock_candidate_daily`、`ads_portfolio_target_daily`、`ads_backtest_*`。
-- `ml_ranker_v0` 基线模型训练、预测、回测与报告。
+- P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily`、`dws_market_state_daily`（策略 1 价格量价首版未阻塞）。
+- 策略 1 `ml_pv_clf_v0` Python 训练、预测、组合、回测与报告：生成 `ads_ml_training_panel_daily`，训练 Logistic/Ridge/ElasticNet，写预测/候选/组合/回测 ADS 表，输出 RankIC/分层收益/净值/换手/不可成交比例。
+- lookback-capable 价格构建输入：当前策略 1 DWS 只读取最终 DWD/DIM，不直接读 ODS；由于最终 DWD 价格表不落 2018 buffer 行，2019 年初 60 日价格窗口用 `has_full_history_60d=FALSE` 显式标记并由默认样本掩码剔除。若要求 2019-01 起 60 日窗口完整，需要补专用 lookback 构建输入或调整 DWD/DWS 构建方式。
 - P1+ 资金面/事件/行业族 DWD。
 - `dim_stock_sw_industry_hist` / `dim_stock_ci_industry_hist` 建表 SQL 与 QA（`out_date` 边界、区间重叠/缺口、2019+ 覆盖率）。
 
@@ -60,6 +64,6 @@ Last updated: 2026-06-01
 | P0 表物化/QA | 已完成 | 3 张 DIM + 5 张 DWD 已物化，二轮评审修复后 smoke QA 通过；表/字段说明已补齐 |
 | DWS/ADS 设计 | 高 | 两篇设计文档已完成；尚未写 SQL |
 | ETL/调度 | 未开始 | — |
-| DWS 特征/标签 SQL | 未开始 | P0 设计已明确 |
-| 策略/ADS 闭环 | 未开始 | `ml_ranker_v0` 设计已明确 |
+| DWS 特征/标签 SQL | 部分完成 | 策略 1 universe、价格/估值特征、标签、宽表、样本已物化并 QA；财务特征和市场状态待补 |
+| 策略/ADS 闭环 | 部分完成 | ADS 表契约已物化；`ml_pv_clf_v0` 训练/预测/组合/回测 Python run 待实现 |
 | 行业映射 | 可落地设计完成 | ODS 已有 index_member_all / ci_index_member；待 SQL 和 QA |
