@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-`quant-ashare` 已完成**P0 DIM/DWD 物化**、**OQ-004 指数基准口径实现**、**策略 1 价格量价 DWS/ADS SQL 物化**和**策略 1 BigQuery ML runner 脚本合并**：ODS 当前 57 表（含 `index_member_all` / `ci_index_member` / `bak_basic`）探查清楚三类分区语义；产出 DWD/DIM 建模方案 `docs/数据仓库建模方案-DWD-DIM.md`、DWS/ADS 表设计 `docs/数据仓库建模方案-DWS-ADS.md`、策略方案 `docs/A股中低频小资金机器学习策略方案.md`、策略 1 PRD `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`、策略 1 runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`、OQ-003 财务报表口径 PRD `docs/prd/PRD_20260601_03_财务报表口径维度.md`、OQ-004 基准指数口径 PRD `docs/prd/PRD_20260601_04_OQ004基准指数口径.md`。OQ-004 已关闭且 PR #11 已合并到 `main`：`dim_index` 已物化为指数 canonical 映射与端点可用性维表，`dwd_index_eod` 已从 `dim_index` 读取映射并重建，`sql/qa/03_oq004_index_checks.sql` 通过，runner 08 增加 benchmark 可用性与窗口覆盖前置校验；PR #11 review feedback 已跟进，`dim_index` 建表脚本明确只 seed ODS 真实存在端点并把字段描述收敛到 metadata，QA/runner 已注明示例窗口和 SSE 日历假设；`codex/implement-oq004-index` 本地/远端分支已删除。策略 1 runner 代码已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`、`scripts/strategy1/requirements.txt`；PR #7 记录全部 runner SQL dry-run 通过，尚未端到端实跑并产出完整 `run_id/backtest_id`。全套规范已敲定：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属用 `in_date/out_date` 时点区间、血缘 `source_system/ingested_at`、版本字段 `feature_version/label_version/universe_version/model_id/strategy_id/run_id`、按月分区 + 聚簇、表+字段注释。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步；OQ-003 已采纳 P0 默认合并报表 `report_type='1'`、DWD 保留口径字段、DWS 默认过滤默认口径。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
+`quant-ashare` 已完成**P0 DIM/DWD 物化**、**OQ-004 指数基准口径实现**、**策略 1 价格量价 DWS/ADS SQL 物化**和**策略 1 BigQuery ML runner 脚本合并**：ODS 当前 57 表（含 `index_member_all` / `ci_index_member` / `bak_basic`）探查清楚三类分区语义；产出 DWD/DIM 建模方案 `docs/数据仓库建模方案-DWD-DIM.md`、DWS/ADS 表设计 `docs/数据仓库建模方案-DWS-ADS.md`、策略方案 `docs/A股中低频小资金机器学习策略方案.md`、策略 1 PRD `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`、策略 1 runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`、OQ-003 财务报表口径 PRD `docs/prd/PRD_20260601_03_财务报表口径维度.md`、OQ-004 基准指数口径 PRD `docs/prd/PRD_20260601_04_OQ004基准指数口径.md`。OQ-004 已关闭且 PR #11 已合并到 `main`：`dim_index` 已物化为指数 canonical 映射与端点可用性维表，`dwd_index_eod` 已从 `dim_index` 读取映射并重建，`sql/qa/03_oq004_index_checks.sql` 通过，runner 08 增加 benchmark 可用性与窗口覆盖前置校验；PR #11 review feedback 已跟进，`dim_index` 建表脚本明确只 seed ODS 真实存在端点并把字段描述收敛到 metadata，QA/runner 已注明示例窗口和 SSE 日历假设；`codex/implement-oq004-index` 本地/远端分支已删除。策略 1 runner 代码已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`、`scripts/strategy1/requirements.txt`；PR #7 dry-run 通过，并已于 **PR #12 在 BigQuery 端到端实跑通过全部 QA**（run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`，`10_qa_runner_outputs.sql` 16 断言全过；08 已按 DECISION-20260601-07 由 v0 set-based 重写为账户级有状态 ledger）。全套规范已敲定：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属用 `in_date/out_date` 时点区间、血缘 `source_system/ingested_at`、版本字段 `feature_version/label_version/universe_version/model_id/strategy_id/run_id`、按月分区 + 聚簇、表+字段注释。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步；OQ-003 已采纳 P0 默认合并报表 `report_type='1'`、DWD 保留口径字段、DWS 默认过滤默认口径。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
 
 **已物化表**：`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`、`dim_index`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`；`data-aquarium.ashare_dws` 下策略 1 六表（universe、价格特征、估值特征、标签、特征宽表、样本表）；`data-aquarium.ashare_ads` 下 11 张训练/预测/组合/回测/监控契约表。PR #9 合并后的 `dim_stock` 依赖链已在 2026-06-02 重建：`dim_stock`、`dwd_stock_eod_price`、策略 1 DWS 六表和 ADS 契约表均已刷新，`sql/metadata/01_p0_table_column_descriptions.sql` 已执行，`sql/qa/01_p0_smoke_checks.sql` 与 `sql/qa/02_strategy1_dws_ads_checks.sql` 均通过；`sql/qa/03_oq004_index_checks.sql` 近期通过。二轮评审发现已修复：盘中临停不再误标全天停牌，财务 latest 改为 `update_flag DESC` 优先。P0 DIM/DWD 字段说明缺失数为 0。
 
@@ -1093,3 +1093,40 @@ Run ID: —
 ### 已更新记忆文件
 
 - AGENT_HANDOFF、ARCHITECTURE_MEMORY、DECISION_LOG、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、MEMORY_INDEX、OPEN_QUESTIONS、PROJECT_CONTEXT、archive/CLOSED_QUESTIONS；TODO.md updated.
+
+---
+
+## Handoff Entry
+
+Date: 2026-06-02
+Agent ID: Claude
+Model: Claude Opus 4.8
+Runtime: Claude Code
+Related issue/PR: gthbj/quant-ashare#12
+
+### Work Completed
+- 在 BigQuery 上端到端实跑策略 1 runner `sql/ml/strategy1/01-10` 并通过全部 QA（run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`）。
+- 行数：训练面板 3,051,752；预测 1,052,687；候选 224,648；组合 520；订单 565；NAV 485 天。03 选 `l1_0_l2_1e_3`。`10_qa_runner_outputs.sql` 16 断言全过（cash≥-1、gross≤1.005、持仓唯一、NAV 全覆盖、report_uri 已回写等）。
+- 实跑修复（均在 PR #12）：
+  - 03/07/08/09 多处 BigQuery「相关子查询引用其它表」错误 → 去相关（cal 自连接取 t+1、cal/价格 JOIN+MIN 取可卖日、窗口累计现金、预聚合 + LEFT JOIN）。
+  - 07/08/09 读分区表 `ads_portfolio_target_daily` 仅靠 JOIN 等值 → 补 `rebalance_date BETWEEN` 强制分区裁剪。
+  - 10 NAV 连续性断言误用 `c.trade_date`（应 `c.cal_date`）。
+  - `render_report.py`：无 ADC 时回退用 `gcloud auth print-access-token` 构造 BQ 客户端；`PARSE_JSON(..., wide_number_mode => 'round')` 处理 metrics_json 宽浮点回写。GCS bucket `ashare-artifacts` 不存在，用 `--skip-gcs-upload`（本地镜像 + 回写 report_uri）。
+  - **08 重写为账户级 ledger**：v0 set-based 在真实数据上违反守卫（固定 `initial_capital×weight` 不回收资金 → 现金 -34 万、gross 2803 倍）；按 DECISION-20260601-07 改为 scripting WHILE 循环逐 period 维护现金/持仓、卖先于买、买受现金约束、netting、按 NAV 定档。守卫由构造保证并经实跑验证。
+
+### Important Context
+- v0 模型为反向预测基线（valid rank_ic≈-0.10、AUC≈0.50），回测 NAV 收于≈0.02——管线正确，模型质量是 OQ-010 待迭代项，不是管线缺陷。
+- 08 ledger 为 v1 简化：不可交易腿本期跳过、carry 到下一 period，不做 60 交易日 next-sellable 顺延；未复权口径。
+- BQML 实跑教训：runner 步骤禁止并发执行，被中断/拒绝的 bq 命令会在服务端继续跑；清理模型对象前先确认无 RUNNING job（见 KNOWN_CONSTRAINTS 工程约束）。
+- 工作流：代码修复一律走 PR（PR #12），不直接提交 `main`。
+
+### 阻塞项
+- 无（流程已跑通）。PR #12 待 owner review / 合并。
+
+### 下一步建议
+- review 并合并 PR #12。
+- 提升 v0 模型质量（特征/标签/选股口径，OQ-010）；或补 lookback-capable 价格输入（OQ-011）；或补通用财务/市场状态 DWS。
+- 若需真实 GCS 报告产物：创建 `ashare-artifacts` bucket 并配置 ADC（`gcloud auth application-default login`）后去掉 `--skip-gcs-upload` 重跑 render。
+
+### 已更新记忆文件
+- IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、AGENT_HANDOFF、DECISION_LOG；TODO.md。

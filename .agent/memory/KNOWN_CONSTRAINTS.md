@@ -51,4 +51,8 @@
 - `dim_stock` 若遇到 latest `stock_basic` 缺失但 2019+ daily 有记录的代码，只能作为 `derived_from_daily` 兜底；派生退市边界用 ODS 最新交易日减宽限期判断，不能用系统当前日期直接判退市。
 - PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支，保持分支列表干净。
 - 提交（commit/push）仅在用户明确要求时进行。
-- 策略 1 回测 `08_run_backtest.sql` 是 **v0 有守卫的简化版**（set-based episode 模型），非账户级 ledger 引擎。`10` 已加守卫断言 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一。**真实回测若任一守卫 QA 失败，该回测结果不可接受**，必须升级为账户级有状态 ledger 循环（DECISION-20260601-07）。
+- 策略 1 回测 `08_run_backtest.sql` 自 PR #12 起为 **v1 账户级有状态 ledger**（BigQuery scripting WHILE 循环逐 period 维护现金/持仓、卖出先于买入、买入受可用现金约束并按当前 NAV 定档、对实际持仓 netting）。原 v0 set-based episode 模型在真实数据上违反守卫（固定 `initial_capital×weight` 不回收资金 → 现金 -34 万、gross 2803 倍），按 DECISION-20260601-07 已升级。`10` 守卫断言 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一、NAV 覆盖全开市日由 ledger 构造保证，端到端实跑 16 断言全过。**v1 简化（已文档化于 08 头注）**：不可交易腿本期跳过、carry 到下一 period，不做 60 交易日 next-sellable 顺延；未复权口径、持有期除权简化。
+- **BQML runner 执行严禁并发，且清理模型对象前必须先确认无 RUNNING job**（2026-06-02 实跑事故教训）：
+  - `02_train_bqml_logistic_candidates.sql` 用 `FOR ... EXECUTE IMMEDIATE 'CREATE OR REPLACE MODEL ...'` 顺序训练 5 个候选，单次执行约 5 分钟。**同一 run_id 的两个 02 执行重叠**会让后启动的那个撞上正在训练的同名模型，报 `Concurrent model update with retrain is not supported`（约 5 秒即失败）；先启动的那个其实仍在后台正常跑完。教训：一个 runner 步骤跑起来后，未确认结束前不要重复提交，CLI 返回报错≠后台 job 已停。
+  - 事故经过：误判第一个 02「被拒绝/失败」而重跑，导致两执行重叠；随后又依据**过期的 `bq ls` 快照**把仍在运行的 job 正在训练的模型 `s1_bqml_20260601_01__l1_0_l2_0` `DROP` 掉，造成 job 完成后 `ads_model_registry` 有 5 条记录但只剩 4 个模型对象（registry 指向已删模型）。
+  - 规则：① 动手 `DROP MODEL` / 删表前，先 `bq ls --jobs ... | grep RUNNING` 确认没有在跑的相关 job；② 用 `bq --location=asia-east2 wait <job_id> <秒>` 等 job 真正结束再做下一步；③ 修复 registry/模型不一致用 runner 自带幂等：以 `p_force_replace=TRUE` 重跑 02（会先 DELETE 同 run_id registry 再重建全部模型），不要手工拼 DDL 单独补建。
