@@ -20,7 +20,7 @@
 - [x] 修复 P0 SQL 二轮评审发现（盘中临停不再误标全天停牌；`dwd_fin_indicator_latest` 改为 `update_flag DESC` 优先；重建相关 DWD 并跑通 QA）
 - [x] 补齐 P0 DIM/DWD 表说明和字段说明（`sql/metadata/01_p0_table_column_descriptions.sql` 已执行，8 张表 missing description=0）
 - [x] 复核并关闭 OQ-007：ODS `stock_basic_delisted.delist_date` 已统一为 `STRING` 且可解析；`dim_stock` SQL 改为优先使用 ODS 退市日，并补 P0 QA 断言
-- [ ] 合并 OQ-007 后重建 `dim_stock`，并按依赖重建 `dwd_stock_eod_price` 与策略 1 DWS/ADS 派生产物，执行 metadata / P0 QA / 策略 1 QA
+- [ ] PR #9 合并后重建 `dim_stock`，并按依赖重建 `dwd_stock_eod_price` 与策略 1 DWS/ADS 派生产物，执行 metadata / P0 QA / 策略 1 QA
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置
 - [ ] 写「从 ODS 继承字段描述」脚本（`bq show` → 映射 → `bq update`）
 - [x] 设计 DWS/ADS 表体系（`docs/数据仓库建模方案-DWS-ADS.md`，覆盖 P0 DWS 特征/标签与 ADS 训练/预测/组合/回测/监控）
@@ -62,7 +62,7 @@
 
 - [x] OQ-001 行业映射：`index_member_all` 已补采（同时补入 `ci_index_member`），后续转为建表 SQL + QA
 - [x] OQ-003 财务 `report_type` 口径：已采纳 `docs/prd/PRD_20260601_03_财务报表口径维度.md` 推荐方案（P0 默认合并报表、DWD 保留多口径字段、DWS 默认过滤）
-- [ ] OQ-004 基准指数代码可用性：PRD 已写，待 owner review `dim_index` 和 runner benchmark 校验方案
+- [ ] OQ-004 基准指数代码可用性：PRD 已合并，待实现 `dim_index`、OQ-004 QA 和 runner benchmark 窗口校验
 - [x] OQ-007 退市日类型：ODS `stock_basic_delisted.delist_date` 已修复为 `STRING`，`dim_stock` SQL 已改为优先使用 ODS 退市日
 - [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 bq SQL
 - [ ] OQ-010 P0 策略默认参数：成本、调仓频率、持股数/权重上限（训练工具链已定为 BigQuery ML + SQL runner；首个基线股票池已定为仅沪深主板，不含北交所/创业板/科创板）
