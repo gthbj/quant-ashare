@@ -30,6 +30,14 @@
 5. `KNOWN_CONSTRAINTS.md` — 仅当约束变化时更新。
 6. 根目录 `TODO.md` — 勾选已完成项、补充新发现项，保持反映真实进度。
 
+例外：纯只读盘点 / 问答 / 评审，且未改项目文件、未产生 owner 已采纳的状态变化或新决策时，不追加 handoff、不更新状态/TODO。评审仍按 AGENTS.md §六产出评审文档。
+
+## 归档与瘦身
+
+1. `AGENT_HANDOFF.md` 只保留当前交接摘要和最近 2-3 条交接；更早条目按月归档到 `archive/AGENT_HANDOFF_YYYY-MM.md`。
+2. `OPEN_QUESTIONS.md` 只保留 open 问题；closed 问题移入 `archive/CLOSED_QUESTIONS.md`。
+3. `DECISION_LOG.md` 只追加重要且持久的决策；普通执行记录写入 `IMPLEMENTATION_STATUS.md` / `AGENT_HANDOFF.md`。已被 superseded 的决策可压缩为摘要，但必须保留替代决策编号和相关文件。
+
 ## 更新风格
 
 用事实性、简洁的语言。
@@ -40,4 +48,4 @@
 
 ## 强制交接
 
-每个改动了项目文件的 Agent，都必须用 `.agent/memory/templates/HANDOFF_TEMPLATE.md` 在 `AGENT_HANDOFF.md` 追加一条交接条目。
+每个改动了项目文件并产生持久状态变化的 Agent，都必须用 `.agent/memory/templates/HANDOFF_TEMPLATE.md` 在 `AGENT_HANDOFF.md` 追加一条交接条目。

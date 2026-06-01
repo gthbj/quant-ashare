@@ -31,6 +31,8 @@
 - `KNOWN_CONSTRAINTS.md`：仅当约束变化时
 - 根目录 `TODO.md`：勾选已完成、补充新发现
 
+例外：纯只读盘点 / 问答 / 评审，且未改项目文件、未产生 owner 已采纳的状态变化或新决策时，不追加 handoff、不更新状态/TODO；评审仍按「六、评审协议」产出评审文档。
+
 ### 3. 安全红线（绝对）
 
 记忆文件、文档、代码、日志中**绝不可写入**：BigQuery service account key、Tushare token、任何 API key / OAuth token / 凭据文件 / 个人隐私 / 未脱敏原始日志。

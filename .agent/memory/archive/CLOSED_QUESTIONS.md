@@ -1,0 +1,12 @@
+# 已关闭问题归档（Closed Questions Archive）
+
+> 维护：GPT-5（最近更新 2026-06-01）
+
+本文件保存已关闭的 owner / 维护者问题。常规启动不需要读取；仅在追溯历史决策时参考。
+
+| ID | 问题 | 关闭状态 | Owner | 相关文件 |
+|---|---|---|---|---|
+| OQ-001 | 个股标准申万行业（L1/L2/L3）时点映射是否补采 Tushare `index_member_all`？ | closed: 已补采（ODS 已有 `index_member_all`；同时补入 `ci_index_member`，后续落 `dim_stock_sw_industry_hist` / `dim_stock_ci_industry_hist`） | owner | docs §5.4, DECISION-20260531-19 |
+| OQ-002 | 财务回填前移到 `20170101`（保证 2019 初 PIT 完整）。 | closed: 采纳（财务/事件前移到 2017；行情仅读 lookback buffer，维度取快照/全量事件） | owner | docs §4.6, DECISION-20260531-11 |
+| OQ-008 | 全历史早期可交易字段缺口：`stk_limit` 2007 前、`suspend_d` 1999 前不可用。 | closed: not applicable（行情最终写 2019+；2018 lookback buffer 内核心可交易辅助表可用，不构成 P0 阻塞） | owner | docs §4.6, review 修正说明 |
+| OQ-009 | ODS `index_dailybasic` 多列外部 schema 与 Parquet 物理类型不一致（如 `float_mv`、`float_share`），导致 2019+ 读取失败。 | closed: upstream fixed + DWD restored（已恢复 `dwd_index_eod` 估值/股本字段；STAR50/CSI1000 因 ODS 无 dailybasic 端点仍为空） | owner / 上游 ingestion | sql/dwd/04_dwd_index_eod.sql |

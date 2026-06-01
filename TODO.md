@@ -5,9 +5,9 @@
 
 ## P0 — 跑通最小可用闭环
 
-- [x] 编写 `dim_trade_calendar` 建表 SQL（`sql/dim/01_dim_trade_calendar.sql`，dry-run 通过；尚未物化）
-- [x] 编写 `dim_stock` 建表 SQL（`sql/dim/02_dim_stock.sql`，UNION listed+delisted + 日线兜底，dry-run 通过；尚未物化）
-- [x] 编写 `dim_stock_name_hist` 建表 SQL（`sql/dim/03_dim_stock_name_hist.sql`，SCD2，dry-run 通过；尚未物化）
+- [x] 编写并物化 `dim_trade_calendar`（`sql/dim/01_dim_trade_calendar.sql`，dry-run / 物化 / QA 通过）
+- [x] 编写并物化 `dim_stock`（`sql/dim/02_dim_stock.sql`，UNION listed+delisted + 日线兜底，dry-run / 物化 / QA 通过）
+- [x] 编写并物化 `dim_stock_name_hist`（`sql/dim/03_dim_stock_name_hist.sql`，SCD2，dry-run / 物化 / QA 通过）
 - [x] 修订主方案 §4.6：当前先做 2019+，2019 前仅作财务/事件前移、行情 lookback buffer、维度/日历历史支撑
 - [x] 在 P0 SQL 中显式参数化范围（`dwd_start_date=2019-01-01`、`fin_start_period=20170101`、`lookback_start_date=2018-01-01` 默认）
 - [x] 编写 `dwd_stock_eod_price` 建表 SQL（复权+可交易掩码，月分区+sec_code 聚簇+require_partition_filter，写 2019+，构建读 lookback buffer；临时维表替换 dry-run 通过）
@@ -42,6 +42,10 @@
 - [ ] 龙虎榜/大宗、质押/回购/审计、ccass、市场总览
 - [ ] 增量调度（dbt 或 Airflow）+ 数据质量断言
 - [ ] 治理类维度（managers/rewards）、北交所代码映射长历史拼接
+
+## 项目维护
+
+- [x] 整理 `.agent/memory/` 工作记忆：归档旧 handoff、迁移 closed questions、压缩 superseded 决策、修正陈旧状态描述、更新协议防止继续膨胀
 
 ## 待 owner 决策（见 OPEN_QUESTIONS）
 

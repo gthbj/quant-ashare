@@ -15,6 +15,7 @@
 | AGENT_HANDOFF.md | 跨会话交接摘要 | 每个任务开始时 | 每个任务结束时 |
 | UPDATE_PROTOCOL.md | 记忆更新规则 | 每个任务结束前 | 协议本身变化时 |
 | templates/ | 交接/决策/更新模板 | 需要追加条目时 | 模板格式调整时 |
+| archive/ | 已归档交接和已关闭问题 | 仅追溯历史时 | 归档旧 handoff / closed questions 时 |
 
 新增任何记忆文件，必须在本索引登记。
 

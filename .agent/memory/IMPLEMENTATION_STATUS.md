@@ -2,7 +2,7 @@
 
 这是实现状态的唯一事实来源。面向「已完成/进行中/受阻的整体状态」；「下一步要做什么」见根目录 `TODO.md`。
 
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 
 ## 当前状态
 
@@ -22,7 +22,7 @@ Last updated: 2026-05-31
 - 修正早先“全历史写入”误读：`docs/reviews/数据仓库建模方案-DWD-DIM-review-2019前数据范围修正.md` 已改为 2019 前数据范围修正说明；主方案 §4.6 已新增范围表。
 - 主方案文首和 TL;DR 已显式说明：当前建模范围是 2019-01-01 之后的 A 股日线 DWD/DWS；2019 年以前数据仅作为 PIT / lookback / 维度历史支撑。
 - P0 建表 SQL 已落地到 `sql/`：`00_create_datasets.sql`、3 张 DIM、5 张 DWD、1 个 QA 脚本。脚本采用 `CREATE OR REPLACE TABLE`、月分区、`sec_code` 聚簇、范围参数 `dwd_start_date/fin_start_period/lookback_start_date`。
-- SQL 校验完成：dataset/DIM 脚本 dry-run 通过；`dwd_stock_eod_valuation`、`dwd_index_eod` dry-run 通过；`dwd_stock_eod_price`、`dwd_fin_indicator` 因目标 DIM 尚未物化，使用临时空维表替换后 dry-run 通过。未实际写入 BigQuery。
+- SQL 校验完成（物化前历史阶段）：dataset/DIM 脚本 dry-run 通过；`dwd_stock_eod_valuation`、`dwd_index_eod` dry-run 通过；`dwd_stock_eod_price`、`dwd_fin_indicator` 曾因目标 DIM 未物化，使用临时空维表替换后 dry-run 通过。后续 P0 已实际物化并通过 QA。
 - 采纳并修复 P0 SQL 评审发现：README 命令加 `--location=asia-east2`；`suspend_d` 只以 `suspend_type='S'` 标记停牌，复牌 `R` 不再误判停牌；`dim_stock` 加 `sec_code` 去重与派生退市 30 日宽限；`dwd_fin_indicator` 加版本键去重兜底；新增 `dwd_fin_indicator_latest` 与 `sql/qa/01_p0_smoke_checks.sql`。修复后相关脚本 dry-run 通过。
 - P0 物化完成并通过 smoke QA：`dim_trade_calendar` 13,162 行；`dim_stock` 5,853 行；`dim_stock_name_hist` 3,776 行；`dwd_stock_eod_price` 8,495,462 行（2019-01-02 至 2026-05-29）；`dwd_stock_eod_valuation` 8,452,073 行；`dwd_index_eod` 11,922 行；`dwd_fin_indicator` 332,960 行；`dwd_fin_indicator_latest` 198,030 行。
 - 上游修复 `ods_tushare_index_dailybasic` Parquet 类型后，`dwd_index_eod` 已恢复估值/股本字段并重建：2019+ 共 11,922 行，其中 8,899 行有 `pe/pe_ttm/pb/total_mv_cny/float_mv_cny/total_share/float_share` 等 dailybasic 字段；STAR50(`000688.SH`) 和 CSI1000(`000852.SH`) 因 ODS 无 dailybasic endpoint 仍为空。
@@ -31,6 +31,7 @@ Last updated: 2026-05-31
 - DWS/ADS 表设计文档已完成：`docs/数据仓库建模方案-DWS-ADS.md`。定义 P0 DWS（universe、价格/估值/财务特征、市场状态、标签、样本）与 ADS（训练面板、模型预测、候选池、组合、订单计划、回测/监控）表体系。
 - 策略方案文档已完成：`docs/A股中低频小资金机器学习策略方案.md`。定义首个 `ml_ranker_v0` 机器学习横截面排序策略，以及小盘质量反转、趋势延续、财务事件、资金筹码、行业轮动等后续策略族。
 - ODS 已补采 `index_member_all` 和 `ci_index_member`；主方案、DWS/ADS 文档和策略文档已更新为可落地申万/中信行业时点映射，OQ-001 已关闭。
+- 工作记忆瘦身完成：旧交接归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md`；已关闭问题迁移到 `.agent/memory/archive/CLOSED_QUESTIONS.md`；`OPEN_QUESTIONS.md` 仅保留 open 项；`UPDATE_PROTOCOL.md` 增加只读任务免追加交接和归档规则。
 
 ## 进行中 / 部分（In Progress）
 
@@ -54,7 +55,7 @@ Last updated: 2026-05-31
 | ODS 理解 | 高 | 57 表字段+分区语义已探明 |
 | DWD/DIM 设计 | 高 | 主文档已完成；§4.6 已修订 2019 前数据范围 |
 | 命名/单位/分区/注释规范 | 高 | 已敲定并写入文档 |
-| P0 建表 SQL | 已完成 | `sql/` 已新增 3 张 DIM + 5 张 DWD + QA；首轮评审修复后 dry-run 校验通过 |
+| P0 建表 SQL | 已完成 | `sql/` 已新增 3 张 DIM + 5 张 DWD + QA；首轮评审修复后 dry-run 校验通过，并已实际物化 |
 | P0 表物化/QA | 已完成 | 3 张 DIM + 5 张 DWD 已物化，二轮评审修复后 smoke QA 通过；表/字段说明已补齐 |
 | DWS/ADS 设计 | 高 | 两篇设计文档已完成；尚未写 SQL |
 | ETL/调度 | 未开始 | — |
