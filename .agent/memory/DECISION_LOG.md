@@ -494,3 +494,35 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/策略1-ml_pv_clf_v0-runner设计.md`, `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`, `docs/数据仓库建模方案-DWS-ADS.md`, `docs/A股中低频小资金机器学习策略方案.md`, `sql/README.md`, `sql/ads/01_ads_strategy1_tables.sql`, `.gitignore`, `TODO.md`
+
+## DECISION-20260601-03: 策略 1 回测 v0 采用「有守卫的简化版」，QA 失败即触发升级到账户级 ledger
+
+日期: 2026-06-01
+状态: active
+负责人: owner
+Agent ID: Claude
+模型: Claude Opus 4.8
+
+### 背景
+
+策略 1 runner 回测脚本 `sql/ml/strategy1/08_run_backtest.sql` 经多轮评审（PR #7）。set-based 持仓 episode 模型在「延迟/封死卖出尚未平仓时、同股又重新进入选股池」这一低频场景下，会对同股重叠建仓（双倍暴露/预算占用）。根治需要按现金约束、对实际持仓 netting 的有状态 ledger 循环，但这偏离已批准 PRD（`PRD_20260601_02`）刻意选择的 set-based + next-sellable 设计。
+
+### 决策
+
+v0 选「有守卫的简化版」（方案 B）：保留 set-based episode 模型，并在 `10_qa_runner_outputs.sql` 加守卫断言 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一。**明确定性：这不是最终账户级回测引擎。** 硬规则：真实回测若跑出上述任一 QA 失败，说明该边界在数据中实际发生，则该回测结果不可接受，必须升级为方案 A（账户级有状态 ledger 循环：逐调仓日维护现金/持仓、卖出先于买入、买入受可用现金约束、对实际持仓 netting），更新 runner 设计与 PRD 后重跑。
+
+### 理由
+
+v0 是基线探针，正常路径已正确、现金不为负；该边界低频且已被 QA 兜住，会在发生时报错而非静默。先不引入有状态循环的复杂度与偏离已批准设计的成本，但保留明确的升级触发条件，避免把简化版误当账户级结论使用。
+
+### 影响
+
+`08_run_backtest.sql` 头部、`sql/ml/strategy1/README.md`、runner 设计 §14.1 均标注 v0 定性与升级触发。`10_qa_runner_outputs.sql` 增加三条守卫断言。后续若 QA 失败，升级方案 A 为必做项（非可选）。
+
+### 备选方案
+
+方案 A（直接上账户级 ledger 循环）：最正确但偏离已批准 set-based PRD、复杂度与 bug 面更大，且无法在不实跑下证明循环逻辑；owner 决定 v0 暂不采用，留作 QA 失败时的强制升级路径。
+
+### 相关文件
+
+`sql/ml/strategy1/08_run_backtest.sql`, `sql/ml/strategy1/10_qa_runner_outputs.sql`, `sql/ml/strategy1/README.md`, `docs/策略1-ml_pv_clf_v0-runner设计.md`

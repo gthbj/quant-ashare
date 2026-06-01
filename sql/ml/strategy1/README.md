@@ -59,3 +59,12 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 - **回测卖出顺延**：预计算 `next_sellable_trade_date`（>= desired date, 60 交易日窗口），超窗口标记 `SELL_BLOCKED_NO_NEXT_SELLABLE_60D`。
 - **报告渲染**：`render_report.py` 生成 Markdown + HTML + PNG，上传 GCS，写回 ADS `metrics_json.report_uri`。
 - **OQ-010 参数**使用示例值，非业务定稿。
+
+## ⚠️ 回测口径：v0 是「有守卫的简化版」
+
+`08_run_backtest.sql` 不是最终账户级回测引擎。它用 set-based episode 模型，正常路径正确、现金不为负。
+**已知低频边界**：延迟/封死卖出未平仓时同股再入选会重叠建仓。`10_qa_runner_outputs.sql` 的
+`cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一三条断言会在该边界
+真实发生时报错。**一旦这些 QA 在真实回测里失败，该回测结果不可接受**，必须升级为账户级有状态
+ledger 循环（逐调仓日维护现金/持仓、卖出先于买入、买入受可用现金约束、对实际持仓 netting）。
+详见 runner 设计 §14.1 与 `.agent/memory/DECISION_LOG.md` DECISION-20260601-03。

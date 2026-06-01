@@ -495,6 +495,20 @@ reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/
 4. 输出 valid/test 的模型指标和量化指标：AUC、log_loss、RankIC、分层收益、TopN 收益、NAV、换手、不可成交比例。
 5. 所有训练和回测数据留在 BigQuery 内。
 
+## 14.1 回测引擎口径与升级触发（v0 = 有守卫的简化版）
+
+**定性**：`08_run_backtest.sql` 是**有守卫的简化版回测**，不是最终账户级回测引擎。
+
+v0 采用持仓 episode 模型（set-based，无逐日状态循环，与本设计一致）：
+- 仓位名义按 `initial_capital × weight` 固定额（不按 NAV 复利放大）；每个仓位「含成本总支出」= slot budget，首个满仓调仓后现金落到 ≈0、不为负。
+- 卖出按建仓实际成交股数全平；卖出日用 next-sellable 顺延（≥ 退出执行日、60 交易日窗口），超窗口标记 `SELL_BLOCKED_NO_NEXT_SELLABLE_60D` 并 carry 至 `predict_end` 继续估值。
+
+**已知边界（owner 已知并接受为 v0）**：在「延迟/封死卖出尚未平仓时、同一只股又重新进入选股池」这一低频场景下，episode 模型会对同股再建一笔仓，与未平旧仓重叠，造成双倍暴露/预算占用。根治需要按现金约束、对实际持仓做 netting 的**有状态 ledger 循环**，而该循环偏离本设计刻意选择的 set-based 口径。
+
+**守卫**：`10_qa_runner_outputs.sql` 已加断言 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓按 `(trade_date, sec_code)` 唯一。
+
+**升级触发（硬规则）**：**真实回测若跑出上述任一 QA 失败，说明该边界在数据中实际发生，则该回测结果不可接受**，必须把 `08` 升级为账户级有状态 ledger 循环（逐调仓日维护现金/持仓、卖出先于买入、买入受可用现金约束、对实际持仓 netting），更新本设计与 PRD 后重跑。详见 `.agent/memory/DECISION_LOG.md` DECISION-20260601-03。
+
 ## 15. 官方参考
 
 - BigQuery ML `CREATE MODEL`：<https://cloud.google.com/bigquery/docs/reference/standard-sql/bigqueryml-syntax-create>

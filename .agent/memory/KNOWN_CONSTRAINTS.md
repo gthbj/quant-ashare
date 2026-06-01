@@ -50,3 +50,4 @@
 - `dim_stock` 若遇到 latest `stock_basic` 缺失但 2019+ daily 有记录的代码，只能作为 `derived_from_daily` 兜底；派生退市边界用 ODS 最新交易日减宽限期判断，不能用系统当前日期直接判退市。
 - PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支，保持分支列表干净。
 - 提交（commit/push）仅在用户明确要求时进行。
+- 策略 1 回测 `08_run_backtest.sql` 是 **v0 有守卫的简化版**（set-based episode 模型），非账户级 ledger 引擎。`10` 已加守卫断言 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一。**真实回测若任一守卫 QA 失败，该回测结果不可接受**，必须升级为账户级有状态 ledger 循环（DECISION-20260601-03）。
