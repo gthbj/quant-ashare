@@ -15,7 +15,7 @@ Tushare 等数据源
 | 类 | 语义 | 例 | 处理方式 |
 |---|---|---|---|
 | A 行情增量 | `partition_date == trade_date`，单日单分区、无重复，历史自 1990-12-19 | daily, adj_factor, daily_basic, bak_basic, moneyflow, stk_limit, suspend_d | 按 partition_date 增量裁剪 |
-| B 财务/公告 | `partition_date == 报告期(end_date)`，**非公告日**；同期多 report_type/修正 | income, balancesheet, cashflow, fina_indicator | 用 ann_date_eff 做 PIT；按 (sec_code,报告期) 去重 |
+| B 财务/公告 | `partition_date == 报告期(end_date)`，**非公告日**；同期多 report_type/修正 | income, balancesheet, cashflow, fina_indicator | 用 ann_date_eff 做 PIT；P0 默认合并报表 report_type='1'，DWD 保留口径字段 |
 | C 维度快照 | 每个 partition_date 一份全量，取最新分区 | stock_basic, trade_cal, index_classify | 取 MAX(partition_date)；stock_basic 需 UNION listed+delisted |
 | C* 历史区间快照 | 最新 partition_date 保存全量历史区间 | index_member_all, ci_index_member | 取最新分区，用 in_date/out_date 建 SCD2 时点维表 |
 
