@@ -33,6 +33,7 @@
 | `ashare_dws.dws_stock_universe_daily` | 预测日 / 调仓日的可交易池与过滤字段。 |
 | `ashare_dwd.dwd_stock_eod_price` | 回测撮合、开盘成交、持仓估值。 |
 | `ashare_dim.dim_trade_calendar` | 交易日序列、周频调仓日、t+1/t+5 定位。 |
+| `ashare_dim.dim_index` | 基准指数 canonical 映射、端点可用性和 benchmark 候选校验。 |
 | `ashare_dwd.dwd_index_eod` | 基准指数收益，使用 canonical `sec_code`。 |
 
 ### 2.2 输出
@@ -128,7 +129,7 @@ Runner 以 BigQuery script variables 传参，首版参数如下：
 | `target_holdings` | 待 owner 确认 | 目标持股数。 |
 | `max_single_weight` | 待 owner 确认 | 单票权重上限。 |
 | `cost_bps` | 待 owner 确认 | 回测成本假设。 |
-| `benchmark_sec_code` | 待 owner 确认 | 基准指数 canonical `sec_code`。 |
+| `benchmark_sec_code` | `000852.SH` 示例 | 基准指数 canonical `sec_code`；执行前必须通过 `dim_index` 可用性和完整 NAV 窗口覆盖校验。 |
 
 `OQ-010` 仍需 owner 确认成本、调仓频率、持股数、权重上限等参数；训练工具链已收敛为 BigQuery ML，首个基线板块纳入口径已定为仅沪深主板。
 

@@ -26,6 +26,7 @@ Tushare 等数据源
 | dim | dim_trade_calendar | trade_cal | (exchange, cal_date) |
 | dim | dim_stock | stock_basic(listed+delisted) | sec_code |
 | dim | dim_stock_name_hist | namechange | (sec_code, start_date) SCD2 |
+| dim | dim_index | index_daily + index_dailybasic endpoint stats | (sec_code, source_sec_code) |
 | dim | dim_stock_sw_industry_hist | index_member_all | (sec_code, valid_from, sw_l3_code) SCD2 |
 | dim | dim_stock_ci_industry_hist | ci_index_member | (sec_code, valid_from, ci_l3_code) SCD2 |
 | dwd | dwd_stock_eod_price | daily+adj_factor+stk_limit+suspend_d | (sec_code, trade_date) |
@@ -88,11 +89,11 @@ DWS/ADS 统一版本字段：`universe_version`、`feature_version`、`label_ver
 ## SQL 代码布局
 
 - 根目录 `sql/` 存放 P0 BigQuery Standard SQL：`00_create_datasets.sql`、`dim/*.sql`、`dwd/*.sql`、`dws/*.sql`、`ads/*.sql`。
-- 现有脚本覆盖 3 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表，使用 `CREATE OR REPLACE TABLE` + CTAS/DDL + 字段描述；`sql/qa/01_p0_smoke_checks.sql` 存放 DIM/DWD 基础断言，`sql/qa/02_strategy1_dws_ads_checks.sql` 存放策略 1 DWS/ADS 断言。
+- 现有脚本覆盖 4 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表，使用 `CREATE OR REPLACE TABLE` + CTAS/DDL + 字段描述；`sql/qa/01_p0_smoke_checks.sql` 存放 DIM/DWD 基础断言，`sql/qa/02_strategy1_dws_ads_checks.sql` 存放策略 1 DWS/ADS 断言，`sql/qa/03_oq004_index_checks.sql` 存放 OQ-004 指数映射与 benchmark 覆盖断言。
 - `sql/metadata/01_p0_table_column_descriptions.sql` 统一维护 P0 DIM/DWD 表级和字段级中文说明；每次重建 P0 表后都应重新执行该 metadata 脚本。
 - 当前脚本是 bootstrap SQL，不关闭 OQ-005；后续仍可迁移为 dbt 或纳入 Airflow 调度。
 - 2026-05-31 P0 已物化到 BigQuery；`dwd_index_eod` 已恢复读取 `index_dailybasic`。该接口市值/股本单位为元/股，不做 `*10000` 换算。
-- `dwd_index_eod` 的 `sec_code` 使用 canonical 指数代码，`source_sec_code` 保留 ODS/Tushare 实际代码；双代码指数映射先由建表脚本 CTE 维护，未来可沉淀为 `dim_index`。该表已按 canonical 口径重建并通过 metadata / QA。
+- `dim_index` 统一维护指数 canonical 代码、ODS 实际 `source_sec_code`、端点可用性、起止日期和 benchmark 候选标记。`dwd_index_eod` 从 `dim_index` 读取可用端点与映射；双代码指数如沪深300由 `399300.SZ -> 000300.SH` 输出。策略 runner 使用 benchmark 前必须校验 `dim_index` 和完整 NAV 窗口覆盖。
 - `dwd_stock_eod_price` 中 `is_suspended` 仅表示全天停牌/无成交；有成交的 `S` 事件另用 `has_intraday_halt`，开盘时段/未知时段临停用 `has_open_halt` 并影响开盘侧可交易掩码。
 - `dim_stock.delist_date` 优先使用 ODS `stock_basic_delisted.delist_date`（当前为可解析 `STRING`）；只有 ODS 退市日缺失时才用 `daily` 最后交易日加一天兜底。
 - `dwd_fin_indicator_latest` 是非 PIT 便捷表，按 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC` 取每个 `(sec_code, report_period)` 的最新修正版。

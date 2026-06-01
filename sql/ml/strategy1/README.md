@@ -9,6 +9,7 @@
 - `ashare_dws` 6 张 DWS 表已物化（`sql/dws/01-06`）
 - `ashare_ads` 11 张 ADS 契约表已创建（`sql/ads/01`）
 - `sql/qa/02_strategy1_dws_ads_checks.sql` 通过
+- `ashare_dim.dim_index` 与 `ashare_dwd.dwd_index_eod` 已按 OQ-004 口径重建，`sql/qa/03_oq004_index_checks.sql` 通过
 - `pip install google-cloud-bigquery google-cloud-storage matplotlib pandas db-dtypes`
 
 ## 执行顺序
@@ -49,7 +50,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 | `p_target_holdings` | 持股数（OQ-010 待确认，示例值 5） |
 | `p_max_single_weight` | 单票权重上限（OQ-010 待确认，示例值 0.20） |
 | `p_cost_bps` | 成本假设（OQ-010 待确认，示例值 30 bps） |
-| `p_benchmark` | 基准指数 canonical 代码（OQ-010 待确认，示例值 000852.SH） |
+| `p_benchmark` | 基准指数 canonical 代码（示例值 000852.SH）；执行前必须存在于 `dim_index` 且完整覆盖回测 NAV 窗口 |
 | `p_force_replace` | 是否覆盖同 run_id 结果（默认 FALSE） |
 
 ## 关键设计
@@ -57,6 +58,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 - **run 隔离**：模型对象名嵌入 `p_run_id`，registry 用 `JSON_VALUE(model_params_json, '$.run_id')` 过滤。
 - **04 动态模型引用**：用 `EXECUTE IMMEDIATE FORMAT(...)` 自动引用 03 选出的 selected model URI，无需手动替换。
 - **回测卖出顺延**：预计算 `next_sellable_trade_date`（>= desired date, 60 交易日窗口），超窗口标记 `SELL_BLOCKED_NO_NEXT_SELLABLE_60D`。
+- **基准窗口校验**：08 执行前校验 `p_benchmark` 是 `dim_index` 中的可用收益基准，并且 `dwd_index_eod` 对 NAV 窗口每个开市日有且只有一条有效价格记录。
 - **报告渲染**：`render_report.py` 生成 Markdown + HTML + PNG，上传 GCS，写回 ADS `metrics_json.report_uri`。
 - **OQ-010 参数**使用示例值，非业务定稿。
 

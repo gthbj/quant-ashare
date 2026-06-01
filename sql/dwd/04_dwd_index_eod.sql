@@ -1,6 +1,7 @@
--- 文档维护：GPT-5（最近更新 2026-05-31）
+-- 文档维护：GPT-5（最近更新 2026-06-01）
 -- BigQuery Standard SQL
 -- 指数日线 DWD：sec_code 输出规范指数代码；source_sec_code 保留 ODS 实际指数代码。
+-- source_sec_code -> sec_code 映射由 ashare_dim.dim_index 统一维护。
 -- index_dailybasic 的 total_mv/float_mv 单位为元，股本字段单位为股；不同于股票 daily_basic 的万元/万股口径。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
@@ -14,73 +15,69 @@ OPTIONS (
   require_partition_filter = TRUE
 ) AS
 WITH index_map AS (
-  SELECT '000016.SH' AS source_sec_code, '000016.SH' AS sec_code, 'SSE50' AS index_alias UNION ALL
-  SELECT '000688.SH', '000688.SH', 'STAR50' UNION ALL
-  SELECT '000852.SH', '000852.SH', 'CSI1000' UNION ALL
-  SELECT '000905.SH', '000905.SH', 'CSI500' UNION ALL
-  SELECT '399001.SZ', '399001.SZ', 'SZ_COMPONENT' UNION ALL
-  SELECT '399006.SZ', '399006.SZ', 'CHINEXT' UNION ALL
-  SELECT '399300.SZ', '000300.SH', 'CSI300'
+  SELECT
+    source_sec_code,
+    sec_code,
+    index_alias,
+    daily_endpoint,
+    dailybasic_endpoint,
+    has_daily,
+    has_dailybasic
+  FROM `data-aquarium.ashare_dim.dim_index`
+  WHERE has_daily
 ),
 daily AS (
   SELECT
-    ts_code AS source_sec_code,
+    m.sec_code,
+    m.index_alias,
+    d.ts_code AS source_sec_code,
     SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date,
-    SAFE_CAST(open AS FLOAT64) AS open,
-    SAFE_CAST(high AS FLOAT64) AS high,
-    SAFE_CAST(low AS FLOAT64) AS low,
-    SAFE_CAST(close AS FLOAT64) AS close,
-    SAFE_CAST(pre_close AS FLOAT64) AS pre_close,
-    SAFE_CAST(change AS FLOAT64) AS change,
-    SAFE_CAST(pct_chg AS FLOAT64) AS pct_chg,
-    SAFE_CAST(vol AS FLOAT64) AS volume,
-    SAFE_CAST(amount AS FLOAT64) AS amount,
-    COALESCE(_source, 'tushare') AS source_system,
-    partition_date AS source_partition_date,
-    SAFE_CAST(_ingested_at AS TIMESTAMP) AS ingested_at
-  FROM `data-aquarium.ashare_ods.ods_tushare_index_daily`
-  WHERE endpoint IN (
-      'index_daily_000016_SH',
-      'index_daily_000688_SH',
-      'index_daily_000852_SH',
-      'index_daily_000905_SH',
-      'index_daily_399001_SZ',
-      'index_daily_399006_SZ',
-      'index_daily_399300_SZ'
-    )
-    AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', dwd_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
-    AND SAFE.PARSE_DATE('%Y%m%d', trade_date) BETWEEN dwd_start_date AND dwd_end_date
+    SAFE_CAST(d.open AS FLOAT64) AS open,
+    SAFE_CAST(d.high AS FLOAT64) AS high,
+    SAFE_CAST(d.low AS FLOAT64) AS low,
+    SAFE_CAST(d.close AS FLOAT64) AS close,
+    SAFE_CAST(d.pre_close AS FLOAT64) AS pre_close,
+    SAFE_CAST(d.change AS FLOAT64) AS change,
+    SAFE_CAST(d.pct_chg AS FLOAT64) AS pct_chg,
+    SAFE_CAST(d.vol AS FLOAT64) AS volume,
+    SAFE_CAST(d.amount AS FLOAT64) AS amount,
+    COALESCE(d._source, 'tushare') AS source_system,
+    d.partition_date AS source_partition_date,
+    SAFE_CAST(d._ingested_at AS TIMESTAMP) AS ingested_at
+  FROM `data-aquarium.ashare_ods.ods_tushare_index_daily` AS d
+  JOIN index_map AS m
+    ON d.endpoint = m.daily_endpoint
+   AND d.ts_code = m.source_sec_code
+  WHERE d.partition_date BETWEEN FORMAT_DATE('%Y%m%d', dwd_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+    AND SAFE.PARSE_DATE('%Y%m%d', d.trade_date) BETWEEN dwd_start_date AND dwd_end_date
 ),
 daily_basic AS (
   SELECT
-    ts_code AS source_sec_code,
-    SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date,
-    SAFE_CAST(total_mv AS FLOAT64) AS total_mv_cny,
-    SAFE_CAST(float_mv AS FLOAT64) AS float_mv_cny,
-    SAFE_CAST(total_share AS FLOAT64) AS total_share,
-    SAFE_CAST(float_share AS FLOAT64) AS float_share,
-    SAFE_CAST(free_share AS FLOAT64) AS free_share,
-    SAFE_CAST(turnover_rate AS FLOAT64) AS turnover_rate,
-    SAFE_CAST(turnover_rate_f AS FLOAT64) AS turnover_rate_free_float,
-    SAFE_CAST(pe AS FLOAT64) AS pe,
-    SAFE_CAST(pe_ttm AS FLOAT64) AS pe_ttm,
-    SAFE_CAST(pb AS FLOAT64) AS pb
-  FROM `data-aquarium.ashare_ods.ods_tushare_index_dailybasic`
-  WHERE endpoint IN (
-      'index_dailybasic_000016_SH',
-      'index_dailybasic_000905_SH',
-      'index_dailybasic_399001_SZ',
-      'index_dailybasic_399006_SZ',
-      'index_dailybasic_399300_SZ'
-    )
-    AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', dwd_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
-    AND SAFE.PARSE_DATE('%Y%m%d', trade_date) BETWEEN dwd_start_date AND dwd_end_date
+    b.ts_code AS source_sec_code,
+    SAFE.PARSE_DATE('%Y%m%d', b.trade_date) AS trade_date,
+    SAFE_CAST(b.total_mv AS FLOAT64) AS total_mv_cny,
+    SAFE_CAST(b.float_mv AS FLOAT64) AS float_mv_cny,
+    SAFE_CAST(b.total_share AS FLOAT64) AS total_share,
+    SAFE_CAST(b.float_share AS FLOAT64) AS float_share,
+    SAFE_CAST(b.free_share AS FLOAT64) AS free_share,
+    SAFE_CAST(b.turnover_rate AS FLOAT64) AS turnover_rate,
+    SAFE_CAST(b.turnover_rate_f AS FLOAT64) AS turnover_rate_free_float,
+    SAFE_CAST(b.pe AS FLOAT64) AS pe,
+    SAFE_CAST(b.pe_ttm AS FLOAT64) AS pe_ttm,
+    SAFE_CAST(b.pb AS FLOAT64) AS pb
+  FROM `data-aquarium.ashare_ods.ods_tushare_index_dailybasic` AS b
+  JOIN index_map AS m
+    ON b.endpoint = m.dailybasic_endpoint
+   AND b.ts_code = m.source_sec_code
+  WHERE m.has_dailybasic
+    AND b.partition_date BETWEEN FORMAT_DATE('%Y%m%d', dwd_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+    AND SAFE.PARSE_DATE('%Y%m%d', b.trade_date) BETWEEN dwd_start_date AND dwd_end_date
 )
 SELECT
   d.trade_date,
-  COALESCE(m.sec_code, d.source_sec_code) AS sec_code,
+  d.sec_code,
   d.source_sec_code,
-  m.index_alias,
+  d.index_alias,
   d.open,
   d.high,
   d.low,
@@ -106,9 +103,7 @@ SELECT
 FROM daily AS d
 LEFT JOIN daily_basic AS b
   ON d.source_sec_code = b.source_sec_code
- AND d.trade_date = b.trade_date
-LEFT JOIN index_map AS m
-  ON d.source_sec_code = m.source_sec_code;
+ AND d.trade_date = b.trade_date;
 
 ALTER TABLE `data-aquarium.ashare_dwd.dwd_index_eod`
 ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'),

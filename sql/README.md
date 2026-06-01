@@ -13,6 +13,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/00_create_datasets.s
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/01_dim_trade_calendar.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/02_dim_stock.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/03_dim_stock_name_hist.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/04_dim_index.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/01_dwd_stock_eod_price.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/02_dwd_stock_eod_valuation.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/03_dwd_fin_indicator.sql
@@ -55,6 +56,7 @@ python scripts/strategy1/render_report.py --project data-aquarium --backtest-id 
 - `data-aquarium.ashare_dim.dim_trade_calendar`
 - `data-aquarium.ashare_dim.dim_stock`
 - `data-aquarium.ashare_dim.dim_stock_name_hist`
+- `data-aquarium.ashare_dim.dim_index`
 - `data-aquarium.ashare_dwd.dwd_stock_eod_price`
 - `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
 - `data-aquarium.ashare_dwd.dwd_fin_indicator`
@@ -85,6 +87,7 @@ python scripts/strategy1/render_report.py --project data-aquarium --backtest-id 
 ```bash
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/01_p0_smoke_checks.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_ads_checks.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/03_oq004_index_checks.sql
 ```
 
 ## Metadata
@@ -98,7 +101,8 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_
 - `dwd_stock_eod_price` 使用交易日历乘股票生命周期生成骨架，再左连接行情，因此停牌日会保留一行。
 - `suspend_d` 同时包含停牌 `S` 与复牌 `R` 事件；价格 DWD 只把 `S` 纳入停牌事件，避免复牌日被误判不可交易。
 - `index_dailybasic` 的市值/股本单位已经是元/股，`dwd_index_eod` 不做 `*10000` 换算。
-- `dwd_index_eod.sec_code` 输出 canonical 指数代码，`source_sec_code` 保留 ODS/Tushare 实际代码；例如沪深300 来源 `399300.SZ` 输出为 `sec_code='000300.SH'`。
+- `dim_index` 统一维护指数 canonical 代码、ODS 实际 `source_sec_code`、端点可用性和 benchmark 候选标记；`dwd_index_eod` 从该维表读取映射。
+- `dwd_index_eod.sec_code` 输出 canonical 指数代码，`source_sec_code` 保留 ODS/Tushare 实际代码；例如沪深300 来源 `399300.SZ` 输出为 `sec_code='000300.SH'`。策略 runner 使用 benchmark 前会校验 `dim_index` 和完整回测窗口覆盖。
 - 价格/估值/指数 DWD 使用月分区并开启 `require_partition_filter`；财务指标按公告月分区，但不强制分区过滤，方便 PIT as-of join。
 - 策略 1 标签口径为 `close_hfq[t+H] / open_hfq[t+1] - 1`，H 为 1/5/10/20；`rank_pct_Hd` / `fwd_xs_ret_Hd` 按默认 universe 截面计算；`label_valid_Hd` 检查 t+1 入场可交易和标签价格可用，退出日可卖性单独由 `exit_reachable_Hd` 标记并交给回测撮合处理；`label_entry_tradable` 不能在 t 日选股时预先过滤。
 - 策略 1 ADS SQL 只创建表契约；训练、预测、候选池、组合与回测结果由后续 BigQuery ML + SQL runner 写入。

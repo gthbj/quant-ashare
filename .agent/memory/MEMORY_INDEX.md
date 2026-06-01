@@ -22,4 +22,4 @@
 ## 当前项目一句话状态
 
 `quant-ashare` 是基于 BigQuery `data-aquarium` 的 **A 股日线量化数据仓库**（ODS→DIM/DWD→DWS→ADS）。
-当前阶段：**P0 DIM/DWD 已物化并通过 smoke QA；`dwd_index_eod` 已重建为 canonical `sec_code` + `source_sec_code`；策略 1 价格量价 DWS 六表与 ADS 表契约已物化并通过 `sql/qa/02_strategy1_dws_ads_checks.sql`；策略 1 BigQuery ML runner 设计、实现 PRD 和 `sql/ml/strategy1/01-10` 脚本已合并入 `main`，脚本 dry-run 已通过但尚未端到端实跑；OQ-004 基准指数代码可用性 PRD 已完成，仍需 SQL 实现**。正确口径：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件；下一步是按 `docs/prd/PRD_20260601_04_OQ004基准指数口径.md` 补 `dim_index` / OQ-004 QA / runner benchmark 窗口校验，在 BigQuery 上执行策略 1 runner 01-10 并跑通 QA，或补通用财务/市场状态 DWS。
+当前阶段：**P0 DIM/DWD 已物化并通过 smoke QA；OQ-004 已实现并关闭，`dim_index` 已物化，`dwd_index_eod` 已从 `dim_index` 读取 canonical `sec_code` + `source_sec_code` 映射，`sql/qa/03_oq004_index_checks.sql` 通过；策略 1 价格量价 DWS 六表与 ADS 表契约已物化并通过 `sql/qa/02_strategy1_dws_ads_checks.sql`；策略 1 BigQuery ML runner 设计、实现 PRD 和 `sql/ml/strategy1/01-10` 脚本已合并入 `main`，脚本 dry-run 已通过但尚未端到端实跑**。正确口径：财务/事件按分区前移到 2017，行情最终写 2019+ 但构建时读 2018 lookback buffer，维度/日历取最新快照或全量历史事件；下一步是在 BigQuery 上执行策略 1 runner 01-10 并跑通 QA，或补通用财务/市场状态 DWS。
