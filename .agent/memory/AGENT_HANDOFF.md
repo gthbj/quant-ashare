@@ -20,6 +20,8 @@
 
 **待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略成本/调仓/持股数/北交所/训练工具链默认参数（OQ-010）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001 已关闭：行业映射 ODS 已补采。
 
+**分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 已在本地和远端删除。
+
 > 历史交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md`。常规启动只需阅读本文件的当前摘要和最近交接；归档仅用于审计追溯。
 
 ---
@@ -295,3 +297,40 @@ Run ID: —
 
 ### 已更新记忆文件
 - AGENT_HANDOFF、IMPLEMENTATION_STATUS；TODO.md updated.
+
+## 交接条目
+
+日期: 2026-06-01
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #4
+
+### 已完成工作
+- 删除已合并的本地分支 `codex/implement-strategy1-prd`。
+- 删除远端分支 `origin/codex/implement-strategy1-prd`。
+- 在 `KNOWN_CONSTRAINTS.md` 增加分支卫生规则：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。
+
+### 重要上下文
+- 当前本地分支为 `main`，已同步 `origin/main`。
+- 本次仅更新工作记忆文件，未提交。
+
+### 改动文件
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+
+### 测试 / 验证
+- `git branch --list codex/implement-strategy1-prd` 无输出。
+- `git branch -r --list origin/codex/implement-strategy1-prd` 无输出。
+
+### 阻塞项
+- 无。
+
+### 下一步建议
+- 若需要把本次 memory 规则持久化到远端，提交并推送当前 `main` 上的记忆文件改动。
+
+### 已更新记忆文件
+- KNOWN_CONSTRAINTS、AGENT_HANDOFF、IMPLEMENTATION_STATUS.

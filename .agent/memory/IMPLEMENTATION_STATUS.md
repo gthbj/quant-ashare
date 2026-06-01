@@ -36,6 +36,7 @@ Last updated: 2026-06-01
 - 策略 1/P0 ADS 表契约已落地并物化：`sql/ads/01_ads_strategy1_tables.sql` 创建训练面板、模型注册、预测、候选池、组合目标、订单计划、回测成交/持仓/NAV/绩效汇总、信号监控 11 张表。
 - 策略 1 DWS/ADS QA 已落地并通过：`sql/qa/02_strategy1_dws_ads_checks.sql` 校验 DWS/ADS 表存在、DWS 主键唯一、universe 含退市股存活区间、不暴露 qfq 字段、2019 初 60 日历史不完整显式标记、默认可训练样本具备 universe-ranked `rank_pct_5d`、`fwd_ret_5d = close_hfq[t+5] / open_hfq[t+1] - 1`。
 - PR #4 comment 跟进修复完成：`dws_stock_label_daily` 去掉 `ce/c1` 冗余日历 JOIN；补充 `label_valid_*d` 与 `exit_reachable_*d` 字段说明，明确 `label_valid` 检查入场可交易与标签价格可用，退出可卖性交给 `exit_reachable` 和回测撮合；`sql/qa/02_strategy1_dws_ads_checks.sql` 增加默认可训练样本最早日期断言（当前 `2019-04-03`，2019Q1 无默认可训练样本）；DWD-DIM/DWS-ADS 文档同步相关口径与 `volume_share`/`amount_cny` 实表字段名。已重建 label/sample 并重跑策略 1 QA 通过。
+- PR #4 已合并到 `main`；已删除合并后不再使用的 `codex/implement-strategy1-prd` 本地分支和远端分支，并在 `KNOWN_CONSTRAINTS.md` 增加 PR 合并后清理无用 `codex/*` 分支的工程规则。
 - ODS 已补采 `index_member_all` 和 `ci_index_member`；主方案、DWS/ADS 文档和策略文档已更新为可落地申万/中信行业时点映射，OQ-001 已关闭。
 - 工作记忆瘦身完成：旧交接归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md`；已关闭问题迁移到 `.agent/memory/archive/CLOSED_QUESTIONS.md`；`OPEN_QUESTIONS.md` 仅保留 open 项；`UPDATE_PROTOCOL.md` 增加只读任务免追加交接和归档规则。
 
