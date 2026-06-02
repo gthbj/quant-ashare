@@ -1441,3 +1441,52 @@ Run ID: —
 - `AGENT_HANDOFF.md`
 - `archive/CLOSED_QUESTIONS.md`
 - `TODO.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-02
+Agent ID: Claude
+Agent 实例 ID: Claude Code desktop session
+模型: Claude Opus 4.8
+运行环境: Claude Code
+Run ID: —
+相关 issue/PR: gthbj/quant-ashare#13（OQ-003 财务三表 + OQ-006 单位契约集成）
+
+### 已完成工作
+
+- 将 PR #13 财务分支 `feat/implement-prd03-finance-caliber` rebase 到含 OQ-006 的最新 `origin/main`（9d52e3f）：丢弃 owner 早先手工 merge 32c7f4f 的中间 merge commit，replay 单个财务 commit。解决 `sql/README.md`、`TODO.md`、`MEMORY_INDEX.md`、`IMPLEMENTATION_STATUS.md`、`AGENT_HANDOFF.md`、`DECISION_LOG.md` 冲突（取 main 新内容 + 重并财务事实；`DECISION_LOG`/`AGENT_HANDOFF` 用 `checkout --ours` + 重并避免 append 交错）。
+- 决策撞号修复：财务实现决策与 main 已有 `DECISION-20260602-01`（ledger）/`-02`（OQ-006）撞号，renumber 为 **DECISION-20260602-03**，并更新 `IMPLEMENTATION_STATUS`/`KNOWN_CONSTRAINTS` 引用。
+- 按 OQ-006 单位契约补全 `sql/meta/01_ods_field_unit_map.sql`：main 已预 seed 财务三表 QA-UNIT-2 必需子集 + 全部 `dwd_fin_indicator` 字段；本 PR 追加 31 条，覆盖财务三表 DWD **全部**单位字段（income 20、balancesheet 19、cashflow 13）。金额字段 `source_unit=canonical_unit=元`、`multiplier=1`、`source_name_passthrough`；`basic_eps/diluted_eps` 为 `per_share` 元/股。
+- 在 BigQuery 重新物化 `ashare_meta.ods_field_unit_map` 并跑通全部 QA。
+
+### 重要上下文
+
+- `dwd_index_eod` 已在 main OQ-006 阶段迁移为 `volume_share/amount_cny`（实表已含这些列），qa/05 的 QA-UNIT-6 算术自洽断言可直接运行。
+- 财务金额字段命名沿用 Tushare 源名（不带 `_cny` 后缀），靠 `source_name_passthrough` 例外通过 QA-UNIT-4a（要求 source_unit=canonical_unit 且 multiplier=1，无 expires_at）。
+- 财务 DWD/DWS 实表此前已物化（上一会话），本次未重建，仅补单位映射 + 重跑 QA。
+
+### 改动文件
+
+- `sql/meta/01_ods_field_unit_map.sql`（追加财务三表全字段映射）
+- 冲突解决涉及：`sql/README.md`、`TODO.md`、`.agent/memory/{MEMORY_INDEX,IMPLEMENTATION_STATUS,AGENT_HANDOFF,DECISION_LOG,KNOWN_CONSTRAINTS}.md`
+
+### 测试 / 验证
+
+- `bq query --dry_run`：`sql/meta/01_ods_field_unit_map.sql` 通过（列数自洽）。
+- 物化 `ods_field_unit_map`；财务覆盖：income 20 / balancesheet 19 / cashflow 13 / indicator 32。
+- QA 全过：`sql/qa/04`(25) + `sql/qa/05`(15，含 QA-UNIT-2 财务字段命中、QA-UNIT-4/7/8/9 命名例外约束、QA-UNIT-6 算术自洽) + 既有 `01`(12)/`02`(13)/`03`(11)，合计 76 断言，0 失败。
+
+### 阻塞项
+
+- 无。PR #13 已 rebase + 单位契约集成，待 owner review / 合并。
+
+### 下一步建议
+
+- review/合并 PR #13。
+- 后续可补 `dws_market_state_daily`、三大报表单季 `q_*` 派生（P1），或推进 OQ-010 模型质量。
+
+### 已更新记忆文件
+
+- AGENT_HANDOFF、DECISION_LOG、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、MEMORY_INDEX；TODO.md updated.
