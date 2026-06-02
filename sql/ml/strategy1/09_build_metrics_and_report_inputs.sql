@@ -42,99 +42,19 @@ IF p_force_replace THEN
       AND sm.trade_date BETWEEN p_predict_start AND p_predict_end;
 END IF;
 
--- ── 卖出顺延统计：重建 episode 退出，精确比对「期望卖出日 vs 实际可卖日」──
-CREATE TEMP TABLE cal AS
-SELECT cal_date AS trade_date, trade_date_seq
-FROM `data-aquarium.ashare_dim.dim_trade_calendar`
-WHERE exchange = 'SSE' AND is_open = 1 AND cal_date BETWEEN p_predict_start AND p_calendar_end;
-
-CREATE TEMP TABLE periods AS
-WITH rdates AS (
-  SELECT DISTINCT pt.rebalance_date
-  FROM `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
-  WHERE pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
-    AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
-),
-we AS (
-  -- t+1 执行日：交易日历自连接按 seq+1 取下一交易日（去相关子查询）
-  SELECT r.rebalance_date, nxt.trade_date AS exec_date
-  FROM rdates AS r
-  JOIN cal AS rc ON rc.trade_date = r.rebalance_date
-  LEFT JOIN cal AS nxt ON nxt.trade_date_seq = rc.trade_date_seq + 1
-)
-SELECT rebalance_date, exec_date, ROW_NUMBER() OVER (ORDER BY exec_date) AS period_idx
-FROM we WHERE exec_date IS NOT NULL;
-
--- episode 退出（期望卖出日）+ next-sellable（实际可卖日）+ 顺延交易日数
-CREATE TEMP TABLE sell_delay AS
-WITH presence AS (
-  SELECT pr.period_idx, pt.sec_code
-  FROM periods AS pr
-  JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
-    ON pt.rebalance_date = pr.rebalance_date
-   AND pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
-  WHERE pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
-),
-grp AS (
-  SELECT sec_code, period_idx,
-    period_idx - ROW_NUMBER() OVER (PARTITION BY sec_code ORDER BY period_idx) AS island
-  FROM presence
-),
-ep AS (
-  SELECT sec_code, island, MIN(period_idx) AS entry_period, MAX(period_idx) AS last_present
-  FROM grp GROUP BY sec_code, island
-),
--- 只保留「建仓成功」的 episode（与 08 的 filled_shares>0 对齐），避免把买入失败的目标退出误计入顺延
-ep_filled AS (
-  SELECT ep.sec_code, ep.last_present
-  FROM ep
-  JOIN periods AS pen ON pen.period_idx = ep.entry_period
-  JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS pe
-    ON pe.sec_code = ep.sec_code AND pe.trade_date = pen.exec_date
-    AND pe.trade_date BETWEEN p_predict_start AND p_calendar_end
-  WHERE COALESCE(pe.can_buy_open, FALSE)
-),
-exits AS (
-  SELECT epf.sec_code, px.exec_date AS desired_sell_date
-  FROM ep_filled AS epf JOIN periods AS px ON px.period_idx = epf.last_present + 1
-),
-with_actual AS (
-  -- desired_sell_date 起 60 交易日内首个可卖开盘日（去相关子查询，LEFT JOIN 保留无可卖日 NULL）
-  SELECT
-    e.sec_code, e.desired_sell_date,
-    MIN(px2.trade_date) AS actual_sell_date
-  FROM exits AS e
-  JOIN cal AS c1 ON c1.trade_date = e.desired_sell_date
-  LEFT JOIN cal AS c2 ON c2.trade_date_seq BETWEEN c1.trade_date_seq AND c1.trade_date_seq + 60
-  LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px2
-    ON px2.sec_code = e.sec_code
-   AND px2.trade_date = c2.trade_date
-   AND px2.trade_date >= e.desired_sell_date
-   AND px2.can_sell_open
-   AND px2.trade_date BETWEEN p_predict_start AND p_calendar_end
-  GROUP BY e.sec_code, e.desired_sell_date
-)
-SELECT
-  wa.sec_code, wa.desired_sell_date, wa.actual_sell_date,
-  -- 顺延交易日数 = 实际可卖日 seq − 期望卖出日 seq（cal 自连接，去相关子查询）
-  IF(wa.actual_sell_date IS NULL, NULL, ca.trade_date_seq - cd.trade_date_seq) AS delay_td
-FROM with_actual AS wa
-LEFT JOIN cal AS ca ON ca.trade_date = wa.actual_sell_date
-JOIN cal AS cd ON cd.trade_date = wa.desired_sell_date;
-
+-- ── 成交统计（v1 ledger 口径）：直接从实际成交表 ads_backtest_trade_daily 汇总 ──
+-- ledger 不做 60 交易日 next-sellable 搜索；不可交易腿本期跳过、记为 *_SKIPPED_UNTRADABLE 意图行、
+-- 持仓 carry 到下一个调仓执行日再尝试。这里的 skip 统计与 trade 表 1:1 可对账（去掉旧 episode 口径）。
 CREATE TEMP TABLE sell_stats AS
 SELECT
-  (SELECT COUNT(*) FROM sell_delay) AS sell_total,
-  (SELECT COUNTIF(actual_sell_date IS NULL) FROM sell_delay) AS sell_blocked_count,
-  (SELECT COUNTIF(delay_td > 0) FROM sell_delay) AS sell_delayed_count,
-  (SELECT AVG(delay_td) FROM sell_delay WHERE delay_td IS NOT NULL) AS sell_delay_td_avg,
-  (SELECT MAX(delay_td) FROM sell_delay WHERE delay_td IS NOT NULL) AS sell_delay_td_max,
-  (SELECT COUNTIF(t.side = 'BUY' AND t.fill_status != 'FILLED')
-   FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
-   WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end) AS buy_fail_count,
-  (SELECT COUNTIF(t.side = 'BUY')
-   FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
-   WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end) AS buy_total;
+  COUNTIF(t.side = 'BUY')  AS buy_attempt_count,
+  COUNTIF(t.side = 'BUY'  AND t.fill_status = 'FILLED') AS buy_filled_count,
+  COUNTIF(t.side = 'BUY'  AND t.fill_status = 'BUY_SKIPPED_UNTRADABLE') AS buy_skipped_count,
+  COUNTIF(t.side = 'SELL') AS sell_attempt_count,
+  COUNTIF(t.side = 'SELL' AND t.fill_status = 'FILLED') AS sell_filled_count,
+  COUNTIF(t.side = 'SELL' AND t.fill_status = 'SELL_SKIPPED_UNTRADABLE') AS sell_skipped_count
+FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
+WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end;
 
 -- 汇总绩效
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_performance_summary`
@@ -194,10 +114,11 @@ SELECT
     dd.max_dd AS max_drawdown,
     a.excess_annual AS excess_annual_return,
     SAFE_DIVIDE(a.excess_annual, NULLIF(a.tracking_error, 0)) AS information_ratio,
-    SAFE_DIVIDE(CAST(ss.buy_fail_count AS FLOAT64), NULLIF(ss.buy_total, 0)) AS buy_fail_rate,
-    SAFE_DIVIDE(CAST(ss.sell_delayed_count AS FLOAT64), NULLIF(ss.sell_total, 0)) AS sell_delay_rate,
-    ss.sell_blocked_count, ss.sell_delayed_count, ss.sell_total,
-    ss.sell_delay_td_avg, ss.sell_delay_td_max,
+    -- v1 ledger 成交口径（与 ads_backtest_trade_daily 1:1 可对账）
+    ss.buy_attempt_count, ss.buy_filled_count, ss.buy_skipped_count,
+    SAFE_DIVIDE(CAST(ss.buy_skipped_count AS FLOAT64), NULLIF(ss.buy_attempt_count, 0)) AS buy_skip_rate,
+    ss.sell_attempt_count, ss.sell_filled_count, ss.sell_skipped_count,
+    SAFE_DIVIDE(CAST(ss.sell_skipped_count AS FLOAT64), NULLIF(ss.sell_attempt_count, 0)) AS sell_skip_rate,
     a.total_turnover, a.total_cost
   )),
   CURRENT_TIMESTAMP()

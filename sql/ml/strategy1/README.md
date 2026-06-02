@@ -57,16 +57,16 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 
 - **run 隔离**：模型对象名嵌入 `p_run_id`，registry 用 `JSON_VALUE(model_params_json, '$.run_id')` 过滤。
 - **04 动态模型引用**：用 `EXECUTE IMMEDIATE FORMAT(...)` 自动引用 03 选出的 selected model URI，无需手动替换。
-- **回测卖出顺延**：预计算 `next_sellable_trade_date`（>= desired date, 60 交易日窗口），超窗口标记 `SELL_BLOCKED_NO_NEXT_SELLABLE_60D`。
+- **回测交易与卖出口径（v1 ledger）**：08 只在每个调仓 period 的 `t+1 exec_date` 按当日开盘价交易；不可交易腿（不可买/卖或无开盘价）本期跳过、记为 `BUY_SKIPPED_UNTRADABLE` / `SELL_SKIPPED_UNTRADABLE` 意图行（`filled_shares=0`、无现金/换手影响），持仓 carry 到下一个调仓执行日再尝试。**不做 60 交易日 daily next-sellable 顺延搜索，也没有 `SELL_BLOCKED_NO_NEXT_SELLABLE_60D`。** 09 的 skip 统计直接从 `ads_backtest_trade_daily` 这些意图/成交行 1:1 汇总，可对账。
 - **基准窗口校验**：08 执行前校验 `p_benchmark` 是 `dim_index` 中的可用收益基准，并且 `dwd_index_eod` 对 NAV 窗口每个开市日有且只有一条有效价格记录。
-- **报告渲染**：`render_report.py` 生成 Markdown + HTML + PNG，上传 GCS，写回 ADS `metrics_json.report_uri`。
+- **报告渲染**：`render_report.py` 生成 Markdown + HTML + PNG。默认上传 GCS 并写回 `metrics_json.report_uri`（`report_upload_status='uploaded'`）；`--skip-gcs-upload` 仅写本地镜像，**不写 `report_uri`**，改写 `local_report_path` + `report_upload_status='skipped'`。BigQuery 与 Storage 客户端在无 ADC 时都回退用 gcloud 用户 access token。
 - **OQ-010 参数**使用示例值，非业务定稿。
 
-## ⚠️ 回测口径：v0 是「有守卫的简化版」
+## 回测口径：v1 账户级有状态 ledger
 
-`08_run_backtest.sql` 不是最终账户级回测引擎。它用 set-based episode 模型，正常路径正确、现金不为负。
-**已知低频边界**：延迟/封死卖出未平仓时同股再入选会重叠建仓。`10_qa_runner_outputs.sql` 的
-`cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一三条断言会在该边界
-真实发生时报错。**一旦这些 QA 在真实回测里失败，该回测结果不可接受**，必须升级为账户级有状态
-ledger 循环（逐调仓日维护现金/持仓、卖出先于买入、买入受可用现金约束、对实际持仓 netting）。
-详见 runner 设计 §14.1 与 `.agent/memory/DECISION_LOG.md` DECISION-20260601-07。
+`08_run_backtest.sql` 自 PR #12 为账户级有状态 ledger（BigQuery scripting `WHILE` 循环逐调仓 period）：
+每个 `t+1 exec_date` 先按当前持仓估值得 NAV（停牌用 ffill 收盘）→ 目标仓位 = 目标权重 × 当前 NAV
+（资金复利/回收）→ 卖出先于买入 → 买入受可用现金约束（超出按比例缩放）→ 对实际持仓 netting → 循环后按交易日展开每日持仓/NAV。
+`10_qa_runner_outputs.sql` 的 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一、
+NAV 覆盖全开市日由 ledger 构造保证。**v1 简化**：不可交易腿本期跳过 + carry（无 60 日 next-sellable 顺延）、未复权口径、持有期除权简化。
+背景见 `.agent/memory/DECISION_LOG.md` DECISION-20260601-07（升级触发）与 DECISION-20260602-01（落地）。

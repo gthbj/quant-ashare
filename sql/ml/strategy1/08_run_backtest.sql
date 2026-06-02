@@ -185,7 +185,7 @@ CREATE TEMP TABLE snap (period_idx INT64, exec_date DATE, sec_code STRING, share
 CREATE TEMP TABLE cash_hist (period_idx INT64, exec_date DATE, cash_after FLOAT64);          -- 每次调仓后现金
 CREATE TEMP TABLE ledger_trades (
   trade_date DATE, sec_code STRING, side STRING,
-  filled_shares FLOAT64, fill_price FLOAT64, turnover_cny FLOAT64,
+  planned_shares FLOAT64, filled_shares FLOAT64, fill_price FLOAT64, turnover_cny FLOAT64,
   fee_cny FLOAT64, cash_effect_cny FLOAT64, fill_status STRING);
 
 SET v_cash = p_initial_capital;
@@ -237,7 +237,13 @@ WHILE v_p <= p_max_period DO
        LEAST(cur_shares, SAFE_DIVIDE(cur_value - desired_value, exec_open)), 0.0) AS sell_shares,
     -- 应买金额：目标价值高于现值且可买且有开盘价
     IF(can_buy AND exec_open IS NOT NULL AND desired_value - cur_value > 0.01,
-       desired_value - cur_value, 0.0) AS want_value
+       desired_value - cur_value, 0.0) AS want_value,
+    -- 想卖但本期不可交易（不可卖或无开盘价）→ 记 skip 意图，持仓 carry 到下一 period
+    IF(cur_shares > 0 AND cur_value - desired_value > 0.01 AND NOT (can_sell AND exec_open IS NOT NULL),
+       LEAST(cur_shares, SAFE_DIVIDE(cur_value - desired_value, val_price)), 0.0) AS sell_skip_shares,
+    -- 想买但本期不可交易（不可买或无开盘价）→ 记 skip 意图
+    IF(desired_value - cur_value > 0.01 AND NOT (can_buy AND exec_open IS NOT NULL),
+       desired_value - cur_value, 0.0) AS buy_skip_value
   FROM valued;
 
   -- 卖出先入账（现金 += 卖出净额）
@@ -260,19 +266,30 @@ WHILE v_p <= p_max_period DO
     FROM plan WHERE want_value > 0.000001
   );
 
-  -- 记录成交（卖出 + 买入）
-  INSERT INTO ledger_trades (trade_date, sec_code, side, filled_shares, fill_price, turnover_cny, fee_cny, cash_effect_cny, fill_status)
+  -- 记录成交（卖出 + 买入 + 不可交易 skip 意图，全部入 trade 表，供 09 从 ledger 事实算指标）
+  INSERT INTO ledger_trades (trade_date, sec_code, side, planned_shares, filled_shares, fill_price, turnover_cny, fee_cny, cash_effect_cny, fill_status)
   SELECT v_exec, sec_code, 'SELL',
-    sell_shares, exec_open, sell_shares * exec_open,
+    sell_shares, sell_shares, exec_open, sell_shares * exec_open,
     sell_shares * exec_open * (p_cost_bps / 10000.0),
     sell_shares * exec_open * (1 - p_cost_bps / 10000.0), 'FILLED'
   FROM plan WHERE sell_shares > 0.000001
   UNION ALL
   SELECT v_exec, sec_code, 'BUY',
-    SAFE_DIVIDE(want_value * v_scale, exec_open), exec_open, want_value * v_scale,
+    SAFE_DIVIDE(want_value * v_scale, exec_open), SAFE_DIVIDE(want_value * v_scale, exec_open),
+    exec_open, want_value * v_scale,
     want_value * v_scale * (p_cost_bps / 10000.0),
     -(want_value * v_scale * (1 + p_cost_bps / 10000.0)), 'FILLED'
-  FROM plan WHERE want_value > 0.000001 AND v_scale > 0;
+  FROM plan WHERE want_value > 0.000001 AND v_scale > 0
+  UNION ALL
+  -- 想卖但本期不可交易：记 skip 意图（filled=0，无现金/换手影响），持仓 carry
+  SELECT v_exec, sec_code, 'SELL',
+    sell_skip_shares, 0.0, CAST(NULL AS FLOAT64), 0.0, 0.0, 0.0, 'SELL_SKIPPED_UNTRADABLE'
+  FROM plan WHERE sell_skip_shares > 0.000001
+  UNION ALL
+  -- 想买但本期不可交易：记 skip 意图
+  SELECT v_exec, sec_code, 'BUY',
+    COALESCE(SAFE_DIVIDE(buy_skip_value, val_price), 0.0), 0.0, CAST(NULL AS FLOAT64), 0.0, 0.0, 0.0, 'BUY_SKIPPED_UNTRADABLE'
+  FROM plan WHERE buy_skip_value > 0.000001;
 
   -- 更新持仓（netting：现有 − 卖出 + 买入），保留正持仓
   CREATE OR REPLACE TEMP TABLE hold AS
@@ -297,7 +314,7 @@ INSERT INTO `data-aquarium.ashare_ads.ads_backtest_trade_daily`
  fill_status, run_id, created_at)
 SELECT
   p_backtest_id, lt.trade_date, lt.sec_code, lt.side,
-  lt.filled_shares, lt.filled_shares, lt.fill_price, lt.turnover_cny,
+  lt.planned_shares, lt.filled_shares, lt.fill_price, lt.turnover_cny,
   lt.fee_cny, 0.0, 0.0, lt.cash_effect_cny, lt.fill_status,
   p_run_id, CURRENT_TIMESTAMP()
 FROM ledger_trades AS lt;
