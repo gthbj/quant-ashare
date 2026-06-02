@@ -251,7 +251,7 @@ ASSERT (
   WHERE bs.backtest_id = p_backtest_id
 ) AS 'QA-COST-5: metrics_json.slippage_buy_bps and slippage_sell_bps must be 5.0';
 
--- QA-COST-6: fill_price 精确匹配滑点公式（带小容差），同时断言 join 无丢行
+-- QA-COST-6: fill_price 精确匹配滑点公式（带小容差）
 ASSERT (
   SELECT COUNT(*) > 0 AND COUNTIF(mismatch) = 0
   FROM (
@@ -272,6 +272,24 @@ ASSERT (
       AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
   )
 ) AS 'QA-COST-6: fill_price must match exec_open * (1 +/- slippage/10000) exactly (BUY +5bps, SELL -5bps) and join must be non-empty';
+
+-- QA-COST-6d: join 行数对账，确保没有 filled trade 被 inner join 丢掉
+ASSERT (
+  SELECT trade_cnt = joined_cnt AND trade_cnt > 0
+  FROM (
+    SELECT
+      (SELECT COUNT(*) FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily`
+       WHERE backtest_id = p_backtest_id AND fill_status = 'FILLED'
+         AND trade_date BETWEEN p_predict_start AND p_predict_end) AS trade_cnt,
+      (SELECT COUNT(*)
+       FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+       JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
+         ON px.sec_code = bt.sec_code AND px.trade_date = bt.trade_date
+       WHERE bt.backtest_id = p_backtest_id AND bt.fill_status = 'FILLED'
+         AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+         AND px.open IS NOT NULL) AS joined_cnt
+  )
+) AS 'QA-COST-6d: filled trade count must equal joined count with px.open IS NOT NULL (no rows dropped by inner join)';
 
 -- QA-COST-7: fee_cny 只含佣金和印花税，不含滑点
 -- BUY: fee/turnover ~ 1 bps (commission only); SELL: fee/turnover ~ 6 bps (commission + stamp_tax)

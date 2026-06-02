@@ -74,7 +74,7 @@ SELECT
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
 WHERE t.backtest_id = p_backtest_id
   AND t.fill_status = 'FILLED'
-  AND t.trade_date BETWEEN p_predict_start AND p_calendar_end;
+  AND t.trade_date BETWEEN p_predict_start AND p_predict_end;
 
 -- 汇总绩效
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_performance_summary`
