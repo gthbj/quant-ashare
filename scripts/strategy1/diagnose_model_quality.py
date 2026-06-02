@@ -288,26 +288,25 @@ def fetch_label_horizon(client: bigquery.Client, project: str,
       pred.sec_code,
       pred.score,
       pred.rank_pct,
-      s.fwd_xs_ret_1d,
-      s.fwd_xs_ret_5d,
-      s.fwd_xs_ret_10d,
-      s.fwd_xs_ret_20d,
-      s.label_top30_5d,
-      s.label_above_median_5d,
-      s.split_tag
+      l.fwd_xs_ret_1d,
+      l.fwd_xs_ret_5d,
+      l.fwd_xs_ret_10d,
+      l.fwd_xs_ret_20d,
+      l.label_top30_5d,
+      l.label_above_median_5d,
+      tp.split_tag
     FROM `{project}.ashare_ads.ads_model_prediction_daily` AS pred
     JOIN `{project}.ashare_ads.ads_ml_training_panel_daily` AS tp
       ON tp.trade_date = pred.predict_date
      AND tp.sec_code = pred.sec_code
      AND tp.run_id = @rid
-    JOIN `{project}.ashare_dws.dws_stock_sample_daily` AS s
-      ON s.trade_date = pred.predict_date
-     AND s.sec_code = pred.sec_code
-     AND s.feature_version = tp.feature_version
-     AND s.label_version = tp.label_version
+    JOIN `{project}.ashare_dws.dws_stock_label_daily` AS l
+      ON l.trade_date = pred.predict_date
+     AND l.sec_code = pred.sec_code
+     AND l.label_version = tp.label_version
     WHERE pred.run_id = @rid
       AND pred.predict_date BETWEEN @sd AND @ed
-      AND s.split_tag IN ('valid', 'test')
+      AND tp.split_tag IN ('valid', 'test')
     """
     return bq_query(client, sql, [
         bigquery.ScalarQueryParameter("rid", "STRING", run_id),

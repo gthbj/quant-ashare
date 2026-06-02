@@ -122,87 +122,35 @@ GROUP BY bucket
 ORDER BY bucket;
 
 -- ── FR-DIAG-4: label horizon comparison ──────────────────────────────────────
-SELECT
-  s.split_tag,
-  'fwd_xs_ret_1d' AS horizon,
-  CORR(pred.score, s.fwd_xs_ret_1d) AS rank_ic_approx
-FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-  ON tp.trade_date = pred.predict_date
- AND tp.sec_code = pred.sec_code
- AND tp.run_id = p_run_id
-JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
-  ON s.trade_date = pred.predict_date
- AND s.sec_code = pred.sec_code
- AND s.feature_version = tp.feature_version
- AND s.label_version = tp.label_version
-WHERE pred.run_id = p_run_id
-  AND pred.predict_date BETWEEN p_valid_start AND p_test_end
-  AND s.split_tag IN ('valid', 'test')
-GROUP BY s.split_tag
-
+WITH base AS (
+  SELECT
+    pred.predict_date,
+    pred.score,
+    l.fwd_xs_ret_1d,
+    l.fwd_xs_ret_5d,
+    l.fwd_xs_ret_10d,
+    l.fwd_xs_ret_20d,
+    tp.split_tag
+  FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
+  JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+    ON tp.trade_date = pred.predict_date
+   AND tp.sec_code = pred.sec_code
+   AND tp.run_id = p_run_id
+  JOIN `data-aquarium.ashare_dws.dws_stock_label_daily` AS l
+    ON l.trade_date = pred.predict_date
+   AND l.sec_code = pred.sec_code
+   AND l.label_version = tp.label_version
+  WHERE pred.run_id = p_run_id
+    AND pred.predict_date BETWEEN p_valid_start AND p_test_end
+    AND tp.split_tag IN ('valid', 'test')
+)
+SELECT split_tag, 'fwd_xs_ret_1d'  AS horizon, CORR(score, fwd_xs_ret_1d)  AS rank_ic_approx FROM base GROUP BY split_tag
 UNION ALL
-
-SELECT
-  s.split_tag,
-  'fwd_xs_ret_5d' AS horizon,
-  CORR(pred.score, s.fwd_xs_ret_5d) AS rank_ic_approx
-FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-  ON tp.trade_date = pred.predict_date
- AND tp.sec_code = pred.sec_code
- AND tp.run_id = p_run_id
-JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
-  ON s.trade_date = pred.predict_date
- AND s.sec_code = pred.sec_code
- AND s.feature_version = tp.feature_version
- AND s.label_version = tp.label_version
-WHERE pred.run_id = p_run_id
-  AND pred.predict_date BETWEEN p_valid_start AND p_test_end
-  AND s.split_tag IN ('valid', 'test')
-GROUP BY s.split_tag
-
+SELECT split_tag, 'fwd_xs_ret_5d'  AS horizon, CORR(score, fwd_xs_ret_5d)  AS rank_ic_approx FROM base GROUP BY split_tag
 UNION ALL
-
-SELECT
-  s.split_tag,
-  'fwd_xs_ret_10d' AS horizon,
-  CORR(pred.score, s.fwd_xs_ret_10d) AS rank_ic_approx
-FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-  ON tp.trade_date = pred.predict_date
- AND tp.sec_code = pred.sec_code
- AND tp.run_id = p_run_id
-JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
-  ON s.trade_date = pred.predict_date
- AND s.sec_code = pred.sec_code
- AND s.feature_version = tp.feature_version
- AND s.label_version = tp.label_version
-WHERE pred.run_id = p_run_id
-  AND pred.predict_date BETWEEN p_valid_start AND p_test_end
-  AND s.split_tag IN ('valid', 'test')
-GROUP BY s.split_tag
-
+SELECT split_tag, 'fwd_xs_ret_10d' AS horizon, CORR(score, fwd_xs_ret_10d) AS rank_ic_approx FROM base GROUP BY split_tag
 UNION ALL
-
-SELECT
-  s.split_tag,
-  'fwd_xs_ret_20d' AS horizon,
-  CORR(pred.score, s.fwd_xs_ret_20d) AS rank_ic_approx
-FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-  ON tp.trade_date = pred.predict_date
- AND tp.sec_code = pred.sec_code
- AND tp.run_id = p_run_id
-JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
-  ON s.trade_date = pred.predict_date
- AND s.sec_code = pred.sec_code
- AND s.feature_version = tp.feature_version
- AND s.label_version = tp.label_version
-WHERE pred.run_id = p_run_id
-  AND pred.predict_date BETWEEN p_valid_start AND p_test_end
-  AND s.split_tag IN ('valid', 'test')
-GROUP BY s.split_tag;
+SELECT split_tag, 'fwd_xs_ret_20d' AS horizon, CORR(score, fwd_xs_ret_20d) AS rank_ic_approx FROM base GROUP BY split_tag;
 
 -- ── FR-DIAG-5: sample universe funnel ────────────────────────────────────────
 SELECT
