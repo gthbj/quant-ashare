@@ -138,7 +138,8 @@ SELECT
     SAFE_DIVIDE(a.excess_annual, NULLIF(a.tracking_error, 0)) AS information_ratio,
     -- PRD-20260602-03 报告增强字段
     'strategy1_zh_report_v2' AS report_version,
-    -- diagnosis_triggered: 策略跑输基准 / 收益为负 / 回撤 >= 15%
+    -- diagnosis_triggered: 初始预估值（3 条件）。render_report.py 会按完整 5 条件
+    --（+ 滚动亏损 ≤-8%、成本侵蚀 ≥20%）重新计算并覆盖写入，以此为准。
     ((a.final_nav - 1.0) < (SELECT b.bench_cum_nav FROM bench AS b ORDER BY b.trade_date DESC LIMIT 1) - 1.0
      OR (a.final_nav - 1.0) < 0
      OR dd.max_dd <= -0.15) AS diagnosis_triggered,

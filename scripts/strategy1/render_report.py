@@ -56,8 +56,6 @@ try:
 except Exception:
     pass
 
-import matplotlib.ticker as mticker
-
 # ── Constants ─────────────────────────────────────────────────────────────────
 REPORT_VERSION = "strategy1_zh_report_v2"
 EVIDENCE_SCHEMA_VERSION = "strategy1_report_evidence_v1"
@@ -401,17 +399,17 @@ def compute_loss_attribution(client: bigquery.Client, project: str,
     if not pos_codes:
         return [], 1.0
 
-    code_list = ", ".join(f"'{c}'" for c in pos_codes)
     sql = f"""
     SELECT px.sec_code, px.trade_date, px.ret_1d
     FROM `{project}.ashare_dwd.dwd_stock_eod_price` AS px
     WHERE px.trade_date BETWEEN @sd AND @ed
-      AND px.sec_code IN ({code_list})
+      AND px.sec_code IN UNNEST(@codes)
     ORDER BY px.sec_code, px.trade_date
     """
     price_df = bq_query(client, sql, [
         bigquery.ScalarQueryParameter("sd", "DATE", start_date),
         bigquery.ScalarQueryParameter("ed", "DATE", end_date),
+        bigquery.ArrayQueryParameter("codes", "STRING", pos_codes),
     ])
 
     if price_df.empty:
