@@ -8,7 +8,7 @@
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
 - [x] 实现 OQ-010 交易成本 profile：按 `PRD_20260602_02_OQ010交易成本口径.md` 将 runner 从单一 `p_cost_bps=30` 升级为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，并同步 08/09/10/report/README
-- [ ] 实现策略 1 中文报告与归因分析：按 `PRD_20260602_03_策略1中文报告归因分析.md` 保持中证1000 `000852.SH` 为评估主基准、并列展示沪深300 `000300.SH`，报告中文化，输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断
+- [x] 实现策略 1 中文报告与归因分析：按 `PRD_20260602_03_策略1中文报告归因分析.md` 保持中证1000 `000852.SH` 为评估主基准、并列展示沪深300 `000300.SH`，报告中文化，输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断；render_report.py v2 已重写、09 metrics_json 已补 report_version/diagnosis_triggered、10 已补 QA-REPORT 1-6 断言、README 已同步
 - [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：特征 / 标签 / 选股口径、调仓频率、持股数 / 单票权重上限
 - [ ] 准备 GCS bucket（`ashare-artifacts`）+ ADC，去掉 `--skip-gcs-upload` 重跑 report render，产出 uploaded 模式真实 `report_uri`
 

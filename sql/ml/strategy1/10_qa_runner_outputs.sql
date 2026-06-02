@@ -345,3 +345,54 @@ ASSERT (
       AND trade_date BETWEEN p_predict_start AND p_predict_end
   )
 ) AS 'QA-COST-8c: slippage_cny must match turnover * slippage / (10000 +/- slippage)';
+
+-- ============================================================
+-- PRD-20260602-03 策略 1 中文报告与归因分析 QA
+-- ============================================================
+
+-- QA-REPORT-1: 评估主基准必须是中证 1000 (000852.SH)，不能是沪深 300
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(bs.benchmark_sec_code != '000852.SH') = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-REPORT-1: benchmark_sec_code in performance_summary must be 000852.SH (assessment benchmark)';
+
+-- QA-REPORT-2: NAV 表的 benchmark_sec_code 也必须是 000852.SH
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(nav.benchmark_sec_code != '000852.SH') = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+  WHERE nav.backtest_id = p_backtest_id
+    AND nav.trade_date BETWEEN p_predict_start AND p_predict_end
+) AS 'QA-REPORT-2: benchmark_sec_code in nav_daily must be 000852.SH';
+
+-- QA-REPORT-3: report_version 已写入 metrics_json（render_report.py 回写）
+ASSERT (
+  SELECT COUNT(*) > 0
+    AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.report_version') IS NULL) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-REPORT-3: metrics_json.report_version must be set by render_report.py';
+
+-- QA-REPORT-4: diagnosis_triggered 已写入 metrics_json（render 或 09 写入）
+ASSERT (
+  SELECT COUNT(*) > 0
+    AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.diagnosis_triggered') IS NULL) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-REPORT-4: metrics_json.diagnosis_triggered must be set';
+
+-- QA-REPORT-5: ai_analysis_status 已写入 metrics_json（render 回写）
+ASSERT (
+  SELECT COUNT(*) > 0
+    AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.ai_analysis_status') IS NULL) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-REPORT-5: metrics_json.ai_analysis_status must be set by render_report.py';
+
+-- QA-REPORT-6: artifact_manifest 已写入（render 回写）
+ASSERT (
+  SELECT COUNT(*) > 0
+    AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.artifact_manifest') IS NULL) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-REPORT-6: metrics_json.artifact_manifest must be set by render_report.py';

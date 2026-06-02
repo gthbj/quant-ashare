@@ -136,6 +136,12 @@ SELECT
     dd.max_dd AS max_drawdown,
     a.excess_annual AS excess_annual_return,
     SAFE_DIVIDE(a.excess_annual, NULLIF(a.tracking_error, 0)) AS information_ratio,
+    -- PRD-20260602-03 报告增强字段
+    'strategy1_zh_report_v2' AS report_version,
+    -- diagnosis_triggered: 策略跑输基准 / 收益为负 / 回撤 >= 15%
+    ((a.final_nav - 1.0) < (SELECT b.bench_cum_nav FROM bench AS b ORDER BY b.trade_date DESC LIMIT 1) - 1.0
+     OR (a.final_nav - 1.0) < 0
+     OR dd.max_dd <= -0.15) AS diagnosis_triggered,
     -- v1 ledger 成交口径（与 ads_backtest_trade_daily 1:1 可对账）
     ss.buy_attempt_count, ss.buy_filled_count, ss.buy_skipped_count,
     SAFE_DIVIDE(CAST(ss.buy_skipped_count AS FLOAT64), NULLIF(ss.buy_attempt_count, 0)) AS buy_skip_rate,
