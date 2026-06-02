@@ -687,3 +687,35 @@ OQ-004 可在 `dim_index`、映射驱动 `dwd_index_eod`、`sql/qa/03_oq004_inde
 ### 相关文件
 
 `sql/dim/04_dim_index.sql`, `sql/dwd/04_dwd_index_eod.sql`, `sql/qa/03_oq004_index_checks.sql`, `sql/ml/strategy1/08_run_backtest.sql`, `docs/prd/PRD_20260601_04_OQ004基准指数口径.md`
+
+## DECISION-20260602-01: 策略 1 回测 08 升级为账户级有状态 ledger（落地 DECISION-20260601-07）
+
+日期: 2026-06-02
+状态: active
+负责人: owner
+Agent ID: Claude
+模型: Claude Opus 4.8
+
+### 背景
+
+PR #12 在 BigQuery 端到端实跑策略 1 runner 时，v0 set-based episode 回测（`08_run_backtest.sql`）违反 `10` 的守卫：每个 episode 建仓固定花 `initial_capital × weight`、不回收已实现资金，104 个调仓日累计买入 570 万远超 10 万本金 → `cash_cny` 最低 -34 万、`gross_exposure` 高达 2803 倍、476/485 天负现金。这正是 DECISION-20260601-07 预设的升级触发条件。
+
+### 决策
+
+按 DECISION-20260601-07 将 `08_run_backtest.sql` 重写为账户级有状态 ledger（BigQuery scripting `WHILE` 循环逐调仓 period）：每个 t+1 执行日先按当前持仓估值得 NAV（停牌用 ffill 收盘）；目标仓位 = 目标权重 × 当前 NAV（资金复利/回收）；卖出先于买入；买入受可用现金约束（超出按比例缩放）；对实际持仓 netting（滚动持有不重复全卖全买）；循环后按交易日展开每日持仓/NAV。现金不为负、gross ≤ 1、持仓唯一、NAV 全覆盖由构造保证，并经实跑 `10` 16 断言验证。
+
+### 理由
+
+set-based 模型无法跟踪「建仓时点的可用现金」，无小修可使其自洽；账户级 ledger 是 DECISION-20260601-07 已预先授权的唯一正确路径。
+
+### 影响
+
+08 为 v1 ledger，含已文档化简化：不可交易腿本期跳过、carry 到下一 period，不做 60 交易日 next-sellable 顺延；未复权口径、持有期除权简化。后续若需更高保真（部分成交、日内撮合、复权持有、卖出顺延搜索）可在此 ledger 基础上扩展。KNOWN_CONSTRAINTS 的 v0 回测条目已更新为 v1 ledger。
+
+### 备选方案
+
+每个调仓日全清仓再全买（更简单且守卫安全）——放弃，违反 DECISION-20260601-07「对实际持仓 netting」要求且高估换手/成本。保留 v0 仅放宽守卫阈值——放弃，结果（-98% 来自记账错误而非真实持仓）不可接受。
+
+### 相关文件
+
+`sql/ml/strategy1/08_run_backtest.sql`, `sql/ml/strategy1/10_qa_runner_outputs.sql`, `docs/策略1-ml_pv_clf_v0-runner设计.md`（§14.1）

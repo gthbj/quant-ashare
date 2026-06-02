@@ -118,7 +118,7 @@ WHERE cand.strategy_id = p_strategy_id AND cand.run_id = p_run_id
   AND cand.is_selected_candidate
   AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end;
 
--- ── 卖出顺延统计 ──
+-- ── SELL fill_status 分布（v1 ledger：FILLED 成交 vs SELL_SKIPPED_UNTRADABLE 跳过意图）──
 SELECT
   bt.fill_status,
   COUNT(*) AS count
@@ -131,7 +131,7 @@ GROUP BY bt.fill_status;
 ASSERT (
   SELECT COUNT(*) = 0
   FROM (
-    SELECT c.trade_date AS expected_date
+    SELECT c.cal_date AS expected_date
     FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS c
     WHERE c.exchange = 'SSE' AND c.is_open = 1
       AND c.cal_date BETWEEN p_predict_start AND p_predict_end
@@ -187,10 +187,22 @@ ASSERT (
   WHERE bs.backtest_id = p_backtest_id
 ) AS 'backtest summary must exist with metrics_json';
 
--- ── 报告 URI 已回写（render_report.py 必须在本 QA 之前运行）──
+-- ── 报告已产出（render_report.py 必须在本 QA 之前运行），且 report_uri 口径真实可信 ──
 -- 见 README：执行顺序为 01-09 → render_report.py → 10。
+-- 模式感知：render 必须写 report_upload_status 与 local_report_path；
+--   - uploaded：必须有真实 GCS report_uri；
+--   - skipped（local-only）：必须没有 report_uri（避免把不存在的 gs:// 当成已产出）。
 ASSERT (
-  SELECT COUNTIF(JSON_VALUE(bs.metrics_json, '$.report_uri') IS NOT NULL) > 0
+  SELECT COUNT(*) > 0 AND LOGICAL_AND(
+    JSON_VALUE(bs.metrics_json, '$.report_upload_status') IS NOT NULL
+    AND JSON_VALUE(bs.metrics_json, '$.local_report_path') IS NOT NULL
+    AND (
+      (JSON_VALUE(bs.metrics_json, '$.report_upload_status') = 'uploaded'
+        AND JSON_VALUE(bs.metrics_json, '$.report_uri') IS NOT NULL)
+      OR (JSON_VALUE(bs.metrics_json, '$.report_upload_status') = 'skipped'
+        AND JSON_VALUE(bs.metrics_json, '$.report_uri') IS NULL)
+    )
+  )
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
-) AS 'report_uri must be written back to summary metrics_json (run render_report.py before this QA)';
+) AS 'report must be rendered: report_upload_status + local_report_path set, and report_uri present iff uploaded (run render_report.py before this QA)';

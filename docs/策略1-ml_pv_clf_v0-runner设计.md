@@ -369,8 +369,8 @@ rebalance_date = 每个 ISO 周内 max(cal_date) where is_open = TRUE
 撮合规则：
 
 1. 信号日 `t`，订单在 `t+1` 开盘尝试成交。
-2. 买入要求 `can_buy_open[t+1]=TRUE`；否则买入失败并保留现金。
-3. 卖出要求 `can_sell_open[t+1]=TRUE`；否则继续持有并顺延至下一可卖日。
+2. 买入要求 `can_buy_open[t+1]=TRUE`；否则本期跳过、记 `BUY_SKIPPED_UNTRADABLE` 意图行并保留现金。
+3. 卖出要求 `can_sell_open[t+1]=TRUE`；否则本期跳过、记 `SELL_SKIPPED_UNTRADABLE` 意图行，持仓 carry 到下一个调仓执行日再试（v1 ledger：不做 daily next-sellable 顺延搜索）。
 4. 成本包括佣金、印花税、滑点，参数来自 `cost_bps` 及后续扩展配置。
 5. 持仓估值使用日收盘价；停牌日沿用可用收盘价并标记。
 
@@ -379,7 +379,7 @@ rebalance_date = 每个 ISO 周内 max(cal_date) where is_open = TRUE
 - NAV、日收益、最大回撤、年化收益、年化波动、Sharpe。
 - 基准超额收益与信息比率。
 - 年化换手、成本敏感性。
-- 买入失败率、卖出顺延率、不可成交原因分布。
+- 买入/卖出不可交易跳过率（`buy_skip_rate` / `sell_skip_rate`，从 `ads_backtest_trade_daily` 的 `*_SKIPPED_UNTRADABLE` 行汇总）。
 
 ## 11. 回测报告落点
 
@@ -424,11 +424,11 @@ reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/
 
 本地 `reports/` 是用户读取镜像，不作为事实来源，默认不提交 git。Runner 对同一 `run_id/backtest_id` 重跑时应覆盖同目录，或在 `force_replace=FALSE` 时拒绝覆盖。
 
-报告文件不是事实来源，只是 ADS 结果的快照摘要。Runner 需要把最终 `report_uri` 写回 BigQuery，首版可写入：
+报告文件不是事实来源，只是 ADS 结果的快照摘要。Runner 把报告状态写回 `ads_backtest_performance_summary.metrics_json`，模式感知（PR #12 起）：
 
-- `ads_backtest_performance_summary.metrics_json.report_uri`
-- `ads_backtest_performance_summary.metrics_json.local_report_path`
-- `ads_model_registry.metrics_json.report_uri`
+- `local_report_path`、`report_upload_status`（`uploaded` / `skipped`）始终写入。
+- `report_uri`（`gs://…`）**仅在真实上传 GCS 成功时**写入；`--skip-gcs-upload`（local-only）模式不写 `report_uri`，避免指向不存在的对象。
+- `10_qa_runner_outputs.sql` 做模式感知断言：`report_upload_status` + `local_report_path` 必填，`report_uri` 当且仅当 `uploaded` 时存在。
 
 若后续报告运行增多，再新增轻量表 `ads_backtest_report_registry`，以 `(backtest_id, run_id)` 记录 `report_uri`、artifact 清单、生成时间和报告版本。
 
@@ -437,7 +437,7 @@ reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/
 - run 配置：`run_id`、`model_id`、`backtest_id`、训练/验证/测试/预测窗口、成本参数、持股数、权重上限。
 - 模型指标：AUC、log loss、TopN 命中率、RankIC、分层收益。
 - 组合指标：NAV、年化收益、最大回撤、Sharpe、IR、换手、成本敏感性。
-- 可交易性归因：买入失败率、卖出顺延率、不可成交原因分布。
+- 可交易性归因（v1 ledger）：买入/卖出不可交易跳过率（`buy_skip_rate` / `sell_skip_rate`），从 `ads_backtest_trade_daily` 的 `*_SKIPPED_UNTRADABLE` 意图行汇总。
 - BigQuery 来源表和查询窗口，确保报告可追溯到 ADS。
 
 ## 12. 幂等与安全
@@ -497,19 +497,25 @@ reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/
 4. 输出 valid/test 的模型指标和量化指标：AUC、log_loss、RankIC、分层收益、TopN 收益、NAV、换手、不可成交比例。
 5. 所有训练和回测数据留在 BigQuery 内。
 
-## 14.1 回测引擎口径与升级触发（v0 = 有守卫的简化版）
+## 14.1 回测引擎口径（v1 = 账户级有状态 ledger）
 
-**定性**：`08_run_backtest.sql` 是**有守卫的简化版回测**，不是最终账户级回测引擎。
+**定性**：`08_run_backtest.sql` 自 PR #12 为**账户级有状态 ledger**（BigQuery scripting `WHILE` 循环逐调仓 period）。原 v0 set-based episode 模型在真机实跑时违反守卫（仓位名义按 `initial_capital × weight` 固定额、不回收资金 → 累计买入远超本金、现金为负、gross 远超 1），按 DECISION-20260601-07 的升级触发硬规则已重写为 ledger（DECISION-20260602-01）。
 
-v0 采用持仓 episode 模型（set-based，无逐日状态循环，与本设计一致）：
-- 仓位名义按 `initial_capital × weight` 固定额（不按 NAV 复利放大）；每个仓位「含成本总支出」= slot budget，首个满仓调仓后现金落到 ≈0、不为负。
-- 卖出按建仓实际成交股数全平；卖出日用 next-sellable 顺延（≥ 退出执行日、60 交易日窗口），超窗口标记 `SELL_BLOCKED_NO_NEXT_SELLABLE_60D` 并 carry 至 `predict_end` 继续估值。
+**v1 ledger 口径**：
+- 每个 `t+1 exec_date` 先按当前持仓估值得 NAV（停牌无价用最近可用收盘前向填充）。
+- 目标仓位 = 目标权重 × **当前 NAV**（资金复利/回收，非固定初始资金额）。
+- **卖出先于买入**；买入受**可用现金约束**（总买入含成本超现金则等比缩放），保证现金不为负、gross ≤ 1。
+- 对**实际持仓 netting**（滚动持有的票不重复全卖全买）。
+- 不可交易腿（不可买/卖或无开盘价）本期跳过、记 `BUY_SKIPPED_UNTRADABLE` / `SELL_SKIPPED_UNTRADABLE` 意图行（`filled_shares=0`），持仓 carry 到下一个调仓执行日再尝试。
+- 循环后按交易日展开每日持仓/NAV。
 
-**已知边界（owner 已知并接受为 v0）**：在「延迟/封死卖出尚未平仓时、同一只股又重新进入选股池」这一低频场景下，episode 模型会对同股再建一笔仓，与未平旧仓重叠，造成双倍暴露/预算占用。根治需要按现金约束、对实际持仓做 netting 的**有状态 ledger 循环**，而该循环偏离本设计刻意选择的 set-based 口径。
+**v1 简化（已文档化）**：不可交易腿只在调仓执行日重试，**不做 60 交易日 daily next-sellable 顺延搜索，无 `SELL_BLOCKED_NO_NEXT_SELLABLE_60D`**；未复权口径、持有期除权简化。后续若需更高保真（部分成交、日内撮合、复权持有、卖出顺延搜索）可在此 ledger 基础上扩展。
 
-**守卫**：`10_qa_runner_outputs.sql` 已加断言 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓按 `(trade_date, sec_code)` 唯一。
+**守卫**：`10_qa_runner_outputs.sql` 断言 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓按 `(trade_date, sec_code)` 唯一、NAV 覆盖 predict 窗口每个开市日；这些不变量由 ledger 构造保证，并经端到端实跑验证（16 断言全过）。
 
-**升级触发（硬规则）**：**真实回测若跑出上述任一 QA 失败，说明该边界在数据中实际发生，则该回测结果不可接受**，必须把 `08` 升级为账户级有状态 ledger 循环（逐调仓日维护现金/持仓、卖出先于买入、买入受可用现金约束、对实际持仓 netting），更新本设计与 PRD 后重跑。详见 `.agent/memory/DECISION_LOG.md` DECISION-20260601-07。
+**09 成交诊断**：从 `ads_backtest_trade_daily` 的 FILLED / `*_SKIPPED_UNTRADABLE` 行 1:1 汇总 buy/sell 的 attempt/filled/skipped 计数与 skip rate，与成交表可对账（不再用旧 episode/next-sellable 口径重算）。
+
+背景见 `.agent/memory/DECISION_LOG.md` DECISION-20260601-07（升级触发）与 DECISION-20260602-01（落地）。
 
 ## 15. 官方参考
 

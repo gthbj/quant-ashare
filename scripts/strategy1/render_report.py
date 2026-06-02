@@ -38,6 +38,51 @@ except ImportError as e:
     sys.exit(1)
 
 
+def _gcloud_token_credentials():
+    """Build OAuth credentials from the gcloud CLI user access token, or None.
+
+    Lets the script run on machines where only the gcloud CLI is logged in, not
+    `gcloud auth application-default login` (no ADC). Used as a fallback for both
+    the BigQuery and Storage clients so behaviour is consistent across them.
+    """
+    import subprocess
+    import google.oauth2.credentials
+    try:
+        token = subprocess.check_output(
+            ["gcloud", "auth", "print-access-token"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return None
+    return google.oauth2.credentials.Credentials(token) if token else None
+
+
+def make_bq_client(project: str) -> "bigquery.Client":
+    """BigQuery client; prefer ADC, fall back to the gcloud user token."""
+    try:
+        return bigquery.Client(project=project)
+    except Exception as adc_err:  # DefaultCredentialsError and friends
+        creds = _gcloud_token_credentials()
+        if creds is None:
+            raise adc_err
+        return bigquery.Client(project=project, credentials=creds)
+
+
+def make_storage_client(project: str) -> "storage.Client":
+    """Storage client; prefer ADC, fall back to the gcloud user token.
+
+    Same credential fallback as make_bq_client so a non-skip GCS upload works in
+    a gcloud-CLI-only environment instead of failing on bare storage.Client().
+    """
+    try:
+        return storage.Client(project=project)
+    except Exception as adc_err:
+        creds = _gcloud_token_credentials()
+        if creds is None:
+            raise adc_err
+        return storage.Client(project=project, credentials=creds)
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Render strategy 1 backtest report")
     p.add_argument("--project", required=True)
@@ -143,9 +188,9 @@ def render_markdown(summary: dict, model_info: dict, args) -> str:
         f"| Max Drawdown | {fmt(summary.get('max_drawdown'))} |",
         f"| Excess Return | {fmt(summary.get('excess_return'))} |",
         f"| Information Ratio | {fmt(summary.get('information_ratio'))} |",
-        f"| Buy Fail Rate | {fmt(m.get('buy_fail_rate'))} |",
-        f"| Sell Delay Rate | {fmt(m.get('sell_delay_rate'))} |",
-        f"| Sell Blocked Count | {m.get('sell_blocked_count', 'N/A')} |",
+        f"| Buy Skip Rate (untradable) | {fmt(m.get('buy_skip_rate'))} |",
+        f"| Sell Skip Rate (untradable) | {fmt(m.get('sell_skip_rate'))} |",
+        f"| Sell Skipped Count | {m.get('sell_skipped_count', 'N/A')} |",
         f"| Cost (bps) | {fmt(summary.get('cost_bps'), 0)} |",
         f"| Benchmark | `{summary.get('benchmark_sec_code', '')}` |", "",
         "## Model Selection", "",
@@ -176,9 +221,9 @@ def render_html(summary: dict, model_info: dict, args) -> str:
         row("Max Drawdown", fmt(summary.get("max_drawdown"))),
         row("Excess Return", fmt(summary.get("excess_return"))),
         row("Information Ratio", fmt(summary.get("information_ratio"))),
-        row("Buy Fail Rate", fmt(m.get("buy_fail_rate"))),
-        row("Sell Delay Rate", fmt(m.get("sell_delay_rate"))),
-        row("Sell Blocked Count", m.get("sell_blocked_count", "N/A")),
+        row("Buy Skip Rate (untradable)", fmt(m.get("buy_skip_rate"))),
+        row("Sell Skip Rate (untradable)", fmt(m.get("sell_skip_rate"))),
+        row("Sell Skipped Count", m.get("sell_skipped_count", "N/A")),
         row("Cost (bps)", fmt(summary.get("cost_bps"), 0)),
         row("Benchmark", summary.get("benchmark_sec_code", "")),
     ])
@@ -210,48 +255,62 @@ th{{background:#f6f6f6}}img{{max-width:100%;margin:8px 0}}pre{{background:#f6f6f
 </body></html>"""
 
 
-def upload_dir_to_gcs(local_dir: Path, gcs_uri: str, skip: bool):
-    if skip:
-        print(f"  Skipping GCS upload. Local: {local_dir}")
-        return gcs_uri
+def upload_dir_to_gcs(project: str, local_dir: Path, gcs_uri: str) -> bool:
+    """Upload the report dir to GCS. Returns True on success."""
     bucket_name = gcs_uri.replace("gs://", "").split("/")[0]
     prefix = "/".join(gcs_uri.replace("gs://", "").split("/")[1:])
-    client = storage.Client()
+    client = make_storage_client(project)
     bucket = client.bucket(bucket_name)
     for path in local_dir.rglob("*"):
         if path.is_file():
             blob = bucket.blob(f"{prefix}/{path.relative_to(local_dir)}")
             blob.upload_from_filename(str(path))
             print(f"  Uploaded {blob.name}")
-    return gcs_uri
+    return True
 
 
-def write_report_uri_to_ads(client: bigquery.Client, project: str,
-                             backtest_id: str, gcs_uri: str, local_path: str):
-    # metrics_json is a STRING column; JSON_SET needs JSON, so PARSE_JSON in and
-    # TO_JSON_STRING out to keep the column a STRING while preserving existing keys.
+def write_report_status_to_ads(client: bigquery.Client, project: str,
+                               backtest_id: str, local_path: str,
+                               upload_status: str, report_uri: str | None):
+    # metrics_json is a STRING column; PARSE_JSON in / TO_JSON_STRING out keeps it
+    # a STRING while preserving existing keys. wide_number_mode => 'round' tolerates
+    # wide floats (e.g. sharpe -6.2447297844571539) that exact mode rejects.
+    # report_uri is set ONLY when the GCS upload actually succeeded — otherwise it
+    # would point at a non-existent object and make QA/consumers untrustworthy.
+    # report_upload_status records the mode ('uploaded' | 'skipped'); 10's QA is
+    # mode-aware (local_report_path always present; report_uri present iff uploaded).
+    base = "PARSE_JSON(COALESCE(bs.metrics_json, '{}'), wide_number_mode => 'round')"
+    params = [
+        bigquery.ScalarQueryParameter("bid", "STRING", backtest_id),
+        bigquery.ScalarQueryParameter("local_path", "STRING", local_path),
+        bigquery.ScalarQueryParameter("upload_status", "STRING", upload_status),
+        bigquery.ScalarQueryParameter("ts", "STRING", datetime.utcnow().isoformat())]
+    if report_uri is not None:
+        json_expr = f"""JSON_SET({base},
+      '$.report_uri', @report_uri,
+      '$.local_report_path', @local_path,
+      '$.report_upload_status', @upload_status,
+      '$.report_generated_utc', @ts)"""
+        params.append(bigquery.ScalarQueryParameter("report_uri", "STRING", report_uri))
+    else:
+        # no real GCS object: drop any stale report_uri, record local-only status
+        json_expr = f"""JSON_SET(JSON_REMOVE({base}, '$.report_uri'),
+      '$.local_report_path', @local_path,
+      '$.report_upload_status', @upload_status,
+      '$.report_generated_utc', @ts)"""
     sql = f"""
     UPDATE `{project}.ashare_ads.ads_backtest_performance_summary` AS bs
-    SET bs.metrics_json = TO_JSON_STRING(JSON_SET(
-      PARSE_JSON(COALESCE(bs.metrics_json, '{{}}')),
-      '$.report_uri', @gcs_uri,
-      '$.local_report_path', @local_path,
-      '$.report_generated_utc', @ts
-    ))
+    SET bs.metrics_json = TO_JSON_STRING({json_expr})
     WHERE bs.backtest_id = @bid
     """
-    job_cfg = bigquery.QueryJobConfig(query_parameters=[
-        bigquery.ScalarQueryParameter("bid", "STRING", backtest_id),
-        bigquery.ScalarQueryParameter("gcs_uri", "STRING", gcs_uri),
-        bigquery.ScalarQueryParameter("local_path", "STRING", local_path),
-        bigquery.ScalarQueryParameter("ts", "STRING", datetime.utcnow().isoformat())])
-    client.query(sql, job_config=job_cfg).result()
-    print(f"  Updated ads_backtest_performance_summary.metrics_json with report_uri")
+    client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
+    print(f"  Updated summary.metrics_json (upload_status={upload_status}, "
+          f"report_uri={'set' if report_uri else 'cleared'})")
 
 
 def main():
     args = parse_args()
-    bq = bigquery.Client(project=args.project)
+    bq = make_bq_client(args.project)
 
     print("Fetching summary...")
     summary = fetch_summary(bq, args.project, args.backtest_id)
@@ -285,11 +344,17 @@ def main():
     (report_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str))
 
     gcs_uri = f"{args.artifact_base_uri}/ml_pv_clf_v0/run_id={args.run_id}/backtest_id={args.backtest_id}"
-    print(f"Uploading to GCS: {gcs_uri}")
-    upload_dir_to_gcs(report_dir, gcs_uri, args.skip_gcs_upload)
+    if args.skip_gcs_upload:
+        print(f"  Skipping GCS upload (local-only). Local: {report_dir}")
+        upload_status, report_uri = "skipped", None
+    else:
+        print(f"Uploading to GCS: {gcs_uri}")
+        upload_dir_to_gcs(args.project, report_dir, gcs_uri)
+        upload_status, report_uri = "uploaded", gcs_uri
 
-    print("Writing report_uri back to ADS...")
-    write_report_uri_to_ads(bq, args.project, args.backtest_id, gcs_uri, str(report_dir))
+    print("Writing report status back to ADS...")
+    write_report_status_to_ads(bq, args.project, args.backtest_id,
+                               str(report_dir), upload_status, report_uri)
 
     print(f"Done. Local: {report_dir}")
 
