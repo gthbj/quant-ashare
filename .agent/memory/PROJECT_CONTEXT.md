@@ -52,8 +52,9 @@ ashare_ods (已有, 外部表)
 - OQ-010 交易成本子项已形成 PRD（`docs/prd/PRD_20260602_02_OQ010交易成本口径.md`）并已在 runner SQL 中实现：默认成本 profile 为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，已将 runner 从单一 `p_cost_bps=30` 升级为分项成本。
 - 策略 1 中文报告与归因分析已实现并合并（PR #20）：`render_report.py` v2 生成中文 Markdown/HTML、交易/持仓/NAV/benchmark CSV 附件、图表、亏损证据包和 AI 诊断；评估主基准保持中证1000 `000852.SH`，展示对比基准包含沪深300 `000300.SH`；`09/10/README` 已同步报告字段与 QA。
 - 策略 1 报告 GCS uploaded 模式已跑通：`docs/策略1报告GCS上传运行手册.md` 已新增；2026-06-02 已创建 `gs://ashare-artifacts`（`ASIA-EAST2`）、配置本机 ADC（quota project=`data-aquarium`），去掉 `--skip-gcs-upload` 重跑报告并验收真实 `report_uri=gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_20260601_01/backtest_id=bt_s1_bqml_20260601_01`，`sql/ml/strategy1/10_qa_runner_outputs.sql` 全部通过。
-- 策略 1 模型质量诊断 PRD 已新增：`docs/prd/PRD_20260602_04_策略1模型质量诊断.md`，范围限定为先诊断 signal / label / sample-universe / candidate / portfolio / cost / style，不直接改模型或调参。
-- **下一步**：优先实现策略 1 模型质量诊断，再基于诊断结论推进 OQ-010 模型质量与参数迭代（调仓频率、持股数、权重上限、特征/标签/选股口径）；也可补 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
+- 策略 1 模型质量诊断 PRD 已新增：`docs/prd/PRD_20260602_04_策略1模型质量诊断.md`，范围限定为先诊断 signal / label / sample-universe / candidate / portfolio / cost / style，不直接改模型或调参。当前诊断主流程已跑通并上传 artifact，ADS 已回写诊断字段，主结论为 `sample_filter_risk` high；但 `sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 因 `split_tag` 歧义尚未通过 QA。
+- 策略 1 valid/test live-available 预测池口径修正 PRD 已新增：`docs/prd/PRD_20260602_05_策略1预测池口径修正.md`。该 PRD 只处理 valid/test 预测池不能依赖 `label_entry_tradable` / `label_valid_*` 等 live 不可得过滤，不同时处理信号反向或组合参数。
+- **下一步**：先修 `12_qa_model_diagnosis_outputs.sql` 的 `split_tag` 歧义，让诊断 QA 通过；再实现 `PRD_20260602_05_策略1预测池口径修正.md` 并用新 run_id 重跑 runner/报告/诊断；之后再基于干净口径决定 OQ-010 模型质量与参数迭代（调仓频率、持股数、权重上限、特征/标签/选股口径）。也可补 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
 
 ## 不可妥协的约定
 
