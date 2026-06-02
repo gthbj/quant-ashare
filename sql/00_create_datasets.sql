@@ -25,3 +25,9 @@ OPTIONS (
   location = 'asia-east2',
   description = 'A-share application data service layer for model training, prediction, portfolio and backtest outputs'
 );
+
+CREATE SCHEMA IF NOT EXISTS `data-aquarium.ashare_meta`
+OPTIONS (
+  location = 'asia-east2',
+  description = 'A-share metadata layer: field-level unit contracts, naming exceptions and data quality rules'
+);

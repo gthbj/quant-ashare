@@ -19,6 +19,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/02_dwd_stock_eod
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/03_dwd_fin_indicator.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/04_dwd_index_eod.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/05_dwd_fin_indicator_latest.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/meta/01_ods_field_unit_map.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/metadata/01_p0_table_column_descriptions.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/01_dws_stock_universe_daily.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/02_dws_stock_feature_price_daily.sql
@@ -88,6 +89,7 @@ python scripts/strategy1/render_report.py --project data-aquarium --backtest-id 
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/01_p0_smoke_checks.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_ads_checks.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/03_oq004_index_checks.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/05_oq006_unit_checks.sql
 ```
 
 ## Metadata

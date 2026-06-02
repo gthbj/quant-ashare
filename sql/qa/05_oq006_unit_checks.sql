@@ -1,0 +1,328 @@
+-- 文档维护：GPT-5（最近更新 2026-06-02）
+-- BigQuery Standard SQL
+-- OQ-006 单位契约 QA 门禁。
+-- 所有新增或修改 DWD 标准字段的 PR 必须运行本脚本并通过全部 ASSERT。
+-- 执行前确保 P0 DWD 表已物化（尤其是 dwd_index_eod 已按 OQ-006 重建）。
+
+DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
+
+-- ============================================================
+-- QA-UNIT-1：映射表存在且键唯一
+-- ============================================================
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT source_system, endpoint, ods_table, source_field, dwd_table, dwd_field, COUNT(*) AS n
+    FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+    GROUP BY source_system, endpoint, ods_table, source_field, dwd_table, dwd_field
+    HAVING n > 1
+  )
+) AS 'QA-UNIT-1: ods_field_unit_map primary key must be unique';
+
+-- ============================================================
+-- QA-UNIT-2：P0 覆盖检查 + PR #13 首批字段覆盖
+-- ============================================================
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT 'dwd_stock_eod_price' AS dwd_table, 'amount_cny' AS dwd_field UNION ALL
+    SELECT 'dwd_stock_eod_price', 'volume_share' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'volume_lot' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'amount_k_cny' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'open' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'high' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'low' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'close' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'pre_close' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'change' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'pct_chg' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'ret_1d' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'up_limit' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'down_limit' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'open_hfq' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'high_hfq' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'low_hfq' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'close_hfq' UNION ALL
+    SELECT 'dwd_stock_eod_price', 'adj_factor' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'total_share' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'float_share' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'free_share' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'total_share_10k' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'float_share_10k' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'free_share_10k' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'total_mv_cny' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'circ_mv_cny' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'total_mv_10k_cny' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'circ_mv_10k_cny' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'close' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'turnover_rate' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'turnover_rate_free_float' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'volume_ratio' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'pe' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'pe_ttm' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'pb' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'ps' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'ps_ttm' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'dividend_yield' UNION ALL
+    SELECT 'dwd_stock_eod_valuation', 'dividend_yield_ttm' UNION ALL
+    SELECT 'dwd_index_eod', 'volume_share' UNION ALL
+    SELECT 'dwd_index_eod', 'volume_lot' UNION ALL
+    SELECT 'dwd_index_eod', 'amount_cny' UNION ALL
+    SELECT 'dwd_index_eod', 'amount_k_cny' UNION ALL
+    SELECT 'dwd_index_eod', 'open' UNION ALL
+    SELECT 'dwd_index_eod', 'high' UNION ALL
+    SELECT 'dwd_index_eod', 'low' UNION ALL
+    SELECT 'dwd_index_eod', 'close' UNION ALL
+    SELECT 'dwd_index_eod', 'pre_close' UNION ALL
+    SELECT 'dwd_index_eod', 'change' UNION ALL
+    SELECT 'dwd_index_eod', 'pct_chg' UNION ALL
+    SELECT 'dwd_index_eod', 'total_mv_cny' UNION ALL
+    SELECT 'dwd_index_eod', 'float_mv_cny' UNION ALL
+    SELECT 'dwd_index_eod', 'total_share' UNION ALL
+    SELECT 'dwd_index_eod', 'float_share' UNION ALL
+    SELECT 'dwd_index_eod', 'free_share' UNION ALL
+    SELECT 'dwd_index_eod', 'turnover_rate' UNION ALL
+    SELECT 'dwd_index_eod', 'turnover_rate_free_float' UNION ALL
+    SELECT 'dwd_index_eod', 'pe' UNION ALL
+    SELECT 'dwd_index_eod', 'pe_ttm' UNION ALL
+    SELECT 'dwd_index_eod', 'pb' UNION ALL
+    SELECT 'dwd_fin_indicator', 'eps' UNION ALL
+    SELECT 'dwd_fin_indicator', 'dt_eps' UNION ALL
+    SELECT 'dwd_fin_indicator', 'net_debt' UNION ALL
+    SELECT 'dwd_fin_indicator', 'working_capital' UNION ALL
+    SELECT 'dwd_fin_indicator', 'netprofit_margin' UNION ALL
+    SELECT 'dwd_fin_indicator', 'grossprofit_margin' UNION ALL
+    SELECT 'dwd_fin_indicator', 'roe' UNION ALL
+    SELECT 'dwd_fin_indicator', 'roe_deducted' UNION ALL
+    SELECT 'dwd_fin_indicator', 'roa' UNION ALL
+    SELECT 'dwd_fin_indicator', 'roic' UNION ALL
+    SELECT 'dwd_fin_indicator', 'debt_to_assets' UNION ALL
+    SELECT 'dwd_fin_indicator', 'current_ratio' UNION ALL
+    SELECT 'dwd_fin_indicator', 'quick_ratio' UNION ALL
+    SELECT 'dwd_fin_indicator', 'cash_ratio' UNION ALL
+    SELECT 'dwd_fin_indicator', 'inventory_turnover' UNION ALL
+    SELECT 'dwd_fin_indicator', 'ar_turnover' UNION ALL
+    SELECT 'dwd_fin_indicator', 'assets_turnover' UNION ALL
+    SELECT 'dwd_fin_indicator', 'ocf_to_or' UNION ALL
+    SELECT 'dwd_fin_indicator', 'assets_to_equity' UNION ALL
+    SELECT 'dwd_fin_indicator', 'ocf_to_profit' UNION ALL
+    SELECT 'dwd_fin_indicator', 'q_netprofit_margin' UNION ALL
+    SELECT 'dwd_fin_indicator', 'q_grossprofit_margin' UNION ALL
+    SELECT 'dwd_fin_indicator', 'q_roe' UNION ALL
+    SELECT 'dwd_fin_indicator', 'q_roe_deducted' UNION ALL
+    SELECT 'dwd_fin_indicator', 'q_npta' UNION ALL
+    SELECT 'dwd_fin_indicator', 'basic_eps_yoy' UNION ALL
+    SELECT 'dwd_fin_indicator', 'dt_eps_yoy' UNION ALL
+    SELECT 'dwd_fin_indicator', 'operating_profit_yoy' UNION ALL
+    SELECT 'dwd_fin_indicator', 'ebt_yoy' UNION ALL
+    SELECT 'dwd_fin_indicator', 'netprofit_yoy' UNION ALL
+    SELECT 'dwd_fin_indicator', 'total_revenue_yoy' UNION ALL
+    SELECT 'dwd_fin_indicator', 'operating_revenue_yoy' UNION ALL
+    SELECT 'dwd_fin_income', 'total_revenue' UNION ALL
+    SELECT 'dwd_fin_income', 'revenue' UNION ALL
+    SELECT 'dwd_fin_income', 'total_cogs' UNION ALL
+    SELECT 'dwd_fin_income', 'operate_profit' UNION ALL
+    SELECT 'dwd_fin_income', 'total_profit' UNION ALL
+    SELECT 'dwd_fin_income', 'income_tax' UNION ALL
+    SELECT 'dwd_fin_income', 'n_income' UNION ALL
+    SELECT 'dwd_fin_income', 'n_income_attr_p' UNION ALL
+    SELECT 'dwd_fin_income', 'ebit' UNION ALL
+    SELECT 'dwd_fin_income', 'ebitda' UNION ALL
+    SELECT 'dwd_fin_balancesheet', 'total_assets' UNION ALL
+    SELECT 'dwd_fin_balancesheet', 'total_liab' UNION ALL
+    SELECT 'dwd_fin_balancesheet', 'total_hldr_eqy_exc_min_int' UNION ALL
+    SELECT 'dwd_fin_balancesheet', 'money_cap' UNION ALL
+    SELECT 'dwd_fin_balancesheet', 'inventories' UNION ALL
+    SELECT 'dwd_fin_balancesheet', 'accounts_receiv' UNION ALL
+    SELECT 'dwd_fin_balancesheet', 'goodwill' UNION ALL
+    SELECT 'dwd_fin_cashflow', 'n_cashflow_act' UNION ALL
+    SELECT 'dwd_fin_cashflow', 'n_cashflow_inv_act' UNION ALL
+    SELECT 'dwd_fin_cashflow', 'n_cash_flows_fnc_act' UNION ALL
+    SELECT 'dwd_fin_cashflow', 'free_cashflow'
+  ) AS required
+  LEFT JOIN `data-aquarium.ashare_meta.ods_field_unit_map` AS actual
+    USING (dwd_table, dwd_field)
+  WHERE actual.dwd_field IS NULL
+) AS 'QA-UNIT-2: all P0 and PR #13 first-batch fields must have unit mappings';
+
+-- ============================================================
+-- QA-UNIT-3：未核对字段阻断（mapping 中不允许 pending）
+-- ============================================================
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+  WHERE verification_status = 'pending'
+) AS 'QA-UNIT-3: no pending mappings allowed in ods_field_unit_map';
+
+-- ============================================================
+-- QA-UNIT-4：命名检查
+-- ============================================================
+-- 4a: 金额/市值标准字段（canonical_unit = '元'）必须以 _cny 结尾；legacy_unsuffixed 例外需有清理日期
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+  WHERE semantic_type IN ('amount', 'market_value')
+    AND canonical_unit = '元'
+    AND verification_status = 'verified'
+    AND NOT ENDS_WITH(dwd_field, '_cny')
+    AND naming_exception_type IS NULL
+) AS 'QA-UNIT-4a: amount/market_value standard fields (canonical_unit=元) must end with _cny unless registered exception';
+
+-- 4b: 数量/股本标准字段（canonical_unit = '股'）必须以 _share 结尾（允许命名例外登记）
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+  WHERE semantic_type IN ('volume', 'share')
+    AND canonical_unit = '股'
+    AND verification_status = 'verified'
+    AND NOT ENDS_WITH(dwd_field, '_share')
+    AND naming_exception_type IS NULL
+) AS 'QA-UNIT-4b: volume/share standard fields (canonical_unit=股) must end with _share unless registered exception';
+
+-- 4c: raw 字段必须体现源单位（_lot / _k_cny / _10k_cny / _10k_share / _10k）
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+  WHERE raw_field_kept = TRUE
+    AND raw_field_name IS NOT NULL
+    AND NOT (
+         ENDS_WITH(raw_field_name, '_lot')
+      OR ENDS_WITH(raw_field_name, '_k_cny')
+      OR ENDS_WITH(raw_field_name, '_10k_cny')
+      OR ENDS_WITH(raw_field_name, '_10k_share')
+      OR ENDS_WITH(raw_field_name, '_10k')
+    )
+) AS 'QA-UNIT-4c: raw field names must indicate source unit suffix';
+
+-- ============================================================
+-- QA-UNIT-5：DWS/ADS 禁止二次换算
+-- ============================================================
+-- 首版实现说明：BQ SQL 脚本无法直接扫描仓库文件系统做 SQL 文本 lint。
+-- 建议在 CI/CD 或本地 pre-commit 中运行以下命令行检查：
+--   grep -rn "\* *1000\|\* *10000\|\* *100000000" sql/dws/ sql/ads/ --include="*.sql"
+-- 若出现无说明的乘法常数，需人工 review 并在代码注释中写明换算来源。
+-- 本 QA 脚本当前仅输出 DWS/ADS 现有表名作为提醒，不阻断。
+SELECT 'QA-UNIT-5 INFO: DWS/ADS tables currently materialized; ensure no unit multiplication in DWS/ADS SQL' AS msg,
+       table_name
+FROM `data-aquarium.ashare_dws.INFORMATION_SCHEMA.TABLES`
+UNION ALL
+SELECT 'QA-UNIT-5 INFO: DWS/ADS tables currently materialized; ensure no unit multiplication in DWS/ADS SQL' AS msg,
+       table_name
+FROM `data-aquarium.ashare_ads.INFORMATION_SCHEMA.TABLES`;
+
+-- ============================================================
+-- QA-UNIT-6：算术自洽检查
+-- ============================================================
+-- 6a: daily amount_cny ~= close * volume_share（允许行情聚合误差，中位数在合理区间）
+ASSERT (
+  SELECT COUNTIF(median_ratio BETWEEN 0.5 AND 2.0) > 0
+  FROM (
+    SELECT APPROX_QUANTILES(SAFE_DIVIDE(amount_cny, close * volume_share), 100)[OFFSET(50)] AS median_ratio
+    FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price`
+    WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date
+      AND close > 0 AND volume_share > 0 AND amount_cny > 0
+  )
+) AS 'QA-UNIT-6a: dwd_stock_eod_price amount_cny median must be consistent with close * volume_share';
+
+-- 6b: daily_basic total_mv_cny ~= close * total_share
+ASSERT (
+  SELECT COUNTIF(median_ratio BETWEEN 0.5 AND 2.0) > 0
+  FROM (
+    SELECT APPROX_QUANTILES(SAFE_DIVIDE(total_mv_cny, close * total_share), 100)[OFFSET(50)] AS median_ratio
+    FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
+    WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date
+      AND close > 0 AND total_share > 0 AND total_mv_cny > 0
+  )
+) AS 'QA-UNIT-6b: dwd_stock_eod_valuation total_mv_cny median must be consistent with close * total_share';
+
+-- 6c: daily_basic circ_mv_cny ~= close * float_share
+ASSERT (
+  SELECT COUNTIF(median_ratio BETWEEN 0.5 AND 2.0) > 0
+  FROM (
+    SELECT APPROX_QUANTILES(SAFE_DIVIDE(circ_mv_cny, close * float_share), 100)[OFFSET(50)] AS median_ratio
+    FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
+    WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date
+      AND close > 0 AND float_share > 0 AND circ_mv_cny > 0
+  )
+) AS 'QA-UNIT-6c: dwd_stock_eod_valuation circ_mv_cny median must be consistent with close * float_share';
+
+-- 6d: index_daily 换算系数检查（volume_share / volume_lot ~= 100，amount_cny / amount_k_cny ~= 1000）
+ASSERT (
+  SELECT COUNTIF(vol_ratio BETWEEN 90 AND 110) > 0
+  FROM (
+    SELECT APPROX_QUANTILES(SAFE_DIVIDE(volume_share, volume_lot), 100)[OFFSET(50)] AS vol_ratio
+    FROM `data-aquarium.ashare_dwd.dwd_index_eod`
+    WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date
+      AND volume_share > 0 AND volume_lot > 0
+  )
+) AS 'QA-UNIT-6d: dwd_index_eod volume_share / volume_lot must be ~100 (hand->share)';
+
+ASSERT (
+  SELECT COUNTIF(amt_ratio BETWEEN 900 AND 1100) > 0
+  FROM (
+    SELECT APPROX_QUANTILES(SAFE_DIVIDE(amount_cny, amount_k_cny), 100)[OFFSET(50)] AS amt_ratio
+    FROM `data-aquarium.ashare_dwd.dwd_index_eod`
+    WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date
+      AND amount_cny > 0 AND amount_k_cny > 0
+  )
+) AS 'QA-UNIT-6d: dwd_index_eod amount_cny / amount_k_cny must be ~1000 (k_cny->cny)';
+
+-- 6e: index_dailybasic 市值/股本不应出现 1e4 换算错误（已为元/股，直接比对 ODS raw）
+-- 同时断言 join 非空，防止空集合静默通过
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(mismatch) = 0
+  FROM (
+    SELECT
+      ABS(SAFE_DIVIDE(d.total_mv_cny, SAFE_CAST(o.total_mv AS FLOAT64)) - 1.0) > 1e-6
+      OR ABS(SAFE_DIVIDE(d.float_mv_cny, SAFE_CAST(o.float_mv AS FLOAT64)) - 1.0) > 1e-6
+      OR ABS(SAFE_DIVIDE(d.total_share, SAFE_CAST(o.total_share AS FLOAT64)) - 1.0) > 1e-6
+      OR ABS(SAFE_DIVIDE(d.float_share, SAFE_CAST(o.float_share AS FLOAT64)) - 1.0) > 1e-6
+      OR ABS(SAFE_DIVIDE(d.free_share, SAFE_CAST(o.free_share AS FLOAT64)) - 1.0) > 1e-6
+      AS mismatch
+    FROM `data-aquarium.ashare_dwd.dwd_index_eod` AS d
+    JOIN `data-aquarium.ashare_ods.ods_tushare_index_dailybasic` AS o
+      ON d.source_sec_code = o.ts_code
+     AND FORMAT_DATE('%Y%m%d', d.trade_date) = o.trade_date
+    WHERE d.trade_date BETWEEN dwd_start_date AND dwd_end_date
+      AND o.partition_date BETWEEN FORMAT_DATE('%Y%m%d', dwd_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+      AND o.endpoint IN (SELECT dailybasic_endpoint FROM `data-aquarium.ashare_dim.dim_index` WHERE dailybasic_endpoint IS NOT NULL)
+      AND d.total_mv_cny IS NOT NULL
+      AND o.total_mv IS NOT NULL
+  )
+) AS 'QA-UNIT-6e: dwd_index_eod index_dailybasic fields must match ODS raw values (no 1e4 conversion) and join must be non-empty';
+
+-- ============================================================
+-- QA-UNIT-7~9：命名例外类型约束（防止 exception 被滥用）
+-- ============================================================
+-- 7: naming_exception_type 只能取白名单值
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+  WHERE naming_exception_type IS NOT NULL
+    AND naming_exception_type NOT IN ('legacy_unsuffixed', 'source_name_passthrough')
+) AS 'QA-UNIT-7: naming_exception_type must be in whitelist (legacy_unsuffixed, source_name_passthrough, or NULL)';
+
+-- 8: legacy_unsuffixed 必须有 naming_exception_expires_at
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+  WHERE naming_exception_type = 'legacy_unsuffixed'
+    AND naming_exception_expires_at IS NULL
+) AS 'QA-UNIT-8: legacy_unsuffixed must have naming_exception_expires_at (migration TODO required)';
+
+-- 9: source_name_passthrough 必须满足 source_unit = canonical_unit AND multiplier = 1，且不能有清理日期
+-- 显式检查 NULL，避免三值逻辑漏判
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+  WHERE naming_exception_type = 'source_name_passthrough'
+    AND (
+      source_unit IS NULL
+      OR canonical_unit IS NULL
+      OR multiplier IS NULL
+      OR source_unit != canonical_unit
+      OR multiplier != 1
+      OR naming_exception_expires_at IS NOT NULL
+    )
+) AS 'QA-UNIT-9: source_name_passthrough requires source_unit = canonical_unit AND multiplier = 1 AND no expires_at';
