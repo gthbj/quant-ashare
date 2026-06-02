@@ -168,6 +168,19 @@ def fetch_nav(client: bigquery.Client, project: str, backtest_id: str,
     ])
     if df.empty:
         raise SystemExit(f"No NAV data for backtest_id={backtest_id}")
+    # Canonicalize: fail fast if ADS has inconsistent duplicates (same date,
+    # different nav/cash/etc.); silently drop exact duplicates.
+    dups = df[df.duplicated("trade_date", keep=False)]
+    if not dups.empty:
+        dup_dates = dups["trade_date"].unique()
+        for dt in dup_dates:
+            chunk = dups[dups["trade_date"] == dt]
+            if chunk.drop(columns=["trade_date"]).drop_duplicates().shape[0] > 1:
+                raise SystemExit(
+                    f"NAV table has inconsistent duplicates for trade_date={dt} "
+                    f"(backtest_id={backtest_id}). Fix ADS data before rendering."
+                )
+        df = df.drop_duplicates("trade_date", keep="first")
     return df
 
 
@@ -377,8 +390,11 @@ def compute_rolling_loss_events(nav_df: pd.DataFrame) -> list[dict]:
         if pd.isna(min_val):
             continue
         min_date = roll.idxmin()
-        start_idx = roll.index.get_loc(min_date)
-        start_idx = max(0, start_idx - window + 1)
+        loc = roll.index.get_loc(min_date)
+        if isinstance(loc, slice):
+            start_idx = max(0, loc.start - window + 1)
+        else:
+            start_idx = max(0, int(loc) - window + 1)
         events.append({
             "window": window,
             "worst_return": round(float(min_val), 6),
