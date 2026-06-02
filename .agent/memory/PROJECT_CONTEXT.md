@@ -50,8 +50,9 @@ ashare_ods (已有, 外部表)
 - OQ-006 单位契约已实现并关闭（PR #16 已合并）：`ashare_meta.ods_field_unit_map` 已创建并填充 P0 + PR #13 首批映射；`dwd_index_eod.volume/amount` 已按 `vol*100` / `amount*1000` 修复换算并迁移为 `volume_share/amount_cny`；`sql/qa/05_oq006_unit_checks.sql` 已创建并纳入所有 DWD PR 必跑 QA；单位准入硬规则已写入 DWD-DIM §3.3-H 和 `KNOWN_CONSTRAINTS.md`。
 - OQ-003 财务报表口径已实现并关闭（PR #13 已合并）：`dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`（+ `_latest`）与 `dws_stock_feature_fin_daily` 已进入 `main` 并物化；`sql/qa/04_finance_caliber_checks.sql` 通过，且已按 OQ-006 补全财务字段单位映射并跑通 `sql/qa/05_oq006_unit_checks.sql`。
 - OQ-010 交易成本子项已形成 PRD（`docs/prd/PRD_20260602_02_OQ010交易成本口径.md`）并已在 runner SQL 中实现：默认成本 profile 为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，已将 runner 从单一 `p_cost_bps=30` 升级为分项成本。
-- 策略 1 中文报告与归因分析 PRD 已形成（`docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`）：要求报告中文化、评估主基准保持中证1000 `000852.SH`、展示对比基准包含沪深300 `000300.SH`、输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断；代码实现仍需后续 PR 更新 08/09/10/report/README。
-- **下一步**：实现策略 1 中文报告与归因分析，继续推进策略 1 模型质量与参数迭代（调仓频率、持股数、权重上限、特征/标签/选股口径）、补 `dws_market_state_daily`、准备 GCS bucket（`ashare-artifacts`）+ ADC 后重跑 uploaded 模式报告；P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
+- 策略 1 中文报告与归因分析已实现并合并（PR #20）：`render_report.py` v2 生成中文 Markdown/HTML、交易/持仓/NAV/benchmark CSV 附件、图表、亏损证据包和 AI 诊断；评估主基准保持中证1000 `000852.SH`，展示对比基准包含沪深300 `000300.SH`；`09/10/README` 已同步报告字段与 QA。
+- 策略 1 报告 GCS uploaded 模式运行手册已新增：`docs/策略1报告GCS上传运行手册.md`。当前仍需按手册准备 `ashare-artifacts` bucket + ADC，去掉 `--skip-gcs-upload` 重跑报告并验收真实 `report_uri`。
+- **下一步**：继续推进策略 1 模型质量与参数迭代（调仓频率、持股数、权重上限、特征/标签/选股口径）、补 `dws_market_state_daily`、按运行手册准备 GCS bucket（`ashare-artifacts`）+ ADC 后重跑 uploaded 模式报告；P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
 
 ## 不可妥协的约定
 
