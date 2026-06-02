@@ -41,6 +41,20 @@ python scripts/strategy1/render_report.py \
     --skip-gcs-upload   # 去掉则上传 GCS 并写真实 report_uri（需 bucket + ADC）
 
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql
+
+# 11-12: 模型质量诊断（在 01-10 和 render_report 完成后执行）
+# diagnose_model_quality.py 读取 ADS/DWS/DWD，生成 model_diagnosis/ artifact，
+# 上传 GCS（默认），并回写 metrics_json.model_diagnosis_*。
+# 本地验证用 --skip-gcs-upload。
+python scripts/strategy1/diagnose_model_quality.py \
+    --project data-aquarium \
+    --run-id s1_bqml_20260601_01 \
+    --backtest-id bt_s1_bqml_20260601_01 \
+    --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
+    --local-mirror-root reports/strategy1 \
+    --skip-gcs-upload
+
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql
 ```
 
 ## 参数说明
@@ -143,6 +157,41 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 | `auto`（默认） | 触发条件满足且凭据可用时调用 LLM；无凭据或失败时退化为 `evidence_only` |
 
 凭据通过环境变量提供：`OPENAI_API_KEY` 或 `LLM_API_KEY`，可选 `LLM_BASE_URL`、`LLM_MODEL`。
+
+## 模型质量诊断产物（PRD-20260602-04）
+
+诊断输出到 `reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/model_diagnosis/`：
+
+| 文件 | 说明 |
+|---|---|
+| `diagnosis.md` | 中文诊断报告（人读） |
+| `diagnosis_summary.json` | 结构化诊断结论、证据、下一步建议 |
+| `daily_rank_ic.csv` | 日截面 RankIC（valid+test） |
+| `rank_ic_summary.json` | valid/test/all RankIC 汇总统计 |
+| `score_bucket_lift.csv` | 5/10 分组收益、命中率、单调性 |
+| `score_calibration.csv` | score bucket 校准检查 |
+| `label_horizon_comparison.csv` | 1d/5d/10d/20d horizon RankIC 对照 |
+| `sample_universe_funnel.csv` | 样本股票池漏斗（trainable → universe → selected） |
+| `candidate_funnel.csv` | 候选池漏斗（prediction → selected → filled） |
+| `feature_exposure_by_group.csv` | 各群体特征暴露对比 |
+| `drawdown_window_diagnostics.csv` | 回撤窗口诊断 |
+| `portfolio_concentration.csv` | 持仓集中度（HHI、top weight、position count） |
+| `cost_turnover_diagnostics.csv` | 成本与换手诊断 |
+| `market_regime_diagnostics.csv` | 中证 1000 市场阶段 |
+| `style_exposure_diagnostics.csv` | 持仓风格暴露 |
+
+诊断参数：
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | GCP project id |
+| `--run-id` | 运行 ID |
+| `--backtest-id` | 回测 ID |
+| `--strategy-id` | 策略 ID（默认 `ml_pv_clf_v0`） |
+| `--artifact-base-uri` | GCS 基础路径 |
+| `--local-mirror-root` | 本地镜像根目录 |
+| `--skip-gcs-upload` | 跳过 GCS 上传 |
+| `--p-target-holdings` | 当前目标持股数（默认 5） |
 
 ## 关键设计
 
