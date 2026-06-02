@@ -6,7 +6,7 @@
 
 ## P0 — 当前优先
 
-- [x] 按已确认的 OQ-006 PRD 实现 `ashare_meta.ods_field_unit_map`、P0 + PR #13 首批单位映射 seed、`sql/qa/05_oq006_unit_checks.sql`、`dwd_index_eod.volume/amount` 换算修复（`vol*100` / `amount*1000`）+ `volume_share/amount_cny` 迁移，并更新 DWD-DIM / README / `KNOWN_CONSTRAINTS.md` / `OPEN_QUESTIONS.md`
+- [ ] 按已确认的 OQ-006 PRD 实现 `ashare_meta.ods_field_unit_map`、P0 + PR #13 首批单位映射 seed、`sql/qa/05_oq006_unit_checks.sql`、`dwd_index_eod.volume/amount` 换算修复（`vol*100` / `amount*1000`）+ `volume_share/amount_cny` 迁移，并更新 DWD-DIM / README / `KNOWN_CONSTRAINTS.md` / `OPEN_QUESTIONS.md`；PR #16 review 反馈：财务金额字段补充 legacy_unsuffixed 命名例外、QA-UNIT-6e 改为 ODS 直接比对，待 BQ 验证通过后关闭
 - [ ] 合并 / 落地 PR #13（OQ-003 财务三表 DWD）：`dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow` 及对应 QA；合并时必须随表补全 `ods_field_unit_map` 中剩余财务字段映射，并跑通 `05_oq006_unit_checks.sql`
 - [ ] 合并 / 落地 PRD03（OQ-003 财务三表 DWS）：单季派生、财务特征 DWS 和对应 QA
 - [ ] 补 P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily`、`dws_market_state_daily`、后续策略共用的财务 / 市场状态特征

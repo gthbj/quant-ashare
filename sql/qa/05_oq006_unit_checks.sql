@@ -158,29 +158,27 @@ ASSERT (
 -- ============================================================
 -- QA-UNIT-4：命名检查
 -- ============================================================
--- 4a: 发生单位换算的金额/市值标准字段（source_unit != '元' 且 canonical_unit = '元'）必须以 _cny 结尾
+-- 4a: 金额/市值标准字段（canonical_unit = '元'）必须以 _cny 结尾；legacy_unsuffixed 例外需有清理日期
 ASSERT (
   SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_meta.ods_field_unit_map`
   WHERE semantic_type IN ('amount', 'market_value')
     AND canonical_unit = '元'
-    AND source_unit != '元'
     AND verification_status = 'verified'
     AND NOT ENDS_WITH(dwd_field, '_cny')
     AND naming_exception_type IS NULL
-) AS 'QA-UNIT-4a: converted amount/market_value fields must end with _cny';
+) AS 'QA-UNIT-4a: amount/market_value standard fields (canonical_unit=元) must end with _cny unless registered exception';
 
--- 4b: 发生单位换算的数量/股本标准字段（source_unit != '股' 且 canonical_unit = '股'）必须以 _share 结尾（允许命名例外登记）
+-- 4b: 数量/股本标准字段（canonical_unit = '股'）必须以 _share 结尾（允许命名例外登记）
 ASSERT (
   SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_meta.ods_field_unit_map`
   WHERE semantic_type IN ('volume', 'share')
     AND canonical_unit = '股'
-    AND source_unit != '股'
     AND verification_status = 'verified'
     AND NOT ENDS_WITH(dwd_field, '_share')
     AND naming_exception_type IS NULL
-) AS 'QA-UNIT-4b: converted volume/share fields must end with _share unless registered exception';
+) AS 'QA-UNIT-4b: volume/share standard fields (canonical_unit=股) must end with _share unless registered exception';
 
 -- 4c: raw 字段必须体现源单位（_lot / _k_cny / _10k_cny / _10k_share / _10k）
 ASSERT (
@@ -270,13 +268,21 @@ ASSERT (
   )
 ) AS 'QA-UNIT-6d: dwd_index_eod amount_cny / amount_k_cny must be ~1000 (k_cny->cny)';
 
--- 6e: index 市值/股本不出现 1e4 单位量级错误（index_dailybasic 已是元/股，若被误当万元/万股则差 1e4）
+-- 6e: index_dailybasic 市值/股本不应出现 1e4 换算错误（已为元/股，直接比对 ODS raw）
 ASSERT (
-  SELECT COUNTIF(median_mv_per_share > 0) > 0
-  FROM (
-    SELECT APPROX_QUANTILES(SAFE_DIVIDE(total_mv_cny, total_share), 100)[OFFSET(50)] AS median_mv_per_share
-    FROM `data-aquarium.ashare_dwd.dwd_index_eod`
-    WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date
-      AND total_share > 0 AND total_mv_cny > 0
-  )
-) AS 'QA-UNIT-6e: dwd_index_eod total_mv_cny / total_share must be positive (no 1e4 unit error)';
+  SELECT COUNTIF(
+    ABS(SAFE_DIVIDE(d.total_mv_cny, SAFE_CAST(o.total_mv AS FLOAT64)) - 1.0) > 1e-6
+    OR ABS(SAFE_DIVIDE(d.float_mv_cny, SAFE_CAST(o.float_mv AS FLOAT64)) - 1.0) > 1e-6
+    OR ABS(SAFE_DIVIDE(d.total_share, SAFE_CAST(o.total_share AS FLOAT64)) - 1.0) > 1e-6
+    OR ABS(SAFE_DIVIDE(d.float_share, SAFE_CAST(o.float_share AS FLOAT64)) - 1.0) > 1e-6
+    OR ABS(SAFE_DIVIDE(d.free_share, SAFE_CAST(o.free_share AS FLOAT64)) - 1.0) > 1e-6
+  ) = 0
+  FROM `data-aquarium.ashare_dwd.dwd_index_eod` AS d
+  JOIN `data-aquarium.ashare_ods.ods_tushare_index_dailybasic` AS o
+    ON d.source_sec_code = o.ts_code
+   AND FORMAT_DATE('%Y%m%d', d.trade_date) = o.trade_date
+  WHERE d.trade_date BETWEEN dwd_start_date AND dwd_end_date
+    AND o.partition_date BETWEEN FORMAT_DATE('%Y%m%d', dwd_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+    AND d.total_mv_cny IS NOT NULL
+    AND o.total_mv IS NOT NULL
+) AS 'QA-UNIT-6e: dwd_index_eod index_dailybasic fields must match ODS raw values (no 1e4 conversion)';
