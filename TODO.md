@@ -23,6 +23,8 @@
 - [x] PR #9 合并后重建 `dim_stock`，并按依赖重建 `dwd_stock_eod_price` 与策略 1 DWS/ADS 派生产物，执行 metadata / P0 QA / 策略 1 QA（2026-06-02 已重建 `dim_stock`、`dwd_stock_eod_price`、策略 1 DWS 六表与 ADS 契约表；已执行 metadata，P0 QA 与策略 1 QA 通过）
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置
 - [ ] 写「从 ODS 继承字段描述」脚本（`bq show` → 映射 → `bq update`）
+- [x] 编写 OQ-006 接口单位换算口径 PRD（`docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`，定义单位契约、`ods_field_unit_map`、P0 + PR #13 财务三表首批覆盖、价格/比率规则、命名例外字段、QA 门禁和关闭标准）
+- [ ] 按 OQ-006 PRD 实现 `ashare_meta.ods_field_unit_map`、P0 + PR #13 首批单位映射 seed、`sql/qa/05_oq006_unit_checks.sql`，并更新 DWD-DIM / README / `KNOWN_CONSTRAINTS.md`
 - [x] 设计 DWS/ADS 表体系（`docs/数据仓库建模方案-DWS-ADS.md`，覆盖 P0 DWS 特征/标签与 ADS 训练/预测/组合/回测/监控）
 - [x] 设计中低频小资金 ML 策略方案（`docs/A股中低频小资金机器学习策略方案.md`，首个策略 `ml_ranker_v0`）
 - [x] 编写并物化策略 1 DWS 建表 SQL：`dws_stock_universe_daily`、`dws_stock_feature_price_daily`、`dws_stock_feature_valuation_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`（`sql/dws/*.sql`，dry-run / 物化 / `sql/qa/02_strategy1_dws_ads_checks.sql` 通过；PR #4 comment 已补 `label_valid` 语义说明、去冗余 JOIN、量化最早可训练日期、同步 DWD-DIM 字段名）
@@ -67,4 +69,5 @@
 - [x] OQ-004 基准指数代码可用性：已实现并关闭（`dim_index` + 映射驱动 `dwd_index_eod` + OQ-004 QA + runner benchmark 窗口校验）
 - [x] OQ-007 退市日类型：ODS `stock_basic_delisted.delist_date` 已修复为 `STRING`，`dim_stock` SQL 已改为优先使用 ODS 退市日
 - [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 bq SQL
+- [ ] OQ-006 接口单位换算：PRD 草案已写并按 review feedback 修订，待 owner review 单位契约表结构、P0 + PR #13 首批补契约范围和 `dwd_index_eod.volume/amount` 命名债务处理方式
 - [ ] OQ-010 P0 策略默认参数：成本、调仓频率、持股数/权重上限（训练工具链已定为 BigQuery ML + SQL runner；首个基线股票池已定为仅沪深主板，不含北交所/创业板/科创板）
