@@ -92,6 +92,7 @@ WITH scored AS (
     pred.predict_date,
     pred.sec_code,
     pred.score,
+    s.fwd_xs_ret_5d,
     s.label_top30_5d,
     s.label_above_median_5d,
     NTILE(10) OVER (PARTITION BY pred.predict_date ORDER BY pred.score DESC, pred.sec_code) AS bucket
