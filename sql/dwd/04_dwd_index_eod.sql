@@ -1,8 +1,9 @@
--- 文档维护：GPT-5（最近更新 2026-06-01）
+-- 文档维护：GPT-5（最近更新 2026-06-02）
 -- BigQuery Standard SQL
 -- 指数日线 DWD：sec_code 输出规范指数代码；source_sec_code 保留 ODS 实际指数代码。
 -- source_sec_code -> sec_code 映射由 ashare_dim.dim_index 统一维护。
 -- index_dailybasic 的 total_mv/float_mv 单位为元，股本字段单位为股；不同于股票 daily_basic 的万元/万股口径。
+-- OQ-006 修复：index_daily.vol/amount 已按手/千元换算为股/元，标准字段为 volume_share/amount_cny，同时保留 volume_lot/amount_k_cny 源单位字段。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
@@ -39,8 +40,10 @@ daily AS (
     SAFE_CAST(d.pre_close AS FLOAT64) AS pre_close,
     SAFE_CAST(d.change AS FLOAT64) AS change,
     SAFE_CAST(d.pct_chg AS FLOAT64) AS pct_chg,
-    SAFE_CAST(d.vol AS FLOAT64) AS volume,
-    SAFE_CAST(d.amount AS FLOAT64) AS amount,
+    SAFE_CAST(d.vol AS FLOAT64) AS volume_lot,
+    SAFE_CAST(d.vol AS FLOAT64) * 100.0 AS volume_share,
+    SAFE_CAST(d.amount AS FLOAT64) AS amount_k_cny,
+    SAFE_CAST(d.amount AS FLOAT64) * 1000.0 AS amount_cny,
     COALESCE(d._source, 'tushare') AS source_system,
     d.partition_date AS source_partition_date,
     SAFE_CAST(d._ingested_at AS TIMESTAMP) AS ingested_at
@@ -85,8 +88,10 @@ SELECT
   d.pre_close,
   d.change,
   d.pct_chg,
-  d.volume,
-  d.amount,
+  d.volume_lot,
+  d.volume_share,
+  d.amount_k_cny,
+  d.amount_cny,
   b.total_mv_cny,
   b.float_mv_cny,
   b.total_share,
@@ -110,6 +115,10 @@ ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'
 ALTER COLUMN sec_code SET OPTIONS (description = '规范指数代码；沪深300 等双代码指数在此归一，如 ODS 399300.SZ 映射为 000300.SH'),
 ALTER COLUMN source_sec_code SET OPTIONS (description = '来源 ODS 实际指数代码，Tushare ts_code 格式，用于血缘追溯'),
 ALTER COLUMN index_alias SET OPTIONS (description = '常用指数别名'),
+ALTER COLUMN volume_lot SET OPTIONS (description = '指数成交量，手，保留源字段 index_daily.vol'),
+ALTER COLUMN volume_share SET OPTIONS (description = '指数成交量，股，由手换算为股，index_daily.vol * 100'),
+ALTER COLUMN amount_k_cny SET OPTIONS (description = '指数成交额，千元，保留源字段 index_daily.amount'),
+ALTER COLUMN amount_cny SET OPTIONS (description = '指数成交额，元，由千元换算为元，index_daily.amount * 1000'),
 ALTER COLUMN total_mv_cny SET OPTIONS (description = '指数总市值，元，来自 index_dailybasic.total_mv'),
 ALTER COLUMN float_mv_cny SET OPTIONS (description = '指数流通市值，元，来自 index_dailybasic.float_mv'),
 ALTER COLUMN total_share SET OPTIONS (description = '指数总股本，股，来自 index_dailybasic.total_share'),
