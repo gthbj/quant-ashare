@@ -60,7 +60,7 @@ Last updated: 2026-06-02
 
 ## 进行中 / 部分（In Progress）
 
-- 无。
+- 策略 1 模型质量诊断脚本已合并入 `main`，但首次 local smoke 执行在 `scripts/strategy1/diagnose_model_quality.py` 的 `compute_cost_turnover()` 暴露运行期 bug：`merged.fillna(0)` 会尝试用整数 0 填充 BigQuery `db_dtypes` 日期列并抛 `TypeError: ('Invalid value type', 0)`。当前分支 `codex/fix-diagnosis-cost-fillna` 已将成本诊断填充收敛到数值列，并补 trades 空表兜底；合并后需重新执行诊断 local smoke → uploaded 模式 → `sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql`。
 
 ## 未开始 / 未来（Not Started / Future）
 

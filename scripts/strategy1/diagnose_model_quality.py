@@ -661,7 +661,16 @@ def compute_portfolio_concentration(pos_df: pd.DataFrame) -> pd.DataFrame:
 def compute_cost_turnover(nav_df: pd.DataFrame, trades_df: pd.DataFrame) -> pd.DataFrame:
     if nav_df.empty:
         return pd.DataFrame()
+    base = nav_df[["trade_date", "nav", "daily_return", "cost_cny", "turnover_cny"]].copy()
+    cost_cols = ["turnover", "fee", "tax", "slippage", "economic_cost"]
+    if trades_df.empty:
+        for col in cost_cols:
+            base[col] = 0.0
+        return base
+
     trades = trades_df.copy()
+    for col in ["turnover_cny", "fee_cny", "tax_cny", "slippage_cny"]:
+        trades[col] = pd.to_numeric(trades[col], errors="coerce").fillna(0.0)
     trades["economic_cost"] = trades["fee_cny"].fillna(0) + trades["slippage_cny"].fillna(0)
     cost = trades.groupby("trade_date").agg(
         turnover=("turnover_cny", "sum"),
@@ -670,9 +679,12 @@ def compute_cost_turnover(nav_df: pd.DataFrame, trades_df: pd.DataFrame) -> pd.D
         slippage=("slippage_cny", "sum"),
         economic_cost=("economic_cost", "sum"),
     ).reset_index()
-    merged = nav_df[["trade_date", "nav", "daily_return", "cost_cny", "turnover_cny"]].merge(
-        cost, on="trade_date", how="left")
-    merged = merged.fillna(0)
+    merged = base.merge(cost, on="trade_date", how="left")
+    numeric_fill_cols = [
+        "nav", "daily_return", "cost_cny", "turnover_cny",
+        "turnover", "fee", "tax", "slippage", "economic_cost",
+    ]
+    merged[numeric_fill_cols] = merged[numeric_fill_cols].fillna(0.0)
     return merged
 
 
