@@ -23,6 +23,7 @@ import argparse
 import hashlib
 import html
 import json
+import mimetypes
 import os
 import sys
 import time
@@ -1472,8 +1473,10 @@ def upload_dir_to_gcs(project: str, local_dir: Path, gcs_uri: str) -> bool:
     bucket = client.bucket(bucket_name)
     for path in sorted(local_dir.rglob("*")):
         if path.is_file():
-            blob = bucket.blob(f"{prefix}/{path.relative_to(local_dir)}")
-            blob.upload_from_filename(str(path))
+            rel = path.relative_to(local_dir).as_posix()
+            blob = bucket.blob(f"{prefix}/{rel}")
+            content_type, _ = mimetypes.guess_type(str(path))
+            blob.upload_from_filename(str(path), content_type=content_type)
             print(f"  Uploaded {blob.name}")
     return True
 
