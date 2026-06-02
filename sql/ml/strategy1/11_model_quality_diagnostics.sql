@@ -28,6 +28,7 @@ WITH ranked AS (
     ON tp.trade_date = pred.predict_date
    AND tp.sec_code = pred.sec_code
    AND tp.run_id = p_run_id
+   AND tp.trade_date BETWEEN p_valid_start AND p_test_end
   JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
     ON s.trade_date = pred.predict_date
    AND s.sec_code = pred.sec_code
@@ -65,6 +66,7 @@ WITH scored AS (
     ON tp.trade_date = pred.predict_date
    AND tp.sec_code = pred.sec_code
    AND tp.run_id = p_run_id
+   AND tp.trade_date BETWEEN p_valid_start AND p_test_end
   JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
     ON s.trade_date = pred.predict_date
    AND s.sec_code = pred.sec_code
@@ -101,6 +103,7 @@ WITH scored AS (
     ON tp.trade_date = pred.predict_date
    AND tp.sec_code = pred.sec_code
    AND tp.run_id = p_run_id
+   AND tp.trade_date BETWEEN p_valid_start AND p_test_end
   JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
     ON s.trade_date = pred.predict_date
    AND s.sec_code = pred.sec_code
@@ -136,6 +139,7 @@ WITH base AS (
     ON tp.trade_date = pred.predict_date
    AND tp.sec_code = pred.sec_code
    AND tp.run_id = p_run_id
+   AND tp.trade_date BETWEEN p_valid_start AND p_test_end
   JOIN `data-aquarium.ashare_dws.dws_stock_label_daily` AS l
     ON l.trade_date = pred.predict_date
    AND l.sec_code = pred.sec_code
@@ -172,7 +176,9 @@ LEFT JOIN `data-aquarium.ashare_dws.dws_stock_universe_daily` AS u
 WHERE s.trade_date BETWEEN p_valid_start AND p_test_end
   AND s.feature_version = (SELECT ANY_VALUE(tp.feature_version)
                            FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-                           WHERE tp.run_id = p_run_id LIMIT 1)
+                           WHERE tp.run_id = p_run_id
+                             AND tp.trade_date BETWEEN p_valid_start AND p_test_end
+                           LIMIT 1)
 GROUP BY s.trade_date, s.split_tag
 ORDER BY s.trade_date;
 

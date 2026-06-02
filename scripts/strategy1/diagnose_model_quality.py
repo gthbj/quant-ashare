@@ -166,6 +166,7 @@ def fetch_predictions_with_labels(client: bigquery.Client, project: str,
       ON tp.trade_date = pred.predict_date
      AND tp.sec_code = pred.sec_code
      AND tp.run_id = @rid
+     AND tp.trade_date BETWEEN @sd AND @ed
     JOIN `{project}.ashare_dws.dws_stock_sample_daily` AS s
       ON s.trade_date = pred.predict_date
      AND s.sec_code = pred.sec_code
@@ -300,6 +301,7 @@ def fetch_label_horizon(client: bigquery.Client, project: str,
       ON tp.trade_date = pred.predict_date
      AND tp.sec_code = pred.sec_code
      AND tp.run_id = @rid
+     AND tp.trade_date BETWEEN @sd AND @ed
     JOIN `{project}.ashare_dws.dws_stock_label_daily` AS l
       ON l.trade_date = pred.predict_date
      AND l.sec_code = pred.sec_code
@@ -367,7 +369,9 @@ def fetch_funnel_data(client: bigquery.Client, project: str,
     WHERE s.trade_date BETWEEN @sd AND @ed
       AND s.feature_version = (SELECT ANY_VALUE(tp.feature_version)
                                FROM `{project}.ashare_ads.ads_ml_training_panel_daily` AS tp
-                               WHERE tp.run_id = @rid LIMIT 1)
+                               WHERE tp.run_id = @rid
+                                 AND tp.trade_date BETWEEN @sd AND @ed
+                               LIMIT 1)
     GROUP BY s.trade_date, s.split_tag
     ORDER BY s.trade_date
     """
@@ -443,7 +447,9 @@ def fetch_sample_filter_risk(client: bigquery.Client, project: str,
       AND s.feature_version = (
         SELECT ANY_VALUE(tp.feature_version)
         FROM `{project}.ashare_ads.ads_ml_training_panel_daily` AS tp
-        WHERE tp.run_id = @rid LIMIT 1
+        WHERE tp.run_id = @rid
+          AND tp.trade_date BETWEEN @sd AND @ed
+        LIMIT 1
       )
     GROUP BY s.split_tag
     """
