@@ -1,9 +1,9 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
 -- 09: 从 ADS 回测表计算汇总绩效与信号监控，写 performance_summary / signal_monitor。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
-DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_20260601_01';
+DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_20260602_01';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;

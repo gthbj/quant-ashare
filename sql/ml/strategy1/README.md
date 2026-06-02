@@ -34,8 +34,8 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/09_buil
 # 本地验证用 --skip-gcs-upload（不写 report_uri，report_upload_status=skipped）。
 python scripts/strategy1/render_report.py \
     --project data-aquarium \
-    --backtest-id bt_s1_bqml_20260601_01 \
-    --run-id s1_bqml_20260601_01 \
+    --backtest-id bt_s1_bqml_livepool_20260602_01 \
+    --run-id s1_bqml_livepool_20260602_01 \
     --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
     --local-mirror-root reports/strategy1 \
     --skip-gcs-upload   # 去掉则上传 GCS 并写真实 report_uri（需 bucket + ADC）
@@ -48,8 +48,8 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 # 本地验证用 --skip-gcs-upload。
 python scripts/strategy1/diagnose_model_quality.py \
     --project data-aquarium \
-    --run-id s1_bqml_20260601_01 \
-    --backtest-id bt_s1_bqml_20260601_01 \
+    --run-id s1_bqml_livepool_20260602_01 \
+    --backtest-id bt_s1_bqml_livepool_20260602_01 \
     --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
     --local-mirror-root reports/strategy1 \
     --skip-gcs-upload

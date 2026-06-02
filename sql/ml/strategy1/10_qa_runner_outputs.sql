@@ -1,9 +1,9 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
 -- 10: 运行后 QA 断言（全部用 p_ 前缀变量，别名限定表列）。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
-DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_20260601_01';
+DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_20260602_01';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
