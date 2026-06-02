@@ -6,7 +6,6 @@
 
 ## P0 — 当前优先
 
-- [ ] 按已确认的 OQ-006 PRD 实现 `ashare_meta.ods_field_unit_map`、P0 + PR #13 首批单位映射 seed、`sql/qa/05_oq006_unit_checks.sql`、`dwd_index_eod.volume/amount` 换算修复（`vol*100` / `amount*1000`）+ `volume_share/amount_cny` 迁移，并更新 DWD-DIM / README / `KNOWN_CONSTRAINTS.md` / `OPEN_QUESTIONS.md`；PR #16 review 反馈：财务金额字段补充 legacy_unsuffixed 命名例外、QA-UNIT-6e 改为 ODS 直接比对，待 BQ 验证通过后关闭
 - [ ] 合并 / 落地 PR #13（OQ-003 财务三表 DWD）：`dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow` 及对应 QA；合并时必须随表补全 `ods_field_unit_map` 中剩余财务字段映射，并跑通 `05_oq006_unit_checks.sql`
 - [ ] 合并 / 落地 PRD03（OQ-003 财务三表 DWS）：单季派生、财务特征 DWS 和对应 QA
 - [ ] 补 P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily`、`dws_market_state_daily`、后续策略共用的财务 / 市场状态特征
@@ -31,6 +30,7 @@
 
 ## 近期完成
 
+- [x] OQ-006 单位契约实现已合并（PR #16）：`ashare_meta.ods_field_unit_map`、`sql/qa/05_oq006_unit_checks.sql`、`dwd_index_eod` 换算修复与 `volume_share/amount_cny` 迁移已进入 `main`，OQ-006 已关闭
 - [x] 合并 OQ-006 PRD（PR #14）：`docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`
 - [x] 策略 1 BigQuery ML runner 已于 PR #12 在 BigQuery 端到端实跑并通过 `10_qa_runner_outputs.sql`（16 断言）
 - [x] OQ-004 基准指数代码可用性已实现并关闭（`dim_index` + 映射驱动 `dwd_index_eod` + OQ-004 QA + runner benchmark 窗口校验）

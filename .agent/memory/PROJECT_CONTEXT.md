@@ -47,8 +47,8 @@ ashare_ods (已有, 外部表)
 - 策略 1 `ml_pv_clf_v0` runner 设计已完成：`docs/策略1-ml_pv_clf_v0-runner设计.md`，执行路径收敛为 BigQuery ML + SQL，训练/预测/组合/回测结果写入既有 ADS 契约表。
 - 策略 1 runner 与回测闭环实现 PRD 已完成：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`。
 - 策略 1 BigQuery ML + SQL runner 脚本已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`。**已于 PR #12 在 BigQuery 端到端实跑并通过全部 QA**（run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`，`10_qa_runner_outputs.sql` 16 断言全过）。08 回测已重写为账户级有状态 ledger（DECISION-20260602-01）；不可交易腿记 `*_SKIPPED_UNTRADABLE` 意图行；报告为模式感知：本轮用 local-only（`--skip-gcs-upload`）验收，写 `local_report_path` + `report_upload_status=skipped`、`report_uri=NULL`。
-- OQ-006 单位契约实现中（PR #16）：`ashare_meta.ods_field_unit_map` 已创建并填充 P0 + PR #13 首批映射；`dwd_index_eod.volume/amount` 已按 `vol*100` / `amount*1000` 修复换算并迁移为 `volume_share/amount_cny`；`sql/qa/05_oq006_unit_checks.sql` 已创建并纳入所有 DWD PR 必跑 QA；单位准入硬规则已写入 DWD-DIM §3.3-H 和 `KNOWN_CONSTRAINTS.md`。待 PR #16 合并并通过 BQ 验证后关闭。
-- **下一步**：修复 PR #16 review 反馈（财务字段 legacy_unsuffixed、QA-UNIT-6e ODS 比对），BQ 验证通过后关闭 OQ-006；随后落地 PR #13 财务三表 DWD 并补全 `ods_field_unit_map` 剩余字段映射；或并行提升 v0 模型质量与参数（OQ-010）、准备 GCS bucket（`ashare-artifacts`）+ ADC 后重跑 render。
+- OQ-006 单位契约已实现并关闭（PR #16 已合并）：`ashare_meta.ods_field_unit_map` 已创建并填充 P0 + PR #13 首批映射；`dwd_index_eod.volume/amount` 已按 `vol*100` / `amount*1000` 修复换算并迁移为 `volume_share/amount_cny`；`sql/qa/05_oq006_unit_checks.sql` 已创建并纳入所有 DWD PR 必跑 QA；单位准入硬规则已写入 DWD-DIM §3.3-H 和 `KNOWN_CONSTRAINTS.md`。
+- **下一步**：落地 PR #13 / OQ-003 财务三表 DWD，并随表补全 `ods_field_unit_map` 剩余财务字段映射、跑通 `05_oq006_unit_checks.sql`；随后推进 PRD03 财务特征 DWS，或并行提升 v0 模型质量与参数（OQ-010）、准备 GCS bucket（`ashare-artifacts`）+ ADC 后重跑 render。
 
 ## 不可妥协的约定
 
