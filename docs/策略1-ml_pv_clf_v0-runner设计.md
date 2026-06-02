@@ -128,10 +128,10 @@ Runner 以 BigQuery script variables 传参，首版参数如下：
 | `board_allowlist` | `['SSE_MAIN','SZSE_MAIN']` | 首个基线股票池仅沪深主板，不含北交所、创业板、科创板。 |
 | `target_holdings` | 待 owner 确认 | 目标持股数。 |
 | `max_single_weight` | 待 owner 确认 | 单票权重上限。 |
-| `cost_bps` | 待 owner 确认 | 回测成本假设。 |
+| `cost_profile_id` | `cn_a_share_wanyi_no_min_slip5_v20260602` | OQ-010 成本子项已定：佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps；实现见 `PRD_20260602_02_OQ010交易成本口径.md`。 |
 | `benchmark_sec_code` | `000852.SH` 示例 | 基准指数 canonical `sec_code`；执行前必须通过 `dim_index` 可用性和完整 NAV 窗口覆盖校验。 |
 
-`OQ-010` 仍需 owner 确认成本、调仓频率、持股数、权重上限等参数；训练工具链已收敛为 BigQuery ML，首个基线板块纳入口径已定为仅沪深主板。
+`OQ-010` 的成本子项已由 `docs/prd/PRD_20260602_02_OQ010交易成本口径.md` 固化；仍需 owner 确认调仓频率、持股数、权重上限等参数。训练工具链已收敛为 BigQuery ML，首个基线板块纳入口径已定为仅沪深主板。
 
 ## 5. 训练面板
 
@@ -371,7 +371,7 @@ rebalance_date = 每个 ISO 周内 max(cal_date) where is_open = TRUE
 1. 信号日 `t`，订单在 `t+1` 开盘尝试成交。
 2. 买入要求 `can_buy_open[t+1]=TRUE`；否则本期跳过、记 `BUY_SKIPPED_UNTRADABLE` 意图行并保留现金。
 3. 卖出要求 `can_sell_open[t+1]=TRUE`；否则本期跳过、记 `SELL_SKIPPED_UNTRADABLE` 意图行，持仓 carry 到下一个调仓执行日再试（v1 ledger：不做 daily next-sellable 顺延搜索）。
-4. 成本包括佣金、印花税、滑点，参数来自 `cost_bps` 及后续扩展配置。
+4. 成本包括佣金、印花税、滑点；OQ-010 默认成本 profile 为 `cn_a_share_wanyi_no_min_slip5_v20260602`，后续实现需用分项成本替代单一 `cost_bps`。
 5. 持仓估值使用日收盘价；停牌日沿用可用收盘价并标记。
 
 输出指标：

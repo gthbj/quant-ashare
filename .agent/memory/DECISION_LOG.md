@@ -795,3 +795,42 @@ DWS 用逐行 caliber 匹配状态（匹配则 consolidated、未匹配则 NULL/
 ### 相关文件
 
 `sql/dwd/06_dwd_fin_income.sql`, `sql/dwd/07_dwd_fin_income_latest.sql`, `sql/dwd/08_dwd_fin_balancesheet.sql`, `sql/dwd/09_dwd_fin_balancesheet_latest.sql`, `sql/dwd/10_dwd_fin_cashflow.sql`, `sql/dwd/11_dwd_fin_cashflow_latest.sql`, `sql/dws/07_dws_stock_feature_fin_daily.sql`, `sql/qa/04_finance_caliber_checks.sql`, `sql/meta/01_ods_field_unit_map.sql`, `sql/qa/05_oq006_unit_checks.sql`, `docs/prd/PRD_20260601_03_财务报表口径维度.md`
+
+## DECISION-20260602-04: 策略 1 默认交易成本 profile
+
+日期: 2026-06-02
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+OQ-010 仍有策略默认参数待确认。当前策略 1 runner 使用单一 `p_cost_bps=30.0` 示例值，把佣金、印花税、滑点合并为对称单边成本。owner 要求先解决交易费用口径，指定佣金采用“万一免五”，印花税和滑点采用常用值。
+
+### 决策
+
+策略 1 P0 默认交易成本 profile 定为 `cn_a_share_wanyi_no_min_slip5_v20260602`：
+
+1. 佣金 `commission_bps = 1.0`，买卖双边收取。
+2. 最低佣金 `min_commission_cny = 0.0`，即免 5 元最低佣金。
+3. 印花税买入侧 `stamp_tax_buy_bps = 0.0`。
+4. 印花税卖出侧 `stamp_tax_sell_bps = 5.0`。
+5. 买入滑点 `slippage_buy_bps = 5.0`，卖出滑点 `slippage_sell_bps = 5.0`。
+6. 单一 `p_cost_bps=30.0` 不再作为 OQ-010 默认成本口径；后续实现需改为分项成本。
+
+### 理由
+
+“万一免五”符合 owner 对小资金成本的指定；卖出侧 5 bps 印花税与当前证券交易印花税减半征收后的常用 A 股口径一致；5 bps 买卖滑点作为 P0 基线能覆盖日线小资金回测中的常见成交价偏移，不把滑点误记为显性费用。分项建模比单一 `cost_bps` 更能表达买卖方向差异和报告可追溯性。
+
+### 影响
+
+新增 `docs/prd/PRD_20260602_02_OQ010交易成本口径.md`。OQ-010 的成本子项从“待 owner 确认”变为“已决策、待实现”；OQ-010 仍保留 open，因为调仓频率、持股数、单票权重上限和策略质量迭代仍未完全定稿。后续实现 PR 需改 `sql/ml/strategy1/08_run_backtest.sql`、`09_build_metrics_and_report_inputs.sql`、`10_qa_runner_outputs.sql`、README 和报告脚本。
+
+### 备选方案
+
+继续使用单一 `p_cost_bps=30.0`；放弃，因为无法表达卖出单边印花税和免最低佣金。把滑点并入 `fee_cny`；放弃，因为滑点应体现为成交价偏移，显性费用应只含佣金和税费。按券商/交易所所有细项逐项建模；暂不采用，因为 P0 小资金基线先需要稳定、可解释的默认 profile。
+
+### 相关文件
+
+`docs/prd/PRD_20260602_02_OQ010交易成本口径.md`, `docs/策略1-ml_pv_clf_v0-runner设计.md`, `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`

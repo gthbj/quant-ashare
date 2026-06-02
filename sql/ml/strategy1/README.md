@@ -53,7 +53,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 | `p_train_start` | 训练起点（默认 2019-04-03，避开 60 日窗口不完整期） |
 | `p_target_holdings` | 持股数（OQ-010 待确认，示例值 5） |
 | `p_max_single_weight` | 单票权重上限（OQ-010 待确认，示例值 0.20） |
-| `p_cost_bps` | 成本假设（OQ-010 待确认，示例值 30 bps） |
+| `p_cost_bps` | 当前已跑通 v0 的旧一揽子成本示例值 30 bps；OQ-010 默认成本 profile 已由 `docs/prd/PRD_20260602_02_OQ010交易成本口径.md` 固化，待后续实现 PR 改为分项成本 |
 | `p_benchmark` | 基准指数 canonical 代码（示例值 000852.SH）；执行前必须存在于 `dim_index` 且完整覆盖回测 NAV 窗口 |
 | `p_force_replace` | 是否覆盖同 run_id 结果（默认 FALSE） |
 
