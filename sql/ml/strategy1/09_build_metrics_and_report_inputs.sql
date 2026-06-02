@@ -67,10 +67,10 @@ WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND
 -- ── OQ-010 成本分解：从 trade 表直接汇总 fee/tax/slippage/economic_cost ──
 CREATE TEMP TABLE cost_stats AS
 SELECT
-  SUM(t.commission_cny) AS total_commission_cny,
+  SUM(t.fee_cny - t.tax_cny) AS total_commission_cny,
   SUM(t.tax_cny) AS total_tax_cny,
   SUM(t.slippage_cny) AS total_slippage_cny,
-  SUM(t.commission_cny + t.tax_cny + t.slippage_cny) AS total_economic_cost_cny
+  SUM(t.fee_cny + t.slippage_cny) AS total_economic_cost_cny
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
 WHERE t.backtest_id = p_backtest_id
   AND t.fill_status = 'FILLED'
