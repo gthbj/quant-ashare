@@ -1130,3 +1130,32 @@ Related issue/PR: gthbj/quant-ashare#12
 
 ### 已更新记忆文件
 - IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS、AGENT_HANDOFF、DECISION_LOG；TODO.md。
+
+---
+
+## Handoff Entry
+
+Date: 2026-06-02
+Agent ID: Claude
+Model: Claude Opus 4.8
+Runtime: Claude Code
+Related issue/PR: gthbj/quant-ashare#12（review follow-up）
+
+> 本条为 PR #12 三轮 review follow-up 后的**最终状态**，口径以本条为准（早于本条的 PR #12 条目里「回写 report_uri」「render 本地报告 + 回写 report_uri」属早期描述，已被本条与代码取代，append-only 故保留不回改）。
+
+### Work Completed（review follow-up）
+- 第一轮 review：08 增写不可交易 skip 意图行（`BUY_SKIPPED_UNTRADABLE` / `SELL_SKIPPED_UNTRADABLE`，`filled_shares=0`、无现金/换手影响、持仓 carry）；09 改为从 `ads_backtest_trade_daily` 1:1 汇总 buy/sell attempt/filled/skipped 与 skip rate（删旧 episode/60 日 next-sellable 口径）；`render_report.py` skip 模式不写 `report_uri`（写 `local_report_path` + `report_upload_status=skipped`），上传模式才写真实 `report_uri`，Storage 与 BQ 客户端共用 gcloud token 回退；`10` 报告断言改为模式感知。重跑 08-10、16 断言全过。
+- 第二轮 review：`ads_backtest_trade_daily.fill_status` 契约描述补 skip 枚举（源文件 + live 表 `ALTER`，数据保留）；README / PRD_02 / runner 设计 / 工作记忆从 v0 set-based + next-sellable + 无条件 GCS report_uri 收敛到 v1 ledger + 模式感知报告。
+- 第三轮 review：PRD M4/M5 里程碑、PRD 风险行、`10` 注释、`AGENT_HANDOFF` 下一步、`PROJECT_CONTEXT` 当前阶段/下一步全部收敛到 v1 口径。
+
+### 最终事实状态（bt_s1_bqml_20260601_01）
+- runner 01-10 端到端通过；08 = 账户级有状态 ledger；现金>=0、gross<=1、持仓唯一、NAV 覆盖 485 开市日。
+- 成交：BUY FILLED 363、SELL FILLED 422、SELL_SKIPPED_UNTRADABLE 21 → `sell_skip_rate=21/443=0.0474`（与 summary 一致）。
+- 报告：local-only 模式，`report_upload_status=skipped`、`local_report_path` 有值、`report_uri=NULL`。
+- v0 模型反向预测（valid rank_ic≈-0.10），NAV 收于≈0.02，属 OQ-010 模型质量、非管线缺陷。
+
+### 下一步建议
+- review/合并 PR #12；之后 OQ-010 模型质量与参数迭代；GCS bucket + ADC 后重跑 render 产出 `uploaded` 真实 `report_uri`；或 P1 财务/市场状态 DWS。
+
+### 已更新记忆文件
+- PROJECT_CONTEXT、MEMORY_INDEX、IMPLEMENTATION_STATUS、ARCHITECTURE_MEMORY、KNOWN_CONSTRAINTS、DECISION_LOG、AGENT_HANDOFF；TODO.md。
