@@ -652,10 +652,12 @@ Tushare `adj_factor` 为**累计后复权因子**。
 
 | 表 | 源 | 说明 |
 |---|---|---|
-| `dwd_fin_income` | `income` | 利润表。建议保留累计值并派生**单季值**（`q_*`）。 |
-| `dwd_fin_balancesheet` | `balancesheet` | 资产负债表（时点值）。 |
-| `dwd_fin_cashflow` | `cashflow` | 现金流量表。 |
+| `dwd_fin_income` | `income` | 利润表（累计/YTD）。**已落地**（`sql/dwd/06`），保留累计值；单季 `q_*` 派生延后到 P1。 |
+| `dwd_fin_balancesheet` | `balancesheet` | 资产负债表（时点值）。**已落地**（`sql/dwd/08`）。 |
+| `dwd_fin_cashflow` | `cashflow` | 现金流量表（累计/YTD）。**已落地**（`sql/dwd/10`）。 |
 | `dwd_fin_indicator` | `fina_indicator` | **已算好的财务比率**（ROE/毛利率/周转/YoY/QoQ/单季 `q_*`…），ML 因子的"性价比之王"，优先接入。 |
+
+> **OQ-003 报表口径（已实现，PRD_20260601_03）**：三大报表 DWD 在版本事实键里原样保留源 `report_type`，并派生 `report_caliber`（`consolidated`/`non_consolidated`/`other`/`unknown`，`report_type IS NULL → unknown`）和 `is_default_report_caliber = COALESCE(report_type='1', FALSE)`。版本事实表**不按 report_type 预过滤**，去重键为 `(sec_code, report_period, report_type, ann_date_eff, update_flag)`。默认 `_latest` 便捷表（`dwd_fin_*_latest`）只保留 `is_default_report_caliber=TRUE` 的合并报表口径，主键 `(sec_code, report_period)` 唯一，排序 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC`，**不得**在同一 latest 里既声明该唯一键又保留多口径。实测当前 ODS `income/balancesheet/cashflow` 仅含 `report_type='1'`（合并报表），`report_type>'1'` 的映射为前向兼容。`fina_indicator` 无 `report_type`，按 `report_caliber='source_default'` 处理，不伪造多口径。
 
 - **统一构建范式**（以 `fina_indicator` 为例）：
   ```sql
@@ -687,7 +689,7 @@ Tushare `adj_factor` 为**累计后复权因子**。
   FROM base b;
   -- 不在此去重：保留所有 (sec_code, report_period, ann_date_eff, update_flag) 版本
   ```
-  > **本表是版本事实表**（保留所有公告版本，§4.4①），消费侧 as-of 去重见 §7.3；另建 `dwd_fin_indicator_latest`（每期最新版）供非回测便捷查询。三大报表 `income/balancesheet/cashflow` 同范式，但可见日用 `COALESCE(f_ann_date, ann_date)`，并额外按 `report_type`（通常 `'1'` 合并报表）过滤。**关键产出 `ann_date_eff` / `visible_trade_date`** 是下游 as-of 的连接键。
+  > **本表是版本事实表**（保留所有公告版本，§4.4①），消费侧 as-of 去重见 §7.3；另建 `dwd_fin_indicator_latest`（每期最新版）供非回测便捷查询。三大报表 `income/balancesheet/cashflow` 同范式，但可见日用 `COALESCE(f_ann_date, ann_date)`，并保留源 `report_type` + 派生 `report_caliber`/`is_default_report_caliber`（见上方 OQ-003 注）；默认消费口径为合并报表 `report_type='1'`，过滤在消费侧（latest / DWS 预过滤子查询）做，不在版本事实表预过滤。**关键产出 `ann_date_eff` / `visible_trade_date`** 是下游 as-of 的连接键。
 
 - **派生单季值**：利润/现金流是累计数，单季 = 本期累计 − 上期累计（Q1 单季=Q1 累计）：
   ```sql

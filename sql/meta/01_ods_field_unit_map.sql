@@ -1,4 +1,4 @@
--- 文档维护：GPT-5（最近更新 2026-06-02）
+-- 文档维护：GPT-5（最近更新 2026-06-02）；PR #13 财务三表全字段补全：Claude Opus 4.8（2026-06-02）
 -- BigQuery Standard SQL
 -- OQ-006 单位契约表：ods_field_unit_map
 -- 作为 ODS -> DWD 单位换算的唯一事实来源。
@@ -193,7 +193,50 @@ VALUES
   ('tushare', 'cashflow', 'ods_tushare_cashflow', 'free_cashflow', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'free_cashflow', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'GPT-5', '企业自由现金流量；source_unit=canonical_unit=元，multiplier=1，保留源字段名');
 
 -- ============================================================
+-- PR #13 财务三表补全字段（DWD 实表落地的其余单位字段，OQ-006 全字段覆盖）
+-- 金额字段单位元、source_name_passthrough；每股收益单位元/股、per_share。
+-- 验证：Tushare Pro 财务报表接口文档 + PR #13 实测 600519.SH FY2023 量级一致。
+-- ============================================================
+INSERT INTO `data-aquarium.ashare_meta.ods_field_unit_map`
+VALUES
+  -- income: 每股收益（元/股）
+  ('tushare', 'income', 'ods_tushare_income', 'basic_eps', 'per_share', '元/股', '元/股', 1, 'dwd_fin_income', 'basic_eps', FALSE, NULL, 'verified', NULL, NULL, 'Tushare Pro income 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '基本每股收益，元/股'),
+  ('tushare', 'income', 'ods_tushare_income', 'diluted_eps', 'per_share', '元/股', '元/股', 1, 'dwd_fin_income', 'diluted_eps', FALSE, NULL, 'verified', NULL, NULL, 'Tushare Pro income 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '稀释每股收益，元/股'),
+  -- income: 其余金额字段（元，source_name_passthrough）
+  ('tushare', 'income', 'ods_tushare_income', 'oper_cost', 'amount', '元', '元', 1, 'dwd_fin_income', 'oper_cost', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro income 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '营业成本；元，source_name_passthrough'),
+  ('tushare', 'income', 'ods_tushare_income', 'sell_exp', 'amount', '元', '元', 1, 'dwd_fin_income', 'sell_exp', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro income 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '销售费用；元，source_name_passthrough'),
+  ('tushare', 'income', 'ods_tushare_income', 'admin_exp', 'amount', '元', '元', 1, 'dwd_fin_income', 'admin_exp', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro income 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '管理费用；元，source_name_passthrough'),
+  ('tushare', 'income', 'ods_tushare_income', 'fin_exp', 'amount', '元', '元', 1, 'dwd_fin_income', 'fin_exp', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro income 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '财务费用；元，source_name_passthrough'),
+  ('tushare', 'income', 'ods_tushare_income', 'rd_exp', 'amount', '元', '元', 1, 'dwd_fin_income', 'rd_exp', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro income 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '研发费用；元，source_name_passthrough'),
+  ('tushare', 'income', 'ods_tushare_income', 'non_oper_income', 'amount', '元', '元', 1, 'dwd_fin_income', 'non_oper_income', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro income 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '营业外收入；元，source_name_passthrough'),
+  ('tushare', 'income', 'ods_tushare_income', 'non_oper_exp', 'amount', '元', '元', 1, 'dwd_fin_income', 'non_oper_exp', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro income 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '营业外支出；元，source_name_passthrough'),
+  ('tushare', 'income', 'ods_tushare_income', 'minority_gain', 'amount', '元', '元', 1, 'dwd_fin_income', 'minority_gain', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro income 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '少数股东损益；元，source_name_passthrough'),
+  -- balancesheet: 其余金额字段（元，source_name_passthrough）
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'total_cur_assets', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'total_cur_assets', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '流动资产合计；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'total_nca', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'total_nca', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '非流动资产合计；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'fix_assets', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'fix_assets', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '固定资产；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'intan_assets', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'intan_assets', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '无形资产；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'r_and_d', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'r_and_d', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '开发支出；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'st_borr', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'st_borr', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '短期借款；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'lt_borr', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'lt_borr', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '长期借款；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'total_cur_liab', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'total_cur_liab', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '流动负债合计；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'total_ncl', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'total_ncl', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '非流动负债合计；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'minority_int', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'minority_int', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '少数股东权益；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'total_hldr_eqy_inc_min_int', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'total_hldr_eqy_inc_min_int', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '股东权益合计(含少数股东权益)；元，source_name_passthrough'),
+  ('tushare', 'balancesheet', 'ods_tushare_balancesheet', 'total_liab_hldr_eqy', 'amount', '元', '元', 1, 'dwd_fin_balancesheet', 'total_liab_hldr_eqy', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro balancesheet 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '负债及股东权益总计；元，source_name_passthrough'),
+  -- cashflow: 其余金额字段（元，source_name_passthrough）
+  ('tushare', 'cashflow', 'ods_tushare_cashflow', 'net_profit', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'net_profit', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '净利润(现金流量表口径)；元，source_name_passthrough'),
+  ('tushare', 'cashflow', 'ods_tushare_cashflow', 'c_fr_sale_sg', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'c_fr_sale_sg', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '销售商品提供劳务收到的现金；元，source_name_passthrough'),
+  ('tushare', 'cashflow', 'ods_tushare_cashflow', 'c_inf_fr_operate_a', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'c_inf_fr_operate_a', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '经营活动现金流入小计；元，source_name_passthrough'),
+  ('tushare', 'cashflow', 'ods_tushare_cashflow', 'c_paid_goods_s', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'c_paid_goods_s', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '购买商品接受劳务支付的现金；元，source_name_passthrough'),
+  ('tushare', 'cashflow', 'ods_tushare_cashflow', 'st_cash_out_act', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'st_cash_out_act', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '经营活动现金流出小计；元，source_name_passthrough'),
+  ('tushare', 'cashflow', 'ods_tushare_cashflow', 'stot_cash_in_fnc_act', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'stot_cash_in_fnc_act', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '筹资活动现金流入小计；元，source_name_passthrough'),
+  ('tushare', 'cashflow', 'ods_tushare_cashflow', 'c_cash_equ_beg_period', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'c_cash_equ_beg_period', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '期初现金及现金等价物余额；元，source_name_passthrough'),
+  ('tushare', 'cashflow', 'ods_tushare_cashflow', 'c_cash_equ_end_period', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'c_cash_equ_end_period', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '期末现金及现金等价物余额；元，source_name_passthrough'),
+  ('tushare', 'cashflow', 'ods_tushare_cashflow', 'n_incr_cash_cash_equ', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'n_incr_cash_cash_equ', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'Claude Opus 4.8', '现金及现金等价物净增加额；元，source_name_passthrough');
+
+-- ============================================================
 -- 后置约束与说明
 -- ============================================================
 ALTER TABLE `data-aquarium.ashare_meta.ods_field_unit_map`
-SET OPTIONS (description = 'OQ-006 单位契约表：endpoint + source_field 粒度的 ODS->DWD 单位换算唯一事实来源。verified 字段才可作为标准 DWD 输出。P0 + PR #13 首批已登记。');
+SET OPTIONS (description = 'OQ-006 单位契约表：endpoint + source_field 粒度的 ODS->DWD 单位换算唯一事实来源。verified 字段才可作为标准 DWD 输出。P0 + PR #13 财务三表（income/balancesheet/cashflow）全部单位字段已登记。');
