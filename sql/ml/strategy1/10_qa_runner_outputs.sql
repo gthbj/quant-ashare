@@ -118,7 +118,7 @@ WHERE cand.strategy_id = p_strategy_id AND cand.run_id = p_run_id
   AND cand.is_selected_candidate
   AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end;
 
--- ── 卖出顺延统计 ──
+-- ── SELL fill_status 分布（v1 ledger：FILLED 成交 vs SELL_SKIPPED_UNTRADABLE 跳过意图）──
 SELECT
   bt.fill_status,
   COUNT(*) AS count
