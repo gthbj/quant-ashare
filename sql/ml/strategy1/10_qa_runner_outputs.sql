@@ -389,10 +389,27 @@ ASSERT (
   WHERE bs.backtest_id = p_backtest_id
 ) AS 'QA-REPORT-5: metrics_json.ai_analysis_status must be set by render_report.py';
 
--- QA-REPORT-6: artifact_manifest 已写入（render 回写）
+-- QA-REPORT-6: artifact_manifest 已写入（render 回写），且包含必需 artifact
+-- 用 JSON_QUERY 检查 object（JSON_VALUE 只适合 scalar）
 ASSERT (
   SELECT COUNT(*) > 0
-    AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.artifact_manifest') IS NULL) = 0
+    AND COUNTIF(JSON_QUERY(bs.metrics_json, '$.artifact_manifest') IS NULL) = 0
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
-) AS 'QA-REPORT-6: metrics_json.artifact_manifest must be set by render_report.py';
+) AS 'QA-REPORT-6: metrics_json.artifact_manifest must be a JSON object set by render_report.py';
+
+-- QA-REPORT-7: artifact_manifest 包含必需文件
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(missing) = 0
+  FROM (
+    SELECT
+      JSON_VALUE(JSON_QUERY(bs.metrics_json, '$.artifact_manifest'), '$."report.md"') IS NULL
+      OR JSON_VALUE(JSON_QUERY(bs.metrics_json, '$.artifact_manifest'), '$."report.html"') IS NULL
+      OR JSON_VALUE(JSON_QUERY(bs.metrics_json, '$.artifact_manifest'), '$."benchmark_nav.csv"') IS NULL
+      OR JSON_VALUE(JSON_QUERY(bs.metrics_json, '$.artifact_manifest'), '$."diagnosis_evidence.json"') IS NULL
+      OR JSON_VALUE(JSON_QUERY(bs.metrics_json, '$.artifact_manifest'), '$."ai_analysis.json"') IS NULL
+      AS missing
+    FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+    WHERE bs.backtest_id = p_backtest_id
+  )
+) AS 'QA-REPORT-7: artifact_manifest must contain report.md, report.html, benchmark_nav.csv, diagnosis_evidence.json, ai_analysis.json';

@@ -403,7 +403,7 @@ def compute_loss_attribution(client: bigquery.Client, project: str,
 
     code_list = ", ".join(f"'{c}'" for c in pos_codes)
     sql = f"""
-    SELECT px.sec_code, px.trade_date, px.close
+    SELECT px.sec_code, px.trade_date, px.ret_1d
     FROM `{project}.ashare_dwd.dwd_stock_eod_price` AS px
     WHERE px.trade_date BETWEEN @sd AND @ed
       AND px.sec_code IN ({code_list})
@@ -416,9 +416,6 @@ def compute_loss_attribution(client: bigquery.Client, project: str,
 
     if price_df.empty:
         return [], 0.0
-
-    price_df = price_df.sort_values(["sec_code", "trade_date"])
-    price_df["ret_1d"] = price_df.groupby("sec_code")["close"].pct_change()
 
     merged = pos_df.merge(
         price_df[["sec_code", "trade_date", "ret_1d"]],
@@ -636,14 +633,25 @@ def build_evidence_pack(summary: dict, nav_df: pd.DataFrame,
             "max_drawdown": round(float((cum / cum.cummax() - 1).min()), 6),
         }
 
-    bench_coverage = {ASSESSMENT_BENCHMARK["sec_code"]: 1.0}
-    if not display_bench.empty:
-        bench_coverage[DISPLAY_BENCHMARK["sec_code"]] = 1.0
-    else:
-        bench_coverage[DISPLAY_BENCHMARK["sec_code"]] = 0.0
+    nav_dates = set(nav_df["trade_date"].astype(str))
+    nav_count = len(nav_dates) or 1
+
+    def bench_coverage_ratio(bench_df: pd.DataFrame) -> float:
+        if bench_df.empty or not nav_dates:
+            return 0.0
+        bench_dates = set(bench_df["trade_date"].astype(str))
+        return round(len(nav_dates & bench_dates) / nav_count, 4)
+
+    bench_coverage = {ASSESSMENT_BENCHMARK["sec_code"]: bench_coverage_ratio(assessment_bench)}
+    bench_coverage[DISPLAY_BENCHMARK["sec_code"]] = bench_coverage_ratio(display_bench)
     for b in AUXILIARY_BENCHMARKS:
-        df = aux_benches.get(b["sec_code"], pd.DataFrame())
-        bench_coverage[b["sec_code"]] = 1.0 if not df.empty else 0.0
+        bench_coverage[b["sec_code"]] = bench_coverage_ratio(aux_benches.get(b["sec_code"], pd.DataFrame()))
+
+    coverage_notes = []
+    for code, ratio in bench_coverage.items():
+        if 0 < ratio < 1.0:
+            missing = int(nav_count * (1 - ratio))
+            coverage_notes.append(f"{code} 基准覆盖 {ratio:.1%}，缺失 {missing} 个交易日")
 
     return {
         "schema_version": EVIDENCE_SCHEMA_VERSION,
@@ -688,7 +696,7 @@ def build_evidence_pack(summary: dict, nav_df: pd.DataFrame,
             "attribution_coverage_ratio": coverage_ratio,
             "benchmark_coverage": bench_coverage,
             "missing_fields": [],
-            "notes": [],
+            "notes": coverage_notes,
         },
     }
 
@@ -715,7 +723,7 @@ def run_ai_analysis(evidence: dict, args) -> dict:
                 return result
             result["status"] = "fallback_evidence_only"
             fallback = build_evidence_only_analysis(evidence)
-            result["fallback_analysis"] = fallback.get("analysis", "")
+            result["analysis"] = fallback.get("analysis", "")
             return result
         return build_evidence_only_analysis(evidence)
     return {"status": "off", "analysis": None}
@@ -1037,12 +1045,12 @@ def plot_drawdown(nav_df: pd.DataFrame, out_path: Path):
     plt.close(fig)
 
 
-def plot_excess_return(nav_df: pd.DataFrame, display_bench: pd.DataFrame, out_path: Path):
+def plot_excess_return(nav_df: pd.DataFrame, assessment_bench: pd.DataFrame, out_path: Path):
     _setup_charts()
-    if display_bench.empty:
+    if assessment_bench.empty:
         return
     merged = nav_df[["trade_date", "daily_return"]].merge(
-        display_bench[["trade_date", "pct_chg"]], on="trade_date", how="inner")
+        assessment_bench[["trade_date", "pct_chg"]], on="trade_date", how="inner")
     if merged.empty:
         return
     excess = merged["daily_return"].fillna(0) - merged["pct_chg"].fillna(0) / 100.0
@@ -1050,7 +1058,7 @@ def plot_excess_return(nav_df: pd.DataFrame, display_bench: pd.DataFrame, out_pa
     fig, ax = plt.subplots(figsize=(14, 4))
     ax.plot(merged["trade_date"], cum_excess, color=COLORS[0], linewidth=1.2)
     ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
-    ax.set_title(f"相对 {DISPLAY_BENCHMARK['name']} 累计超额收益")
+    ax.set_title(f"相对 {ASSESSMENT_BENCHMARK['name']} 累计超额收益")
     ax.set_ylabel("累计超额收益")
     ax.yaxis.set_major_formatter(mticker.PercentFormatter(1.0))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
@@ -1183,7 +1191,7 @@ def render_markdown(summary: dict, model_info: dict, evidence: dict,
     sections.append("## 图表\n")
     sections.append("![策略净值 vs 基准](assets/nav_vs_benchmark.png)\n")
     sections.append("![策略回撤](assets/drawdown.png)\n")
-    sections.append(f"![相对 {DISPLAY_BENCHMARK['name']} 超额收益](assets/excess_return.png)\n")
+    sections.append(f"![相对 {ASSESSMENT_BENCHMARK['name']} 超额收益](assets/excess_return.png)\n")
     sections.append("![换手与交易成本](assets/turnover_cost.png)\n")
 
     # §8.4 买卖细节
@@ -1497,6 +1505,11 @@ def write_report_status_to_ads(client: bigquery.Client, project: str,
                 json_expr += f", '$.{safe_k}', {v}"
             elif v is None:
                 json_expr += f", '$.{safe_k}', NULL"
+            elif isinstance(v, (dict, list)):
+                json_str = json.dumps(v, ensure_ascii=False, default=str).replace("'", "\\'")
+                p_name = f"patch_{safe_k}"
+                json_expr += f", '$.{safe_k}', PARSE_JSON(@{p_name})"
+                params.append(bigquery.ScalarQueryParameter(p_name, "STRING", json_str))
 
     json_expr += ")"
 
@@ -1642,12 +1655,17 @@ def main():
         json.dumps(ai_output, indent=2, ensure_ascii=False, default=str))
     print(f"  AI 状态: {ai_result.get('status', 'off')}")
 
+    # llm 模式失败时非零退出（PRD §10.1）
+    if args.ai_analysis_mode == "llm" and ai_result.get("status") != "success":
+        print(f"  ✗ llm 模式失败: {ai_result.get('error_type', 'unknown')}", file=sys.stderr)
+        sys.exit(1)
+
     # 6. Render charts
     print("渲染图表...")
     plot_nav_vs_benchmark(nav_df, assessment_bench, display_bench, aux_benches,
                           assets_dir / "nav_vs_benchmark.png")
     plot_drawdown(nav_df, assets_dir / "drawdown.png")
-    plot_excess_return(nav_df, display_bench, assets_dir / "excess_return.png")
+    plot_excess_return(nav_df, assessment_bench, assets_dir / "excess_return.png")
     plot_turnover_cost(nav_df, assets_dir / "turnover_cost.png")
 
     # 7. Render reports
