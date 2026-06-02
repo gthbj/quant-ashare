@@ -206,3 +206,142 @@ ASSERT (
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
 ) AS 'report must be rendered: report_upload_status + local_report_path set, and report_uri present iff uploaded (run render_report.py before this QA)';
+
+-- ============================================================
+-- OQ-010 成本 profile QA
+-- ============================================================
+-- QA-COST-1: cost_profile_id 正确
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.cost_profile_id') != 'cn_a_share_wanyi_no_min_slip5_v20260602') = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-COST-1: metrics_json.cost_profile_id must be cn_a_share_wanyi_no_min_slip5_v20260602';
+
+-- QA-COST-2: commission_bps = 1.0
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(ABS(CAST(JSON_VALUE(bs.metrics_json, '$.commission_bps') AS FLOAT64) - 1.0) > 1e-6) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-COST-2: metrics_json.commission_bps must be 1.0';
+
+-- QA-COST-3: min_commission_cny = 0.0
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(ABS(CAST(JSON_VALUE(bs.metrics_json, '$.min_commission_cny') AS FLOAT64) - 0.0) > 1e-6) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-COST-3: metrics_json.min_commission_cny must be 0.0';
+
+-- QA-COST-4: stamp_tax_buy_bps = 0.0, stamp_tax_sell_bps = 5.0
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(
+    ABS(CAST(JSON_VALUE(bs.metrics_json, '$.stamp_tax_buy_bps') AS FLOAT64) - 0.0) > 1e-6
+    OR ABS(CAST(JSON_VALUE(bs.metrics_json, '$.stamp_tax_sell_bps') AS FLOAT64) - 5.0) > 1e-6
+  ) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-COST-4: metrics_json.stamp_tax_buy_bps must be 0.0 and stamp_tax_sell_bps must be 5.0';
+
+-- QA-COST-5: slippage_buy_bps = 5.0, slippage_sell_bps = 5.0
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(
+    ABS(CAST(JSON_VALUE(bs.metrics_json, '$.slippage_buy_bps') AS FLOAT64) - 5.0) > 1e-6
+    OR ABS(CAST(JSON_VALUE(bs.metrics_json, '$.slippage_sell_bps') AS FLOAT64) - 5.0) > 1e-6
+  ) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-COST-5: metrics_json.slippage_buy_bps and slippage_sell_bps must be 5.0';
+
+-- QA-COST-6: fill_price 精确匹配滑点公式（带小容差）
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(mismatch) = 0
+  FROM (
+    SELECT
+      bt.side,
+      bt.fill_price,
+      px.open AS exec_open,
+      CASE
+        WHEN bt.side = 'BUY' THEN ABS(SAFE_DIVIDE(bt.fill_price, px.open) - 1.0005) > 1e-4
+        WHEN bt.side = 'SELL' THEN ABS(SAFE_DIVIDE(bt.fill_price, px.open) - 0.9995) > 1e-4
+        ELSE FALSE
+      END AS mismatch
+    FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+    JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
+      ON px.sec_code = bt.sec_code AND px.trade_date = bt.trade_date
+    WHERE bt.backtest_id = p_backtest_id
+      AND bt.fill_status = 'FILLED'
+      AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+  )
+) AS 'QA-COST-6: fill_price must match exec_open * (1 +/- slippage/10000) exactly (BUY +5bps, SELL -5bps) and join must be non-empty';
+
+-- QA-COST-6d: join 行数对账，确保没有 filled trade 被 inner join 丢掉
+ASSERT (
+  SELECT trade_cnt = joined_cnt AND trade_cnt > 0
+  FROM (
+    SELECT
+      (SELECT COUNT(*) FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily`
+       WHERE backtest_id = p_backtest_id AND fill_status = 'FILLED'
+         AND trade_date BETWEEN p_predict_start AND p_predict_end) AS trade_cnt,
+      (SELECT COUNT(*)
+       FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+       JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
+         ON px.sec_code = bt.sec_code AND px.trade_date = bt.trade_date
+       WHERE bt.backtest_id = p_backtest_id AND bt.fill_status = 'FILLED'
+         AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+         AND px.open IS NOT NULL) AS joined_cnt
+  )
+) AS 'QA-COST-6d: filled trade count must equal joined count with px.open IS NOT NULL (no rows dropped by inner join)';
+
+-- QA-COST-7: fee_cny 只含佣金和印花税，不含滑点
+-- BUY: fee/turnover ~ 1 bps (commission only); SELL: fee/turnover ~ 6 bps (commission + stamp_tax)
+ASSERT (
+  SELECT COUNTIF(ABS(SAFE_DIVIDE(fee_cny, turnover_cny) - 1.0/10000.0) > 1e-6) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily`
+  WHERE backtest_id = p_backtest_id AND side = 'BUY' AND fill_status = 'FILLED'
+    AND turnover_cny > 1.0 AND trade_date BETWEEN p_predict_start AND p_predict_end
+) AS 'QA-COST-7a: BUY fee_cny/turnover must ~ 1 bps (commission only, no slippage in fee)';
+
+ASSERT (
+  SELECT COUNTIF(ABS(SAFE_DIVIDE(fee_cny, turnover_cny) - 6.0/10000.0) > 1e-6) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily`
+  WHERE backtest_id = p_backtest_id AND side = 'SELL' AND fill_status = 'FILLED'
+    AND turnover_cny > 1.0 AND trade_date BETWEEN p_predict_start AND p_predict_end
+) AS 'QA-COST-7b: SELL fee_cny/turnover must ~ 6 bps (commission + stamp_tax, no slippage in fee)';
+
+-- QA-COST-8: turnover/cash_effect/slippage 公式对账
+-- BUY: cash_effect = -(turnover + fee); SELL: cash_effect = turnover - fee
+ASSERT (
+  SELECT COUNTIF(mismatch) = 0
+  FROM (
+    SELECT ABS(bt.cash_effect_cny + bt.turnover_cny + bt.fee_cny) > 1e-3 AS mismatch
+    FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+    WHERE bt.backtest_id = p_backtest_id AND bt.side = 'BUY' AND bt.fill_status = 'FILLED'
+      AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+  )
+) AS 'QA-COST-8a: BUY cash_effect_cny must equal -(turnover_cny + fee_cny)';
+
+ASSERT (
+  SELECT COUNTIF(mismatch) = 0
+  FROM (
+    SELECT ABS(bt.cash_effect_cny - bt.turnover_cny + bt.fee_cny) > 1e-3 AS mismatch
+    FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+    WHERE bt.backtest_id = p_backtest_id AND bt.side = 'SELL' AND bt.fill_status = 'FILLED'
+      AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+  )
+) AS 'QA-COST-8b: SELL cash_effect_cny must equal turnover_cny - fee_cny';
+
+-- QA-COST-8c: slippage_cny 计算正确（从 trade 表直接验证公式）
+-- BUY: slippage = turnover * 5 / 10005; SELL: slippage = turnover * 5 / 9995
+ASSERT (
+  SELECT COUNTIF(mismatch) = 0
+  FROM (
+    SELECT
+      CASE
+        WHEN side = 'BUY' THEN ABS(slippage_cny - turnover_cny * 5.0 / 10005.0) > 1e-3
+        WHEN side = 'SELL' THEN ABS(slippage_cny - turnover_cny * 5.0 / 9995.0) > 1e-3
+        ELSE FALSE
+      END AS mismatch
+    FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily`
+    WHERE backtest_id = p_backtest_id AND fill_status = 'FILLED'
+      AND trade_date BETWEEN p_predict_start AND p_predict_end
+  )
+) AS 'QA-COST-8c: slippage_cny must match turnover * slippage / (10000 +/- slippage)';

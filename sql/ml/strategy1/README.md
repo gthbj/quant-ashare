@@ -53,7 +53,14 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 | `p_train_start` | 训练起点（默认 2019-04-03，避开 60 日窗口不完整期） |
 | `p_target_holdings` | 持股数（OQ-010 待确认，示例值 5） |
 | `p_max_single_weight` | 单票权重上限（OQ-010 待确认，示例值 0.20） |
-| `p_cost_bps` | 当前已跑通 v0 的旧一揽子成本示例值 30 bps；OQ-010 默认成本 profile 已由 `docs/prd/PRD_20260602_02_OQ010交易成本口径.md` 固化，待后续实现 PR 改为分项成本 |
+| `p_cost_profile_id` | OQ-010 默认成本 profile：`cn_a_share_wanyi_no_min_slip5_v20260602`（佣金万一免五 + 卖出印花税 5 bps + 买卖滑点各 5 bps） |
+| `p_commission_bps` | 佣金，默认 1.0（万一） |
+| `p_min_commission_cny` | 最低佣金，默认 0.0（免五） |
+| `p_stamp_tax_buy_bps` | 买入印花税，默认 0.0 |
+| `p_stamp_tax_sell_bps` | 卖出印花税，默认 5.0 |
+| `p_slippage_buy_bps` | 买入滑点，默认 5.0（成交价向上偏移） |
+| `p_slippage_sell_bps` | 卖出滑点，默认 5.0（成交价向下偏移） |
+| `p_cost_bps` | 兼容字段，旧一揽子成本 30 bps；已由分项成本取代，不再作为默认撮合成本来源 |
 | `p_benchmark` | 基准指数 canonical 代码（示例值 000852.SH）；执行前必须存在于 `dim_index` 且完整覆盖回测 NAV 窗口 |
 | `p_force_replace` | 是否覆盖同 run_id 结果（默认 FALSE） |
 

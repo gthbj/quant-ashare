@@ -7,7 +7,15 @@ DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_20260601_01';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;
-DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;
+-- OQ-010 成本 profile：cn_a_share_wanyi_no_min_slip5_v20260602
+DECLARE p_cost_profile_id STRING DEFAULT 'cn_a_share_wanyi_no_min_slip5_v20260602';
+DECLARE p_commission_bps FLOAT64 DEFAULT 1.0;
+DECLARE p_min_commission_cny FLOAT64 DEFAULT 0.0;
+DECLARE p_stamp_tax_buy_bps FLOAT64 DEFAULT 0.0;
+DECLARE p_stamp_tax_sell_bps FLOAT64 DEFAULT 5.0;
+DECLARE p_slippage_buy_bps FLOAT64 DEFAULT 5.0;
+DECLARE p_slippage_sell_bps FLOAT64 DEFAULT 5.0;
+DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;  -- 兼容字段
 DECLARE p_benchmark STRING DEFAULT '000852.SH';
 DECLARE p_calendar_end DATE;
 DECLARE p_selected_model_id STRING;
@@ -55,6 +63,18 @@ SELECT
   COUNTIF(t.side = 'SELL' AND t.fill_status = 'SELL_SKIPPED_UNTRADABLE') AS sell_skipped_count
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
 WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end;
+
+-- ── OQ-010 成本分解：从 trade 表直接汇总 fee/tax/slippage/economic_cost ──
+CREATE TEMP TABLE cost_stats AS
+SELECT
+  SUM(t.fee_cny - t.tax_cny) AS total_commission_cny,
+  SUM(t.tax_cny) AS total_tax_cny,
+  SUM(t.slippage_cny) AS total_slippage_cny,
+  SUM(t.fee_cny + t.slippage_cny) AS total_economic_cost_cny
+FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
+WHERE t.backtest_id = p_backtest_id
+  AND t.fill_status = 'FILLED'
+  AND t.trade_date BETWEEN p_predict_start AND p_predict_end;
 
 -- 汇总绩效
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_performance_summary`
@@ -107,7 +127,9 @@ SELECT
   p_benchmark,
   a.final_nav - (SELECT b.bench_cum_nav FROM bench AS b ORDER BY b.trade_date DESC LIMIT 1),
   SAFE_DIVIDE(a.excess_annual, NULLIF(a.tracking_error, 0)),
-  p_cost_bps,
+  -- cost_bps 作为兼容字段写入往返总经济成本（从参数计算，支持敏感性实验）
+  p_commission_bps + p_stamp_tax_buy_bps + p_slippage_buy_bps
+    + p_commission_bps + p_stamp_tax_sell_bps + p_slippage_sell_bps,
   TO_JSON_STRING(STRUCT(
     a.n_days, a.annual_return, a.annual_vol,
     SAFE_DIVIDE(a.annual_return, a.annual_vol) AS sharpe,
@@ -119,10 +141,24 @@ SELECT
     SAFE_DIVIDE(CAST(ss.buy_skipped_count AS FLOAT64), NULLIF(ss.buy_attempt_count, 0)) AS buy_skip_rate,
     ss.sell_attempt_count, ss.sell_filled_count, ss.sell_skipped_count,
     SAFE_DIVIDE(CAST(ss.sell_skipped_count AS FLOAT64), NULLIF(ss.sell_attempt_count, 0)) AS sell_skip_rate,
-    a.total_turnover, a.total_cost
+    a.total_turnover, a.total_cost,
+    -- OQ-010 成本 profile
+    p_cost_profile_id AS cost_profile_id,
+    p_commission_bps AS commission_bps,
+    p_min_commission_cny AS min_commission_cny,
+    p_stamp_tax_buy_bps AS stamp_tax_buy_bps,
+    p_stamp_tax_sell_bps AS stamp_tax_sell_bps,
+    p_slippage_buy_bps AS slippage_buy_bps,
+    p_slippage_sell_bps AS slippage_sell_bps,
+    (p_commission_bps + p_stamp_tax_buy_bps + p_slippage_buy_bps) AS effective_buy_cost_bps,
+    (p_commission_bps + p_stamp_tax_sell_bps + p_slippage_sell_bps) AS effective_sell_cost_bps,
+    (p_commission_bps + p_stamp_tax_buy_bps + p_slippage_buy_bps
+      + p_commission_bps + p_stamp_tax_sell_bps + p_slippage_sell_bps) AS round_trip_cost_bps,
+    -- OQ-010 成本分解（从 trade 表汇总：commission + stamp_tax + slippage = economic_cost）
+    cs.total_commission_cny, cs.total_tax_cny, cs.total_slippage_cny, cs.total_economic_cost_cny
   )),
   CURRENT_TIMESTAMP()
-FROM agg AS a, drawdown AS dd, sell_stats AS ss;
+FROM agg AS a, drawdown AS dd, sell_stats AS ss, cost_stats AS cs;
 
 -- 信号监控（t+1 可买性）
 INSERT INTO `data-aquarium.ashare_ads.ads_signal_monitor_daily`
