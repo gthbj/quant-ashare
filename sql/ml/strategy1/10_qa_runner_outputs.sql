@@ -143,6 +143,18 @@ ASSERT (
   WHERE nav.trade_date IS NULL
 ) AS 'NAV must cover all open market days in predict window';
 
+-- ── NAV 唯一性：同一 (backtest_id, trade_date) 必须只有一行 ──
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT nav.trade_date, COUNT(*) AS n
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    WHERE nav.backtest_id = p_backtest_id
+      AND nav.trade_date BETWEEN p_predict_start AND p_predict_end
+    GROUP BY nav.trade_date HAVING n > 1
+  )
+) AS 'NAV rows must be unique per (backtest_id, trade_date)';
+
 -- ── 无负现金（long-only 不允许隐性杠杆；容忍 1 元舍入）──
 ASSERT (
   SELECT COUNTIF(nav.cash_cny < -1.0) = 0
