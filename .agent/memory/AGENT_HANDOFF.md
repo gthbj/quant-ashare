@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-`quant-ashare` 已完成 P0 DIM/DWD 物化、OQ-004 指数基准口径、策略 1 DWS/ADS、策略 1 BigQuery ML runner 端到端实跑、OQ-006 单位契约、OQ-003 财务三表 DWD/DWS、OQ-010 交易成本 profile、策略 1 中文报告与归因分析、策略 1 报告 GCS uploaded 模式，以及策略 1 模型质量诊断 PRD。2026-06-02 已创建 `gs://ashare-artifacts`（`ASIA-EAST2`）、配置本机 ADC（quota project=`data-aquarium`）、去掉 `--skip-gcs-upload` 重跑 `render_report.py`，ADS 已回写 `report_upload_status=uploaded` 和真实 `report_uri=gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_20260601_01/backtest_id=bt_s1_bqml_20260601_01`，`sql/ml/strategy1/10_qa_runner_outputs.sql` 全部通过。`docs/prd/PRD_20260602_04_策略1模型质量诊断.md` 已定义下一步先诊断 signal / label / sample-universe / candidate / portfolio / cost / style，再进入 OQ-010 参数和模型实验。核心规范保持：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属时点区间、血缘与版本字段、按月分区 + 聚簇；当前阶段先把 2019+ 数据做正确，2019 年以前正式样本/明细是下一步。
+`quant-ashare` 已完成 P0 DIM/DWD 物化、OQ-004 指数基准口径、策略 1 DWS/ADS、策略 1 BigQuery ML runner 端到端实跑、OQ-006 单位契约、OQ-003 财务三表 DWD/DWS、OQ-010 交易成本 profile、策略 1 中文报告与归因分析、策略 1 报告 GCS uploaded 模式，以及策略 1 模型质量诊断 PRD。2026-06-02 已创建 `gs://ashare-artifacts`（`ASIA-EAST2`）、配置本机 ADC（quota project=`data-aquarium`）、去掉 `--skip-gcs-upload` 重跑 `render_report.py`，ADS 已回写 `report_upload_status=uploaded` 和真实 `report_uri=gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_20260601_01/backtest_id=bt_s1_bqml_20260601_01`，`sql/ml/strategy1/10_qa_runner_outputs.sql` 全部通过。`docs/prd/PRD_20260602_04_策略1模型质量诊断.md` 已定义下一步先诊断 signal / label / sample-universe / candidate / portfolio / cost / style，再进入 OQ-010 参数和模型实验；PR #24 comment feedback 已补入正文，RankIC 明确为 Spearman、bucket 明确为日截面 quantile、`sample_filter_risk` 阈值明确只针对不可解释排除率。核心规范保持：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属时点区间、血缘与版本字段、按月分区 + 聚簇；当前阶段先把 2019+ 数据做正确，2019 年以前正式样本/明细是下一步。
 
 **已物化表**：`data-aquarium.ashare_meta` 下 `ods_field_unit_map`；`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`、`dim_index`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`，以及 OQ-003 财务三大报表 `dwd_fin_income`/`dwd_fin_balancesheet`/`dwd_fin_cashflow` 及各自 `_latest`（PR #13）；`data-aquarium.ashare_dws` 下策略 1 六表（universe、价格特征、估值特征、标签、特征宽表、样本表）和 `dws_stock_feature_fin_daily`（默认合并口径 PIT 财务特征，PR #13）；`data-aquarium.ashare_ads` 下 11 张训练/预测/组合/回测/监控契约表。PR #9 合并后的 `dim_stock` 依赖链已在 2026-06-02 重建：`dim_stock`、`dwd_stock_eod_price`、策略 1 DWS 六表和 ADS 契约表均已刷新，`sql/metadata/01_p0_table_column_descriptions.sql` 已执行，`sql/qa/01_p0_smoke_checks.sql` 与 `sql/qa/02_strategy1_dws_ads_checks.sql` 均通过；`sql/qa/03_oq004_index_checks.sql` 近期通过。二轮评审发现已修复：盘中临停不再误标全天停牌，财务 latest 改为 `update_flag DESC` 优先。P0 DIM/DWD 字段说明缺失数为 0。
 
@@ -1906,3 +1906,53 @@ Run ID: —
 - `OPEN_QUESTIONS.md`
 - `AGENT_HANDOFF.md`
 - `TODO.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-02
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #24 / issuecomment-4602768596
+
+### 已完成工作
+
+- 查看 PR #24 comment `4602768596`，认可 1 个中优先级和 2 个低优先级建议。
+- 修订 `docs/prd/PRD_20260602_04_策略1模型质量诊断.md`：
+  - FR-DIAG-2 明确 RankIC 为 Spearman rank correlation。
+  - FR-DIAG-3 明确 score bucket 按每个交易日的日截面 quantile 分组。
+  - FR-DIAG-5 明确 `sample_filter_risk` 的 10% 阈值只针对不可解释排除率，并定义可解释 / 不可解释排除。
+- 同步更新实现状态和当前交接摘要。
+
+### 重要上下文
+
+- 本次仍是文档型修订，未实现诊断 SQL、Python 脚本或 QA。
+- 修订不改变“先诊断、后调参”的方案方向，只降低后续实现歧义。
+
+### 改动文件
+
+- `docs/prd/PRD_20260602_04_策略1模型质量诊断.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- 文档型变更；未执行 SQL。
+- 计划执行 `git diff --check` 后提交。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 推送 PR #24 修订后，可继续 review / 合并；合并后开始实现模型质量诊断 SQL、artifact 生成和 QA。
+
+### 已更新记忆文件
+
+- `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
