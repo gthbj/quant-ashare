@@ -9,7 +9,7 @@
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
 - [x] 实现 OQ-010 交易成本 profile：按 `PRD_20260602_02_OQ010交易成本口径.md` 将 runner 从单一 `p_cost_bps=30` 升级为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，并同步 08/09/10/report/README
 - [x] 实现策略 1 中文报告与归因分析：按 `PRD_20260602_03_策略1中文报告归因分析.md` 保持中证1000 `000852.SH` 为评估主基准、并列展示沪深300 `000300.SH`，报告中文化，输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断；render_report.py v2 已重写、09 metrics_json 已补 report_version/diagnosis_triggered、10 已补 QA-REPORT 1-6 断言、README 已同步
-- [ ] 实现策略 1 模型质量诊断（按 `docs/prd/PRD_20260602_04_策略1模型质量诊断.md`）：产出 signal / label / sample-universe / candidate / portfolio / cost / style 诊断 artifact，诊断完成前不直接调参
+- [ ] 实现策略 1 模型质量诊断（按 `docs/prd/PRD_20260602_04_策略1模型质量诊断.md`）：产出 signal / label / sample-universe / candidate / portfolio / cost / style 诊断 artifact，诊断完成前不直接调参；当前需先合并诊断脚本 `compute_cost_turnover` 的 db-dtypes 日期列填充修复，再重跑 local smoke → uploaded → `12_qa_model_diagnosis_outputs.sql`
 - [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基于诊断结论再做特征 / 标签 / 选股口径、调仓频率、持股数 / 单票权重上限实验
 
 ## P1 — 数据 / 特征扩展
