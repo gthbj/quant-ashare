@@ -19,7 +19,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/02_dwd_stock_eod
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/03_dwd_fin_indicator.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/04_dwd_index_eod.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/05_dwd_fin_indicator_latest.sql
-# 财务三大报表 DWD（PIT 版本事实表 + 默认合并口径 latest，OQ-003）。字段说明内联在各脚本尾部 ALTER。
+# 财务三大报表 DWD（PIT 版本事实表 + 默认合并口径 latest，OQ-003）。表/字段完整说明在 sql/metadata/02（CTAS 重建后必跑）。
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/06_dwd_fin_income.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/07_dwd_fin_income_latest.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/08_dwd_fin_balancesheet.sql
@@ -37,6 +37,8 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/05_dws_stock_fea
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/06_dws_stock_sample_daily.sql
 # 默认合并口径 PIT 财务特征（OQ-003），依赖 universe + 财务三表 + dwd_fin_indicator。
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/07_dws_stock_feature_fin_daily.sql
+# 财务三表 DWD + 财务特征 DWS 表/字段说明补齐（OQ-003，PRD §10；CTAS 重建后必跑，qa/04 含缺失断言）。
+bq query --use_legacy_sql=false --location=asia-east2 < sql/metadata/02_finance_table_column_descriptions.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ads/01_ads_strategy1_tables.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_ads_checks.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/04_finance_caliber_checks.sql
@@ -113,6 +115,8 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/05_oq006_unit_che
 ## Metadata
 
 `sql/metadata/01_p0_table_column_descriptions.sql` 统一维护 P0 DIM/DWD 表级和字段级中文说明。每次 `CREATE OR REPLACE TABLE` 重建 P0 表后，都应重新执行该 metadata 脚本，避免字段 description 被 CTAS 覆盖或遗漏。
+
+`sql/metadata/02_finance_table_column_descriptions.sql` 同理维护财务三表 DWD（`dwd_fin_income/balancesheet/cashflow` + 各自 `_latest`）和 `dws_stock_feature_fin_daily` 的全部字段说明（OQ-003，PRD §10）。这些表 CTAS 重建后必须重跑该脚本；`sql/qa/04_finance_caliber_checks.sql` 内置字段 description 缺失断言，漏跑会被 QA 拦截。
 
 ## 注意事项
 

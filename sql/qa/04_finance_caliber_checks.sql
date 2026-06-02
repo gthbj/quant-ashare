@@ -153,3 +153,23 @@ ASSERT (
   = (SELECT COUNT(*) FROM `data-aquarium.ashare_dws.dws_stock_universe_daily`
      WHERE trade_date BETWEEN dws_start_date AND dws_end_date)
 ) AS 'dws_stock_feature_fin_daily must keep every universe (sec_code, trade_date) row';
+
+-- ========== 字段 description 补齐（PRD §10：表/字段说明补齐）==========
+-- CTAS 重建后需重跑 sql/metadata/02_finance_table_column_descriptions.sql；本断言防止漏跑。
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dwd.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS`
+  WHERE table_name IN (
+    'dwd_fin_income', 'dwd_fin_income_latest',
+    'dwd_fin_balancesheet', 'dwd_fin_balancesheet_latest',
+    'dwd_fin_cashflow', 'dwd_fin_cashflow_latest'
+  )
+  AND (description IS NULL OR description = '')
+) AS 'finance DWD tables must have all column descriptions filled (run sql/metadata/02)';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dws.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS`
+  WHERE table_name = 'dws_stock_feature_fin_daily'
+    AND (description IS NULL OR description = '')
+) AS 'dws_stock_feature_fin_daily must have all column descriptions filled (run sql/metadata/02)';
