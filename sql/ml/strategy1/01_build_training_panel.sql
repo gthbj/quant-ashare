@@ -1,9 +1,11 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
--- 01: 从 DWS sample 构建冻结训练面板，写入 ads_ml_training_panel_daily。
--- 不改 ADS 契约：特征存入 feature_values_json（键=特征名），下游训练/预测用 JSON_VALUE 抽取。
--- target_label / target_return 是契约里的物理列，直接写。
+-- 01: 从 DWS sample 构建冻结面板，写入 ads_ml_training_panel_daily。
+-- 语义从"纯训练样本表"收敛为"run-scoped model input panel"（PRD-20260602-05）。
+-- split-aware 入池：
+--   train: sample_trainable_default（含 label_entry_tradable / label_valid_5d，训练允许）
+--   valid/test: predict_live_available_mask（仅 t 日已知 universe/feature/history/valuation，不含未来标签）
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_preprocess_version STRING DEFAULT 'raw_v0';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
@@ -86,4 +88,13 @@ FROM `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
 WHERE s.trade_date BETWEEN p_train_start AND p_test_end
   AND s.feature_version = p_feature_version
   AND s.label_version = p_label_version
-  AND s.sample_trainable_default;
+  AND (
+    -- train: 允许使用标签有效性筛选（训练需要目标标签）
+    (s.trade_date BETWEEN p_train_start AND p_train_end AND s.sample_trainable_default)
+    OR
+    -- valid/test: live-available prediction pool（t 日已知条件，不含未来标签/可交易性）
+    (s.trade_date BETWEEN p_valid_start AND p_test_end
+      AND COALESCE(s.in_universe_default, FALSE)
+      AND COALESCE(s.has_full_history_60d, FALSE)
+      AND COALESCE(s.has_valuation_data, FALSE))
+  );

@@ -1,7 +1,7 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
 -- 07: 对比上期持仓与本期目标生成 BUY/SELL 订单计划。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';

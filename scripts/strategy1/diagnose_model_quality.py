@@ -432,26 +432,33 @@ def fetch_trade_funnel(client: bigquery.Client, project: str,
 
 def fetch_sample_filter_risk(client: bigquery.Client, project: str,
                              run_id: str, start_date: str, end_date: str) -> pd.DataFrame:
-    """Check whether valid/test prediction pool relies on live-unavailable filters
-    (label_entry_tradable / label_valid_5d)."""
+    """Check whether valid/test prediction pool uses live-available mask
+    (PRD-20260602-05: compare panel rows against legacy trainable and live-available)."""
     sql = f"""
     SELECT
-      s.split_tag,
-      COUNT(*) AS universe_count,
-      COUNTIF(s.sample_trainable_default) AS trainable_count,
+      tp.split_tag,
+      COUNT(*) AS panel_rows,
+      COUNTIF(s.sample_trainable_default) AS legacy_trainable_rows,
+      COUNTIF(COALESCE(s.in_universe_default, FALSE)
+          AND COALESCE(s.has_full_history_60d, FALSE)
+          AND COALESCE(s.has_valuation_data, FALSE)) AS live_available_rows,
+      COUNTIF(s.label_valid_5d AND s.fwd_xs_ret_5d IS NOT NULL) AS label_available_eval_rows,
+      -- rows in live-available but NOT in legacy trainable
+      COUNTIF(COALESCE(s.in_universe_default, FALSE)
+          AND COALESCE(s.has_full_history_60d, FALSE)
+          AND COALESCE(s.has_valuation_data, FALSE)
+          AND NOT s.sample_trainable_default) AS live_only_rows,
+      -- legacy exclusion diagnostics
       COUNTIF(NOT COALESCE(s.label_entry_tradable, FALSE)) AS excluded_by_tradable,
-      COUNTIF(NOT COALESCE(s.label_valid_5d, FALSE)) AS excluded_by_label_valid,
-      COUNTIF(s.in_universe_default) AS in_universe_count
-    FROM `{project}.ashare_dws.dws_stock_sample_daily` AS s
-    WHERE s.trade_date BETWEEN @sd AND @ed
-      AND s.feature_version = (
-        SELECT ANY_VALUE(tp.feature_version)
-        FROM `{project}.ashare_ads.ads_ml_training_panel_daily` AS tp
-        WHERE tp.run_id = @rid
-          AND tp.trade_date BETWEEN @sd AND @ed
-        LIMIT 1
-      )
-    GROUP BY s.split_tag
+      COUNTIF(NOT COALESCE(s.label_valid_5d, FALSE)) AS excluded_by_label_valid
+    FROM `{project}.ashare_ads.ads_ml_training_panel_daily` AS tp
+    JOIN `{project}.ashare_dws.dws_stock_sample_daily` AS s
+      ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
+     AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
+    WHERE tp.run_id = @rid
+      AND tp.trade_date BETWEEN @sd AND @ed
+      AND tp.split_tag IN ('valid', 'test')
+    GROUP BY tp.split_tag
     """
     return bq_query(client, sql, [
         bigquery.ScalarQueryParameter("rid", "STRING", run_id),
@@ -757,20 +764,27 @@ def determine_primary_diagnosis(valid_ic: dict, test_ic: dict,
     test_icir = test_ic.get("icir") or 0
 
     # ── Mandatory pipeline checks first ──
-    # Sample filter risk (live-unavailable filters in prediction pool)
+    # Sample filter risk (PRD-20260602-05: live-available prediction pool check)
     if not sample_risk_df.empty:
         for _, row in sample_risk_df.iterrows():
             split = row.get("split_tag")
-            excluded_by_tradable = int(row.get("excluded_by_tradable", 0) or 0)
-            excluded_by_label_valid = int(row.get("excluded_by_label_valid", 0) or 0)
-            trainable_count = int(row.get("trainable_count", 0) or 0)
-            universe_count = int(row.get("universe_count", 1) or 1)
-            # If any valid/test row is excluded due to live-unavailable filters,
-            # flag sample_filter_risk regardless of signal quality.
-            if excluded_by_tradable > 0 or excluded_by_label_valid > 0:
-                add_evidence(f"{split}_excluded_by_tradable", excluded_by_tradable, ">0", "live_unavailable")
-                add_evidence(f"{split}_excluded_by_label_valid", excluded_by_label_valid, ">0", "live_unavailable")
-                add_evidence(f"{split}_trainable_ratio", round(trainable_count / universe_count, 4), "<1.0", "filtered")
+            panel_rows = int(row.get("panel_rows", 0) or 0)
+            legacy_trainable = int(row.get("legacy_trainable_rows", 0) or 0)
+            live_available = int(row.get("live_available_rows", 0) or 0)
+            live_only = int(row.get("live_only_rows", 0) or 0)
+            label_eval = int(row.get("label_available_eval_rows", 0) or 0)
+
+            add_evidence(f"{split}_panel_rows", panel_rows, ">0", "info")
+            add_evidence(f"{split}_legacy_trainable_rows", legacy_trainable, "<panel_rows", "info")
+            add_evidence(f"{split}_live_available_rows", live_available, ">=legacy", "info")
+            add_evidence(f"{split}_live_only_rows", live_only, ">0 proves live-available active", "info")
+            add_evidence(f"{split}_label_eval_rows", label_eval, ">0", "info")
+
+            # If live_only > 0, the live-available mask is active (good).
+            # If live_only == 0 and panel_rows == legacy_trainable, still using old mask.
+            if live_only == 0 and panel_rows == legacy_trainable and panel_rows > 0:
+                add_evidence(f"{split}_trainable_ratio",
+                             round(legacy_trainable / max(panel_rows, 1), 4), "<1.0", "filtered")
                 return {"primary": "sample_filter_risk", "confidence": "high", "evidence": evidence}
 
     # Signal inverted
@@ -802,12 +816,25 @@ def determine_primary_diagnosis(valid_ic: dict, test_ic: dict,
                 add_evidence(f"rank_ic_{best_alt[1]}", best_alt[0], "abs>0.05", "stronger")
                 return {"primary": "label_horizon_mismatch", "confidence": "medium", "evidence": evidence}
 
-    # Sample filter risk
+    # Sample filter risk (funnel-based fallback)
+    # PRD-20260602-05: only trigger if live-available mask is NOT active
+    # (i.e., no live_only_rows detected in the earlier sample_risk_df check)
     if not funnel_df.empty:
-        unexplained = funnel_df["unexplained_exclusion_rate"].mean()
-        if unexplained > 0.10:
-            add_evidence("unexplained_exclusion_rate", round(float(unexplained), 4), ">0.10", "high")
-            return {"primary": "sample_filter_risk", "confidence": "high", "evidence": evidence}
+        live_mask_active = False
+        if not sample_risk_df.empty:
+            for _, row in sample_risk_df.iterrows():
+                if int(row.get("live_only_rows", 0) or 0) > 0:
+                    live_mask_active = True
+                    break
+        if not live_mask_active:
+            unexplained = funnel_df["unexplained_exclusion_rate"].mean()
+            if unexplained > 0.10:
+                add_evidence("unexplained_exclusion_rate", round(float(unexplained), 4), ">0.10", "high")
+                return {"primary": "sample_filter_risk", "confidence": "high", "evidence": evidence}
+        else:
+            # Live-available mask is active; record funnel as evidence only, not as primary diagnosis
+            unexplained = funnel_df["unexplained_exclusion_rate"].mean()
+            add_evidence("funnel_unexplained_exclusion_rate", round(float(unexplained), 4), ">0.10", "info_only")
 
     # Cost turnover issue
     if not cost_turnover_df.empty:

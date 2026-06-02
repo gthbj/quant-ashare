@@ -13,9 +13,9 @@
 -- 价格/现金统一未复权口径；持有期内除权属简化（与 v0 一致）。日历额外延伸 90 天用于 t+1 执行查找。
 -- 升级背景见 runner 设计 §14.1 / DECISION-20260601-07。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
-DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_20260601_01';
+DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_20260602_01';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;

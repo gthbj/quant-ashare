@@ -34,8 +34,8 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/09_buil
 # 本地验证用 --skip-gcs-upload（不写 report_uri，report_upload_status=skipped）。
 python scripts/strategy1/render_report.py \
     --project data-aquarium \
-    --backtest-id bt_s1_bqml_20260601_01 \
-    --run-id s1_bqml_20260601_01 \
+    --backtest-id bt_s1_bqml_livepool_20260602_01 \
+    --run-id s1_bqml_livepool_20260602_01 \
     --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
     --local-mirror-root reports/strategy1 \
     --skip-gcs-upload   # 去掉则上传 GCS 并写真实 report_uri（需 bucket + ADC）
@@ -48,8 +48,8 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 # 本地验证用 --skip-gcs-upload。
 python scripts/strategy1/diagnose_model_quality.py \
     --project data-aquarium \
-    --run-id s1_bqml_20260601_01 \
-    --backtest-id bt_s1_bqml_20260601_01 \
+    --run-id s1_bqml_livepool_20260602_01 \
+    --backtest-id bt_s1_bqml_livepool_20260602_01 \
     --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
     --local-mirror-root reports/strategy1 \
     --skip-gcs-upload
@@ -104,6 +104,20 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_m
 | **辅助风格基准** | `000905.SH` | 中证 500 | 可选中盘风格对照，报告中展示。 |
 
 策略 1 股票池偏中小盘，评估 alpha 时必须以中证 1000 为主基准，避免把小盘 beta 误读为选股 alpha。沪深 300 仅作为展示对比基准。
+
+## 预测池口径（PRD-20260602-05）
+
+| split | 入池规则 | 说明 |
+|---|---|---|
+| train | `sample_trainable_default` | 含 label_entry_tradable / label_valid_5d，训练允许使用标签有效性 |
+| valid | `predict_live_available_mask` | t 日已知 universe + feature + history + valuation，不含未来标签 |
+| test | `predict_live_available_mask` | 同 valid |
+
+`predict_live_available_mask` = `in_universe_default AND has_full_history_60d AND has_valuation_data`（NULL-safe，NULL 视为 FALSE）。
+
+valid/test 预测、候选池、组合和回测从 live-available prediction pool 出发；事后评价（RankIC / bucket / AUC）在 label-available eval subset 上计算，不得反向影响预测池。
+
+模型选型时，registry `metrics_json` 包含 `valid_eval_coverage` 和 `valid_eval_coverage_status`（ok >= 0.50 / warning >= 0.30 / critical < 0.30）。
 
 ## 报告产物（v2 中文报告）
 

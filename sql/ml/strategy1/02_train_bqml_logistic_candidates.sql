@@ -2,7 +2,7 @@
 -- 02: 训练 5 个 LOGISTIC_REG 候选模型。模型对象名嵌入 sanitized run_id（真正 run-scoped）。
 -- 特征从 feature_values_json 抽取（ADS 契约不变）。用 FOR + EXECUTE IMMEDIATE 动态建模。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_label_version STRING DEFAULT 'open_to_close_h1_5_10_20_v20260601';
