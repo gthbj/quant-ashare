@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-`quant-ashare` 已完成**P0 DIM/DWD 物化**、**OQ-004 指数基准口径实现**、**策略 1 价格量价 DWS/ADS SQL 物化**和**策略 1 BigQuery ML runner 脚本合并**：ODS 当前 57 表（含 `index_member_all` / `ci_index_member` / `bak_basic`）探查清楚三类分区语义；产出 DWD/DIM 建模方案 `docs/数据仓库建模方案-DWD-DIM.md`、DWS/ADS 表设计 `docs/数据仓库建模方案-DWS-ADS.md`、策略方案 `docs/A股中低频小资金机器学习策略方案.md`、策略 1 PRD `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`、策略 1 runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`、OQ-003 财务报表口径 PRD `docs/prd/PRD_20260601_03_财务报表口径维度.md`、OQ-004 基准指数口径 PRD `docs/prd/PRD_20260601_04_OQ004基准指数口径.md`、OQ-006 单位契约 PRD `docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`。OQ-004 已关闭且 PR #11 已合并到 `main`：`dim_index` 已物化为指数 canonical 映射与端点可用性维表，`dwd_index_eod` 已从 `dim_index` 读取映射并重建，`sql/qa/03_oq004_index_checks.sql` 通过，runner 08 增加 benchmark 可用性与窗口覆盖前置校验；PR #11 review feedback 已跟进，`dim_index` 建表脚本明确只 seed ODS 真实存在端点并把字段描述收敛到 metadata，QA/runner 已注明示例窗口和 SSE 日历假设；`codex/implement-oq004-index` 本地/远端分支已删除。策略 1 runner 代码已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`、`scripts/strategy1/requirements.txt`；PR #7 dry-run 通过，并已于 **PR #12 在 BigQuery 端到端实跑通过全部 QA**（run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`，`10_qa_runner_outputs.sql` 16 断言全过；08 已按 DECISION-20260601-07 由 v0 set-based 重写为账户级有状态 ledger）。全套规范已敲定：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属用 `in_date/out_date` 时点区间、血缘 `source_system/ingested_at`、版本字段 `feature_version/label_version/universe_version/model_id/strategy_id/run_id`、按月分区 + 聚簇、表+字段注释。OQ-006 仍 open：PRD 草案建议新增 `ashare_meta.ods_field_unit_map` 与 `sql/qa/05_oq006_unit_checks.sql`，把单位核对从人工记忆升级为 DWD 准入门禁；review feedback 已纳入 PR #13 财务三表首批覆盖、price/ratio 覆盖、命名例外字段和 QA 编号 05。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步；OQ-003 已采纳 P0 默认合并报表 `report_type='1'`、DWD 保留口径字段、DWS 默认过滤默认口径。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
+`quant-ashare` 已完成**P0 DIM/DWD 物化**、**OQ-004 指数基准口径实现**、**策略 1 价格量价 DWS/ADS SQL 物化**和**策略 1 BigQuery ML runner 脚本合并**：ODS 当前 57 表（含 `index_member_all` / `ci_index_member` / `bak_basic`）探查清楚三类分区语义；产出 DWD/DIM 建模方案 `docs/数据仓库建模方案-DWD-DIM.md`、DWS/ADS 表设计 `docs/数据仓库建模方案-DWS-ADS.md`、策略方案 `docs/A股中低频小资金机器学习策略方案.md`、策略 1 PRD `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`、策略 1 runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`、OQ-003 财务报表口径 PRD `docs/prd/PRD_20260601_03_财务报表口径维度.md`、OQ-004 基准指数口径 PRD `docs/prd/PRD_20260601_04_OQ004基准指数口径.md`、OQ-006 单位契约 PRD `docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`。OQ-004 已关闭且 PR #11 已合并到 `main`：`dim_index` 已物化为指数 canonical 映射与端点可用性维表，`dwd_index_eod` 已从 `dim_index` 读取映射并重建，`sql/qa/03_oq004_index_checks.sql` 通过，runner 08 增加 benchmark 可用性与窗口覆盖前置校验；PR #11 review feedback 已跟进，`dim_index` 建表脚本明确只 seed ODS 真实存在端点并把字段描述收敛到 metadata，QA/runner 已注明示例窗口和 SSE 日历假设；`codex/implement-oq004-index` 本地/远端分支已删除。策略 1 runner 代码已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`、`scripts/strategy1/requirements.txt`；PR #7 dry-run 通过，并已于 **PR #12 在 BigQuery 端到端实跑通过全部 QA**（run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`，`10_qa_runner_outputs.sql` 16 断言全过；08 已按 DECISION-20260601-07 由 v0 set-based 重写为账户级有状态 ledger）。全套规范已敲定：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属用 `in_date/out_date` 时点区间、血缘 `source_system/ingested_at`、版本字段 `feature_version/label_version/universe_version/model_id/strategy_id/run_id`、按月分区 + 聚簇、表+字段注释。OQ-006 仍 open 但关键决策已确认：`ashare_meta.ods_field_unit_map` 是单位换算唯一事实来源，`dwd_index_eod.volume/amount` 必须迁移为 `volume_share/amount_cny`，OQ-006 最小实现先于 P1 高单位风险 DWD 正式落地，`sql/qa/05_oq006_unit_checks.sql` 纳入所有 DWD PR 必跑 QA。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步；OQ-003 已采纳 P0 默认合并报表 `report_type='1'`、DWD 保留口径字段、DWS 默认过滤默认口径。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
 
 **已物化表**：`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`、`dim_index`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`；`data-aquarium.ashare_dws` 下策略 1 六表（universe、价格特征、估值特征、标签、特征宽表、样本表）；`data-aquarium.ashare_ads` 下 11 张训练/预测/组合/回测/监控契约表。PR #9 合并后的 `dim_stock` 依赖链已在 2026-06-02 重建：`dim_stock`、`dwd_stock_eod_price`、策略 1 DWS 六表和 ADS 契约表均已刷新，`sql/metadata/01_p0_table_column_descriptions.sql` 已执行，`sql/qa/01_p0_smoke_checks.sql` 与 `sql/qa/02_strategy1_dws_ads_checks.sql` 均通过；`sql/qa/03_oq004_index_checks.sql` 近期通过。二轮评审发现已修复：盘中临停不再误标全天停牌，财务 latest 改为 `update_flag DESC` 优先。P0 DIM/DWD 字段说明缺失数为 0。
 
@@ -136,6 +136,8 @@ Run ID: —
 - `IMPLEMENTATION_STATUS.md`
 - `AGENT_HANDOFF.md`
 - `TODO.md`
+
+---
 
 日期: 2026-06-02
 Agent ID: Codex
@@ -1256,5 +1258,66 @@ Run ID: —
 ### 已更新记忆文件
 
 - `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+- `TODO.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-02
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: OQ-006 / unit contract PRD
+
+### 已完成工作
+
+- 按 owner 最新确认修订 `docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`：将四项待确认问题改为已确认决策。
+- 明确 `ashare_meta.ods_field_unit_map` 为单位换算唯一事实来源。
+- 明确 `dwd_index_eod.volume/amount` 必须迁移为 `volume_share/amount_cny`，legacy exception 只允许短期兼容。
+- 明确 OQ-006 最小实现先于 P1 资金流、财务扩展等高单位风险 DWD 正式落地。
+- 明确 `sql/qa/05_oq006_unit_checks.sql` 加入所有新增或修改 DWD 标准字段 PR 的必跑 QA。
+- 追加 DECISION-20260602-02，并同步 OQ、TODO、实现状态、已知约束和当前交接摘要。
+
+### 重要上下文
+
+- 本次只改 PRD 和记忆/TODO，未实现 `ashare_meta.ods_field_unit_map`、未写 `sql/qa/05_oq006_unit_checks.sql`，也未迁移 `dwd_index_eod` 字段。
+- OQ-006 仍 open，状态是 owner 决策已确认、待实现。
+
+### 改动文件
+
+- `docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 实现 OQ-006 最小版本：meta 表 + seed、`05_oq006_unit_checks.sql`、`dwd_index_eod` 命名迁移、DWD-DIM / README / `KNOWN_CONSTRAINTS.md` 同步，然后关闭 OQ-006。
+
+### 已更新记忆文件
+
+- `DECISION_LOG.md`
+- `MEMORY_INDEX.md`
+- `PROJECT_CONTEXT.md`
+- `OPEN_QUESTIONS.md`
+- `IMPLEMENTATION_STATUS.md`
+- `KNOWN_CONSTRAINTS.md`
 - `AGENT_HANDOFF.md`
 - `TODO.md`

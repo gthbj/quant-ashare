@@ -6,8 +6,8 @@
 
 ## P0 — 当前优先
 
-- [ ] 按 OQ-006 PRD 实现 `ashare_meta.ods_field_unit_map`、P0 + PR #13 首批单位映射 seed、`sql/qa/05_oq006_unit_checks.sql`，并更新 DWD-DIM / README / `KNOWN_CONSTRAINTS.md`
-- [ ] 处理 PR #13 / PRD03 财务三表落地前后的单位契约依赖：若 PR #13 先合并，OQ-006 首个实现 PR 回填 `income` / `balancesheet` / `cashflow` 映射；若 OQ-006 先实现，PR #13 合并前随表补单位映射或显式依赖 OQ-006
+- [ ] 按已确认的 OQ-006 PRD 实现 `ashare_meta.ods_field_unit_map`、P0 + PR #13 首批单位映射 seed、`sql/qa/05_oq006_unit_checks.sql`、`dwd_index_eod.volume/amount` -> `volume_share/amount_cny` 迁移，并更新 DWD-DIM / README / `KNOWN_CONSTRAINTS.md`
+- [ ] 处理 PR #13 / PRD03 财务三表落地前的单位契约依赖：财务三表合并前必须随表补单位映射和 OQ-006 QA，或显式依赖 OQ-006 最小实现先落地
 - [ ] 合并 / 落地 PRD03（OQ-003 财务三表 DWD/DWS）：按默认合并报表口径补 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`、单季派生、财务特征 DWS 和对应 QA
 - [ ] 补 P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily`、`dws_market_state_daily`、后续策略共用的财务 / 市场状态特征
 - [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：特征 / 标签 / 选股口径、成本、调仓频率、持股数 / 单票权重上限
