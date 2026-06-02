@@ -486,6 +486,7 @@ def compute_funnel_summary(sample_df: pd.DataFrame, pred_df: pd.DataFrame,
 # ── FR-DIAG-6 特征暴露诊断 ────────────────────────────────────────────────────
 def fetch_feature_exposure(client: bigquery.Client, project: str,
                            run_id: str, strategy_id: str,
+                           backtest_id: str,
                            start_date: str, end_date: str) -> pd.DataFrame:
     # Pull features for predictions, candidates, positions, and loss contributors
     sql = f"""
@@ -660,15 +661,14 @@ def compute_portfolio_concentration(pos_df: pd.DataFrame) -> pd.DataFrame:
 def compute_cost_turnover(nav_df: pd.DataFrame, trades_df: pd.DataFrame) -> pd.DataFrame:
     if nav_df.empty:
         return pd.DataFrame()
-    cost = trades_df.groupby("trade_date").agg(
+    trades = trades_df.copy()
+    trades["economic_cost"] = trades["fee_cny"].fillna(0) + trades["slippage_cny"].fillna(0)
+    cost = trades.groupby("trade_date").agg(
         turnover=("turnover_cny", "sum"),
         fee=("fee_cny", "sum"),
         tax=("tax_cny", "sum"),
         slippage=("slippage_cny", "sum"),
-        economic_cost=("turnover_cny", lambda x: (
-            trades_df.loc[x.index, "fee_cny"].sum() +
-            trades_df.loc[x.index, "slippage_cny"].sum()
-        )),
+        economic_cost=("economic_cost", "sum"),
     ).reset_index()
     merged = nav_df[["trade_date", "nav", "daily_return", "cost_cny", "turnover_cny"]].merge(
         cost, on="trade_date", how="left")
@@ -1015,7 +1015,8 @@ def main():
 
     # FR-DIAG-6: feature exposure
     print("特征暴露...")
-    feat_df = fetch_feature_exposure(bq, args.project, args.run_id, args.strategy_id, valid_start, test_end)
+    feat_df = fetch_feature_exposure(
+        bq, args.project, args.run_id, args.strategy_id, args.backtest_id, valid_start, test_end)
     feature_exposure = compute_feature_exposure_by_group(feat_df)
 
     # FR-DIAG-7: backtest attribution
