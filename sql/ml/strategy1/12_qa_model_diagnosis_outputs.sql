@@ -72,7 +72,7 @@ ASSERT (
   SELECT COUNTIF(split_tag = 'valid' AND n_days >= 100) = 1
      AND COUNTIF(split_tag = 'test'  AND n_days >= 100) = 1
   FROM (
-    SELECT split_tag, COUNT(DISTINCT predict_date) AS n_days
+    SELECT s.split_tag AS split_tag, COUNT(DISTINCT predict_date) AS n_days
     FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
     JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
       ON tp.trade_date = pred.predict_date AND tp.sec_code = pred.sec_code AND tp.run_id = p_run_id
