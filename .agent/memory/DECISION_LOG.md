@@ -834,3 +834,79 @@ OQ-010 仍有策略默认参数待确认。当前策略 1 runner 使用单一 `p
 ### 相关文件
 
 `docs/prd/PRD_20260602_02_OQ010交易成本口径.md`, `docs/策略1-ml_pv_clf_v0-runner设计.md`, `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`
+
+## DECISION-20260602-05: 策略 1 报告中文归因旧口径（已废弃）
+
+日期: 2026-06-02
+状态: superseded by DECISION-20260602-06
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+策略 1 runner 已能生成基础 Markdown/HTML 报告，但现有 `scripts/strategy1/render_report.py` 仍使用英文标题和指标名，只展示汇总绩效、模型指标、NAV 和回撤图。owner 要求报告改为中文，展示买卖细节，能看到与沪深 300 的对比，并在策略效果不好时让 AI 分析亏损节点买了什么、可能原因是什么。
+
+### 决策
+
+本决策已废弃，不再作为实现依据。有效口径见 `DECISION-20260602-06`：
+
+1. 策略 1 runner 和 ADS 主 benchmark 使用中证 1000 canonical `sec_code='000852.SH'`，作为评估主基准 / 归因主基准。
+2. 沪深 300 canonical `sec_code='000300.SH'` 仅作为报告展示对比基准，满足 owner 阅读口径，但不替代评估主基准。
+3. 中证 500 `000905.SH` 可作为辅助风格基准展示；展示 / 辅助基准必须固化到报告 artifact，保证可复核。
+4. 报告用户可见文本中文化，技术 ID（`run_id`、`model_id`、`backtest_id`、`sec_code`）保留原值。
+5. 正文展示成交摘要、亏损贡献、不成交跳过样例；完整成交、持仓、NAV、回撤和归因明细以 CSV / JSON artifact 输出。
+6. AI 诊断必须先生成结构化 `diagnosis_evidence.json`，只基于证据包输出中文分析；没有新闻/公告/外部事件证据时，必须明确写“当前证据不足，无法判断”，不得编造外部原因。
+
+### 理由
+
+PR #18 review 指出，旧版口径与策略 1 原始 PRD §8.4 的中证 1000 评估基准冲突，会把中小盘 beta 误读为选股 alpha。owner 确认第一个问题按 review 建议处理，因此本决策被 `DECISION-20260602-06` 替代。报告中文化、交易明细、证据包和 AI 诊断要求仍保留，但 benchmark 分层以新决策为准。
+
+### 影响
+
+`docs/prd/PRD_20260602_03_策略1中文报告归因分析.md` 已按 `DECISION-20260602-06` 修订。后续实现需改 `sql/ml/strategy1/08_run_backtest.sql`、`09_build_metrics_and_report_inputs.sql`、`10_qa_runner_outputs.sql`、`scripts/strategy1/render_report.py` 和 `sql/ml/strategy1/README.md`。实现时不得按本废弃决策改 benchmark；必须以 `DECISION-20260602-06` 为准。
+
+### 备选方案
+
+只把现有报告翻译成中文；放弃，因为不能回答买卖细节和亏损原因。只展示单一大盘对比基准；放弃，因为策略 1 原始股票池偏中小盘，缺少风格对照会误判 alpha。让 AI 直接读整份报告自由分析；放弃，因为缺少结构化证据约束，结论不可追溯。
+
+### 相关文件
+
+`docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`, `scripts/strategy1/render_report.py`, `sql/ml/strategy1/08_run_backtest.sql`, `sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`, `sql/ml/strategy1/10_qa_runner_outputs.sql`, `sql/ml/strategy1/README.md`, `TODO.md`
+
+## DECISION-20260602-06: 策略 1 报告基准分层与证据包治理口径
+
+日期: 2026-06-02
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+PR #18 review 指出，`PRD_20260602_03_策略1中文报告归因分析.md` 把沪深 300 设为报告 / runner 主基准，会与策略 1 原始 PRD §8.4 的中证 1000 评估基准冲突。策略 1 股票池偏中小盘，若把沪深 300 当评估主基准，会把中小盘 beta 误读为选股 alpha。owner 确认第一个问题按 review 建议处理，不再按原“benchmark 以沪深 300 为主基准”的说法执行。
+
+### 决策
+
+1. 策略 1 runner 和 ADS 主 benchmark 保持中证 1000 canonical `sec_code='000852.SH'`，作为评估主基准 / 归因主基准。
+2. 沪深 300 canonical `sec_code='000300.SH'` 作为报告展示对比基准，满足 owner 阅读口径，但不替代评估主基准。
+3. 中证 500 `000905.SH` 作为可选风格辅助基准；所有展示 / 辅助基准必须固化到 `benchmark_nav.csv` 和 `metrics.json.artifact_manifest`。
+4. `diagnosis_evidence.json` 必须有稳定 schema（P0 为 `strategy1_report_evidence_v1`），定义 required/optional、空数组和 `null` 语义。
+5. P0 持仓亏损贡献采用持仓窗口贡献近似：`SUM(ads_backtest_position_daily.weight * dwd_stock_eod_price.ret_1d)`，并记录归因覆盖率。
+6. `--ai-analysis-mode auto` 必须定义 timeout、重试和 fallback：LLM 调用失败时退化为 `evidence_only` 并记录脱敏错误；`llm` 模式失败则非零退出。
+
+### 理由
+
+中证 1000 与策略 1 的中小盘股票池风格更匹配，是判断选股 alpha 的正确评估基准。沪深 300 可作为 owner 熟悉的大盘展示口径，但不能作为 alpha 归因主口径。证据包 schema、归因公式和 AI fallback 是后续实现可测试、可复核和不误导的基础。
+
+### 影响
+
+`PRD_20260602_03_策略1中文报告归因分析.md` 从“沪深 300 主基准”修订为“中证 1000 评估主基准 + 沪深 300 展示对比基准”。后续实现 PR 不应把 `08/09` 的 `p_benchmark` 改为 `000300.SH`；应保持 / 明确为 `000852.SH`，并由 `render_report.py` 查询和固化 `000300.SH` 展示基准。`DECISION-20260602-05` 被本决策 supersede。
+
+### 备选方案
+
+继续把沪深 300 作为 runner / ADS 主基准；放弃，因为会和原策略 PRD §8.4 冲突并误判 alpha。只展示中证 1000，不展示沪深 300；放弃，因为 owner 仍需要大盘展示对比。辅助基准实时查询 DWD 不固化；放弃，因为会降低报告 artifact 可复核性。
+
+### 相关文件
+
+`docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`, `scripts/strategy1/render_report.py`, `sql/ml/strategy1/08_run_backtest.sql`, `sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`, `sql/ml/strategy1/10_qa_runner_outputs.sql`
