@@ -834,3 +834,41 @@ OQ-010 仍有策略默认参数待确认。当前策略 1 runner 使用单一 `p
 ### 相关文件
 
 `docs/prd/PRD_20260602_02_OQ010交易成本口径.md`, `docs/策略1-ml_pv_clf_v0-runner设计.md`, `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`
+
+## DECISION-20260602-05: 策略 1 报告主基准与中文归因口径
+
+日期: 2026-06-02
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+策略 1 runner 已能生成基础 Markdown/HTML 报告，但现有 `scripts/strategy1/render_report.py` 仍使用英文标题和指标名，只展示汇总绩效、模型指标、NAV 和回撤图。owner 要求报告改为中文，展示买卖细节，benchmark 以沪深 300 为基准，并在策略效果不好时让 AI 分析亏损节点买了什么、可能原因是什么。
+
+### 决策
+
+策略 1 报告增强采用以下口径：
+
+1. 报告用户可见文本中文化，技术 ID（`run_id`、`model_id`、`backtest_id`、`sec_code`）保留原值。
+2. 主报告基准和 runner 默认主基准改为沪深 300 canonical `sec_code='000300.SH'`。
+3. 中证 1000 `000852.SH` 和中证 500 `000905.SH` 作为辅助风格基准展示，用于区分策略选股 alpha 与中小盘风格 beta。
+4. 正文展示成交摘要、亏损贡献、不成交跳过样例；完整成交、持仓、NAV、回撤和归因明细以 CSV / JSON artifact 输出。
+5. AI 诊断必须先生成结构化 `diagnosis_evidence.json`，只基于证据包输出中文分析；没有新闻/公告/外部事件证据时，必须明确写“当前证据不足，无法判断”，不得编造外部原因。
+
+### 理由
+
+owner 需要从报告直接回答“策略是否跑赢沪深 300、买了什么、亏在什么节点、亏损是否来自少数持仓或执行问题”。沪深 300 是 owner 指定的主对比口径；辅助风格基准保留策略原先中小盘 beta 解释能力。AI 归因若不受证据包约束会产生不可审计结论，因此先固化数据证据，再生成自然语言分析。
+
+### 影响
+
+新增 `docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`。后续实现需改 `sql/ml/strategy1/08_run_backtest.sql`、`09_build_metrics_and_report_inputs.sql`、`10_qa_runner_outputs.sql`、`scripts/strategy1/render_report.py` 和 `sql/ml/strategy1/README.md`。现有可执行 runner 在实现前仍保留旧报告行为和旧示例基准；本决策定义目标实现口径。
+
+### 备选方案
+
+只把现有报告翻译成中文；放弃，因为不能回答买卖细节和亏损原因。只用沪深 300、不展示风格基准；放弃，因为策略 1 原始股票池偏中小盘，缺少风格对照会误判 alpha。让 AI 直接读整份报告自由分析；放弃，因为缺少结构化证据约束，结论不可追溯。
+
+### 相关文件
+
+`docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`, `scripts/strategy1/render_report.py`, `sql/ml/strategy1/08_run_backtest.sql`, `sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`, `sql/ml/strategy1/10_qa_runner_outputs.sql`, `sql/ml/strategy1/README.md`, `TODO.md`
