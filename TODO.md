@@ -1,73 +1,37 @@
 # TODO
 
-项目级待办，面向「下一步做什么」。整体状态见 `.agent/memory/IMPLEMENTATION_STATUS.md`。
+本文件只保留“下一步可执行事项”。整体状态和历史完成记录见 `.agent/memory/IMPLEMENTATION_STATUS.md` / `.agent/memory/AGENT_HANDOFF.md`；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源。
+
 维护规则见 `AGENTS.md` 的「TODO 维护协议」。
 
-## P0 — 跑通最小可用闭环
+## P0 — 当前优先
 
-- [x] 编写并物化 `dim_trade_calendar`（`sql/dim/01_dim_trade_calendar.sql`，dry-run / 物化 / QA 通过）
-- [x] 编写并物化 `dim_stock`（`sql/dim/02_dim_stock.sql`，UNION listed+delisted；当前 SQL 优先使用 ODS `delist_date`，缺值时日线兜底；历史版本已 dry-run / 物化 / QA 通过）
-- [x] 编写并物化 `dim_stock_name_hist`（`sql/dim/03_dim_stock_name_hist.sql`，SCD2，dry-run / 物化 / QA 通过）
-- [x] 修订主方案 §4.6：当前先做 2019+，2019 前仅作财务/事件前移、行情 lookback buffer、维度/日历历史支撑
-- [x] 在 P0 SQL 中显式参数化范围（`dwd_start_date=2019-01-01`、`fin_start_period=20170101`、`lookback_start_date=2018-01-01` 默认）
-- [x] 编写 `dwd_stock_eod_price` 建表 SQL（复权+可交易掩码，月分区+sec_code 聚簇+require_partition_filter，写 2019+，构建读 lookback buffer；临时维表替换 dry-run 通过）
-- [x] 编写 `dwd_stock_eod_valuation` 建表 SQL（估值/市值/换手，单位归一，写 2019+，dry-run 通过）
-- [x] 编写 `dwd_fin_indicator` 建表 SQL（PIT 版本事实 + `ann_date_eff`，`partition_date >= 20170101`；临时维表替换 dry-run 通过）
-- [x] 编写并回填 `dwd_index_eod` 建表 SQL（基准指数价格 + `index_dailybasic` 估值/股本，dry-run/QA 通过）
-- [x] 重建 `dwd_index_eod` 以应用 canonical `sec_code` + `source_sec_code` 指数代码归一调整，并重新执行 metadata / QA（2026-06-01 已物化，P0 smoke QA 通过）
-- [x] 修复 P0 SQL 评审发现 R1-R5（显式 `--location=asia-east2`、复牌行不判停牌、`dim_stock` 去重与派生退市宽限、`fina_indicator` 去重兜底、补 `dwd_fin_indicator_latest` 和 QA 脚本；dry-run 通过）
-- [x] 执行 `sql/` P0 建表脚本并运行 `sql/qa/01_p0_smoke_checks.sql`（初版已物化 3 张 DIM + 5 张 DWD，QA 通过；OQ-004 后增补 `dim_index`）
-- [x] 修复 P0 SQL 二轮评审发现（盘中临停不再误标全天停牌；`dwd_fin_indicator_latest` 改为 `update_flag DESC` 优先；重建相关 DWD 并跑通 QA）
-- [x] 补齐 P0 DIM/DWD 表说明和字段说明（`sql/metadata/01_p0_table_column_descriptions.sql` 已执行，9 张表 missing description=0）
-- [x] 复核并关闭 OQ-007：ODS `stock_basic_delisted.delist_date` 已统一为 `STRING` 且可解析；`dim_stock` SQL 改为优先使用 ODS 退市日，并补 P0 QA 断言
-- [x] PR #9 合并后重建 `dim_stock`，并按依赖重建 `dwd_stock_eod_price` 与策略 1 DWS/ADS 派生产物，执行 metadata / P0 QA / 策略 1 QA（2026-06-02 已重建 `dim_stock`、`dwd_stock_eod_price`、策略 1 DWS 六表与 ADS 契约表；已执行 metadata，P0 QA 与策略 1 QA 通过）
-- [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置
-- [ ] 写「从 ODS 继承字段描述」脚本（`bq show` → 映射 → `bq update`）
-- [x] 编写 OQ-006 接口单位换算口径 PRD（`docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`，定义单位契约、`ods_field_unit_map`、P0 + PR #13 财务三表首批覆盖、价格/比率规则、命名例外字段、QA 门禁和关闭标准）
 - [ ] 按 OQ-006 PRD 实现 `ashare_meta.ods_field_unit_map`、P0 + PR #13 首批单位映射 seed、`sql/qa/05_oq006_unit_checks.sql`，并更新 DWD-DIM / README / `KNOWN_CONSTRAINTS.md`
-- [x] 设计 DWS/ADS 表体系（`docs/数据仓库建模方案-DWS-ADS.md`，覆盖 P0 DWS 特征/标签与 ADS 训练/预测/组合/回测/监控）
-- [x] 设计中低频小资金 ML 策略方案（`docs/A股中低频小资金机器学习策略方案.md`，首个策略 `ml_ranker_v0`）
-- [x] 编写并物化策略 1 DWS 建表 SQL：`dws_stock_universe_daily`、`dws_stock_feature_price_daily`、`dws_stock_feature_valuation_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`（`sql/dws/*.sql`，dry-run / 物化 / `sql/qa/02_strategy1_dws_ads_checks.sql` 通过；PR #4 comment 已补 `label_valid` 语义说明、去冗余 JOIN、量化最早可训练日期、同步 DWD-DIM 字段名）
-- [ ] 补 P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily`、`dws_market_state_daily`、后续策略共用的财务/市场状态特征
-- [x] 编写并物化策略 1/P0 ADS 表契约：`ads_ml_training_panel_daily`、`ads_model_registry`、`ads_model_prediction_daily`、`ads_stock_candidate_daily`、`ads_portfolio_target_daily`、`ads_order_plan_daily`、`ads_backtest_*`、`ads_signal_monitor_daily`（`sql/ads/01_ads_strategy1_tables.sql`，dry-run / 物化 / QA 通过）
-- [x] 编写策略 1 BigQuery ML runner 设计：`docs/策略1-ml_pv_clf_v0-runner设计.md`（BigQuery SQL + BigQuery ML，覆盖训练、预测、候选、组合、订单、回测、监控、幂等和 QA）
-- [x] 编写策略 1 BigQuery ML runner 与回测闭环实现 PRD：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`
-- [x] 编写并采纳 OQ-003 财务 `report_type` 口径 PRD：`docs/prd/PRD_20260601_03_财务报表口径维度.md`（P0 默认合并报表，DWD 保留口径字段，DWS 默认过滤；PR #8 review comment 与 NULL-safe QA 已跟进）
-- [x] 编写 OQ-004 基准指数代码可用性 PRD：`docs/prd/PRD_20260601_04_OQ004基准指数口径.md`（指数 endpoint/canonical 映射、`dim_index`、benchmark 窗口契约）
-- [x] 按 `PRD_20260601_04_OQ004基准指数口径.md` 补 `dim_index`、OQ-004 QA、映射驱动的 `dwd_index_eod` 和 runner benchmark 窗口校验（`sql/dim/04_dim_index.sql`、`sql/qa/03_oq004_index_checks.sql`、runner 08 前置校验；BigQuery 已重建并通过 OQ-004 QA）
-- [x] 跟进 PR #11 review feedback：补 ODS 端点准入说明，`dim_index` 字段描述收敛到 metadata，补 `qa/03` 示例窗口和 runner SSE 日历假设说明；BigQuery 已重建 `dim_index`、执行 metadata 并通过 OQ-004 QA
-- [x] 合并 PR #11 到 `main` 并清理 `codex/implement-oq004-index` 本地/远端分支
-- [x] 按 `PRD_20260601_02` 编写策略 1 BQML runner 脚本（`sql/ml/strategy1/01-10` + `scripts/strategy1/render_report.py` + README，全部 bq dry-run 通过；PR #7）
-- [x] 在 BigQuery 上执行策略 1 runner 01-10 并跑通 QA（PR #12 端到端实跑；修复 03/07/08/09 相关子查询与分区过滤、10 cal_date、render ADC/PARSE_JSON；08 因 v0 守卫失败按 DECISION-20260601-07 重写为账户级 ledger；`10_qa_runner_outputs.sql` 16 个断言全过。run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`）
-- [ ] 补 lookback-capable 价格构建输入或调整 DWD/DWS 构建方式，使 2019-01 起 60 日价格窗口可直接读取 2018 buffer；当前策略 1 DWS 已用 `has_full_history_60d` 显式标记并默认剔除不完整窗口样本
+- [ ] 处理 PR #13 / PRD03 财务三表落地前后的单位契约依赖：若 PR #13 先合并，OQ-006 首个实现 PR 回填 `income` / `balancesheet` / `cashflow` 映射；若 OQ-006 先实现，PR #13 合并前随表补单位映射或显式依赖 OQ-006
+- [ ] 合并 / 落地 PRD03（OQ-003 财务三表 DWD/DWS）：按默认合并报表口径补 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`、单季派生、财务特征 DWS 和对应 QA
+- [ ] 补 P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily`、`dws_market_state_daily`、后续策略共用的财务 / 市场状态特征
+- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：特征 / 标签 / 选股口径、成本、调仓频率、持股数 / 单票权重上限
+- [ ] 准备 GCS bucket（`ashare-artifacts`）+ ADC，去掉 `--skip-gcs-upload` 重跑 report render，产出 uploaded 模式真实 `report_uri`
 
-## P1 — 特征扩展
+## P1 — 数据 / 特征扩展
 
-- [ ] `dwd_fin_income/balancesheet/cashflow`（按 OQ-003 PRD 保留 `report_type`/`report_caliber`；单季派生）
-- [x] 修复/绕过 `index_dailybasic` Parquet 类型不一致后，回填 `dwd_index_eod` 指数估值/股本字段（ODS 已修复，DWD 已重建；STAR50/CSI1000 无 dailybasic 端点仍为空）
-- [ ] `dim_stock_sw_industry_hist`（源 `index_member_all`，按 `in_date/out_date` 建申万行业时点归属，并 QA 区间重叠/缺口）
-- [ ] `dim_stock_ci_industry_hist`（源 `ci_index_member`，中信行业时点归属，对照体系）
+- [ ] `dim_stock_sw_industry_hist`（source `index_member_all`，按 `in_date/out_date` 建申万行业时点归属，并 QA 区间重叠 / 缺口）
+- [ ] `dim_stock_ci_industry_hist`（source `ci_index_member`，中信行业时点归属，对照体系）
 - [ ] `dwd_sw_industry_eod` + 行业中性化
-- [ ] 资金面：`dwd_stock_moneyflow` / `north_hold` / `chip` / `margin` / `limit_event`
-- [ ] 事件：`dwd_event_forecast/express/dividend/holder_*`、`dwd_analyst_report`
+- [ ] P1+ 资金面 / 事件 / 行业族 DWD：moneyflow、margin、hk_hold / ccass、龙虎榜、股东增减持、质押回购、业绩预告 / 快报、分红、分析师报告等；新增 DWD 前先按 OQ-006 补单位映射
 - [ ] `dim_index_weight`、`dim_sw_industry`、`dim_ipo`
+- [ ] 补 lookback-capable 价格构建输入或调整 DWD/DWS 构建方式，使 2019-01 起 60 日窗口可直接读取 2018 buffer；当前策略 1 DWS 用 `has_full_history_60d=FALSE` 标记并默认剔除不完整窗口样本（OQ-011）
 
-## P2 / P3
+## 工程 / 调度
 
-- [ ] 龙虎榜/大宗、质押/回购/审计、ccass、市场总览
-- [ ] 增量调度（dbt 或 Airflow）+ 数据质量断言
-- [ ] 治理类维度（managers/rewards）、北交所代码映射长历史拼接
+- [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 `bq` SQL + 自建调度
+- [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算 / 调度配置
+- [ ] 写“从 ODS 继承字段描述”脚本（`bq show` -> 映射 -> `bq update`）
+- [ ] 增量调度（dbt 或 Airflow + SQL）与数据质量断言
 
-## 项目维护
+## 近期完成
 
-- [x] 整理 `.agent/memory/` 工作记忆：归档旧 handoff、迁移 closed questions、压缩 superseded 决策、修正陈旧状态描述、更新协议防止继续膨胀
-
-## 待 owner 决策（见 OPEN_QUESTIONS）
-
-- [x] OQ-001 行业映射：`index_member_all` 已补采（同时补入 `ci_index_member`），后续转为建表 SQL + QA
-- [x] OQ-003 财务 `report_type` 口径：已采纳 `docs/prd/PRD_20260601_03_财务报表口径维度.md` 推荐方案（P0 默认合并报表、DWD 保留多口径字段、DWS 默认过滤）
-- [x] OQ-004 基准指数代码可用性：已实现并关闭（`dim_index` + 映射驱动 `dwd_index_eod` + OQ-004 QA + runner benchmark 窗口校验）
-- [x] OQ-007 退市日类型：ODS `stock_basic_delisted.delist_date` 已修复为 `STRING`，`dim_stock` SQL 已改为优先使用 ODS 退市日
-- [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 bq SQL
-- [ ] OQ-006 接口单位换算：PRD 草案已写并按 review feedback 修订，待 owner review 单位契约表结构、P0 + PR #13 首批补契约范围和 `dwd_index_eod.volume/amount` 命名债务处理方式
-- [ ] OQ-010 P0 策略默认参数：成本、调仓频率、持股数/权重上限（训练工具链已定为 BigQuery ML + SQL runner；首个基线股票池已定为仅沪深主板，不含北交所/创业板/科创板）
+- [x] 合并 OQ-006 PRD（PR #14）：`docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`
+- [x] 策略 1 BigQuery ML runner 已于 PR #12 在 BigQuery 端到端实跑并通过 `10_qa_runner_outputs.sql`（16 断言）
+- [x] OQ-004 基准指数代码可用性已实现并关闭（`dim_index` + 映射驱动 `dwd_index_eod` + OQ-004 QA + runner benchmark 窗口校验）
+- [x] OQ-007 退市日类型已复核并关闭，PR #9 后依赖链已重建并通过 P0 / 策略 1 QA

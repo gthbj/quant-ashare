@@ -20,6 +20,8 @@
 
 **待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略成本/调仓/持股数/单票权重上限（OQ-010，训练工具链已定为 BigQuery ML + SQL runner，首个基线股票池已定为仅沪深主板）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-004/OQ-007 已关闭。
 
+**TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
+
 **分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 和 `codex/implement-oq004-index` 已在本地和远端删除。
 
 > 历史交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md`。常规启动只需阅读本文件的当前摘要和最近交接；归档仅用于审计追溯。
@@ -1209,3 +1211,50 @@ Related issue/PR: gthbj/quant-ashare#12（review follow-up）
 
 ### 已更新记忆文件
 - PROJECT_CONTEXT、MEMORY_INDEX、IMPLEMENTATION_STATUS、ARCHITECTURE_MEMORY、KNOWN_CONSTRAINTS、DECISION_LOG、AGENT_HANDOFF；TODO.md。
+
+---
+
+## 交接条目
+
+日期: 2026-06-02
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: TODO / memory housekeeping
+
+### 已完成工作
+
+- 整理根目录 `TODO.md`：移除大段历史完成项和重复的 OQ 汇总，改为“P0 当前优先 / P1 数据特征扩展 / 工程调度 / 近期完成”四块。
+- 明确 `TODO.md` 与 `OPEN_QUESTIONS.md` 分工：TODO 面向下一步动作，开放问题仍由 `OPEN_QUESTIONS.md` 作为唯一来源。
+- 同步 `IMPLEMENTATION_STATUS.md` 和当前交接摘要，记录本次维护状态。
+
+### 重要上下文
+
+- 本次只整理文档和工作记忆，未改 SQL / PRD / 代码，未执行 BigQuery。
+- `OPEN_QUESTIONS.md` 内容未改；OQ-005、OQ-006、OQ-010、OQ-011 仍 open。
+
+### 改动文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 优先实现 OQ-006 单位契约，随后处理 PRD03 / PR #13 财务三表落地与单位契约依赖。
+
+### 已更新记忆文件
+
+- `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+- `TODO.md`

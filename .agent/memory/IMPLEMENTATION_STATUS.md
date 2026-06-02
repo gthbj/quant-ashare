@@ -52,6 +52,7 @@ Last updated: 2026-06-02
 - 评审协议已按 owner 最新要求更新：GitHub PR review 默认写 PR comment，一条写不下拆多条；只有 owner 明确要求或无 PR comment 承载面时才写 `docs/reviews/` 评审文档。`DECISION-20260531-13` 已被 `DECISION-20260601-03` supersede。
 - ODS 已补采 `index_member_all` 和 `ci_index_member`；主方案、DWS/ADS 文档和策略文档已更新为可落地申万/中信行业时点映射，OQ-001 已关闭。
 - 工作记忆瘦身完成：旧交接归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md`；已关闭问题迁移到 `.agent/memory/archive/CLOSED_QUESTIONS.md`；`OPEN_QUESTIONS.md` 仅保留 open 项；`UPDATE_PROTOCOL.md` 增加只读任务免追加交接和归档规则。
+- `TODO.md` 已整理为下一步可执行清单：移除大段历史完成项和重复 OQ 汇总，仅保留当前优先、P1 扩展、工程/调度待办与少量近期完成项；开放问题继续以 `OPEN_QUESTIONS.md` 为唯一来源。
 
 ## 进行中 / 部分（In Progress）
 
