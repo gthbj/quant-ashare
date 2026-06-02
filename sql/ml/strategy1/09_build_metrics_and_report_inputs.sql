@@ -64,6 +64,18 @@ SELECT
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
 WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end;
 
+-- ── OQ-010 成本分解：从 trade 表直接汇总 fee/tax/slippage/economic_cost ──
+CREATE TEMP TABLE cost_stats AS
+SELECT
+  SUM(t.fee_cny) AS total_fee_cny,
+  SUM(t.tax_cny) AS total_tax_cny,
+  SUM(t.slippage_cny) AS total_slippage_cny,
+  SUM(t.fee_cny + t.slippage_cny) AS total_economic_cost_cny
+FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
+WHERE t.backtest_id = p_backtest_id
+  AND t.fill_status = 'FILLED'
+  AND t.trade_date BETWEEN p_predict_start AND p_calendar_end;
+
 -- 汇总绩效
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_performance_summary`
 (backtest_id, strategy_id, model_id, start_date, end_date,
@@ -115,8 +127,9 @@ SELECT
   p_benchmark,
   a.final_nav - (SELECT b.bench_cum_nav FROM bench AS b ORDER BY b.trade_date DESC LIMIT 1),
   SAFE_DIVIDE(a.excess_annual, NULLIF(a.tracking_error, 0)),
-  -- cost_bps 作为兼容字段写入往返总成本
-  17.0,
+  -- cost_bps 作为兼容字段写入往返总经济成本（从参数计算，支持敏感性实验）
+  p_commission_bps + p_stamp_tax_buy_bps + p_slippage_buy_bps
+    + p_commission_bps + p_stamp_tax_sell_bps + p_slippage_sell_bps,
   TO_JSON_STRING(STRUCT(
     a.n_days, a.annual_return, a.annual_vol,
     SAFE_DIVIDE(a.annual_return, a.annual_vol) AS sharpe,
@@ -137,12 +150,15 @@ SELECT
     p_stamp_tax_sell_bps AS stamp_tax_sell_bps,
     p_slippage_buy_bps AS slippage_buy_bps,
     p_slippage_sell_bps AS slippage_sell_bps,
-    6.0 AS effective_buy_cost_bps,
-    11.0 AS effective_sell_cost_bps,
-    17.0 AS round_trip_cost_bps
+    (p_commission_bps + p_stamp_tax_buy_bps + p_slippage_buy_bps) AS effective_buy_cost_bps,
+    (p_commission_bps + p_stamp_tax_sell_bps + p_slippage_sell_bps) AS effective_sell_cost_bps,
+    (p_commission_bps + p_stamp_tax_buy_bps + p_slippage_buy_bps
+      + p_commission_bps + p_stamp_tax_sell_bps + p_slippage_sell_bps) AS round_trip_cost_bps,
+    -- OQ-010 成本分解（从 trade 表汇总，含显性 fee 与隐性 slippage）
+    cs.total_fee_cny, cs.total_tax_cny, cs.total_slippage_cny, cs.total_economic_cost_cny
   )),
   CURRENT_TIMESTAMP()
-FROM agg AS a, drawdown AS dd, sell_stats AS ss;
+FROM agg AS a, drawdown AS dd, sell_stats AS ss, cost_stats AS cs;
 
 -- 信号监控（t+1 可买性）
 INSERT INTO `data-aquarium.ashare_ads.ads_signal_monitor_daily`

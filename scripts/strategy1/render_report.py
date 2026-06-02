@@ -191,8 +191,19 @@ def render_markdown(summary: dict, model_info: dict, args) -> str:
         f"| Buy Skip Rate (untradable) | {fmt(m.get('buy_skip_rate'))} |",
         f"| Sell Skip Rate (untradable) | {fmt(m.get('sell_skip_rate'))} |",
         f"| Sell Skipped Count | {m.get('sell_skipped_count', 'N/A')} |",
-        f"| Cost (bps) | {fmt(summary.get('cost_bps'), 0)} |",
         f"| Benchmark | `{summary.get('benchmark_sec_code', '')}` |", "",
+        "## Cost Profile", "",
+        f"- **profile**: `{m.get('cost_profile_id', 'N/A')}`",
+        f"- **commission**: 万一免五 (`commission_bps={fmt(m.get('commission_bps'))}`, `min_commission_cny={fmt(m.get('min_commission_cny'))}`)",
+        f"- **stamp tax**: 买入 `{fmt(m.get('stamp_tax_buy_bps'))}` bps / 卖出 `{fmt(m.get('stamp_tax_sell_bps'))}` bps",
+        f"- **slippage**: 买入 `{fmt(m.get('slippage_buy_bps'))}` bps / 卖出 `{fmt(m.get('slippage_sell_bps'))}` bps",
+        f"- **effective cost**: 买入 `{fmt(m.get('effective_buy_cost_bps'))}` bps / 卖出 `{fmt(m.get('effective_sell_cost_bps'))}` bps / 往返 `{fmt(m.get('round_trip_cost_bps'))}` bps",
+        f"- **total fee (显性)**: {fmt(m.get('total_fee_cny'), 2)} CNY",
+        f"- **total tax (显性)**: {fmt(m.get('total_tax_cny'), 2)} CNY",
+        f"- **total slippage (隐性)**: {fmt(m.get('total_slippage_cny'), 2)} CNY",
+        f"- **total economic cost (显性+隐性)**: {fmt(m.get('total_economic_cost_cny'), 2)} CNY",
+        "",
+        "> 旧 `cost_bps=30` 一揽子成本已废弃；当前使用分项成本 profile。`cost_bps` 兼容列写入往返经济成本。", "",
         "## Model Selection", "",
         "```json",
         json.dumps(json.loads(model_info.get("metrics_json") or "{}"), indent=2),
@@ -201,7 +212,7 @@ def render_markdown(summary: dict, model_info: dict, args) -> str:
         "![NAV](assets/nav.png)", "",
         "![Drawdown](assets/drawdown.png)", "",
         "---", "",
-        "*OQ-010 parameters are example values, not business-final.*",
+        "*OQ-010 cost profile implemented. Legacy `cost_bps=30` deprecated.*",
     ]
     return "\n".join(lines)
 
@@ -224,8 +235,20 @@ def render_html(summary: dict, model_info: dict, args) -> str:
         row("Buy Skip Rate (untradable)", fmt(m.get("buy_skip_rate"))),
         row("Sell Skip Rate (untradable)", fmt(m.get("sell_skip_rate"))),
         row("Sell Skipped Count", m.get("sell_skipped_count", "N/A")),
-        row("Cost (bps)", fmt(summary.get("cost_bps"), 0)),
         row("Benchmark", summary.get("benchmark_sec_code", "")),
+        row("Cost Profile", m.get("cost_profile_id", "N/A")),
+        row("Commission (bps)", fmt(m.get("commission_bps"))),
+        row("Stamp Tax Buy (bps)", fmt(m.get("stamp_tax_buy_bps"))),
+        row("Stamp Tax Sell (bps)", fmt(m.get("stamp_tax_sell_bps"))),
+        row("Slippage Buy (bps)", fmt(m.get("slippage_buy_bps"))),
+        row("Slippage Sell (bps)", fmt(m.get("slippage_sell_bps"))),
+        row("Effective Buy Cost (bps)", fmt(m.get("effective_buy_cost_bps"))),
+        row("Effective Sell Cost (bps)", fmt(m.get("effective_sell_cost_bps"))),
+        row("Round Trip Cost (bps)", fmt(m.get("round_trip_cost_bps"))),
+        row("Total Fee (CNY)", fmt(m.get("total_fee_cny"), 2)),
+        row("Total Tax (CNY)", fmt(m.get("total_tax_cny"), 2)),
+        row("Total Slippage (CNY)", fmt(m.get("total_slippage_cny"), 2)),
+        row("Total Economic Cost (CNY)", fmt(m.get("total_economic_cost_cny"), 2)),
     ])
     model_metrics = html.escape(json.dumps(json.loads(model_info.get("metrics_json") or "{}"), indent=2))
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -251,7 +274,7 @@ th{{background:#f6f6f6}}img{{max-width:100%;margin:8px 0}}pre{{background:#f6f6f
 <h2>Charts</h2>
 <img src="assets/nav.png" alt="NAV">
 <img src="assets/drawdown.png" alt="Drawdown">
-<p class="muted">OQ-010 parameters are example values, not business-final.</p>
+<p class="muted">OQ-010 cost profile implemented. Legacy <code>cost_bps=30</code> deprecated.</p>
 </body></html>"""
 
 
