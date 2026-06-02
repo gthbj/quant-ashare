@@ -1,4 +1,4 @@
-> 文档维护：Claude Opus 4.6（最近更新 2026-06-01）
+> 文档维护：mimo-v2.5-pro（最近更新 2026-06-02）
 
 # Strategy 1 BigQuery ML Runner
 
@@ -10,7 +10,7 @@
 - `ashare_ads` 11 张 ADS 契约表已创建（`sql/ads/01`）
 - `sql/qa/02_strategy1_dws_ads_checks.sql` 通过
 - `ashare_dim.dim_index` 与 `ashare_dwd.dwd_index_eod` 已按 OQ-004 口径重建，`sql/qa/03_oq004_index_checks.sql` 通过
-- `pip install google-cloud-bigquery google-cloud-storage matplotlib pandas db-dtypes`
+- `pip install google-cloud-bigquery google-cloud-storage matplotlib pandas requests db-dtypes`
 
 ## 执行顺序
 
@@ -28,7 +28,8 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/08_run_
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/09_build_metrics_and_report_inputs.sql
 
 # render_report 必须在 10 之前：它把报告状态回写 summary.metrics_json（local_report_path +
-# report_upload_status；report_uri 仅在真实上传 GCS 成功时写），10 做模式感知断言。
+# report_upload_status、report_version、diagnosis_triggered、ai_analysis_status、artifact_manifest），
+# 10 做模式感知断言。
 # 默认（无 --skip-gcs-upload）会上传 GCS 并写 report_uri，需要 ashare-artifacts bucket + ADC；
 # 本地验证用 --skip-gcs-upload（不写 report_uri，report_upload_status=skipped）。
 python scripts/strategy1/render_report.py \
@@ -61,16 +62,97 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 | `p_slippage_buy_bps` | 买入滑点，默认 5.0（成交价向上偏移） |
 | `p_slippage_sell_bps` | 卖出滑点，默认 5.0（成交价向下偏移） |
 | `p_cost_bps` | 兼容字段，旧一揽子成本 30 bps；已由分项成本取代，不再作为默认撮合成本来源 |
-| `p_benchmark` | 基准指数 canonical 代码（示例值 000852.SH）；执行前必须存在于 `dim_index` 且完整覆盖回测 NAV 窗口 |
+| `p_benchmark` | **评估主基准** canonical 代码，默认 `000852.SH`（中证 1000）；执行前必须存在于 `dim_index` 且完整覆盖回测 NAV 窗口 |
 | `p_force_replace` | 是否覆盖同 run_id 结果（默认 FALSE） |
+
+### render_report.py 参数
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | GCP project id |
+| `--backtest-id` | 回测 ID |
+| `--run-id` | 运行 ID |
+| `--strategy-id` | 策略 ID（默认 `ml_pv_clf_v0`） |
+| `--artifact-base-uri` | GCS 基础路径（`gs://bucket/path`） |
+| `--local-mirror-root` | 本地镜像根目录（默认 `reports/strategy1`） |
+| `--skip-gcs-upload` | 跳过 GCS 上传，仅写本地（不写 `report_uri`） |
+| `--ai-analysis-mode` | AI 诊断模式：`auto`（默认）/ `off` / `evidence_only` / `llm` |
+| `--ai-timeout-seconds` | LLM 调用超时秒数（默认 60） |
+| `--ai-max-retries` | LLM 重试次数（默认 2） |
+| `--ai-provider` | LLM 提供商（默认 `openai`） |
+
+## 基准体系（PRD-20260602-03）
+
+| 角色 | canonical `sec_code` | 名称 | 用途 |
+|---|---|---|---|
+| **评估主基准** | `000852.SH` | 中证 1000 | 计算超额收益、信息比率、alpha/beta 归因。ADS 主字段写入此基准。 |
+| **展示对比基准** | `000300.SH` | 沪深 300 | owner 默认阅读口径，报告中展示对比。不写入 ADS 主 benchmark 字段。 |
+| **辅助风格基准** | `000905.SH` | 中证 500 | 可选中盘风格对照，报告中展示。 |
+
+策略 1 股票池偏中小盘，评估 alpha 时必须以中证 1000 为主基准，避免把小盘 beta 误读为选股 alpha。沪深 300 仅作为展示对比基准。
+
+## 报告产物（v2 中文报告）
+
+报告输出到 `reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/`：
+
+| 文件 | 说明 |
+|---|---|
+| `report.md` | 中文 Markdown 报告（人读） |
+| `report.html` | 中文 HTML 报告（人读） |
+| `metrics.json` | 汇总指标 + artifact manifest + AI 状态 |
+| `diagnosis_evidence.json` | AI 诊断证据包（schema: `strategy1_report_evidence_v1`） |
+| `ai_analysis.json` | AI 诊断输出（模型、时间、evidence hash、状态） |
+| `trades.csv` | 完整成交明细（含 score/rank/权重） |
+| `positions.csv` | 每日持仓明细 |
+| `nav.csv` | 每日净值、现金、暴露、成本 |
+| `benchmark_nav.csv` | 策略与各基准净值对比（已固化，可复核） |
+| `drawdown_events.csv` | 回撤事件列表 |
+| `loss_attribution.csv` | 持仓亏损归因 |
+| `assets/nav_vs_benchmark.png` | 策略净值 vs 基准对比图 |
+| `assets/drawdown.png` | 回撤图 |
+| `assets/excess_return.png` | 超额收益图 |
+| `assets/turnover_cost.png` | 换手与成本图 |
+
+### 报告正文结构
+
+1. **首页摘要**：策略信息、基准、窗口、一句话结论
+2. **绩效总览**：收益/风险指标、基准对比、成本分析、执行诊断
+3. **图表**：净值对比、回撤、超额收益、换手成本
+4. **买卖细节**：最近成交、最大成交、亏损贡献持仓、不可交易跳过样例
+5. **风险与归因**：回撤事件、快速亏损窗口、持仓窗口贡献法归因
+6. **AI 诊断**（触发时）：结论摘要、亏损窗口、主要亏损股票、可能原因、改进建议
+
+### AI 诊断触发条件
+
+满足以下任一条件时生成 AI 诊断章节：
+
+- 策略累计收益 < 评估主基准累计收益
+- 策略累计收益 < 展示对比基准累计收益
+- 策略累计收益为负
+- 最大回撤 <= -15%
+- 5/10/20 日滚动收益 <= -8%
+- 成本/亏损比 >= 20%
+
+### AI 运行模式
+
+| 模式 | 行为 |
+|---|---|
+| `off` | 不生成 AI 诊断，只生成证据包 |
+| `evidence_only` | 不调用 LLM，用规则模板生成中文证据摘要 |
+| `llm` | 必须调用 LLM；失败则报告生成失败 |
+| `auto`（默认） | 触发条件满足且凭据可用时调用 LLM；无凭据或失败时退化为 `evidence_only` |
+
+凭据通过环境变量提供：`OPENAI_API_KEY` 或 `LLM_API_KEY`，可选 `LLM_BASE_URL`、`LLM_MODEL`。
 
 ## 关键设计
 
 - **run 隔离**：模型对象名嵌入 `p_run_id`，registry 用 `JSON_VALUE(model_params_json, '$.run_id')` 过滤。
 - **04 动态模型引用**：用 `EXECUTE IMMEDIATE FORMAT(...)` 自动引用 03 选出的 selected model URI，无需手动替换。
-- **回测交易与卖出口径（v1 ledger）**：08 只在每个调仓 period 的 `t+1 exec_date` 按当日开盘价交易；不可交易腿（不可买/卖或无开盘价）本期跳过、记为 `BUY_SKIPPED_UNTRADABLE` / `SELL_SKIPPED_UNTRADABLE` 意图行（`filled_shares=0`、无现金/换手影响），持仓 carry 到下一个调仓执行日再尝试。**不做 60 交易日 daily next-sellable 顺延搜索，也没有 `SELL_BLOCKED_NO_NEXT_SELLABLE_60D`。** 09 的 skip 统计直接从 `ads_backtest_trade_daily` 这些意图/成交行 1:1 汇总，可对账。
+- **回测交易与卖出口径（v1 ledger）**：08 只在每个调仓 period 的 `t+1 exec_date` 按当日开盘价交易；不可交易腿本期跳过、记为 `BUY_SKIPPED_UNTRADABLE` / `SELL_SKIPPED_UNTRADABLE` 意图行，持仓 carry 到下一个调仓执行日再尝试。
 - **基准窗口校验**：08 执行前校验 `p_benchmark` 是 `dim_index` 中的可用收益基准，并且 `dwd_index_eod` 对 NAV 窗口每个开市日有且只有一条有效价格记录。
-- **报告渲染**：`render_report.py` 生成 Markdown + HTML + PNG。默认上传 GCS 并写回 `metrics_json.report_uri`（`report_upload_status='uploaded'`）；`--skip-gcs-upload` 仅写本地镜像，**不写 `report_uri`**，改写 `local_report_path` + `report_upload_status='skipped'`。BigQuery 与 Storage 客户端在无 ADC 时都回退用 gcloud 用户 access token。
+- **评估主基准**：`08` 和 `09` 的 `p_benchmark` 默认值为 `000852.SH`（中证 1000），ADS 主字段写入此基准。展示对比基准（沪深 300）和辅助基准（中证 500）由 `render_report.py` 从 `dwd_index_eod` 读取并固化到 `benchmark_nav.csv`。
+- **报告渲染**：`render_report.py` 生成中文 Markdown + HTML + PNG + CSV 附件 + 证据包 + AI 诊断。默认上传 GCS 并写回 `metrics_json`；`--skip-gcs-upload` 仅写本地镜像。
+- **AI 诊断**：`auto` 模式在无凭据或 LLM 失败时自动退化为 `evidence_only`，保证报告始终可生成。AI 只能引用证据包中的事实，不得编造外部原因。
 - **OQ-010 参数**使用示例值，非业务定稿。
 
 ## 回测口径：v1 账户级有状态 ledger
