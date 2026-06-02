@@ -8,7 +8,7 @@
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
 - [x] 实现 OQ-010 交易成本 profile：按 `PRD_20260602_02_OQ010交易成本口径.md` 将 runner 从单一 `p_cost_bps=30` 升级为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，并同步 08/09/10/report/README
-- [ ] 实现策略 1 中文报告与归因分析：按 `PRD_20260602_03_策略1中文报告归因分析.md` 将主基准改为沪深300 `000300.SH`，报告中文化，输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断
+- [ ] 实现策略 1 中文报告与归因分析：按 `PRD_20260602_03_策略1中文报告归因分析.md` 保持中证1000 `000852.SH` 为评估主基准、并列展示沪深300 `000300.SH`，报告中文化，输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断
 - [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：特征 / 标签 / 选股口径、调仓频率、持股数 / 单票权重上限
 - [ ] 准备 GCS bucket（`ashare-artifacts`）+ ADC，去掉 `--skip-gcs-upload` 重跑 report render，产出 uploaded 模式真实 `report_uri`
 
@@ -32,7 +32,7 @@
 ## 近期完成
 
 - [x] OQ-010 交易成本口径 PRD 已新增并在 runner SQL 中实现：佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps
-- [x] 策略 1 中文报告与归因分析 PRD 已新增：报告中文化、沪深300主基准、交易/持仓/NAV 附件、亏损证据包和 AI 诊断；代码实现仍需后续 PR
+- [x] 策略 1 中文报告与归因分析 PRD 已新增：报告中文化、中证1000评估主基准、沪深300展示对比基准、交易/持仓/NAV 附件、亏损证据包和 AI 诊断；代码实现仍需后续 PR
 - [x] PR #13 / OQ-003 财务三表 DWD + DWS 已合并：`dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`（+ `_latest`）、`dws_stock_feature_fin_daily`、`sql/qa/04_finance_caliber_checks.sql` 已进入 `main`；已随表补全 `ods_field_unit_map` 财务字段映射并跑通 `sql/qa/05_oq006_unit_checks.sql`
 - [x] OQ-006 单位契约实现已合并（PR #16）：`ashare_meta.ods_field_unit_map`、`sql/qa/05_oq006_unit_checks.sql`、`dwd_index_eod` 换算修复与 `volume_share/amount_cny` 迁移已进入 `main`，OQ-006 已关闭
 - [x] 合并 OQ-006 PRD（PR #14）：`docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`

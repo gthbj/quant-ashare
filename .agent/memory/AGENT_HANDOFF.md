@@ -16,9 +16,9 @@
 
 **DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 已落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，以及 OQ-003 财务特征 `dws_stock_feature_fin_daily`；市场状态 `dws_market_state_daily` 待补。财务特征口径 PRD 已采纳、关闭并实现 OQ-003（PR #13）：P0 默认消费合并报表 `report_type='1'`，三大报表 DWD（`income/balancesheet/cashflow` + `_latest`）保留 `report_type`/`report_caliber`/`is_default_report_caliber`，`dws_stock_feature_fin_daily` 默认只过滤默认口径（口径契约 + `has_fin_*` 掩码），已物化并通过 `sql/qa/04_finance_caliber_checks.sql`，并按 OQ-006 单位契约补全 `ods_field_unit_map` 财务字段、跑通 `sql/qa/05_oq006_unit_checks.sql`。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md`、runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 和 runner SQL 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。**runner 已于 PR #12 端到端实跑并通过全部 QA**（08 已重写为账户级 ledger，详见本文件末尾 2026-06-02 交接条目与摘要顶部）。
 
-**下一步（P0/P1）**：策略 1 runner 01-10 已于 PR #12 端到端实跑并通过 `10_qa_runner_outputs.sql`（16 断言全过）。OQ-010 成本子项已写 PRD：默认成本 profile 为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，后续需要把 runner 从单一 `p_cost_bps=30` 升级为分项成本。策略 1 中文报告与归因分析 PRD 已写：后续需将主基准改为沪深300 `000300.SH`、报告中文化、输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断。其他后续方向为：提升 v0 模型质量与参数（调仓频率、持股数/单票权重上限、特征/标签/选股口径）；补 P0 通用 `dws_market_state_daily`；准备 GCS bucket（`ashare-artifacts`）+ ADC 后去掉 `--skip-gcs-upload` 重跑 render 产出 `uploaded` 真实 `report_uri`；P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：策略 1 runner 01-10 已于 PR #12 端到端实跑并通过 `10_qa_runner_outputs.sql`（16 断言全过）。OQ-010 成本子项已写 PRD 并在 runner SQL 中实现：默认成本 profile 为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，runner 已从单一 `p_cost_bps=30` 升级为分项成本。策略 1 中文报告与归因分析 PRD 已写并按 PR #18 review 修订：后续需保持中证1000 `000852.SH` 为评估 / 归因主基准，报告并列展示沪深300 `000300.SH`，报告中文化、输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断。其他后续方向为：提升 v0 模型质量与参数（调仓频率、持股数/单票权重上限、特征/标签/选股口径）；补 P0 通用 `dws_market_state_daily`；准备 GCS bucket（`ashare-artifacts`）+ ADC 后去掉 `--skip-gcs-upload` 重跑 render 产出 `uploaded` 真实 `report_uri`；P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略调仓频率、持股数/单票权重上限（OQ-010，成本子项已定、策略报告主基准已定为沪深300、训练工具链已定为 BigQuery ML + SQL runner，首个基线股票池已定为仅沪深主板）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
+**待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略调仓频率、持股数/单票权重上限（OQ-010，成本子项已定、策略报告已定为中证1000评估主基准 + 沪深300展示对比基准、训练工具链已定为 BigQuery ML + SQL runner，首个基线股票池已定为仅沪深主板）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
 
@@ -1616,14 +1616,76 @@ Agent 实例 ID: Codex desktop session
 模型: GPT-5
 运行环境: Codex desktop
 Run ID: —
+相关 issue/PR: PR #18 / 策略 1 中文报告与归因分析 PRD review comment
+
+### 已完成工作
+
+- 按 PR #18 review comment 修订 `docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`。
+- 基准口径改为：中证1000 `000852.SH` 是 runner / ADS 评估主基准和归因主基准；沪深300 `000300.SH` 仅作为报告展示对比基准，不替代评估基准。
+- 补充 `diagnosis_evidence.json` P0 schema：`schema_version=strategy1_report_evidence_v1`、required key、空数组 / `null` 语义、最小 JSON 示例。
+- 补充持仓窗口贡献法口径：`ads_backtest_position_daily.weight * dwd_stock_eod_price.ret_1d`，并要求记录归因覆盖率。
+- 补充展示 / 辅助基准必须固化到 `benchmark_nav.csv` 和 `metrics.json.artifact_manifest`。
+- 补充 AI `auto` 模式 timeout / retry / fallback 规则，`llm` 模式失败非零退出。
+- 标记 `DECISION-20260602-05` 被 `DECISION-20260602-06` supersede，并追加 `DECISION-20260602-06`。
+
+### 重要上下文
+
+- owner 明确要求第一个 review 问题按 Claude 建议处理，不再按原“沪深300作为主基准”的说法执行。
+- 后续实现 PR 不应把 `08/09` 的 `p_benchmark` 改为 `000300.SH`；应保持 / 明确为 `000852.SH`，并由报告脚本查询和固化 `000300.SH` 展示对比基准。
+- 本次仍只修 PRD 和记忆/TODO，未改 runner SQL 或 `render_report.py`。
+
+### 改动文件
+
+- `docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 文档型变更；未执行 SQL。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 请 review PR #18 最新 PRD 文案；通过后再进入报告实现 PR。
+- 实现时优先做 `benchmark_nav.csv`、`diagnosis_evidence.json` schema 校验和 deterministic 证据摘要，再接 LLM。
+
+### 已更新记忆文件
+
+- `MEMORY_INDEX.md`
+- `PROJECT_CONTEXT.md`
+- `IMPLEMENTATION_STATUS.md`
+- `OPEN_QUESTIONS.md`
+- `DECISION_LOG.md`
+- `AGENT_HANDOFF.md`
+- `TODO.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-02
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
 相关 issue/PR: 策略 1 中文报告与归因分析 PRD
 
 ### 已完成工作
 
 - 新增 `docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`。
-- PRD 定义策略 1 报告增强：报告中文化、主基准沪深300 `000300.SH`、辅助风格基准中证1000/中证500、交易/持仓/NAV 附件、回撤/快速亏损证据包、AI 诊断。
-- 追加 `DECISION-20260602-05`，记录策略 1 报告主基准与中文归因口径。
-- 更新 `OPEN_QUESTIONS.md` / `TODO.md` / 项目记忆：报告主基准已定待实现；OQ-010 仍保留调仓频率、持股数、单票权重上限等 open 项。
+- PRD 定义策略 1 报告增强：报告中文化、评估主基准中证1000 `000852.SH`、展示对比基准沪深300 `000300.SH`、辅助风格基准中证500、交易/持仓/NAV 附件、回撤/快速亏损证据包、AI 诊断。
+- 追加 `DECISION-20260602-05`，记录策略 1 报告主基准与中文归因口径；该决策后续被 `DECISION-20260602-06` 修订。
+- 更新 `OPEN_QUESTIONS.md` / `TODO.md` / 项目记忆：报告 PRD 已定待实现；OQ-010 仍保留调仓频率、持股数、单票权重上限等 open 项。
 
 ### 重要上下文
 
@@ -1652,8 +1714,8 @@ Run ID: —
 
 ### 下一步建议
 
-- 实现策略 1 报告增强：将 `p_benchmark` 默认改为 `000300.SH`，扩展中文报告、附件、证据包和 AI 诊断，更新 `10_qa_runner_outputs.sql` 与 README。
-- 同步推进 OQ-010 分项成本实现，避免报告增强后仍展示旧 `p_cost_bps=30` 示例口径。
+- 实现策略 1 报告增强：保持 / 明确 `p_benchmark='000852.SH'` 为评估主基准，扩展中文报告、沪深300展示对比、附件、证据包和 AI 诊断，更新 `10_qa_runner_outputs.sql` 与 README。
+- OQ-010 分项成本已在 runner SQL 中实现；报告实现时沿用该分项成本展示，避免回退到旧 `p_cost_bps=30` 示例口径。
 
 ### 已更新记忆文件
 

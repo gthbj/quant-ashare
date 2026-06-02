@@ -49,9 +49,9 @@ ashare_ods (已有, 外部表)
 - 策略 1 BigQuery ML + SQL runner 脚本已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`。**已于 PR #12 在 BigQuery 端到端实跑并通过全部 QA**（run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`，`10_qa_runner_outputs.sql` 16 断言全过）。08 回测已重写为账户级有状态 ledger（DECISION-20260602-01）；不可交易腿记 `*_SKIPPED_UNTRADABLE` 意图行；报告为模式感知：本轮用 local-only（`--skip-gcs-upload`）验收，写 `local_report_path` + `report_upload_status=skipped`、`report_uri=NULL`。
 - OQ-006 单位契约已实现并关闭（PR #16 已合并）：`ashare_meta.ods_field_unit_map` 已创建并填充 P0 + PR #13 首批映射；`dwd_index_eod.volume/amount` 已按 `vol*100` / `amount*1000` 修复换算并迁移为 `volume_share/amount_cny`；`sql/qa/05_oq006_unit_checks.sql` 已创建并纳入所有 DWD PR 必跑 QA；单位准入硬规则已写入 DWD-DIM §3.3-H 和 `KNOWN_CONSTRAINTS.md`。
 - OQ-003 财务报表口径已实现并关闭（PR #13 已合并）：`dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`（+ `_latest`）与 `dws_stock_feature_fin_daily` 已进入 `main` 并物化；`sql/qa/04_finance_caliber_checks.sql` 通过，且已按 OQ-006 补全财务字段单位映射并跑通 `sql/qa/05_oq006_unit_checks.sql`。
-- OQ-010 交易成本子项已形成 PRD（`docs/prd/PRD_20260602_02_OQ010交易成本口径.md`）：默认成本 profile 为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps；代码实现仍需后续 PR 将 runner 从单一 `p_cost_bps=30` 升级为分项成本。
-- 策略 1 中文报告与归因分析 PRD 已形成（`docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`）：要求报告中文化、主基准改为沪深300 `000300.SH`、输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断；代码实现仍需后续 PR 更新 08/09/10/report/README。
-- **下一步**：实现 OQ-010 交易成本 profile，实现策略 1 中文报告与归因分析，继续推进策略 1 模型质量与参数迭代（调仓频率、持股数、权重上限、特征/标签/选股口径）、补 `dws_market_state_daily`、准备 GCS bucket（`ashare-artifacts`）+ ADC 后重跑 uploaded 模式报告；P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
+- OQ-010 交易成本子项已形成 PRD（`docs/prd/PRD_20260602_02_OQ010交易成本口径.md`）并已在 runner SQL 中实现：默认成本 profile 为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，已将 runner 从单一 `p_cost_bps=30` 升级为分项成本。
+- 策略 1 中文报告与归因分析 PRD 已形成（`docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`）：要求报告中文化、评估主基准保持中证1000 `000852.SH`、展示对比基准包含沪深300 `000300.SH`、输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断；代码实现仍需后续 PR 更新 08/09/10/report/README。
+- **下一步**：实现策略 1 中文报告与归因分析，继续推进策略 1 模型质量与参数迭代（调仓频率、持股数、权重上限、特征/标签/选股口径）、补 `dws_market_state_daily`、准备 GCS bucket（`ashare-artifacts`）+ ADC 后重跑 uploaded 模式报告；P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
 
 ## 不可妥协的约定
 
