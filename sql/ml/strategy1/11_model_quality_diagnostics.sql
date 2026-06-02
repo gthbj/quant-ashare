@@ -16,32 +16,38 @@ DECLARE p_target_holdings INT64 DEFAULT 5;
 -- 注意：BigQuery CORR 是 Pearson；如需严格 Spearman 请在 Python 中计算。
 -- 此处用 Pearson-of-ranks 作为近似，用于 dry-run 审查数据量与分区命中。
 
+WITH ranked AS (
+  SELECT
+    pred.predict_date,
+    pred.score,
+    s.fwd_xs_ret_5d,
+    DENSE_RANK() OVER (PARTITION BY pred.predict_date ORDER BY pred.score) AS score_rank,
+    DENSE_RANK() OVER (PARTITION BY pred.predict_date ORDER BY s.fwd_xs_ret_5d) AS ret_rank
+  FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
+  JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+    ON tp.trade_date = pred.predict_date
+   AND tp.sec_code = pred.sec_code
+   AND tp.run_id = p_run_id
+  JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
+    ON s.trade_date = pred.predict_date
+   AND s.sec_code = pred.sec_code
+   AND s.feature_version = tp.feature_version
+   AND s.label_version = tp.label_version
+  WHERE pred.run_id = p_run_id
+    AND pred.predict_date BETWEEN p_valid_start AND p_test_end
+    AND s.split_tag IN ('valid', 'test')
+)
 SELECT
-  pred.predict_date AS trade_date,
+  predict_date AS trade_date,
   COUNT(*) AS n,
-  CORR(pred.score, s.fwd_xs_ret_5d) AS pearson_ic,
-  CORR(
-    DENSE_RANK() OVER (PARTITION BY pred.predict_date ORDER BY pred.score),
-    DENSE_RANK() OVER (PARTITION BY pred.predict_date ORDER BY s.fwd_xs_ret_5d)
-  ) AS rank_ic_approx,
-  AVG(pred.score) AS avg_score,
-  STDDEV_SAMP(pred.score) AS std_score,
-  AVG(s.fwd_xs_ret_5d) AS avg_fwd_xs_ret_5d
-FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-  ON tp.trade_date = pred.predict_date
- AND tp.sec_code = pred.sec_code
- AND tp.run_id = p_run_id
-JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
-  ON s.trade_date = pred.predict_date
- AND s.sec_code = pred.sec_code
- AND s.feature_version = tp.feature_version
- AND s.label_version = tp.label_version
-WHERE pred.run_id = p_run_id
-  AND pred.predict_date BETWEEN p_valid_start AND p_test_end
-  AND s.split_tag IN ('valid', 'test')
-GROUP BY pred.predict_date
-ORDER BY pred.predict_date;
+  CORR(score, fwd_xs_ret_5d) AS pearson_ic,
+  CORR(score_rank, ret_rank) AS rank_ic_approx,
+  AVG(score) AS avg_score,
+  STDDEV_SAMP(score) AS std_score,
+  AVG(fwd_xs_ret_5d) AS avg_fwd_xs_ret_5d
+FROM ranked
+GROUP BY predict_date
+ORDER BY predict_date;
 
 -- ── FR-DIAG-3: 5-bucket lift ─────────────────────────────────────────────────
 WITH scored AS (

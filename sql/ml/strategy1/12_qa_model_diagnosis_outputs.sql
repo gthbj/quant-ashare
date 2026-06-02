@@ -69,7 +69,8 @@ ASSERT (
 
 -- ── QA-DIAG-6: valid and test each have at least 100 prediction trading days ──
 ASSERT (
-  SELECT COUNT(*) > 0
+  SELECT COUNTIF(split_tag = 'valid' AND n_days >= 100) = 1
+     AND COUNTIF(split_tag = 'test'  AND n_days >= 100) = 1
   FROM (
     SELECT split_tag, COUNT(DISTINCT predict_date) AS n_days
     FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
@@ -82,7 +83,6 @@ ASSERT (
       AND pred.predict_date BETWEEN p_valid_start AND p_test_end
       AND s.split_tag IN ('valid', 'test')
     GROUP BY s.split_tag
-    HAVING n_days >= 100
   )
 ) AS 'QA-DIAG-6: valid and test must each have >= 100 prediction trading days';
 

@@ -186,14 +186,16 @@ def fetch_predictions_with_labels(client: bigquery.Client, project: str,
 def compute_rank_ic(pred_df: pd.DataFrame) -> pd.DataFrame:
     if pred_df.empty:
         return pd.DataFrame()
-    def _spearman(g: pd.DataFrame) -> float:
+    records = []
+    for dt, g in pred_df.groupby("trade_date"):
         if len(g) < 3:
-            return np.nan
-        return g["score"].corr(g["fwd_xs_ret_5d"], method="spearman")
-    ic = pred_df.groupby("trade_date").apply(_spearman, include_groups=False).reset_index()
-    ic.columns = ["trade_date", "rank_ic"]
-    ic["year"] = pd.to_datetime(ic["trade_date"]).dt.year
-    ic["month"] = pd.to_datetime(ic["trade_date"]).dt.to_period("M").astype(str)
+            records.append({"trade_date": dt, "rank_ic": np.nan})
+        else:
+            records.append({"trade_date": dt, "rank_ic": g["score"].corr(g["fwd_xs_ret_5d"], method="spearman")})
+    ic = pd.DataFrame.from_records(records)
+    if not ic.empty:
+        ic["year"] = pd.to_datetime(ic["trade_date"]).dt.year
+        ic["month"] = pd.to_datetime(ic["trade_date"]).dt.to_period("M").astype(str)
     return ic
 
 
@@ -420,6 +422,34 @@ def fetch_trade_funnel(client: bigquery.Client, project: str,
     """
     return bq_query(client, sql, [
         bigquery.ScalarQueryParameter("bid", "STRING", backtest_id),
+        bigquery.ScalarQueryParameter("sd", "DATE", start_date),
+        bigquery.ScalarQueryParameter("ed", "DATE", end_date),
+    ])
+
+
+def fetch_sample_filter_risk(client: bigquery.Client, project: str,
+                             run_id: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """Check whether valid/test prediction pool relies on live-unavailable filters
+    (label_entry_tradable / label_valid_5d)."""
+    sql = f"""
+    SELECT
+      s.split_tag,
+      COUNT(*) AS universe_count,
+      COUNTIF(s.sample_trainable_default) AS trainable_count,
+      COUNTIF(NOT COALESCE(s.label_entry_tradable, FALSE)) AS excluded_by_tradable,
+      COUNTIF(NOT COALESCE(s.label_valid_5d, FALSE)) AS excluded_by_label_valid,
+      COUNTIF(s.in_universe_default) AS in_universe_count
+    FROM `{project}.ashare_dws.dws_stock_sample_daily` AS s
+    WHERE s.trade_date BETWEEN @sd AND @ed
+      AND s.feature_version = (
+        SELECT ANY_VALUE(tp.feature_version)
+        FROM `{project}.ashare_ads.ads_ml_training_panel_daily` AS tp
+        WHERE tp.run_id = @rid LIMIT 1
+      )
+    GROUP BY s.split_tag
+    """
+    return bq_query(client, sql, [
+        bigquery.ScalarQueryParameter("rid", "STRING", run_id),
         bigquery.ScalarQueryParameter("sd", "DATE", start_date),
         bigquery.ScalarQueryParameter("ed", "DATE", end_date),
     ])
@@ -695,8 +725,10 @@ def determine_primary_diagnosis(valid_ic: dict, test_ic: dict,
                                 funnel_df: pd.DataFrame,
                                 cost_turnover_df: pd.DataFrame,
                                 style_df: pd.DataFrame,
+                                sample_risk_df: pd.DataFrame,
                                 backtest_summary: dict) -> dict:
-    """Rule-based primary diagnosis with confidence level."""
+    """Rule-based primary diagnosis with confidence level.
+    Pipeline/sample risks are checked first so they cannot be masked by signal conclusions."""
     evidence = []
 
     def add_evidence(metric: str, value: Any, threshold: str, direction: str):
@@ -706,6 +738,23 @@ def determine_primary_diagnosis(valid_ic: dict, test_ic: dict,
     test_mean = test_ic.get("mean") or 0
     valid_icir = valid_ic.get("icir") or 0
     test_icir = test_ic.get("icir") or 0
+
+    # ── Mandatory pipeline checks first ──
+    # Sample filter risk (live-unavailable filters in prediction pool)
+    if not sample_risk_df.empty:
+        for _, row in sample_risk_df.iterrows():
+            split = row.get("split_tag")
+            excluded_by_tradable = int(row.get("excluded_by_tradable", 0) or 0)
+            excluded_by_label_valid = int(row.get("excluded_by_label_valid", 0) or 0)
+            trainable_count = int(row.get("trainable_count", 0) or 0)
+            universe_count = int(row.get("universe_count", 1) or 1)
+            # If any valid/test row is excluded due to live-unavailable filters,
+            # flag sample_filter_risk regardless of signal quality.
+            if excluded_by_tradable > 0 or excluded_by_label_valid > 0:
+                add_evidence(f"{split}_excluded_by_tradable", excluded_by_tradable, ">0", "live_unavailable")
+                add_evidence(f"{split}_excluded_by_label_valid", excluded_by_label_valid, ">0", "live_unavailable")
+                add_evidence(f"{split}_trainable_ratio", round(trainable_count / universe_count, 4), "<1.0", "filtered")
+                return {"primary": "sample_filter_risk", "confidence": "high", "evidence": evidence}
 
     # Signal inverted
     if valid_mean < -0.03 and test_mean < -0.03:
@@ -807,7 +856,7 @@ def write_diagnosis_status_to_ads(client: bigquery.Client, project: str,
         bigquery.ScalarQueryParameter("upload_status", "STRING", upload_status),
         bigquery.ScalarQueryParameter("ts", "STRING", datetime.now(timezone.utc).isoformat()),
         bigquery.ScalarQueryParameter("ver", "STRING", DIAGNOSIS_VERSION),
-        bigquery.ScalarQueryParameter("primary", "STRING", diagnosis_summary.get("primary", "")),
+        bigquery.ScalarQueryParameter("primary", "STRING", diagnosis_summary.get("primary_diagnosis", "")),
         bigquery.ScalarQueryParameter("confidence", "STRING", diagnosis_summary.get("confidence", "")),
     ]
 
@@ -866,14 +915,25 @@ def render_diagnosis_markdown(identity: dict, valid_ic: dict, test_ic: dict,
         lines.append(f"- {k}: {v}")
     lines.append("")
 
+    def _df_to_md(df: pd.DataFrame) -> str:
+        if df.empty:
+            return ""
+        cols = list(df.columns)
+        header = "| " + " | ".join(cols) + " |"
+        sep = "|" + "|".join([" --- " for _ in cols]) + "|"
+        rows = []
+        for _, row in df.iterrows():
+            rows.append("| " + " | ".join(str(row[c]) if row[c] is not None else "" for c in cols) + " |")
+        return "\n".join([header, sep] + rows)
+
     if not bucket_lift_df.empty:
         lines.append("## 分层收益 (5 bucket)\n")
-        lines.append(bucket_lift_df.to_markdown(index=False))
+        lines.append(_df_to_md(bucket_lift_df))
         lines.append("")
 
     if not label_horizon_df.empty:
         lines.append("## 标签 horizon 对照\n")
-        lines.append(label_horizon_df.to_markdown(index=False))
+        lines.append(_df_to_md(label_horizon_df))
         lines.append("")
 
     if not funnel_summary.empty:
@@ -945,6 +1005,9 @@ def main():
     trade_funnel = fetch_trade_funnel(bq, args.project, args.backtest_id, valid_start, test_end)
     funnel_summary = compute_funnel_summary(sample_df, pred_funnel, trade_funnel)
 
+    print("检测 live-unavailable 过滤风险...")
+    sample_risk_df = fetch_sample_filter_risk(bq, args.project, args.run_id, valid_start, test_end)
+
     # FR-DIAG-6: feature exposure
     print("特征暴露...")
     feat_df = fetch_feature_exposure(bq, args.project, args.run_id, args.strategy_id, valid_start, test_end)
@@ -968,7 +1031,7 @@ def main():
     diagnosis = determine_primary_diagnosis(
         valid_ic_summary, test_ic_summary,
         bucket_lift_all, label_horizon, funnel_summary,
-        cost_turnover, style_df, backtest_summary,
+        cost_turnover, style_df, sample_risk_df, backtest_summary,
     )
     diagnosis_summary = {
         "diagnosis_version": DIAGNOSIS_VERSION,
