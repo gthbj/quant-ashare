@@ -27,13 +27,17 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/07_buil
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/08_run_backtest.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/09_build_metrics_and_report_inputs.sql
 
-# render_report 必须在 10 之前：它把 report_uri 回写 summary.metrics_json，10 会断言其存在
+# render_report 必须在 10 之前：它把报告状态回写 summary.metrics_json（local_report_path +
+# report_upload_status；report_uri 仅在真实上传 GCS 成功时写），10 做模式感知断言。
+# 默认（无 --skip-gcs-upload）会上传 GCS 并写 report_uri，需要 ashare-artifacts bucket + ADC；
+# 本地验证用 --skip-gcs-upload（不写 report_uri，report_upload_status=skipped）。
 python scripts/strategy1/render_report.py \
     --project data-aquarium \
     --backtest-id bt_s1_bqml_20260601_01 \
     --run-id s1_bqml_20260601_01 \
     --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
-    --local-mirror-root reports/strategy1
+    --local-mirror-root reports/strategy1 \
+    --skip-gcs-upload   # 去掉则上传 GCS 并写真实 report_uri（需 bucket + ADC）
 
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql
 ```

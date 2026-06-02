@@ -369,8 +369,8 @@ rebalance_date = 每个 ISO 周内 max(cal_date) where is_open = TRUE
 撮合规则：
 
 1. 信号日 `t`，订单在 `t+1` 开盘尝试成交。
-2. 买入要求 `can_buy_open[t+1]=TRUE`；否则买入失败并保留现金。
-3. 卖出要求 `can_sell_open[t+1]=TRUE`；否则继续持有并顺延至下一可卖日。
+2. 买入要求 `can_buy_open[t+1]=TRUE`；否则本期跳过、记 `BUY_SKIPPED_UNTRADABLE` 意图行并保留现金。
+3. 卖出要求 `can_sell_open[t+1]=TRUE`；否则本期跳过、记 `SELL_SKIPPED_UNTRADABLE` 意图行，持仓 carry 到下一个调仓执行日再试（v1 ledger：不做 daily next-sellable 顺延搜索）。
 4. 成本包括佣金、印花税、滑点，参数来自 `cost_bps` 及后续扩展配置。
 5. 持仓估值使用日收盘价；停牌日沿用可用收盘价并标记。
 
@@ -379,7 +379,7 @@ rebalance_date = 每个 ISO 周内 max(cal_date) where is_open = TRUE
 - NAV、日收益、最大回撤、年化收益、年化波动、Sharpe。
 - 基准超额收益与信息比率。
 - 年化换手、成本敏感性。
-- 买入失败率、卖出顺延率、不可成交原因分布。
+- 买入/卖出不可交易跳过率（`buy_skip_rate` / `sell_skip_rate`，从 `ads_backtest_trade_daily` 的 `*_SKIPPED_UNTRADABLE` 行汇总）。
 
 ## 11. 回测报告落点
 
@@ -424,11 +424,11 @@ reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/
 
 本地 `reports/` 是用户读取镜像，不作为事实来源，默认不提交 git。Runner 对同一 `run_id/backtest_id` 重跑时应覆盖同目录，或在 `force_replace=FALSE` 时拒绝覆盖。
 
-报告文件不是事实来源，只是 ADS 结果的快照摘要。Runner 需要把最终 `report_uri` 写回 BigQuery，首版可写入：
+报告文件不是事实来源，只是 ADS 结果的快照摘要。Runner 把报告状态写回 `ads_backtest_performance_summary.metrics_json`，模式感知（PR #12 起）：
 
-- `ads_backtest_performance_summary.metrics_json.report_uri`
-- `ads_backtest_performance_summary.metrics_json.local_report_path`
-- `ads_model_registry.metrics_json.report_uri`
+- `local_report_path`、`report_upload_status`（`uploaded` / `skipped`）始终写入。
+- `report_uri`（`gs://…`）**仅在真实上传 GCS 成功时**写入；`--skip-gcs-upload`（local-only）模式不写 `report_uri`，避免指向不存在的对象。
+- `10_qa_runner_outputs.sql` 做模式感知断言：`report_upload_status` + `local_report_path` 必填，`report_uri` 当且仅当 `uploaded` 时存在。
 
 若后续报告运行增多，再新增轻量表 `ads_backtest_report_registry`，以 `(backtest_id, run_id)` 记录 `report_uri`、artifact 清单、生成时间和报告版本。
 
@@ -437,7 +437,7 @@ reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/
 - run 配置：`run_id`、`model_id`、`backtest_id`、训练/验证/测试/预测窗口、成本参数、持股数、权重上限。
 - 模型指标：AUC、log loss、TopN 命中率、RankIC、分层收益。
 - 组合指标：NAV、年化收益、最大回撤、Sharpe、IR、换手、成本敏感性。
-- 可交易性归因：买入失败率、卖出顺延率、不可成交原因分布。
+- 可交易性归因（v1 ledger）：买入/卖出不可交易跳过率（`buy_skip_rate` / `sell_skip_rate`），从 `ads_backtest_trade_daily` 的 `*_SKIPPED_UNTRADABLE` 意图行汇总。
 - BigQuery 来源表和查询窗口，确保报告可追溯到 ADS。
 
 ## 12. 幂等与安全
