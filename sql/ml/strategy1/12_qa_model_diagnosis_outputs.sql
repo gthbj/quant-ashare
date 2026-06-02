@@ -181,10 +181,12 @@ ASSERT (
        WHERE s.trade_date BETWEEN p_valid_start AND p_test_end
          AND s.split_tag IN ('valid', 'test')
          AND s.sample_trainable_default
-         AND s.feature_version = (
-           SELECT ANY_VALUE(tp.feature_version)
-           FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-           WHERE tp.run_id = p_run_id LIMIT 1)) AS legacy_trainable
+          AND s.feature_version = (
+            SELECT ANY_VALUE(tp.feature_version)
+            FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+            WHERE tp.run_id = p_run_id
+              AND tp.trade_date BETWEEN p_valid_start AND p_test_end
+            LIMIT 1)) AS legacy_trainable
   )
 ) AS 'QA-POOL-5: valid/test prediction panel rows must be >= DWS legacy trainable rows';
 
