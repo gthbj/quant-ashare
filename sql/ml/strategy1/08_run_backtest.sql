@@ -19,7 +19,15 @@ DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_20260601_01';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;
-DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;        -- OQ-010 示例值
+-- OQ-010 成本 profile：cn_a_share_wanyi_no_min_slip5_v20260602
+DECLARE p_cost_profile_id STRING DEFAULT 'cn_a_share_wanyi_no_min_slip5_v20260602';
+DECLARE p_commission_bps FLOAT64 DEFAULT 1.0;
+DECLARE p_min_commission_cny FLOAT64 DEFAULT 0.0;
+DECLARE p_stamp_tax_buy_bps FLOAT64 DEFAULT 0.0;
+DECLARE p_stamp_tax_sell_bps FLOAT64 DEFAULT 5.0;
+DECLARE p_slippage_buy_bps FLOAT64 DEFAULT 5.0;
+DECLARE p_slippage_sell_bps FLOAT64 DEFAULT 5.0;
+DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;        -- 兼容字段，不再作为默认撮合成本来源
 DECLARE p_benchmark STRING DEFAULT '000852.SH';  -- OQ-010 示例值
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 DECLARE p_calendar_end DATE;
@@ -246,39 +254,72 @@ WHILE v_p <= p_max_period DO
        desired_value - cur_value, 0.0) AS buy_skip_value
   FROM valued;
 
-  -- 卖出先入账（现金 += 卖出净额）
+  -- 卖出先入账（现金 += 卖出净额 = gross_turnover - commission - stamp_tax）
   SET v_cash = v_cash + (
-    SELECT COALESCE(SUM(sell_shares * exec_open * (1 - p_cost_bps / 10000.0)), 0)
+    SELECT COALESCE(SUM(
+      sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0)
+      - GREATEST(
+          sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_commission_bps / 10000.0,
+          p_min_commission_cny
+        )
+      - sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_stamp_tax_sell_bps / 10000.0
+    ), 0)
     FROM plan WHERE sell_shares > 0.000001
   );
 
-  -- 买入受现金约束：总买入含成本超现金则等比缩放
+  -- 买入受现金约束：required_cash = gross_turnover + commission + stamp_tax
   SET v_scale = (
-    SELECT COALESCE(LEAST(1.0,
-      SAFE_DIVIDE(v_cash, NULLIF(SUM(want_value * (1 + p_cost_bps / 10000.0)), 0))), 1.0)
+    SELECT COALESCE(LEAST(1.0, SAFE_DIVIDE(v_cash, NULLIF(SUM(
+      want_value * (1 + p_slippage_buy_bps / 10000.0)
+      + GREATEST(
+          want_value * (1 + p_slippage_buy_bps / 10000.0) * p_commission_bps / 10000.0,
+          p_min_commission_cny
+        )
+      + want_value * (1 + p_slippage_buy_bps / 10000.0) * p_stamp_tax_buy_bps / 10000.0
+    ), 0))), 1.0)
     FROM plan WHERE want_value > 0.000001
   );
   SET v_scale = COALESCE(v_scale, 1.0);
 
   -- 买入扣现金
   SET v_cash = v_cash - (
-    SELECT COALESCE(SUM(want_value * v_scale * (1 + p_cost_bps / 10000.0)), 0)
+    SELECT COALESCE(SUM(
+      want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0)
+      + GREATEST(
+          want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_commission_bps / 10000.0,
+          p_min_commission_cny
+        )
+      + want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_stamp_tax_buy_bps / 10000.0
+    ), 0)
     FROM plan WHERE want_value > 0.000001
   );
 
   -- 记录成交（卖出 + 买入 + 不可交易 skip 意图，全部入 trade 表，供 09 从 ledger 事实算指标）
   INSERT INTO ledger_trades (trade_date, sec_code, side, planned_shares, filled_shares, fill_price, turnover_cny, fee_cny, cash_effect_cny, fill_status)
+  -- SELL: fill_price 向下偏移滑点，fee = commission + stamp_tax
   SELECT v_exec, sec_code, 'SELL',
-    sell_shares, sell_shares, exec_open, sell_shares * exec_open,
-    sell_shares * exec_open * (p_cost_bps / 10000.0),
-    sell_shares * exec_open * (1 - p_cost_bps / 10000.0), 'FILLED'
+    sell_shares, sell_shares,
+    exec_open * (1 - p_slippage_sell_bps / 10000.0),
+    sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0),
+    GREATEST(sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_commission_bps / 10000.0, p_min_commission_cny)
+      + sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_stamp_tax_sell_bps / 10000.0,
+    sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0)
+      - GREATEST(sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_commission_bps / 10000.0, p_min_commission_cny)
+      - sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_stamp_tax_sell_bps / 10000.0,
+    'FILLED'
   FROM plan WHERE sell_shares > 0.000001
   UNION ALL
+  -- BUY: fill_price 向上偏移滑点，fee = commission + stamp_tax
   SELECT v_exec, sec_code, 'BUY',
     SAFE_DIVIDE(want_value * v_scale, exec_open), SAFE_DIVIDE(want_value * v_scale, exec_open),
-    exec_open, want_value * v_scale,
-    want_value * v_scale * (p_cost_bps / 10000.0),
-    -(want_value * v_scale * (1 + p_cost_bps / 10000.0)), 'FILLED'
+    exec_open * (1 + p_slippage_buy_bps / 10000.0),
+    want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0),
+    GREATEST(want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_commission_bps / 10000.0, p_min_commission_cny)
+      + want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_stamp_tax_buy_bps / 10000.0,
+    -(want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0)
+      + GREATEST(want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_commission_bps / 10000.0, p_min_commission_cny)
+      + want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_stamp_tax_buy_bps / 10000.0),
+    'FILLED'
   FROM plan WHERE want_value > 0.000001 AND v_scale > 0
   UNION ALL
   -- 想卖但本期不可交易：记 skip 意图（filled=0，无现金/换手影响），持仓 carry
@@ -315,7 +356,18 @@ INSERT INTO `data-aquarium.ashare_ads.ads_backtest_trade_daily`
 SELECT
   p_backtest_id, lt.trade_date, lt.sec_code, lt.side,
   lt.planned_shares, lt.filled_shares, lt.fill_price, lt.turnover_cny,
-  lt.fee_cny, 0.0, 0.0, lt.cash_effect_cny, lt.fill_status,
+  lt.fee_cny,
+  -- tax_cny: 印花税（买入 0，卖出按 stamp_tax_sell_bps）
+  CASE WHEN lt.side = 'SELL' THEN lt.turnover_cny * p_stamp_tax_sell_bps / 10000.0
+       WHEN lt.side = 'BUY'  THEN lt.turnover_cny * p_stamp_tax_buy_bps / 10000.0
+       ELSE 0.0 END,
+  -- slippage_cny: 滑点金额（从 fill_price 反推 exec_open 计算）
+  CASE WHEN lt.side = 'SELL' AND lt.filled_shares > 0
+         THEN lt.turnover_cny * p_slippage_sell_bps / (10000.0 - p_slippage_sell_bps)
+       WHEN lt.side = 'BUY' AND lt.filled_shares > 0
+         THEN lt.turnover_cny * p_slippage_buy_bps / (10000.0 + p_slippage_buy_bps)
+       ELSE 0.0 END,
+  lt.cash_effect_cny, lt.fill_status,
   p_run_id, CURRENT_TIMESTAMP()
 FROM ledger_trades AS lt;
 
