@@ -3,7 +3,7 @@
 -- 实际执行由 diagnose_model_quality.py 驱动；本文件供独立 review 和分区扫描验证。
 -- 所有查询必须显式过滤分区日期（trade_date / predict_date / rebalance_date）。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_20260601_01';
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
@@ -13,9 +13,7 @@ DECLARE p_test_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_target_holdings INT64 DEFAULT 5;
 
 -- ── FR-DIAG-2: daily RankIC (Spearman proxy via rank correlation) ────────────
--- 注意：BigQuery CORR 是 Pearson；如需严格 Spearman 请在 Python 中计算。
--- 此处用 Pearson-of-ranks 作为近似，用于 dry-run 审查数据量与分区命中。
-
+-- 事后评价：prediction + label-available join（PRD-20260602-05 eval_label_available_mask）
 WITH ranked AS (
   SELECT
     pred.predict_date,
@@ -37,6 +35,8 @@ WITH ranked AS (
   WHERE pred.run_id = p_run_id
     AND pred.predict_date BETWEEN p_valid_start AND p_test_end
     AND s.split_tag IN ('valid', 'test')
+    AND s.label_valid_5d
+    AND s.fwd_xs_ret_5d IS NOT NULL
 )
 SELECT
   predict_date AS trade_date,
@@ -75,6 +75,8 @@ WITH scored AS (
   WHERE pred.run_id = p_run_id
     AND pred.predict_date BETWEEN p_valid_start AND p_test_end
     AND s.split_tag IN ('valid', 'test')
+    AND s.label_valid_5d
+    AND s.fwd_xs_ret_5d IS NOT NULL
 )
 SELECT
   bucket,
@@ -112,6 +114,8 @@ WITH scored AS (
   WHERE pred.run_id = p_run_id
     AND pred.predict_date BETWEEN p_valid_start AND p_test_end
     AND s.split_tag IN ('valid', 'test')
+    AND s.label_valid_5d
+    AND s.fwd_xs_ret_5d IS NOT NULL
 )
 SELECT
   bucket,
@@ -355,3 +359,27 @@ LEFT JOIN `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
 WHERE pos.backtest_id = p_backtest_id
   AND pos.trade_date BETWEEN p_test_start AND p_test_end
 ORDER BY pos.trade_date, pos.weight DESC;
+
+-- ── FR-DIAG-9: prediction pool coverage (PRD-20260602-05 FR-LIVE-5) ──────────
+-- 对比 live-available prediction pool vs legacy trainable vs label-available eval
+SELECT
+  tp.split_tag,
+  COUNT(*) AS total_panel_rows,
+  COUNTIF(s.sample_trainable_default) AS legacy_trainable_rows,
+  COUNTIF(COALESCE(s.in_universe_default, FALSE)
+      AND COALESCE(s.has_full_history_60d, FALSE)
+      AND COALESCE(s.has_valuation_data, FALSE)) AS live_available_rows,
+  COUNTIF(s.label_valid_5d AND s.fwd_xs_ret_5d IS NOT NULL) AS label_available_eval_rows,
+  SAFE_DIVIDE(COUNTIF(s.sample_trainable_default), COUNT(*)) AS legacy_trainable_ratio,
+  SAFE_DIVIDE(COUNTIF(COALESCE(s.in_universe_default, FALSE)
+      AND COALESCE(s.has_full_history_60d, FALSE)
+      AND COALESCE(s.has_valuation_data, FALSE)), COUNT(*)) AS live_available_ratio,
+  SAFE_DIVIDE(COUNTIF(s.label_valid_5d AND s.fwd_xs_ret_5d IS NOT NULL), COUNT(*)) AS label_eval_ratio
+FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
+  ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
+ AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
+WHERE tp.run_id = p_run_id
+  AND tp.trade_date BETWEEN p_valid_start AND p_test_end
+  AND tp.split_tag IN ('valid', 'test')
+GROUP BY tp.split_tag;

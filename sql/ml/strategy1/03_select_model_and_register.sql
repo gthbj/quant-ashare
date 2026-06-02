@@ -2,7 +2,7 @@
 -- 03: 全部候选在 valid 上预测+评估 → RankIC/AUC/log_loss/分层/TopN/按年 → 选最优 → 更新 registry。
 -- 用 FOR + EXECUTE IMMEDIATE 动态引用 run-scoped 模型，不留持久临时表（04 自行重跑 selected 预测）。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
@@ -65,20 +65,22 @@ FOR cand IN (
   """, cand.id, p_run_safe, cand.id, p_feat_sql, p_run_id,
        CAST(p_valid_start AS STRING), CAST(p_valid_end AS STRING));
 
-  -- valid AUC / log_loss（ML.EVALUATE 原生）
+  -- valid AUC / log_loss（ML.EVALUATE 原生，输入必须过滤到 label-available subset）
   EXECUTE IMMEDIATE FORMAT("""
     INSERT INTO candidate_eval (cand_id, roc_auc, log_loss)
     SELECT '%s', roc_auc, log_loss
     FROM ML.EVALUATE(MODEL `data-aquarium.ashare_ads.%s__%s`,
       (SELECT target_label, %s
        FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily`
-       WHERE run_id='%s' AND split_tag='valid' AND trade_date BETWEEN '%s' AND '%s')
+       WHERE run_id='%s' AND split_tag='valid' AND trade_date BETWEEN '%s' AND '%s'
+         AND target_label IS NOT NULL)
     )
   """, cand.id, p_run_safe, cand.id, p_feat_sql, p_run_id,
        CAST(p_valid_start AS STRING), CAST(p_valid_end AS STRING));
 END FOR;
 
 -- ── 预测 + 实际收益对齐，预算 rank ──
+-- 事后评价：必须在 label-available subset 上计算（PRD-20260602-05 FR-LIVE-3）
 CREATE TEMP TABLE ranked_preds AS
 SELECT
   cp.cand_id, cp.trade_date, cp.sec_code, cp.score,
@@ -92,7 +94,8 @@ JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
   ON cp.sec_code = s.sec_code AND cp.trade_date = s.trade_date
   AND s.trade_date BETWEEN p_valid_start AND p_valid_end
   AND s.feature_version = p_feature_version
-  AND s.sample_trainable_default;
+WHERE s.label_valid_5d
+  AND s.fwd_xs_ret_5d IS NOT NULL;
 
 -- 日频 RankIC
 CREATE TEMP TABLE daily_rank_ic AS
@@ -116,10 +119,25 @@ SELECT cand_id, AVG(fwd_ret_5d) AS topn_fwd_ret_mean
 FROM ranked_preds WHERE score_desc_rank <= p_topn
 GROUP BY cand_id;
 
--- 样本量/缺失计数（预聚合，避免汇总里写相关子查询）
+-- 样本量/缺失计数 + 预测池覆盖统计（PRD-20260602-05 FR-LIVE-3）
 CREATE TEMP TABLE sample_counts AS
-SELECT cand_id, COUNT(*) AS n_samples, COUNTIF(score IS NULL) AS n_missing
-FROM ranked_preds GROUP BY cand_id;
+SELECT
+  cp.cand_id,
+  COUNT(*) AS n_samples,
+  COUNTIF(cp.score IS NULL) AS n_missing,
+  -- valid full prediction pool（来自 01 的 live-available mask）
+  (SELECT COUNT(DISTINCT tp.sec_code || CAST(tp.trade_date AS STRING))
+   FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+   WHERE tp.run_id = p_run_id AND tp.split_tag = 'valid'
+     AND tp.trade_date BETWEEN p_valid_start AND p_valid_end) AS valid_prediction_rows,
+  -- valid label-available eval rows
+  COUNT(*) AS valid_eval_rows
+FROM candidate_preds AS cp
+JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
+  ON cp.sec_code = s.sec_code AND cp.trade_date = s.trade_date
+  AND s.feature_version = p_feature_version
+WHERE s.label_valid_5d AND s.fwd_xs_ret_5d IS NOT NULL
+GROUP BY cp.cand_id;
 
 -- 按年 RankIC 的 JSON 串（预聚合，避免汇总里写相关子查询）
 CREATE TEMP TABLE yearly_rank_ic_json AS
@@ -167,8 +185,19 @@ SET reg.status = 'selected',
         m.n_samples, m.n_missing,
         SAFE_DIVIDE(m.n_missing, NULLIF(m.n_samples,0)) AS missing_rate,
         m.rank_ic_by_year_json AS rank_ic_by_year,
+        -- PRD-20260602-05: prediction pool coverage metrics
+        sc.valid_prediction_rows,
+        sc.valid_eval_rows,
+        SAFE_DIVIDE(sc.valid_eval_rows, NULLIF(sc.valid_prediction_rows, 0)) AS valid_eval_coverage,
+        CASE
+          WHEN SAFE_DIVIDE(sc.valid_eval_rows, NULLIF(sc.valid_prediction_rows, 0)) >= 0.50 THEN 'ok'
+          WHEN SAFE_DIVIDE(sc.valid_eval_rows, NULLIF(sc.valid_prediction_rows, 0)) >= 0.30 THEN 'warning'
+          ELSE 'critical'
+        END AS valid_eval_coverage_status,
         'selected: highest valid rank_ic_mean (tie-break layer_spread, log_loss)' AS select_reason))
-      FROM candidate_metrics AS m WHERE m.cand_id = p_selected_cand)
+      FROM candidate_metrics AS m
+      LEFT JOIN sample_counts AS sc ON sc.cand_id = m.cand_id
+      WHERE m.cand_id = p_selected_cand)
 WHERE reg.model_id = CONCAT(p_run_safe, '__', p_selected_cand)
   AND reg.strategy_id = p_strategy_id
   AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id;
@@ -181,8 +210,12 @@ SET reg.status = 'candidate_rejected',
         m.rank_ic_mean, m.rank_ic_std, m.rank_icir, m.n_days,
         m.roc_auc, m.log_loss, m.layer_spread, m.topn_fwd_ret_mean,
         m.n_samples, m.n_missing,
-        m.rank_ic_by_year_json AS rank_ic_by_year))
+        m.rank_ic_by_year_json AS rank_ic_by_year,
+        sc.valid_prediction_rows,
+        sc.valid_eval_rows,
+        SAFE_DIVIDE(sc.valid_eval_rows, NULLIF(sc.valid_prediction_rows, 0)) AS valid_eval_coverage))
       FROM candidate_metrics AS m
+      LEFT JOIN sample_counts AS sc ON sc.cand_id = m.cand_id
       WHERE m.cand_id = REPLACE(reg.model_id, CONCAT(p_run_safe, '__'), ''))
 WHERE reg.strategy_id = p_strategy_id
   AND reg.status = 'candidate'

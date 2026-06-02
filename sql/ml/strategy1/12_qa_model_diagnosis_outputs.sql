@@ -2,7 +2,7 @@
 -- 12: 断言诊断 artifact 状态、manifest、关键指标非空和结论字段合法。
 -- 必须在 diagnose_model_quality.py 之后执行。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_20260601_01';
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
@@ -114,3 +114,65 @@ ASSERT (
 -- trade_date / predict_date / rebalance_date BETWEEN 显式日期范围。
 -- 本 ASSERT 作为占位，提醒 reviewer 在 PR review 时确认分区过滤。
 SELECT 'QA-DIAG-8: reviewer must confirm all queries in 11_model_quality_diagnostics.sql use explicit date partition filters' AS manual_check;
+
+-- ============================================================
+-- PRD-20260602-05 预测池口径 QA
+-- ============================================================
+
+-- QA-POOL-1: train rows 全部满足 sample_trainable_default=TRUE
+ASSERT (
+  SELECT COUNTIF(NOT s.sample_trainable_default) = 0
+  FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+  JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
+    ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
+   AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
+  WHERE tp.run_id = p_run_id AND tp.split_tag = 'train'
+    AND tp.trade_date BETWEEN p_valid_start AND p_test_end
+) AS 'QA-POOL-1: train rows must all satisfy sample_trainable_default=TRUE';
+
+-- QA-POOL-2: valid/test prediction rows 全部满足 predict_live_available_mask
+ASSERT (
+  SELECT COUNTIF(NOT (
+    COALESCE(s.in_universe_default, FALSE)
+    AND COALESCE(s.has_full_history_60d, FALSE)
+    AND COALESCE(s.has_valuation_data, FALSE)
+  )) = 0
+  FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+  JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
+    ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
+   AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
+  WHERE tp.run_id = p_run_id AND tp.split_tag IN ('valid', 'test')
+    AND tp.trade_date BETWEEN p_valid_start AND p_test_end
+) AS 'QA-POOL-2: valid/test rows must all satisfy predict_live_available_mask';
+
+-- QA-POOL-3: valid/test prediction rows 不要求 label_entry_tradable 或 label_valid_5d
+-- 如果全部满足反而说明预测池可能仍被未来字段过滤
+ASSERT (
+  SELECT COUNTIF(NOT s.label_entry_tradable AND NOT s.label_valid_5d) > 0
+  FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+  JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
+    ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
+   AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
+  WHERE tp.run_id = p_run_id AND tp.split_tag IN ('valid', 'test')
+    AND tp.trade_date BETWEEN p_valid_start AND p_test_end
+) AS 'QA-POOL-3: valid/test pool must contain rows failing label_entry_tradable or label_valid_5d (proves live-available mask is active)';
+
+-- QA-POOL-4: train target_label 和 target_return 不得为空
+ASSERT (
+  SELECT COUNTIF(tp.target_label IS NULL OR tp.target_return IS NULL) = 0
+  FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+  WHERE tp.run_id = p_run_id AND tp.split_tag = 'train'
+    AND tp.trade_date BETWEEN p_valid_start AND p_test_end
+) AS 'QA-POOL-4: train target_label and target_return must not be NULL';
+
+-- QA-POOL-5: valid/test prediction panel 行数 >= legacy trainable 行数
+ASSERT (
+  SELECT
+    COUNT(*) >= COUNTIF(s.sample_trainable_default)
+  FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+  JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
+    ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
+   AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
+  WHERE tp.run_id = p_run_id AND tp.split_tag IN ('valid', 'test')
+    AND tp.trade_date BETWEEN p_valid_start AND p_test_end
+) AS 'QA-POOL-5: valid/test prediction panel rows must be >= legacy trainable rows';

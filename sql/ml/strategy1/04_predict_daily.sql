@@ -1,8 +1,10 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
 -- 04: 用 selected model 对 valid+test 预测，写 ads_model_prediction_daily。
 -- 动态引用 selected model（EXECUTE IMMEDIATE），不依赖跨脚本临时表。
+-- PRD-20260602-05: 预测输入来自 ads_ml_training_panel_daily（已按 live-available mask 构建），
+-- 不引用 target_label / target_return / label_entry_tradable / label_valid_* / sample_trainable_default。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_20260601_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_horizon INT64 DEFAULT 5;
