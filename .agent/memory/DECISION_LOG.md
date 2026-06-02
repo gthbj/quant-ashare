@@ -756,3 +756,42 @@ OQ-006 从“方案待确认”推进为“待实现”。后续实现需新增 
 ### 相关文件
 
 `docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `TODO.md`
+
+## DECISION-20260602-03: 财务三大报表 DWD/DWS 落地的实现口径
+
+日期: 2026-06-02
+状态: active
+负责人: owner（已采纳 DECISION-20260601-05 / PRD_20260601_03）
+Agent ID: Claude
+模型: Claude Opus 4.8
+
+（原编号 DECISION-20260602-01，rebase PR #13 到含 OQ-006 的 `main` 时与已有 `-01`（ledger）/`-02`（OQ-006）撞号，改为 `-03`。）
+
+### 背景
+
+按 DECISION-20260601-05 与 `PRD_20260601_03` 落地 `dwd_fin_income/balancesheet/cashflow`（+ `_latest`）和 `dws_stock_feature_fin_daily`。实测当前 ODS 三大报表仅含 `report_type='1'`（合并报表），落地时需要固化几个 PRD 未逐字规定的实现选择。
+
+### 决策
+
+1. **DWS 口径字段是消费契约，不是逐行匹配状态**：`dws_stock_feature_fin_daily.report_caliber`/`is_default_report_caliber` 恒为 `consolidated`/`TRUE`，表示“本表三大报表特征只来自默认合并口径”；某股某日是否真有某来源财报由 `has_fin_*` 掩码 + 各来源 `*_report_period` 标识。这样既满足 PRD FR-3「只输出默认口径」断言，又不把 LEFT JOIN 退化成 inner join 丢行（行数 = universe）。
+2. **as-of 扇出约束**：四个来源 as-of 限制 `visible_trade_date ∈ [trade_date - 900 日, trade_date]`；超 900 日（≈2.5 年）未更新财报视为缺失（`has_fin_*=FALSE`）。用于约束 8.5M universe × 历史版本的范围 join 成本，正常季度披露不受影响。
+3. **单季派生延后 P1**：P0 直接用 `fina_indicator` 现成 `q_*`，三大报表绝对值保留累计/YTD 口径（不在本期派生三大报表单季值）。
+4. **不重建 `dwd_fin_indicator`**：暂不给它加物理 `report_caliber='source_default'` 字段（PRD §11.4），改为在 `dws_stock_feature_fin_daily` 输出 `ind_report_caliber='source_default'`，避免重建既有实表与依赖链。
+5. **`report_type>'1'` 的 `report_caliber` 映射**（1-5 consolidated / 6-12 non_consolidated / 其余 other / NULL unknown）作为前向兼容写入 CASE；当前数据不触发，`is_default_report_caliber = COALESCE(report_type='1', FALSE)`。
+6. **单位契约（OQ-006，DECISION-20260602-02）**：三大报表金额字段为 Tushare 原始口径元、不做换算，落地时在 `ashare_meta.ods_field_unit_map` 按 `source_unit=元`、`canonical_unit=元`、`multiplier=1`、`verification_status=verified` 登记，并跑通 `sql/qa/05_oq006_unit_checks.sql`（QA-UNIT-2 财务字段全覆盖）。
+
+### 理由
+
+在不偏离已采纳 PRD 验收口径的前提下，用契约语义 + 掩码解决「默认口径纯净」与「不丢股票日期」的张力；用有界 as-of 控制成本；把单季派生和多口径研究留给 P1，保持 P0 财务特征表简单、主键不膨胀；单位按 OQ-006 门禁登记，避免高单位风险财务字段漏核。
+
+### 影响
+
+`sql/qa/04_finance_caliber_checks.sql` 25 条 ASSERT 全过（含 DWS 主键唯一、PIT 零泄露、行数=universe、口径契约）；`sql/qa/05_oq006_unit_checks.sql` 在补全财务字段映射后全过。后续若要真正研究多口径或单季因子，按 PRD §6.2 显式改键/改字段，不在本表主键下输出多行。
+
+### 备选方案
+
+DWS 用逐行 caliber 匹配状态（匹配则 consolidated、未匹配则 NULL/none）：放弃，因为会让 PRD FR-3 的 `COUNTIF(is_default_report_caliber IS NOT TRUE)=0` 在新上市暂无财报的 universe 行上失败，或迫使 inner join 丢行。无界 as-of：放弃，范围 join 扇出过大。
+
+### 相关文件
+
+`sql/dwd/06_dwd_fin_income.sql`, `sql/dwd/07_dwd_fin_income_latest.sql`, `sql/dwd/08_dwd_fin_balancesheet.sql`, `sql/dwd/09_dwd_fin_balancesheet_latest.sql`, `sql/dwd/10_dwd_fin_cashflow.sql`, `sql/dwd/11_dwd_fin_cashflow_latest.sql`, `sql/dws/07_dws_stock_feature_fin_daily.sql`, `sql/qa/04_finance_caliber_checks.sql`, `sql/meta/01_ods_field_unit_map.sql`, `sql/qa/05_oq006_unit_checks.sql`, `docs/prd/PRD_20260601_03_财务报表口径维度.md`

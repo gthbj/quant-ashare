@@ -101,7 +101,7 @@ ashare_dim / ashare_dwd
 | `dws_stock_universe_daily` | `(sec_code, trade_date)` | `dwd_stock_eod_price`, `dwd_stock_eod_valuation`, `dim_stock`, `dim_stock_name_hist` | 每日样本骨架和过滤掩码 |
 | `dws_stock_feature_price_daily` | `(sec_code, trade_date, feature_version)` | `dwd_stock_eod_price` | 收益、动量、波动、趋势、形态、可交易行为特征 |
 | `dws_stock_feature_valuation_daily` | `(sec_code, trade_date, feature_version)` | `dwd_stock_eod_valuation` | 估值、市值、换手、流动性特征 |
-| `dws_stock_feature_fin_daily` | `(sec_code, trade_date, feature_version)` | `dwd_fin_indicator` | PIT 财务指标、质量、成长、杠杆、财报时效特征 |
+| `dws_stock_feature_fin_daily` | `(sec_code, trade_date, feature_version)` | `dwd_fin_indicator` + `dwd_fin_income/balancesheet/cashflow`（默认合并口径） | PIT 财务指标、质量、成长、杠杆、现金流、三大报表绝对值、财报时效特征 |
 | `dws_market_state_daily` | `(trade_date)` | `dwd_index_eod`, `dwd_stock_eod_price` | 市场状态、指数趋势、全市场宽度 |
 | `dws_stock_label_daily` | `(sec_code, trade_date, label_version)` | `dwd_stock_eod_price`, `dwd_index_eod`, `dim_trade_calendar` | 未来收益、超额收益、可成交标签 |
 | `dws_stock_feature_daily_v0` | `(sec_code, trade_date, feature_version)` | 上述特征族 | P0 训练用特征宽表 |
@@ -207,17 +207,28 @@ ashare_dim / ashare_dwd
 
 ### 4.4 `dws_stock_feature_fin_daily`
 
-**目标**：将 `dwd_fin_indicator` 的 PIT 版本事实表 as-of 到每个 `trade_date`。
+> **已落地**（`sql/dws/07_dws_stock_feature_fin_daily.sql`，OQ-003 / PRD_20260601_03）。`feature_version='fin_default_v0_20260602'`。
 
-**as-of 规则**：
+**目标**：把 `dwd_fin_indicator` 与三大报表（`income`/`balancesheet`/`cashflow`）的 PIT 版本事实表 as-of 到每个 universe `trade_date`，作为后续策略共用的财务特征底座。
+
+**口径（默认合并报表）**：
+
+- 三大报表只消费默认合并口径（`is_default_report_caliber=TRUE`，`report_type='1'`）；该过滤放在预过滤 CTE 内，再 `LEFT JOIN` universe，**绝不**写进 `WHERE`，避免把 `LEFT JOIN` 退化成 inner join、丢掉暂无财报的股票日期（行数与 universe 完全一致）。
+- `fina_indicator` 无 `report_type`，按 `source_default` 口径消费。
+- `report_caliber`/`is_default_report_caliber` 描述本表**消费口径契约**（恒 `consolidated`/`TRUE`）；某只股票某日是否真有某来源财报由 `has_fin_*` 掩码与各来源 `*_report_period` 标识。
+
+**as-of 规则**（四个来源各自 as-of，同 universe 日内取当时已可见的最新版本）：
 
 ```sql
-LEFT JOIN dwd_fin_indicator fi
+LEFT JOIN (
+  SELECT * FROM dwd_fin_income WHERE is_default_report_caliber = TRUE
+) fi
   ON fi.sec_code = u.sec_code
  AND fi.visible_trade_date <= u.trade_date
+ AND fi.visible_trade_date >= DATE_SUB(u.trade_date, INTERVAL 900 DAY)  -- 扇出约束，超窗视为缺失
 QUALIFY ROW_NUMBER() OVER (
   PARTITION BY u.sec_code, u.trade_date
-  ORDER BY fi.report_period DESC, fi.ann_date_eff DESC, fi.ingested_at DESC
+  ORDER BY fi.report_period DESC, fi.ann_date_eff DESC, fi.update_flag DESC, fi.ingested_at DESC, fi.source_partition_date DESC
 ) = 1
 ```
 
@@ -225,19 +236,23 @@ QUALIFY ROW_NUMBER() OVER (
 
 | 字段族 | 示例字段 | 说明 |
 |---|---|---|
-| 报告期元数据 | `report_period`, `ann_date_eff`, `visible_trade_date`, `report_age_days` | 财务新鲜度 |
-| 盈利质量 | `roe`, `roe_deducted`, `roa`, `roic`, `grossprofit_margin`, `netprofit_margin` | 质量因子 |
-| 成长 | `netprofit_yoy`, `operating_revenue_yoy`, `total_revenue_yoy`, `basic_eps_yoy` | 成长因子 |
-| 杠杆/偿债 | `debt_to_assets`, `current_ratio`, `quick_ratio`, `assets_to_equity` | 风险和财务结构 |
-| 现金流 | `ocf_to_or`, `ocf_to_profit`, `cash_ratio` | 现金流质量 |
-| 单季指标 | `q_roe`, `q_netprofit_margin`, `q_grossprofit_margin` | 盈利边际变化 |
-| 缺失/可用性 | `has_fin_indicator`, `fin_report_lag_days` | 模型显式识别缺失 |
+| 报告期元数据（主，以利润表为准） | `report_period`, `ann_date_eff`, `visible_trade_date`, `report_caliber`, `is_default_report_caliber`, `report_age_days`, `fin_report_lag_days` | 财务新鲜度 + 口径契约 |
+| 盈利质量（fina_indicator） | `roe`, `roe_deducted`, `roa`, `roic`, `grossprofit_margin`, `netprofit_margin` | 质量因子 |
+| 成长（fina_indicator） | `netprofit_yoy`, `operating_revenue_yoy`, `total_revenue_yoy`, `basic_eps_yoy` | 成长因子 |
+| 杠杆/偿债（fina_indicator） | `debt_to_assets`, `current_ratio`, `quick_ratio`, `assets_to_equity` | 风险和财务结构 |
+| 现金流比率（fina_indicator） | `ocf_to_or`, `ocf_to_profit`, `cash_ratio` | 现金流质量 |
+| 单季指标（fina_indicator） | `q_roe`, `q_netprofit_margin`, `q_grossprofit_margin` | 盈利边际变化 |
+| 利润表绝对值（元，YTD） | `total_revenue`, `revenue`, `operate_profit`, `total_profit`, `n_income`, `n_income_attr_p`, `ebit`, `ebitda` | 规模/盈利 |
+| 资产负债表绝对值（元，时点） | `total_assets`, `total_liab`, `total_hldr_eqy_exc_min_int`, `money_cap`, `inventories`, `accounts_receiv`, `goodwill` | 资产结构 |
+| 现金流量表绝对值（元，YTD） | `n_cashflow_act`, `n_cashflow_inv_act`, `n_cash_flows_fnc_act`, `free_cashflow` | 现金流规模 |
+| 缺失/可用性 | `has_fin_indicator`, `has_fin_income`, `has_fin_balancesheet`, `has_fin_cashflow`, 各来源 `*_report_period`/`*_visible_trade_date` | 模型显式识别缺失、各来源报告期可不同 |
 
-**报告期泄露防线**：
+**报告期泄露防线**（QA：`sql/qa/04_finance_caliber_checks.sql`）：
 
-- 不能按 `report_period <= trade_date` 直接拼。
-- 不能用 `dwd_fin_indicator_latest` 作为回测特征。
+- 不能按 `report_period <= trade_date` 直接拼；一律用 `visible_trade_date <= trade_date`（主报告期与 ind/bs/cf 各来源可见日均断言不晚于 `trade_date`）。
+- 不能用任何 `dwd_fin_*_latest` 便捷表作为回测特征。
 - 对财报公布前的交易日，仍应使用上一期已可见财报。
+- **单季派生**（利润表/现金流 `q_*`）作为 P1 内容，P0 先用 fina_indicator 现成的 `q_*` 指标，绝对值保留累计/YTD 口径。
 
 ### 4.5 `dws_market_state_daily`
 

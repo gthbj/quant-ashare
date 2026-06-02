@@ -6,14 +6,14 @@
 
 ## P0 — 当前优先
 
-- [ ] 合并 / 落地 PR #13（OQ-003 财务三表 DWD）：`dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow` 及对应 QA；合并时必须随表补全 `ods_field_unit_map` 中剩余财务字段映射，并跑通 `05_oq006_unit_checks.sql`
-- [ ] 合并 / 落地 PRD03（OQ-003 财务三表 DWS）：单季派生、财务特征 DWS 和对应 QA
-- [ ] 补 P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily`、`dws_market_state_daily`、后续策略共用的财务 / 市场状态特征
+- [ ] 落地 PR #13 / PRD03（OQ-003 财务三表 DWD + DWS）：`dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`（+ `_latest`）、`dws_stock_feature_fin_daily` 和 `sql/qa/04` 已实现并物化；本 PR 已随表补全 `ods_field_unit_map` 财务字段映射并跑通 `sql/qa/05_oq006_unit_checks.sql`；待 owner 合并
+- [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
 - [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：特征 / 标签 / 选股口径、成本、调仓频率、持股数 / 单票权重上限
 - [ ] 准备 GCS bucket（`ashare-artifacts`）+ ADC，去掉 `--skip-gcs-upload` 重跑 report render，产出 uploaded 模式真实 `report_uri`
 
 ## P1 — 数据 / 特征扩展
 
+- [ ] 三大报表单季派生（`income`/`cashflow` 累计转单季 `q_*`）作为 P1 财务表内容（OQ-003 PRD §4 推荐延后）
 - [ ] `dim_stock_sw_industry_hist`（source `index_member_all`，按 `in_date/out_date` 建申万行业时点归属，并 QA 区间重叠 / 缺口）
 - [ ] `dim_stock_ci_industry_hist`（source `ci_index_member`，中信行业时点归属，对照体系）
 - [ ] `dwd_sw_industry_eod` + 行业中性化

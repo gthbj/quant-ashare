@@ -1,0 +1,25 @@
+-- 文档维护：Claude Opus 4.8（最近更新 2026-06-02）
+-- BigQuery Standard SQL
+-- 现金流量表最新版本便捷表（默认合并口径）：每个 (sec_code, report_period) 取默认口径最新公告版本。
+-- 仅保留 is_default_report_caliber=TRUE（report_type=1）；(sec_code, report_period) 唯一；不用于 PIT 回测。
+
+CREATE OR REPLACE TABLE `data-aquarium.ashare_dwd.dwd_fin_cashflow_latest`
+CLUSTER BY sec_code, report_period
+OPTIONS (
+  description = '现金流量表默认合并口径最新便捷表，派生自 dwd_fin_cashflow；仅含 report_type=1，(sec_code, report_period) 唯一；不用于 PIT 回测 join。'
+) AS
+SELECT *
+FROM `data-aquarium.ashare_dwd.dwd_fin_cashflow`
+WHERE is_default_report_caliber = TRUE
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY sec_code, report_period
+  ORDER BY update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC
+) = 1;
+
+ALTER TABLE `data-aquarium.ashare_dwd.dwd_fin_cashflow_latest`
+ALTER COLUMN sec_code SET OPTIONS (description = '证券代码，Tushare ts_code 格式'),
+ALTER COLUMN report_period SET OPTIONS (description = '报告期，(sec_code, report_period) 唯一'),
+ALTER COLUMN ann_date_eff SET OPTIONS (description = '该报告期默认口径最新版本的公告生效日'),
+ALTER COLUMN report_caliber SET OPTIONS (description = '规范化口径，本表恒为 consolidated'),
+ALTER COLUMN is_default_report_caliber SET OPTIONS (description = '是否默认消费口径，本表恒为 TRUE'),
+ALTER COLUMN visible_trade_date SET OPTIONS (description = '该版本公告后第一个上交所开市日');

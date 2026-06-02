@@ -5,7 +5,9 @@
 - ODS 全部为 Hive 分区外部表，**查询必须带 `partition_date`/`endpoint` 过滤**（强制分区裁剪），否则报错。`partition_date` 是 `YYYYMMDD` 字符串。
 - **财务表 `partition_date == 报告期(end_date)`，不是公告日**：禁止用 partition_date 当数据可见时间，必须用 `ann_date_eff = COALESCE(f_ann_date, ann_date)` 做 PIT。
 - 财务表同一 `(sec_code, 报告期)` 有多条（不同 `report_type`/修正/`update_flag`）：P0 默认消费合并报表 `report_type='1'`；带 `report_type` 的 DWD 版本事实表保留源 `report_type` 并派生 `report_caliber`/`is_default_report_caliber`，P0 DWS 默认过滤默认口径，多口径特征后续另建/扩展。
-- `dwd_fin_indicator_latest` 是便捷最新表，不用于 PIT 回测 join；其版本排序按 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC`，优先保留修正版。
+- **三大报表 `income/balancesheet/cashflow` 已落地**（`sql/dwd/06/08/10` + `_latest` 07/09/11，OQ-003/DECISION-20260601-05）：实测当前 ODS 三表**仅含 `report_type='1'`**（合并报表，分 `comp_type` 1/2/3/4/7）；版本事实键 `(sec_code, report_period, report_type, ann_date_eff, update_flag)`，可见日 `COALESCE(f_ann_date, ann_date)`；默认 `_latest` 与 `dws_stock_feature_fin_daily` 只消费默认合并口径。`report_type>'1'` 的 caliber 映射为前向兼容、当前不触发。金额单位为元（Tushare 原始口径，未换算），income/cashflow 为累计/YTD、balancesheet 为时点值。
+- `dws_stock_feature_fin_daily`（`feature_version='fin_default_v0_20260602'`）把 `dwd_fin_indicator` + 三大报表 as-of 到 universe 每个交易日：`report_caliber`/`is_default_report_caliber` 是**消费口径契约**（恒 consolidated/TRUE），实际可用性看 `has_fin_*` 与 `*_report_period`；as-of 有界 `visible_trade_date ∈ [trade_date-900d, trade_date]`，超窗视为缺失（DECISION-20260602-03）。行数 = universe，主键唯一，零 PIT 泄露。
+- `dwd_fin_*_latest` / `dwd_fin_indicator_latest` 是便捷最新表，不用于 PIT 回测 join；其版本排序按 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC`，优先保留修正版。
 - `stock_basic` 用 `endpoint` 分 `listed`/`delisted`：**必须 UNION 两者**，否则丢失退市股 → 幸存者偏差。
 - 行情历史自 **1990-12-19**；行情表单分区内 `(ts_code, trade_date)` 已唯一、无需去重。
 - 2019 年前数据范围分三类，不能混作“全历史写入”：财务/事件按分区前移到 `20170101`；行情 DWD/DWS 最终写 `trade_date >= 2019-01-01`，构建时按最大滚动窗口读取 2018 lookback buffer；维度/日历取最新快照或全量历史事件。

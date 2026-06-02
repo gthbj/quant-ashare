@@ -19,6 +19,14 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/02_dwd_stock_eod
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/03_dwd_fin_indicator.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/04_dwd_index_eod.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/05_dwd_fin_indicator_latest.sql
+# 财务三大报表 DWD（PIT 版本事实表 + 默认合并口径 latest，OQ-003）。字段说明内联在各脚本尾部 ALTER。
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/06_dwd_fin_income.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/07_dwd_fin_income_latest.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/08_dwd_fin_balancesheet.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/09_dwd_fin_balancesheet_latest.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/10_dwd_fin_cashflow.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/11_dwd_fin_cashflow_latest.sql
+# 单位换算映射（OQ-006）：覆盖 P0 + 财务三表标准字段，qa/05 据此门禁。
 bq query --use_legacy_sql=false --location=asia-east2 < sql/meta/01_ods_field_unit_map.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/metadata/01_p0_table_column_descriptions.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/01_dws_stock_universe_daily.sql
@@ -27,8 +35,11 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/03_dws_stock_fea
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/04_dws_stock_label_daily.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/05_dws_stock_feature_daily_v0.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/06_dws_stock_sample_daily.sql
+# 默认合并口径 PIT 财务特征（OQ-003），依赖 universe + 财务三表 + dwd_fin_indicator。
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/07_dws_stock_feature_fin_daily.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ads/01_ads_strategy1_tables.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_ads_checks.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/04_finance_caliber_checks.sql
 
 # 策略 1 BQML Runner（训练/预测/回测，详见 sql/ml/strategy1/README.md）
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/01_build_training_panel.sql
@@ -50,6 +61,8 @@ python scripts/strategy1/render_report.py --project data-aquarium --backtest-id 
 - 策略 1 DWS：写入 `dws_start_date = 2019-01-01` 之后的数据；当前只读取已物化 DWD/DIM，不直接读取 ODS。由于最终 DWD 价格表不落 2018 buffer 行，价格特征表用 `has_full_history_60d` 显式标记 2019 年初 60 日窗口不完整样本，样本默认训练掩码会剔除这些行。
 - 当前物化结果下，`sample_trainable_default = TRUE` 的最早 `trade_date` 为 `2019-04-03`，2019Q1 无默认可训练样本；该范围由 `sql/qa/02_strategy1_dws_ads_checks.sql` 断言。
 - 财务 DWD：`fina_indicator` 从 `fin_start_period = 20170101` 起读取并写入，用于 2019+ PIT 和同比/基期特征。
+- 财务三大报表 DWD（OQ-003）：`income` / `balancesheet` / `cashflow` 同样从 `fin_start_period = 20170101` 起读取，可见日 `ann_date_eff = COALESCE(f_ann_date, ann_date)`；保留源 `report_type` 并派生 `report_caliber` / `is_default_report_caliber`，默认消费口径为合并报表 `report_type='1'`（实测当前 ODS 仅此一种口径）。默认 `_latest` 与 `dws_stock_feature_fin_daily` 只消费默认合并口径。
+- `dws_stock_feature_fin_daily`：把 `dwd_fin_indicator` 与三大报表 PIT as-of 到每个 universe 交易日，主键 `(sec_code, trade_date, feature_version='fin_default_v0_20260602')`。as-of 限制 `visible_trade_date` 在 `[trade_date - asof_lookback_days, trade_date]`（默认 `asof_lookback_days = 900` 日 ≈ 2.5 年）以约束扇出；超窗未更新财报视为缺失（`has_fin_*=FALSE`）。`report_caliber`/`is_default_report_caliber` 为消费口径契约（恒 consolidated/TRUE），实际可用性见 `has_fin_*` 与各来源 `*_report_period`。
 - 维度/日历：使用最新快照或全量历史事件，不按 2019 分区截断。
 
 ## 产出表
@@ -63,12 +76,16 @@ python scripts/strategy1/render_report.py --project data-aquarium --backtest-id 
 - `data-aquarium.ashare_dwd.dwd_fin_indicator`
 - `data-aquarium.ashare_dwd.dwd_index_eod`
 - `data-aquarium.ashare_dwd.dwd_fin_indicator_latest`
+- `data-aquarium.ashare_dwd.dwd_fin_income` / `dwd_fin_income_latest`
+- `data-aquarium.ashare_dwd.dwd_fin_balancesheet` / `dwd_fin_balancesheet_latest`
+- `data-aquarium.ashare_dwd.dwd_fin_cashflow` / `dwd_fin_cashflow_latest`
 - `data-aquarium.ashare_dws.dws_stock_universe_daily`
 - `data-aquarium.ashare_dws.dws_stock_feature_price_daily`
 - `data-aquarium.ashare_dws.dws_stock_feature_valuation_daily`
 - `data-aquarium.ashare_dws.dws_stock_label_daily`
 - `data-aquarium.ashare_dws.dws_stock_feature_daily_v0`
 - `data-aquarium.ashare_dws.dws_stock_sample_daily`
+- `data-aquarium.ashare_dws.dws_stock_feature_fin_daily`
 - `data-aquarium.ashare_ads.ads_ml_training_panel_daily`
 - `data-aquarium.ashare_ads.ads_model_registry`
 - `data-aquarium.ashare_ads.ads_model_prediction_daily`
@@ -89,6 +106,7 @@ python scripts/strategy1/render_report.py --project data-aquarium --backtest-id 
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/01_p0_smoke_checks.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_ads_checks.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/03_oq004_index_checks.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/04_finance_caliber_checks.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/05_oq006_unit_checks.sql
 ```
 
