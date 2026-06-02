@@ -46,13 +46,14 @@ ashare_ods (已有, 外部表)
 - 策略 1 价格量价 DWS/ADS SQL 已落地并物化：`sql/dws/01-06_*.sql` 建成 universe、价格/估值特征、open-to-close 标签、特征宽表、样本表；`sql/ads/01_ads_strategy1_tables.sql` 建成训练、预测、候选、组合、订单、回测、监控表契约；`sql/qa/02_strategy1_dws_ads_checks.sql` 已通过。
 - 策略 1 `ml_pv_clf_v0` runner 设计已完成：`docs/策略1-ml_pv_clf_v0-runner设计.md`，执行路径收敛为 BigQuery ML + SQL，训练/预测/组合/回测结果写入既有 ADS 契约表。
 - 策略 1 runner 与回测闭环实现 PRD 已完成：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`。
-- 策略 1 BigQuery ML + SQL runner 脚本已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`。**已于 PR #12 在 BigQuery 端到端实跑并通过全部 QA**（run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`，`10_qa_runner_outputs.sql` 16 断言全过）。08 回测已重写为账户级有状态 ledger（DECISION-20260602-01）；不可交易腿记 `*_SKIPPED_UNTRADABLE` 意图行；报告为模式感知：本轮用 local-only（`--skip-gcs-upload`）验收，写 `local_report_path` + `report_upload_status=skipped`、`report_uri=NULL`。
+- 策略 1 BigQuery ML + SQL runner 脚本已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`。**已于 PR #12 在 BigQuery 端到端实跑并通过全部 QA**（run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`，`10_qa_runner_outputs.sql` 16 断言全过）。08 回测已重写为账户级有状态 ledger（DECISION-20260602-01）；不可交易腿记 `*_SKIPPED_UNTRADABLE` 意图行；报告为模式感知：local-only 写 `local_report_path` + `report_upload_status=skipped`、`report_uri=NULL`，uploaded 模式写真实 GCS `report_uri`。
 - OQ-006 单位契约已实现并关闭（PR #16 已合并）：`ashare_meta.ods_field_unit_map` 已创建并填充 P0 + PR #13 首批映射；`dwd_index_eod.volume/amount` 已按 `vol*100` / `amount*1000` 修复换算并迁移为 `volume_share/amount_cny`；`sql/qa/05_oq006_unit_checks.sql` 已创建并纳入所有 DWD PR 必跑 QA；单位准入硬规则已写入 DWD-DIM §3.3-H 和 `KNOWN_CONSTRAINTS.md`。
 - OQ-003 财务报表口径已实现并关闭（PR #13 已合并）：`dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`（+ `_latest`）与 `dws_stock_feature_fin_daily` 已进入 `main` 并物化；`sql/qa/04_finance_caliber_checks.sql` 通过，且已按 OQ-006 补全财务字段单位映射并跑通 `sql/qa/05_oq006_unit_checks.sql`。
 - OQ-010 交易成本子项已形成 PRD（`docs/prd/PRD_20260602_02_OQ010交易成本口径.md`）并已在 runner SQL 中实现：默认成本 profile 为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，已将 runner 从单一 `p_cost_bps=30` 升级为分项成本。
 - 策略 1 中文报告与归因分析已实现并合并（PR #20）：`render_report.py` v2 生成中文 Markdown/HTML、交易/持仓/NAV/benchmark CSV 附件、图表、亏损证据包和 AI 诊断；评估主基准保持中证1000 `000852.SH`，展示对比基准包含沪深300 `000300.SH`；`09/10/README` 已同步报告字段与 QA。
-- 策略 1 报告 GCS uploaded 模式运行手册已新增：`docs/策略1报告GCS上传运行手册.md`。当前仍需按手册准备 `ashare-artifacts` bucket + ADC，去掉 `--skip-gcs-upload` 重跑报告并验收真实 `report_uri`。
-- **下一步**：继续推进策略 1 模型质量与参数迭代（调仓频率、持股数、权重上限、特征/标签/选股口径）、补 `dws_market_state_daily`、按运行手册准备 GCS bucket（`ashare-artifacts`）+ ADC 后重跑 uploaded 模式报告；P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
+- 策略 1 报告 GCS uploaded 模式已跑通：`docs/策略1报告GCS上传运行手册.md` 已新增；2026-06-02 已创建 `gs://ashare-artifacts`（`ASIA-EAST2`）、配置本机 ADC（quota project=`data-aquarium`），去掉 `--skip-gcs-upload` 重跑报告并验收真实 `report_uri=gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_20260601_01/backtest_id=bt_s1_bqml_20260601_01`，`sql/ml/strategy1/10_qa_runner_outputs.sql` 全部通过。
+- 策略 1 模型质量诊断 PRD 已新增：`docs/prd/PRD_20260602_04_策略1模型质量诊断.md`，范围限定为先诊断 signal / label / sample-universe / candidate / portfolio / cost / style，不直接改模型或调参。
+- **下一步**：优先实现策略 1 模型质量诊断，再基于诊断结论推进 OQ-010 模型质量与参数迭代（调仓频率、持股数、权重上限、特征/标签/选股口径）；也可补 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
 
 ## 不可妥协的约定
 

@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-`quant-ashare` 已完成**P0 DIM/DWD 物化**、**OQ-004 指数基准口径实现**、**策略 1 价格量价 DWS/ADS SQL 物化**、**策略 1 BigQuery ML runner 脚本合并**、**OQ-006 单位契约实现关闭**、**OQ-003 财务三表 DWD/DWS 实现**、**OQ-010 交易成本 profile 实现**和**策略 1 中文报告与归因分析实现（PR #20）**：ODS 当前 57 表（含 `index_member_all` / `ci_index_member` / `bak_basic`）探查清楚三类分区语义；产出 DWD/DIM 建模方案 `docs/数据仓库建模方案-DWD-DIM.md`、DWS/ADS 表设计 `docs/数据仓库建模方案-DWS-ADS.md`、策略方案 `docs/A股中低频小资金机器学习策略方案.md`、策略 1 PRD `docs/prd/PRD_20260601_01_策略1价格量价基础分类模型.md`、策略 1 runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`、OQ-003 财务报表口径 PRD `docs/prd/PRD_20260601_03_财务报表口径维度.md`、OQ-004 基准指数口径 PRD `docs/prd/PRD_20260601_04_OQ004基准指数口径.md`、OQ-006 单位契约 PRD `docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`、OQ-010 交易成本口径 PRD `docs/prd/PRD_20260602_02_OQ010交易成本口径.md`、策略 1 中文报告与归因分析 PRD `docs/prd/PRD_20260602_03_策略1中文报告归因分析.md` 和策略 1 报告 GCS 上传运行手册 `docs/策略1报告GCS上传运行手册.md`。OQ-004 已关闭且 PR #11 已合并到 `main`：`dim_index` 已物化为指数 canonical 映射与端点可用性维表，`dwd_index_eod` 已从 `dim_index` 读取映射并重建，`sql/qa/03_oq004_index_checks.sql` 通过，runner 08 增加 benchmark 可用性与窗口覆盖前置校验；PR #11 review feedback 已跟进，`dim_index` 建表脚本明确只 seed ODS 真实存在端点并把字段描述收敛到 metadata，QA/runner 已注明示例窗口和 SSE 日历假设；`codex/implement-oq004-index` 本地/远端分支已删除。策略 1 runner 代码已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`、`scripts/strategy1/requirements.txt`；PR #7 dry-run 通过，并已于 **PR #12 在 BigQuery 端到端实跑通过全部 QA**（run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`，`10_qa_runner_outputs.sql` 16 断言全过；08 已按 DECISION-20260601-07 由 v0 set-based 重写为账户级有状态 ledger）。PR #20 已将报告升级为中文 v2：中证1000 `000852.SH` 作为评估主基准，沪深300 `000300.SH` 作为展示对比基准，报告输出交易/持仓/NAV/benchmark 附件、图表、亏损证据包和 AI 诊断；当前 GCS uploaded 模式仍待按运行手册准备 `ashare-artifacts` bucket + ADC 并重跑。全套规范已敲定：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属用 `in_date/out_date` 时点区间、血缘 `source_system/ingested_at`、版本字段 `feature_version/label_version/universe_version/model_id/strategy_id/run_id`、按月分区 + 聚簇、表+字段注释。OQ-006 已于 PR #16 实现并关闭：`ashare_meta.ods_field_unit_map` 是单位换算唯一事实来源，`dwd_index_eod.volume/amount` 已按 `vol*100` / `amount*1000` 换算并迁移为 `volume_share/amount_cny`，`sql/qa/05_oq006_unit_checks.sql` 已纳入所有 DWD PR 必跑 QA，新增或修改 DWD 标准字段必须同步单位映射并跑该 QA。OQ-003 已于 PR #13 实现并关闭：财务三大报表 `dwd_fin_income` / `dwd_fin_balancesheet` / `dwd_fin_cashflow`（+ `_latest`）和 `dws_stock_feature_fin_daily` 已进入 `main`、物化并通过 `sql/qa/04`，且按 OQ-006 补全单位映射并通过 `sql/qa/05`。owner 已澄清：当前阶段先把 **2019+ 数据**做正确；2019 年以前正式样本/明细是下一步。主方案 §4.6 已修订为三类 2019 前支撑范围：财务/事件前移到 2017、行情仅读 lookback buffer、维度/日历取快照或全量历史事件。
+`quant-ashare` 已完成 P0 DIM/DWD 物化、OQ-004 指数基准口径、策略 1 DWS/ADS、策略 1 BigQuery ML runner 端到端实跑、OQ-006 单位契约、OQ-003 财务三表 DWD/DWS、OQ-010 交易成本 profile、策略 1 中文报告与归因分析、策略 1 报告 GCS uploaded 模式，以及策略 1 模型质量诊断 PRD。2026-06-02 已创建 `gs://ashare-artifacts`（`ASIA-EAST2`）、配置本机 ADC（quota project=`data-aquarium`）、去掉 `--skip-gcs-upload` 重跑 `render_report.py`，ADS 已回写 `report_upload_status=uploaded` 和真实 `report_uri=gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_20260601_01/backtest_id=bt_s1_bqml_20260601_01`，`sql/ml/strategy1/10_qa_runner_outputs.sql` 全部通过。`docs/prd/PRD_20260602_04_策略1模型质量诊断.md` 已定义下一步先诊断 signal / label / sample-universe / candidate / portfolio / cost / style，再进入 OQ-010 参数和模型实验；PR #24 comment feedback 已补入正文，RankIC 明确为 Spearman、bucket 明确为日截面 quantile、`sample_filter_risk` 阈值明确只针对不可解释排除率。核心规范保持：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属时点区间、血缘与版本字段、按月分区 + 聚簇；当前阶段先把 2019+ 数据做正确，2019 年以前正式样本/明细是下一步。
 
 **已物化表**：`data-aquarium.ashare_meta` 下 `ods_field_unit_map`；`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`、`dim_index`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`，以及 OQ-003 财务三大报表 `dwd_fin_income`/`dwd_fin_balancesheet`/`dwd_fin_cashflow` 及各自 `_latest`（PR #13）；`data-aquarium.ashare_dws` 下策略 1 六表（universe、价格特征、估值特征、标签、特征宽表、样本表）和 `dws_stock_feature_fin_daily`（默认合并口径 PIT 财务特征，PR #13）；`data-aquarium.ashare_ads` 下 11 张训练/预测/组合/回测/监控契约表。PR #9 合并后的 `dim_stock` 依赖链已在 2026-06-02 重建：`dim_stock`、`dwd_stock_eod_price`、策略 1 DWS 六表和 ADS 契约表均已刷新，`sql/metadata/01_p0_table_column_descriptions.sql` 已执行，`sql/qa/01_p0_smoke_checks.sql` 与 `sql/qa/02_strategy1_dws_ads_checks.sql` 均通过；`sql/qa/03_oq004_index_checks.sql` 近期通过。二轮评审发现已修复：盘中临停不再误标全天停牌，财务 latest 改为 `update_flag DESC` 优先。P0 DIM/DWD 字段说明缺失数为 0。
 
@@ -16,7 +16,7 @@
 
 **DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 已落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，以及 OQ-003 财务特征 `dws_stock_feature_fin_daily`；市场状态 `dws_market_state_daily` 待补。财务特征口径 PRD 已采纳、关闭并实现 OQ-003（PR #13）：P0 默认消费合并报表 `report_type='1'`，三大报表 DWD（`income/balancesheet/cashflow` + `_latest`）保留 `report_type`/`report_caliber`/`is_default_report_caliber`，`dws_stock_feature_fin_daily` 默认只过滤默认口径（口径契约 + `has_fin_*` 掩码），已物化并通过 `sql/qa/04_finance_caliber_checks.sql`，并按 OQ-006 单位契约补全 `ods_field_unit_map` 财务字段、跑通 `sql/qa/05_oq006_unit_checks.sql`。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md`、runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 和 runner SQL 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。**runner 已于 PR #12 端到端实跑并通过全部 QA**（08 已重写为账户级 ledger，详见本文件末尾 2026-06-02 交接条目与摘要顶部）。
 
-**下一步（P0/P1）**：策略 1 runner 01-10 已于 PR #12 端到端实跑并通过 `10_qa_runner_outputs.sql`（16 断言全过）。OQ-010 成本子项已写 PRD 并在 runner SQL 中实现：默认成本 profile 为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，runner 已从单一 `p_cost_bps=30` 升级为分项成本。策略 1 中文报告与归因分析已由 PR #20 实现：保持中证1000 `000852.SH` 为评估 / 归因主基准，报告并列展示沪深300 `000300.SH`，输出中文报告、交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断。其他后续方向为：提升 v0 模型质量与参数（调仓频率、持股数/单票权重上限、特征/标签/选股口径）；补 P0 通用 `dws_market_state_daily`；按 `docs/策略1报告GCS上传运行手册.md` 准备 GCS bucket（`ashare-artifacts`）+ ADC 后去掉 `--skip-gcs-upload` 重跑 render 产出 `uploaded` 真实 `report_uri`；P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：优先按 `docs/prd/PRD_20260602_04_策略1模型质量诊断.md` 实现策略 1 v0 模型质量诊断，再基于诊断结论推进调仓频率、持股数/单票权重上限、特征/标签/选股口径实验；也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
 **待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略调仓频率、持股数/单票权重上限（OQ-010，成本子项已定、策略报告已定为中证1000评估主基准 + 沪深300展示对比基准、训练工具链已定为 BigQuery ML + SQL runner，首个基线股票池已定为仅沪深主板）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
@@ -1787,3 +1787,172 @@ Run ID: —
 - `DECISION_LOG.md`
 - `AGENT_HANDOFF.md`
 - `TODO.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-02
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: s1_bqml_20260601_01 / bt_s1_bqml_20260601_01
+相关 issue/PR: PR #23 / 策略 1 报告 GCS uploaded 模式
+
+### 已完成工作
+
+- 确认 PR #23 已合并到 `main`，本地 `main` fast-forward 到合并提交。
+- 删除已合并且不再使用的 PR #23 分支 `feat/implement-gcs-upload-runbook`：先移除干净 worktree `/Users/luna/Desktop/git/quant-ashare-wt`，再删除本地与远端分支。
+- 创建 `gs://ashare-artifacts` bucket（`ASIA-EAST2`，project=`data-aquarium`）。
+- 配置本机 Application Default Credentials，quota project 为 `data-aquarium`；未向仓库写入任何凭据。
+- 去掉 `--skip-gcs-upload` 重跑 `scripts/strategy1/render_report.py`，GCS 上传完成并回写 ADS。
+
+### 重要上下文
+
+- 本机 ADC 已可供 Google client libraries 使用；`render_report.py` 现在可通过默认凭据访问 BigQuery 与 GCS，不再依赖 gcloud token fallback。
+- 报告 GCS 路径：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_20260601_01/backtest_id=bt_s1_bqml_20260601_01`。
+- ADS `metrics_json` 当前为 `report_upload_status='uploaded'`，`report_uri` 为上述 GCS 路径，`local_report_path` 仍保留本地镜像路径，`ai_analysis_status='evidence_only'`。
+- 重跑 `render_report.py` 时仍出现 Python 3.9 版本 warning、未安装 BigQuery Storage 模块 warning，以及 Matplotlib 缺 CJK 字体的图表字形 warning；这些不影响本次 GCS/ADS/QA 验收，但图表中文字形后续可单独优化。
+
+### 改动文件
+
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `gcloud auth application-default print-access-token >/dev/null`：通过。
+- Python `google.auth.default()` + BigQuery/Storage client 访问 `ashare_ads` dataset 与 `ashare-artifacts` bucket：通过。
+- `python scripts/strategy1/render_report.py --project data-aquarium --backtest-id bt_s1_bqml_20260601_01 --run-id s1_bqml_20260601_01 --artifact-base-uri gs://ashare-artifacts/reports/strategy1 --local-mirror-root reports/strategy1 --ai-analysis-mode evidence_only`：通过，上传报告产物并回写 ADS。
+- `gcloud storage ls gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_20260601_01/backtest_id=bt_s1_bqml_20260601_01/`：可列出 `report.md`、`report.html`、`metrics.json`、`nav.csv`、`trades.csv`、`positions.csv`、`benchmark_nav.csv`、`diagnosis_evidence.json`、`ai_analysis.json`、图表 assets 等产物。
+- ADS 查询确认 `report_upload_status='uploaded'`、`report_uri` 非空、`report.md`/`report.html`/`diagnosis_evidence.json` 均在 manifest 中。
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql`：全部 ASSERT 通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 进入策略 1 模型质量诊断：先做信号/标签/选股/组合归因诊断，不直接改模型参数；确认问题来自反向信号、标签定义、股票池/样本过滤、成本换手、市场风格暴露还是执行口径。
+- 可单独补报告图表 CJK 字体配置，消除 Matplotlib 中文字形 warning。
+
+### 已更新记忆文件
+
+- `MEMORY_INDEX.md`
+- `PROJECT_CONTEXT.md`
+- `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+- `TODO.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-02
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: OQ-010 / 策略 1 模型质量诊断 PRD
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260602_04_策略1模型质量诊断.md`。
+- PRD 将下一步 OQ-010 工作收敛为“先诊断、后实验”：先诊断 signal / label / sample-universe / candidate / portfolio / cost / style，再进入反向分数、标签、参数或特征实验。
+- PRD 定义后续实现交付物：`sql/ml/strategy1/11_model_quality_diagnostics.sql`、`scripts/strategy1/diagnose_model_quality.py`、`sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql`、诊断 artifact 和 `metrics_json` 诊断状态。
+- 更新 `TODO.md`，将 P0 模型质量工作拆成“实现模型质量诊断”和“基于诊断做参数/模型实验”。
+- 更新 OQ-010 记忆状态：成本、报告和诊断 PRD 已完成；仍 open 的是诊断实现与后续调仓/持仓参数和模型质量实验。
+
+### 重要上下文
+
+- 本次只写 PRD 和记忆/TODO，未实现诊断 SQL、Python 脚本或 QA。
+- PRD 明确不直接修改模型、标签、选股、持仓或成本，避免根据 2025 单次 test 结果直接调参。
+- 当前 baseline 仍是 `run_id=s1_bqml_20260601_01` / `backtest_id=bt_s1_bqml_20260601_01`；诊断实现必须参数化 run/backtest，不得写死。
+
+### 改动文件
+
+- `docs/prd/PRD_20260602_04_策略1模型质量诊断.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 文档型变更；未执行 SQL。
+- 计划执行 `git diff --check` 后提交。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 实现 `PRD_20260602_04`：先写诊断 SQL / Python artifact 生成 / QA，再基于诊断结论决定是否做反向分数、标签 horizon、持股数/权重上限、调仓频率或特征扩展实验。
+
+### 已更新记忆文件
+
+- `MEMORY_INDEX.md`
+- `PROJECT_CONTEXT.md`
+- `IMPLEMENTATION_STATUS.md`
+- `OPEN_QUESTIONS.md`
+- `AGENT_HANDOFF.md`
+- `TODO.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-02
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #24 / issuecomment-4602768596
+
+### 已完成工作
+
+- 查看 PR #24 comment `4602768596`，认可 1 个中优先级和 2 个低优先级建议。
+- 修订 `docs/prd/PRD_20260602_04_策略1模型质量诊断.md`：
+  - FR-DIAG-2 明确 RankIC 为 Spearman rank correlation。
+  - FR-DIAG-3 明确 score bucket 按每个交易日的日截面 quantile 分组。
+  - FR-DIAG-5 明确 `sample_filter_risk` 的 10% 阈值只针对不可解释排除率，并定义可解释 / 不可解释排除。
+- 同步更新实现状态和当前交接摘要。
+
+### 重要上下文
+
+- 本次仍是文档型修订，未实现诊断 SQL、Python 脚本或 QA。
+- 修订不改变“先诊断、后调参”的方案方向，只降低后续实现歧义。
+
+### 改动文件
+
+- `docs/prd/PRD_20260602_04_策略1模型质量诊断.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- 文档型变更；未执行 SQL。
+- 计划执行 `git diff --check` 后提交。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 推送 PR #24 修订后，可继续 review / 合并；合并后开始实现模型质量诊断 SQL、artifact 生成和 QA。
+
+### 已更新记忆文件
+
+- `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
