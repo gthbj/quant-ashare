@@ -269,24 +269,28 @@ ASSERT (
 ) AS 'QA-UNIT-6d: dwd_index_eod amount_cny / amount_k_cny must be ~1000 (k_cny->cny)';
 
 -- 6e: index_dailybasic 市值/股本不应出现 1e4 换算错误（已为元/股，直接比对 ODS raw）
+-- 同时断言 join 非空，防止空集合静默通过
 ASSERT (
-  SELECT COUNTIF(
-    ABS(SAFE_DIVIDE(d.total_mv_cny, SAFE_CAST(o.total_mv AS FLOAT64)) - 1.0) > 1e-6
-    OR ABS(SAFE_DIVIDE(d.float_mv_cny, SAFE_CAST(o.float_mv AS FLOAT64)) - 1.0) > 1e-6
-    OR ABS(SAFE_DIVIDE(d.total_share, SAFE_CAST(o.total_share AS FLOAT64)) - 1.0) > 1e-6
-    OR ABS(SAFE_DIVIDE(d.float_share, SAFE_CAST(o.float_share AS FLOAT64)) - 1.0) > 1e-6
-    OR ABS(SAFE_DIVIDE(d.free_share, SAFE_CAST(o.free_share AS FLOAT64)) - 1.0) > 1e-6
-  ) = 0
-  FROM `data-aquarium.ashare_dwd.dwd_index_eod` AS d
-  JOIN `data-aquarium.ashare_ods.ods_tushare_index_dailybasic` AS o
-    ON d.source_sec_code = o.ts_code
-   AND FORMAT_DATE('%Y%m%d', d.trade_date) = o.trade_date
-  WHERE d.trade_date BETWEEN dwd_start_date AND dwd_end_date
-    AND o.partition_date BETWEEN FORMAT_DATE('%Y%m%d', dwd_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
-    AND o.endpoint IN (SELECT dailybasic_endpoint FROM `data-aquarium.ashare_dim.dim_index` WHERE dailybasic_endpoint IS NOT NULL)
-    AND d.total_mv_cny IS NOT NULL
-    AND o.total_mv IS NOT NULL
-) AS 'QA-UNIT-6e: dwd_index_eod index_dailybasic fields must match ODS raw values (no 1e4 conversion)';
+  SELECT COUNT(*) > 0 AND COUNTIF(mismatch) = 0
+  FROM (
+    SELECT
+      ABS(SAFE_DIVIDE(d.total_mv_cny, SAFE_CAST(o.total_mv AS FLOAT64)) - 1.0) > 1e-6
+      OR ABS(SAFE_DIVIDE(d.float_mv_cny, SAFE_CAST(o.float_mv AS FLOAT64)) - 1.0) > 1e-6
+      OR ABS(SAFE_DIVIDE(d.total_share, SAFE_CAST(o.total_share AS FLOAT64)) - 1.0) > 1e-6
+      OR ABS(SAFE_DIVIDE(d.float_share, SAFE_CAST(o.float_share AS FLOAT64)) - 1.0) > 1e-6
+      OR ABS(SAFE_DIVIDE(d.free_share, SAFE_CAST(o.free_share AS FLOAT64)) - 1.0) > 1e-6
+      AS mismatch
+    FROM `data-aquarium.ashare_dwd.dwd_index_eod` AS d
+    JOIN `data-aquarium.ashare_ods.ods_tushare_index_dailybasic` AS o
+      ON d.source_sec_code = o.ts_code
+     AND FORMAT_DATE('%Y%m%d', d.trade_date) = o.trade_date
+    WHERE d.trade_date BETWEEN dwd_start_date AND dwd_end_date
+      AND o.partition_date BETWEEN FORMAT_DATE('%Y%m%d', dwd_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+      AND o.endpoint IN (SELECT dailybasic_endpoint FROM `data-aquarium.ashare_dim.dim_index` WHERE dailybasic_endpoint IS NOT NULL)
+      AND d.total_mv_cny IS NOT NULL
+      AND o.total_mv IS NOT NULL
+  )
+) AS 'QA-UNIT-6e: dwd_index_eod index_dailybasic fields must match ODS raw values (no 1e4 conversion) and join must be non-empty';
 
 -- ============================================================
 -- QA-UNIT-7~9：命名例外类型约束（防止 exception 被滥用）
@@ -308,12 +312,16 @@ ASSERT (
 ) AS 'QA-UNIT-8: legacy_unsuffixed must have naming_exception_expires_at (migration TODO required)';
 
 -- 9: source_name_passthrough 必须满足 source_unit = canonical_unit AND multiplier = 1，且不能有清理日期
+-- 显式检查 NULL，避免三值逻辑漏判
 ASSERT (
   SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_meta.ods_field_unit_map`
   WHERE naming_exception_type = 'source_name_passthrough'
     AND (
-      source_unit != canonical_unit
+      source_unit IS NULL
+      OR canonical_unit IS NULL
+      OR multiplier IS NULL
+      OR source_unit != canonical_unit
       OR multiplier != 1
       OR naming_exception_expires_at IS NOT NULL
     )
