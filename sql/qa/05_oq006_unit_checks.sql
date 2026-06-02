@@ -283,6 +283,38 @@ ASSERT (
    AND FORMAT_DATE('%Y%m%d', d.trade_date) = o.trade_date
   WHERE d.trade_date BETWEEN dwd_start_date AND dwd_end_date
     AND o.partition_date BETWEEN FORMAT_DATE('%Y%m%d', dwd_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+    AND o.endpoint IN (SELECT dailybasic_endpoint FROM `data-aquarium.ashare_dim.dim_index` WHERE dailybasic_endpoint IS NOT NULL)
     AND d.total_mv_cny IS NOT NULL
     AND o.total_mv IS NOT NULL
 ) AS 'QA-UNIT-6e: dwd_index_eod index_dailybasic fields must match ODS raw values (no 1e4 conversion)';
+
+-- ============================================================
+-- QA-UNIT-7~9：命名例外类型约束（防止 exception 被滥用）
+-- ============================================================
+-- 7: naming_exception_type 只能取白名单值
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+  WHERE naming_exception_type IS NOT NULL
+    AND naming_exception_type NOT IN ('legacy_unsuffixed', 'source_name_passthrough')
+) AS 'QA-UNIT-7: naming_exception_type must be in whitelist (legacy_unsuffixed, source_name_passthrough, or NULL)';
+
+-- 8: legacy_unsuffixed 必须有 naming_exception_expires_at
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+  WHERE naming_exception_type = 'legacy_unsuffixed'
+    AND naming_exception_expires_at IS NULL
+) AS 'QA-UNIT-8: legacy_unsuffixed must have naming_exception_expires_at (migration TODO required)';
+
+-- 9: source_name_passthrough 必须满足 source_unit = canonical_unit AND multiplier = 1，且不能有清理日期
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.ods_field_unit_map`
+  WHERE naming_exception_type = 'source_name_passthrough'
+    AND (
+      source_unit != canonical_unit
+      OR multiplier != 1
+      OR naming_exception_expires_at IS NOT NULL
+    )
+) AS 'QA-UNIT-9: source_name_passthrough requires source_unit = canonical_unit AND multiplier = 1 AND no expires_at';
