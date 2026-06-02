@@ -47,8 +47,8 @@ ashare_ods (已有, 外部表)
 - 策略 1 `ml_pv_clf_v0` runner 设计已完成：`docs/策略1-ml_pv_clf_v0-runner设计.md`，执行路径收敛为 BigQuery ML + SQL，训练/预测/组合/回测结果写入既有 ADS 契约表。
 - 策略 1 runner 与回测闭环实现 PRD 已完成：`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`。
 - 策略 1 BigQuery ML + SQL runner 脚本已合并入 `main`：`sql/ml/strategy1/01-10`、`sql/ml/strategy1/README.md`、`scripts/strategy1/render_report.py`。**已于 PR #12 在 BigQuery 端到端实跑并通过全部 QA**（run_id `s1_bqml_20260601_01` / backtest `bt_s1_bqml_20260601_01`，`10_qa_runner_outputs.sql` 16 断言全过）。08 回测已重写为账户级有状态 ledger（DECISION-20260602-01）；不可交易腿记 `*_SKIPPED_UNTRADABLE` 意图行；报告为模式感知：本轮用 local-only（`--skip-gcs-upload`）验收，写 `local_report_path` + `report_upload_status=skipped`、`report_uri=NULL`。
-- OQ-006 单位契约 PRD 已完成且 owner 关键决策已确认：`ashare_meta.ods_field_unit_map` 为单位换算唯一事实来源；`dwd_index_eod.volume/amount` 必须迁移为 `volume_share/amount_cny`；OQ-006 最小实现先于 P1 资金流、财务扩展等高单位风险 DWD 正式落地；`sql/qa/05_oq006_unit_checks.sql` 纳入所有新增或修改 DWD 标准字段 PR 的必跑 QA。
-- **下一步**：优先实现 OQ-006 最小版本（meta 表 + seed、`05_oq006_unit_checks.sql`、`dwd_index_eod` 命名迁移、DWD-DIM / README / `KNOWN_CONSTRAINTS.md` 同步），再落地 PRD03 / PR #13 财务三表或其他 P1 高单位风险 DWD；也可并行提升 v0 模型质量与参数（OQ-010）或准备 GCS bucket（`ashare-artifacts`）+ ADC 后重跑 render。
+- OQ-006 单位契约 PRD 已完成且 owner 关键决策已确认：`ashare_meta.ods_field_unit_map` 为单位换算唯一事实来源；`dwd_index_eod.volume/amount` 当前仍是 `index_daily` 源单位手/千元，必须按 `vol*100` / `amount*1000` 换算并迁移为 `volume_share/amount_cny`；OQ-006 最小实现先于 P1 资金流、财务扩展等高单位风险 DWD 正式落地；`sql/qa/05_oq006_unit_checks.sql` 纳入所有新增或修改 DWD 标准字段 PR 的必跑 QA。
+- **下一步**：优先实现 OQ-006 最小版本（meta 表 + seed、`05_oq006_unit_checks.sql`、`dwd_index_eod` 换算修复 + 命名迁移、DWD-DIM / README / `KNOWN_CONSTRAINTS.md` 同步），再落地 PRD03 / PR #13 财务三表或其他 P1 高单位风险 DWD；也可并行提升 v0 模型质量与参数（OQ-010）或准备 GCS bucket（`ashare-artifacts`）+ ADC 后重跑 render。
 
 ## 不可妥协的约定
 
