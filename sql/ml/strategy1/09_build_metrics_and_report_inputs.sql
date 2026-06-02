@@ -67,10 +67,10 @@ WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND
 -- ── OQ-010 成本分解：从 trade 表直接汇总 fee/tax/slippage/economic_cost ──
 CREATE TEMP TABLE cost_stats AS
 SELECT
-  SUM(t.fee_cny) AS total_fee_cny,
+  SUM(t.commission_cny) AS total_commission_cny,
   SUM(t.tax_cny) AS total_tax_cny,
   SUM(t.slippage_cny) AS total_slippage_cny,
-  SUM(t.fee_cny + t.slippage_cny) AS total_economic_cost_cny
+  SUM(t.commission_cny + t.tax_cny + t.slippage_cny) AS total_economic_cost_cny
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
 WHERE t.backtest_id = p_backtest_id
   AND t.fill_status = 'FILLED'
@@ -154,8 +154,8 @@ SELECT
     (p_commission_bps + p_stamp_tax_sell_bps + p_slippage_sell_bps) AS effective_sell_cost_bps,
     (p_commission_bps + p_stamp_tax_buy_bps + p_slippage_buy_bps
       + p_commission_bps + p_stamp_tax_sell_bps + p_slippage_sell_bps) AS round_trip_cost_bps,
-    -- OQ-010 成本分解（从 trade 表汇总，含显性 fee 与隐性 slippage）
-    cs.total_fee_cny, cs.total_tax_cny, cs.total_slippage_cny, cs.total_economic_cost_cny
+    -- OQ-010 成本分解（从 trade 表汇总：commission + stamp_tax + slippage = economic_cost）
+    cs.total_commission_cny, cs.total_tax_cny, cs.total_slippage_cny, cs.total_economic_cost_cny
   )),
   CURRENT_TIMESTAMP()
 FROM agg AS a, drawdown AS dd, sell_stats AS ss, cost_stats AS cs;

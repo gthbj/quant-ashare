@@ -351,12 +351,16 @@ END WHILE;
 -- ── 写成交表 ──
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_trade_daily`
 (backtest_id, trade_date, sec_code, side, planned_shares, filled_shares,
- fill_price, turnover_cny, fee_cny, tax_cny, slippage_cny, cash_effect_cny,
+ fill_price, turnover_cny, fee_cny, commission_cny, tax_cny, slippage_cny, cash_effect_cny,
  fill_status, run_id, created_at)
 SELECT
   p_backtest_id, lt.trade_date, lt.sec_code, lt.side,
   lt.planned_shares, lt.filled_shares, lt.fill_price, lt.turnover_cny,
   lt.fee_cny,
+  -- commission_cny: 佣金（fee_cny 去掉印花税后的部分）
+  lt.fee_cny - CASE WHEN lt.side = 'SELL' THEN lt.turnover_cny * p_stamp_tax_sell_bps / 10000.0
+                    WHEN lt.side = 'BUY'  THEN lt.turnover_cny * p_stamp_tax_buy_bps / 10000.0
+                    ELSE 0.0 END,
   -- tax_cny: 印花税（买入 0，卖出按 stamp_tax_sell_bps）
   CASE WHEN lt.side = 'SELL' THEN lt.turnover_cny * p_stamp_tax_sell_bps / 10000.0
        WHEN lt.side = 'BUY'  THEN lt.turnover_cny * p_stamp_tax_buy_bps / 10000.0

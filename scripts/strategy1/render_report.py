@@ -198,10 +198,10 @@ def render_markdown(summary: dict, model_info: dict, args) -> str:
         f"- **stamp tax**: 买入 `{fmt(m.get('stamp_tax_buy_bps'))}` bps / 卖出 `{fmt(m.get('stamp_tax_sell_bps'))}` bps",
         f"- **slippage**: 买入 `{fmt(m.get('slippage_buy_bps'))}` bps / 卖出 `{fmt(m.get('slippage_sell_bps'))}` bps",
         f"- **effective cost**: 买入 `{fmt(m.get('effective_buy_cost_bps'))}` bps / 卖出 `{fmt(m.get('effective_sell_cost_bps'))}` bps / 往返 `{fmt(m.get('round_trip_cost_bps'))}` bps",
-        f"- **total fee (显性)**: {fmt(m.get('total_fee_cny'), 2)} CNY",
-        f"- **total tax (显性)**: {fmt(m.get('total_tax_cny'), 2)} CNY",
+        f"- **total commission**: {fmt(m.get('total_commission_cny'), 2)} CNY",
+        f"- **total stamp tax**: {fmt(m.get('total_tax_cny'), 2)} CNY",
         f"- **total slippage (隐性)**: {fmt(m.get('total_slippage_cny'), 2)} CNY",
-        f"- **total economic cost (显性+隐性)**: {fmt(m.get('total_economic_cost_cny'), 2)} CNY",
+        f"- **total economic cost** (= commission + stamp tax + slippage): {fmt(m.get('total_economic_cost_cny'), 2)} CNY",
         "",
         "> 旧 `cost_bps=30` 一揽子成本已废弃；当前使用分项成本 profile。`cost_bps` 兼容列写入往返经济成本。", "",
         "## Model Selection", "",
@@ -245,10 +245,10 @@ def render_html(summary: dict, model_info: dict, args) -> str:
         row("Effective Buy Cost (bps)", fmt(m.get("effective_buy_cost_bps"))),
         row("Effective Sell Cost (bps)", fmt(m.get("effective_sell_cost_bps"))),
         row("Round Trip Cost (bps)", fmt(m.get("round_trip_cost_bps"))),
-        row("Total Fee (CNY)", fmt(m.get("total_fee_cny"), 2)),
-        row("Total Tax (CNY)", fmt(m.get("total_tax_cny"), 2)),
+        row("Total Commission (CNY)", fmt(m.get("total_commission_cny"), 2)),
+        row("Total Stamp Tax (CNY)", fmt(m.get("total_tax_cny"), 2)),
         row("Total Slippage (CNY)", fmt(m.get("total_slippage_cny"), 2)),
-        row("Total Economic Cost (CNY)", fmt(m.get("total_economic_cost_cny"), 2)),
+        row("Total Economic Cost (CNY) = commission + stamp tax + slippage", fmt(m.get("total_economic_cost_cny"), 2)),
     ])
     model_metrics = html.escape(json.dumps(json.loads(model_info.get("metrics_json") or "{}"), indent=2))
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
