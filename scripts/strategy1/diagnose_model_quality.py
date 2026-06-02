@@ -816,12 +816,25 @@ def determine_primary_diagnosis(valid_ic: dict, test_ic: dict,
                 add_evidence(f"rank_ic_{best_alt[1]}", best_alt[0], "abs>0.05", "stronger")
                 return {"primary": "label_horizon_mismatch", "confidence": "medium", "evidence": evidence}
 
-    # Sample filter risk
+    # Sample filter risk (funnel-based fallback)
+    # PRD-20260602-05: only trigger if live-available mask is NOT active
+    # (i.e., no live_only_rows detected in the earlier sample_risk_df check)
     if not funnel_df.empty:
-        unexplained = funnel_df["unexplained_exclusion_rate"].mean()
-        if unexplained > 0.10:
-            add_evidence("unexplained_exclusion_rate", round(float(unexplained), 4), ">0.10", "high")
-            return {"primary": "sample_filter_risk", "confidence": "high", "evidence": evidence}
+        live_mask_active = False
+        if not sample_risk_df.empty:
+            for _, row in sample_risk_df.iterrows():
+                if int(row.get("live_only_rows", 0) or 0) > 0:
+                    live_mask_active = True
+                    break
+        if not live_mask_active:
+            unexplained = funnel_df["unexplained_exclusion_rate"].mean()
+            if unexplained > 0.10:
+                add_evidence("unexplained_exclusion_rate", round(float(unexplained), 4), ">0.10", "high")
+                return {"primary": "sample_filter_risk", "confidence": "high", "evidence": evidence}
+        else:
+            # Live-available mask is active; record funnel as evidence only, not as primary diagnosis
+            unexplained = funnel_df["unexplained_exclusion_rate"].mean()
+            add_evidence("funnel_unexplained_exclusion_rate", round(float(unexplained), 4), ">0.10", "info_only")
 
     # Cost turnover issue
     if not cost_turnover_df.empty:
