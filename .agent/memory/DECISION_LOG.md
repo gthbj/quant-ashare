@@ -835,7 +835,7 @@ OQ-010 仍有策略默认参数待确认。当前策略 1 runner 使用单一 `p
 
 `docs/prd/PRD_20260602_02_OQ010交易成本口径.md`, `docs/策略1-ml_pv_clf_v0-runner设计.md`, `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`
 
-## DECISION-20260602-05: 策略 1 报告主基准与中文归因口径
+## DECISION-20260602-05: 策略 1 报告中文归因旧口径（已废弃）
 
 日期: 2026-06-02
 状态: superseded by DECISION-20260602-06
@@ -845,29 +845,30 @@ Agent ID: Codex
 
 ### 背景
 
-策略 1 runner 已能生成基础 Markdown/HTML 报告，但现有 `scripts/strategy1/render_report.py` 仍使用英文标题和指标名，只展示汇总绩效、模型指标、NAV 和回撤图。owner 要求报告改为中文，展示买卖细节，benchmark 以沪深 300 为基准，并在策略效果不好时让 AI 分析亏损节点买了什么、可能原因是什么。
+策略 1 runner 已能生成基础 Markdown/HTML 报告，但现有 `scripts/strategy1/render_report.py` 仍使用英文标题和指标名，只展示汇总绩效、模型指标、NAV 和回撤图。owner 要求报告改为中文，展示买卖细节，能看到与沪深 300 的对比，并在策略效果不好时让 AI 分析亏损节点买了什么、可能原因是什么。
 
 ### 决策
 
-策略 1 报告增强采用以下口径：
+本决策已废弃，不再作为实现依据。有效口径见 `DECISION-20260602-06`：
 
-1. 报告用户可见文本中文化，技术 ID（`run_id`、`model_id`、`backtest_id`、`sec_code`）保留原值。
-2. 主报告基准和 runner 默认主基准改为沪深 300 canonical `sec_code='000300.SH'`。
-3. 中证 1000 `000852.SH` 和中证 500 `000905.SH` 作为辅助风格基准展示，用于区分策略选股 alpha 与中小盘风格 beta。
-4. 正文展示成交摘要、亏损贡献、不成交跳过样例；完整成交、持仓、NAV、回撤和归因明细以 CSV / JSON artifact 输出。
-5. AI 诊断必须先生成结构化 `diagnosis_evidence.json`，只基于证据包输出中文分析；没有新闻/公告/外部事件证据时，必须明确写“当前证据不足，无法判断”，不得编造外部原因。
+1. 策略 1 runner 和 ADS 主 benchmark 使用中证 1000 canonical `sec_code='000852.SH'`，作为评估主基准 / 归因主基准。
+2. 沪深 300 canonical `sec_code='000300.SH'` 仅作为报告展示对比基准，满足 owner 阅读口径，但不替代评估主基准。
+3. 中证 500 `000905.SH` 可作为辅助风格基准展示；展示 / 辅助基准必须固化到报告 artifact，保证可复核。
+4. 报告用户可见文本中文化，技术 ID（`run_id`、`model_id`、`backtest_id`、`sec_code`）保留原值。
+5. 正文展示成交摘要、亏损贡献、不成交跳过样例；完整成交、持仓、NAV、回撤和归因明细以 CSV / JSON artifact 输出。
+6. AI 诊断必须先生成结构化 `diagnosis_evidence.json`，只基于证据包输出中文分析；没有新闻/公告/外部事件证据时，必须明确写“当前证据不足，无法判断”，不得编造外部原因。
 
 ### 理由
 
-owner 需要从报告直接回答“策略是否跑赢沪深 300、买了什么、亏在什么节点、亏损是否来自少数持仓或执行问题”。沪深 300 是 owner 指定的主对比口径；辅助风格基准保留策略原先中小盘 beta 解释能力。AI 归因若不受证据包约束会产生不可审计结论，因此先固化数据证据，再生成自然语言分析。
+PR #18 review 指出，旧版口径与策略 1 原始 PRD §8.4 的中证 1000 评估基准冲突，会把中小盘 beta 误读为选股 alpha。owner 确认第一个问题按 review 建议处理，因此本决策被 `DECISION-20260602-06` 替代。报告中文化、交易明细、证据包和 AI 诊断要求仍保留，但 benchmark 分层以新决策为准。
 
 ### 影响
 
-新增 `docs/prd/PRD_20260602_03_策略1中文报告归因分析.md`。后续实现需改 `sql/ml/strategy1/08_run_backtest.sql`、`09_build_metrics_and_report_inputs.sql`、`10_qa_runner_outputs.sql`、`scripts/strategy1/render_report.py` 和 `sql/ml/strategy1/README.md`。现有可执行 runner 在实现前仍保留旧报告行为和旧示例基准；本决策定义目标实现口径。
+`docs/prd/PRD_20260602_03_策略1中文报告归因分析.md` 已按 `DECISION-20260602-06` 修订。后续实现需改 `sql/ml/strategy1/08_run_backtest.sql`、`09_build_metrics_and_report_inputs.sql`、`10_qa_runner_outputs.sql`、`scripts/strategy1/render_report.py` 和 `sql/ml/strategy1/README.md`。实现时不得按本废弃决策改 benchmark；必须以 `DECISION-20260602-06` 为准。
 
 ### 备选方案
 
-只把现有报告翻译成中文；放弃，因为不能回答买卖细节和亏损原因。只用沪深 300、不展示风格基准；放弃，因为策略 1 原始股票池偏中小盘，缺少风格对照会误判 alpha。让 AI 直接读整份报告自由分析；放弃，因为缺少结构化证据约束，结论不可追溯。
+只把现有报告翻译成中文；放弃，因为不能回答买卖细节和亏损原因。只展示单一大盘对比基准；放弃，因为策略 1 原始股票池偏中小盘，缺少风格对照会误判 alpha。让 AI 直接读整份报告自由分析；放弃，因为缺少结构化证据约束，结论不可追溯。
 
 ### 相关文件
 

@@ -1626,7 +1626,8 @@ Run ID: —
 - 补充持仓窗口贡献法口径：`ads_backtest_position_daily.weight * dwd_stock_eod_price.ret_1d`，并要求记录归因覆盖率。
 - 补充展示 / 辅助基准必须固化到 `benchmark_nav.csv` 和 `metrics.json.artifact_manifest`。
 - 补充 AI `auto` 模式 timeout / retry / fallback 规则，`llm` 模式失败非零退出。
-- 标记 `DECISION-20260602-05` 被 `DECISION-20260602-06` supersede，并追加 `DECISION-20260602-06`。
+- 标记并压缩 `DECISION-20260602-05`：该旧口径已被 `DECISION-20260602-06` supersede，正文不再保留废弃 benchmark 口径的肯定表述。
+- 将 PRD §6 失败触发条件中的沪深300比较改写为“展示对比基准”表述，避免被误读为评估主基准。
 
 ### 重要上下文
 
