@@ -135,6 +135,7 @@ SELECT
 FROM candidate_preds AS cp
 JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
   ON cp.sec_code = s.sec_code AND cp.trade_date = s.trade_date
+  AND s.trade_date BETWEEN p_valid_start AND p_valid_end
   AND s.feature_version = p_feature_version
 WHERE s.label_valid_5d AND s.fwd_xs_ret_5d IS NOT NULL
 GROUP BY cp.cand_id;
