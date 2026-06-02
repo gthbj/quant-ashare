@@ -249,7 +249,7 @@ ALTER COLUMN ingested_at SET OPTIONS (description = '来源 ODS 摄入时间'),
 ALTER COLUMN visible_trade_date SET OPTIONS (description = '该报告期最新版本公告后第一个上交所交易日');
 
 ALTER TABLE `data-aquarium.ashare_dwd.dwd_index_eod`
-SET OPTIONS (description = '指数日线 DWD。从 dim_index 读取 canonical/source 映射和可用端点；sec_code 输出规范指数代码，source_sec_code 保留 ODS 实际代码，并从 index_dailybasic 写入可用指数的估值、市值和股本字段。');
+SET OPTIONS (description = '指数日线 DWD。从 dim_index 读取 canonical/source 映射和可用端点；sec_code 输出规范指数代码，source_sec_code 保留 ODS 实际代码，并从 index_dailybasic 写入可用指数的估值、市值和股本字段。OQ-006 已修复 index_daily 成交量/成交额单位换算。');
 
 ALTER TABLE `data-aquarium.ashare_dwd.dwd_index_eod`
 ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'),
@@ -263,8 +263,10 @@ ALTER COLUMN close SET OPTIONS (description = '指数收盘点位'),
 ALTER COLUMN pre_close SET OPTIONS (description = '指数前收盘点位'),
 ALTER COLUMN change SET OPTIONS (description = '指数涨跌点数'),
 ALTER COLUMN pct_chg SET OPTIONS (description = '指数涨跌幅，百分比'),
-ALTER COLUMN volume SET OPTIONS (description = '指数成交量，源字段 index_daily.vol'),
-ALTER COLUMN amount SET OPTIONS (description = '指数成交额，源字段 index_daily.amount'),
+ALTER COLUMN volume_lot SET OPTIONS (description = '指数成交量，手，保留源字段 index_daily.vol'),
+ALTER COLUMN volume_share SET OPTIONS (description = '指数成交量，股，由手换算为股，index_daily.vol * 100'),
+ALTER COLUMN amount_k_cny SET OPTIONS (description = '指数成交额，千元，保留源字段 index_daily.amount'),
+ALTER COLUMN amount_cny SET OPTIONS (description = '指数成交额，元，由千元换算为元，index_daily.amount * 1000'),
 ALTER COLUMN total_mv_cny SET OPTIONS (description = '指数总市值，元，来自 index_dailybasic.total_mv'),
 ALTER COLUMN float_mv_cny SET OPTIONS (description = '指数流通市值，元，来自 index_dailybasic.float_mv'),
 ALTER COLUMN total_share SET OPTIONS (description = '指数总股本，股，来自 index_dailybasic.total_share'),
