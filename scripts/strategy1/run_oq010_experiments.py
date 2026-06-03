@@ -19,6 +19,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -27,7 +28,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -42,6 +43,23 @@ HEARTBEAT_INTERVAL_SECONDS = 60
 PROJECT = "data-aquarium"
 LOCATION = "asia-east2"
 BQ_STATUS_TABLE = "`data-aquarium.ashare_meta.strategy1_experiment_run_status`"
+DEFAULT_SQL_WINDOWS = {
+    "train_start": "2019-04-03",
+    "train_end": "2023-12-31",
+    "valid_start": "2024-01-01",
+    "valid_end": "2024-12-31",
+    "test_start": "2025-01-01",
+    "test_end": "2025-12-31",
+    "predict_start": "2024-01-01",
+    "predict_end": "2025-12-31",
+}
+SQL_DECLARE_RE = re.compile(
+    r"(?im)^\s*DECLARE\s+(p_[A-Za-z0-9_]+)\s+"
+    r"(STRING|INT64|FLOAT64|BOOL|DATE|TIMESTAMP)\s+DEFAULT\s+([^;]*?);"
+)
+BROAD_SQL_DECLARE_RE = re.compile(
+    r"(?im)^\s*DECLARE\s+(p_[A-Za-z0-9_]+)\b(?P<body>[^;]*);"
+)
 
 # step 定义：step_id -> (display_name, lock_key_template, ads_tables)
 # lock_key_template: 用 {run_id}, {backtest_id}, {prediction_run_id} 替换
@@ -831,7 +849,8 @@ class ExperimentExecutor:
                 self.backtest_semaphore.acquire()
 
             try:
-                # 获取 GCS 锁
+                import threading
+
                 gcs_lock = GcsLock(
                     lock_key=lock_key,
                     experiment=self.experiment,
@@ -840,66 +859,34 @@ class ExperimentExecutor:
                     ttl_minutes=self.lock_ttl_minutes,
                     dry_run=self.dry_run,
                 )
+                lock_acquired = False
+                heartbeat_stop = None
+                heartbeat_thread = None
 
-                if not gcs_lock.acquire():
-                    self.bq_status.upsert_step_status(
-                        self.experiment, step_id, "cancelled",
-                        error_message="lock busy or acquire error",
-                        attempt=1,
-                        params_json=self._params_json,
-                        manifest_path=self.manifest_path,
-                        manifest_hash=self.manifest_hash,
-                        scheduler_instance_id=self.scheduler_instance_id,
-                        log_dir=log_dir,
-                        force_replace=self.force_replace,
-                    )
-                    result["status"] = "cancelled"
-                    result["failed_step"] = step_id
-                    result["error"] = f"lock busy or acquire error: {lock_key}"
-                    logger.warning("[%s] step %s lock busy, cancelled", self.experiment_id, step_id)
-                    return result
-
-                # 记录 running 状态（失败则释放锁并取消）
-                if not self.bq_status.upsert_step_status(
-                    self.experiment, step_id, "running",
-                    lock_key=lock_key,
-                    lock_owner=self.scheduler_instance_id,
-                    attempt=1,
-                    params_json=self._params_json,
-                    manifest_path=self.manifest_path,
-                    manifest_hash=self.manifest_hash,
-                    scheduler_instance_id=self.scheduler_instance_id,
-                    log_dir=log_dir,
-                    force_replace=self.force_replace,
-                    lock_acquired_at=gcs_lock.acquired_at,
-                    lock_expires_at=gcs_lock.lease_expires_at,
-                ):
-                    logger.error("[%s] step %s status write failed, releasing lock", self.experiment_id, step_id)
-                    gcs_lock.release()
-                    result["status"] = "cancelled"
-                    result["failed_step"] = step_id
-                    result["error"] = f"status table write failed: {step_id}"
-                    return result
-
-                # 执行 step
-                import threading
-                heartbeat_stop = threading.Event()
-                heartbeat_thread = threading.Thread(
-                    target=self._heartbeat_loop,
-                    args=(gcs_lock, heartbeat_stop, step_id, lock_key, log_dir),
-                    daemon=True,
-                )
-                heartbeat_thread.start()
                 try:
-                    success = self._execute_step(step_id, step_def, step_log_path)
-                finally:
-                    heartbeat_stop.set()
-                    heartbeat_thread.join(timeout=5)
+                    if not gcs_lock.acquire():
+                        self.bq_status.upsert_step_status(
+                            self.experiment, step_id, "cancelled",
+                            error_message="lock busy or acquire error",
+                            attempt=1,
+                            params_json=self._params_json,
+                            manifest_path=self.manifest_path,
+                            manifest_hash=self.manifest_hash,
+                            scheduler_instance_id=self.scheduler_instance_id,
+                            log_dir=log_dir,
+                            force_replace=self.force_replace,
+                        )
+                        result["status"] = "cancelled"
+                        result["failed_step"] = step_id
+                        result["error"] = f"lock busy or acquire error: {lock_key}"
+                        logger.warning("[%s] step %s lock busy, cancelled", self.experiment_id, step_id)
+                        return result
+                    lock_acquired = True
 
-                if success:
-                    # 记录 succeeded
-                    self.bq_status.upsert_step_status(
-                        self.experiment, step_id, "succeeded",
+                    if not self.bq_status.upsert_step_status(
+                        self.experiment, step_id, "running",
+                        lock_key=lock_key,
+                        lock_owner=self.scheduler_instance_id,
                         attempt=1,
                         params_json=self._params_json,
                         manifest_path=self.manifest_path,
@@ -907,28 +894,74 @@ class ExperimentExecutor:
                         scheduler_instance_id=self.scheduler_instance_id,
                         log_dir=log_dir,
                         force_replace=self.force_replace,
+                        lock_acquired_at=gcs_lock.acquired_at,
+                        lock_expires_at=gcs_lock.lease_expires_at,
+                    ):
+                        logger.error("[%s] step %s status write failed", self.experiment_id, step_id)
+                        result["status"] = "cancelled"
+                        result["failed_step"] = step_id
+                        result["error"] = f"status table write failed: {step_id}"
+                        return result
+
+                    heartbeat_stop = threading.Event()
+                    heartbeat_thread = threading.Thread(
+                        target=self._heartbeat_loop,
+                        args=(gcs_lock, heartbeat_stop, step_id, lock_key, log_dir),
+                        daemon=False,
                     )
-                    logger.info("[%s] step %s succeeded", self.experiment_id, step_id)
-                    result["completed_steps"].append(step_id)
-                    gcs_lock.release()
-                else:
-                    self.bq_status.upsert_step_status(
-                        self.experiment, step_id, "failed",
-                        error_message="see log for details",
-                        attempt=1,
-                        params_json=self._params_json,
-                        manifest_path=self.manifest_path,
-                        manifest_hash=self.manifest_hash,
-                        scheduler_instance_id=self.scheduler_instance_id,
-                        log_dir=log_dir,
-                        force_replace=self.force_replace,
-                    )
-                    result["status"] = "failed"
-                    result["failed_step"] = step_id
-                    result["error"] = f"step {step_id} failed"
-                    logger.error("[%s] step %s failed", self.experiment_id, step_id)
-                    gcs_lock.release()
-                    return result
+                    heartbeat_thread.start()
+                    try:
+                        success = self._execute_step(step_id, step_def, step_log_path)
+                    except Exception as e:
+                        success = False
+                        logger.error("[%s] step %s executor exception: %s", self.experiment_id, step_id, e)
+                    finally:
+                        heartbeat_stop.set()
+                        heartbeat_thread.join()
+
+                    if success:
+                        if not self.bq_status.upsert_step_status(
+                            self.experiment, step_id, "succeeded",
+                            attempt=1,
+                            params_json=self._params_json,
+                            manifest_path=self.manifest_path,
+                            manifest_hash=self.manifest_hash,
+                            scheduler_instance_id=self.scheduler_instance_id,
+                            log_dir=log_dir,
+                            force_replace=self.force_replace,
+                        ):
+                            result["status"] = "failed"
+                            result["failed_step"] = step_id
+                            result["error"] = f"terminal status table write failed: {step_id}"
+                            logger.error("[%s] step %s terminal status write failed", self.experiment_id, step_id)
+                            return result
+                        logger.info("[%s] step %s succeeded", self.experiment_id, step_id)
+                        result["completed_steps"].append(step_id)
+                    else:
+                        if not self.bq_status.upsert_step_status(
+                            self.experiment, step_id, "failed",
+                            error_message="see log for details",
+                            attempt=1,
+                            params_json=self._params_json,
+                            manifest_path=self.manifest_path,
+                            manifest_hash=self.manifest_hash,
+                            scheduler_instance_id=self.scheduler_instance_id,
+                            log_dir=log_dir,
+                            force_replace=self.force_replace,
+                        ):
+                            logger.error("[%s] step %s failed and terminal status write also failed", self.experiment_id, step_id)
+                        result["status"] = "failed"
+                        result["failed_step"] = step_id
+                        result["error"] = f"step {step_id} failed"
+                        logger.error("[%s] step %s failed", self.experiment_id, step_id)
+                        return result
+                finally:
+                    if heartbeat_stop is not None:
+                        heartbeat_stop.set()
+                    if heartbeat_thread is not None and heartbeat_thread.is_alive():
+                        heartbeat_thread.join()
+                    if lock_acquired:
+                        gcs_lock.release()
 
             finally:
                 if step_id == BACKTEST_STEP and self.backtest_semaphore is not None:
@@ -940,12 +973,16 @@ class ExperimentExecutor:
 
     def _execute_step(self, step_id: str, step_def: Dict[str, Any], log_path: str) -> bool:
         """执行单个 step。返回执行是否成功。"""
-        if self.dry_run:
-            logger.info("[DRY-RUN] execute step: %s", step_id)
-            return True
-
         bq_script = step_def.get("bq_script")
         python_script = step_def.get("python_script")
+
+        if self.dry_run:
+            logger.info("[DRY-RUN] execute step: %s", step_id)
+            if bq_script:
+                return self._preflight_bq_script(bq_script)
+            if python_script:
+                return self._preflight_python_script(python_script)
+            return False
 
         if bq_script:
             return self._run_bq_script(bq_script, log_path)
@@ -962,6 +999,8 @@ class ExperimentExecutor:
             if not stop_event.is_set():
                 try:
                     lease_expires_at = lock.heartbeat()
+                    if stop_event.is_set():
+                        break
                     if lease_expires_at is not None:
                         self.bq_status.upsert_step_status(
                             self.experiment, step_id, "running",
@@ -983,36 +1022,9 @@ class ExperimentExecutor:
 
     def _run_bq_script(self, script_path: str, log_path: str) -> bool:
         """运行 BigQuery SQL 脚本。"""
-        if not os.path.isfile(script_path):
-            logger.error("BQ script not found: %s", script_path)
+        sql = self._prepare_bq_sql(script_path)
+        if sql is None:
             return False
-
-        exp = self.experiment
-        run_id = exp.get("run_id", "")
-        prediction_run_id = exp.get("prediction_run_id", run_id)
-        backtest_id = exp.get("backtest_id", "")
-
-        force_replace_str = "TRUE" if self.force_replace else "FALSE"
-
-        # 替换 SQL 中的 DECLARE 参数
-        with open(script_path, "r", encoding="utf-8") as f:
-            sql = f.read()
-
-        sql = self._inject_parameter(sql, "p_run_id", run_id)
-        sql = self._inject_parameter(sql, "p_prediction_run_id", prediction_run_id)
-        sql = self._inject_parameter(sql, "p_backtest_id", backtest_id)
-        sql = self._inject_parameter(sql, "p_experiment_id", exp.get("experiment_id", ""))
-        sql = self._inject_parameter(sql, "p_experiment_group", exp.get("experiment_group", ""))
-        sql = self._inject_parameter(sql, "p_stage_id", exp.get("stage_id", ""))
-        sql = self._inject_parameter(sql, "p_force_replace", force_replace_str)
-        sql = self._inject_parameter(sql, "p_label_horizon", str(exp.get("label_horizon", 5)))
-        sql = self._inject_parameter(sql, "p_rebalance_frequency", exp.get("rebalance_frequency", "weekly"))
-        sql = self._inject_parameter(sql, "p_target_holdings", str(exp.get("target_holdings", 5)))
-        sql = self._inject_parameter(sql, "p_max_single_weight", str(exp.get("max_single_weight", 0.2)))
-        sql = self._inject_parameter(sql, "p_feature_set_id", exp.get("feature_set_id", "strategy1_pv_v0_20260601"))
-        sql = self._inject_parameter(sql, "p_baseline_experiment_id", exp.get("baseline_experiment_id", ""))
-        sql = self._inject_parameter(sql, "p_parent_experiment_id", exp.get("parent_experiment_id", ""))
-        sql = self._inject_parameter(sql, "p_parent_run_id", exp.get("parent_run_id", ""))
 
         # 写入临时 SQL 文件
         with tempfile.NamedTemporaryFile(
@@ -1059,6 +1071,162 @@ class ExperimentExecutor:
             return False
         finally:
             os.unlink(tmp_path)
+
+    def _preflight_bq_script(self, script_path: str) -> bool:
+        """dry-run 预检 BigQuery 脚本参数注入是否完整。"""
+        sql = self._prepare_bq_sql(script_path)
+        if sql is None:
+            return False
+        logger.info("[%s] BQ script preflight passed: %s", self.experiment_id, script_path)
+        return True
+
+    def _preflight_python_script(self, script_path: str) -> bool:
+        """dry-run 预检 Python step 的脚本路径。"""
+        if not os.path.isfile(script_path):
+            logger.error("Python script not found: %s", script_path)
+            return False
+        return True
+
+    def _prepare_bq_sql(self, script_path: str) -> Optional[str]:
+        """读取 SQL 并强校验所有 DECLARE p_* DEFAULT 参数均已注入。"""
+        if not os.path.isfile(script_path):
+            logger.error("BQ script not found: %s", script_path)
+            return None
+
+        with open(script_path, "r", encoding="utf-8") as f:
+            sql = f.read()
+
+        declared_params = self._declared_default_parameters(sql, script_path)
+        if declared_params is None:
+            return None
+
+        parameter_values = self._bq_parameter_values()
+        missing_values = sorted(set(declared_params) - set(parameter_values))
+        if missing_values:
+            logger.error(
+                "[%s] BQ parameter values missing for %s: %s",
+                self.experiment_id, script_path, ", ".join(missing_values),
+            )
+            return None
+
+        injected_params: Set[str] = set()
+        for param_name in declared_params:
+            try:
+                sql, injected = self._inject_parameter(sql, param_name, parameter_values[param_name])
+            except ValueError as e:
+                logger.error("[%s] BQ parameter injection failed for %s: %s", self.experiment_id, script_path, e)
+                return None
+            if not injected:
+                logger.error(
+                    "[%s] BQ parameter declaration not replaced for %s: %s",
+                    self.experiment_id, script_path, param_name,
+                )
+                return None
+            injected_params.add(param_name)
+
+        missing_required = self._required_bq_parameters(script_path) - injected_params
+        if missing_required:
+            logger.error(
+                "[%s] BQ script missing required experiment parameters for %s: %s",
+                self.experiment_id, script_path, ", ".join(sorted(missing_required)),
+            )
+            return None
+
+        logger.info(
+            "[%s] injected %d BQ parameters for %s",
+            self.experiment_id, len(injected_params), script_path,
+        )
+        return sql
+
+    def _declared_default_parameters(self, sql: str, script_path: str) -> Optional[Dict[str, str]]:
+        """返回所有可注入的 DECLARE p_* DEFAULT 参数；格式异常直接阻断。"""
+        declared = {m.group(1): m.group(2).upper() for m in SQL_DECLARE_RE.finditer(sql)}
+        malformed = []
+        for m in BROAD_SQL_DECLARE_RE.finditer(sql):
+            name = m.group(1)
+            body = m.group("body")
+            if re.search(r"\bDEFAULT\b", body, flags=re.IGNORECASE) and name not in declared:
+                malformed.append(m.group(0).strip())
+
+        if malformed:
+            logger.error(
+                "[%s] unsupported DECLARE DEFAULT format in %s: %s",
+                self.experiment_id, script_path, " | ".join(malformed),
+            )
+            return None
+        return declared
+
+    def _required_bq_parameters(self, script_path: str) -> Set[str]:
+        """当前 runner 中所有 BigQuery step 至少必须带 run/strategy 隔离参数。"""
+        required = {"p_run_id", "p_strategy_id"}
+        basename = os.path.basename(script_path)
+        if basename in {
+            "08_run_backtest.sql",
+            "09_build_metrics_and_report_inputs.sql",
+            "10_qa_runner_outputs.sql",
+            "11_model_quality_diagnostics.sql",
+            "12_qa_model_diagnosis_outputs.sql",
+        }:
+            required.add("p_backtest_id")
+        if basename in {
+            "05_build_candidates.sql",
+            "09_build_metrics_and_report_inputs.sql",
+            "10_qa_runner_outputs.sql",
+            "11_model_quality_diagnostics.sql",
+            "12_qa_model_diagnosis_outputs.sql",
+        }:
+            required.add("p_prediction_run_id")
+        return required
+
+    def _bq_parameter_values(self) -> Dict[str, Any]:
+        """从 manifest experiment 合成 SQL DECLARE 参数值。"""
+        exp = self.experiment
+        run_id = exp.get("run_id", "")
+        prediction_run_id = exp.get("prediction_run_id") or run_id
+        target_holdings = exp.get("target_holdings", 5)
+
+        return {
+            "p_run_id": run_id,
+            "p_prediction_run_id": prediction_run_id,
+            "p_backtest_id": exp.get("backtest_id", ""),
+            "p_strategy_id": exp.get("strategy_id", "ml_pv_clf_v0"),
+            "p_experiment_id": exp.get("experiment_id", ""),
+            "p_experiment_group": exp.get("experiment_group", ""),
+            "p_stage_id": exp.get("stage_id", ""),
+            "p_force_replace": self.force_replace,
+            "p_feature_version": exp.get("feature_version", "strategy1_pv_v0_20260601"),
+            "p_feature_set_id": exp.get("feature_set_id", "strategy1_pv_v0_20260601"),
+            "p_fin_feature_version": exp.get("fin_feature_version", "fin_default_v0_20260602"),
+            "p_label_version": exp.get("label_version", "open_to_close_h1_5_10_20_v20260601"),
+            "p_preprocess_version": exp.get("preprocess_version", "raw_v0"),
+            "p_label_horizon": exp.get("label_horizon", 5),
+            "p_rebalance_frequency": exp.get("rebalance_frequency", "weekly"),
+            "p_target_holdings": target_holdings,
+            "p_topn": target_holdings,
+            "p_max_single_weight": exp.get("max_single_weight", 0.2),
+            "p_horizon_natural_frequency": exp.get("horizon_natural_frequency", "weekly"),
+            "p_baseline_experiment_id": exp.get("baseline_experiment_id", ""),
+            "p_parent_experiment_id": exp.get("parent_experiment_id", ""),
+            "p_parent_run_id": exp.get("parent_run_id", ""),
+            "p_train_start": exp.get("train_start", DEFAULT_SQL_WINDOWS["train_start"]),
+            "p_train_end": exp.get("train_end", DEFAULT_SQL_WINDOWS["train_end"]),
+            "p_valid_start": exp.get("valid_start", DEFAULT_SQL_WINDOWS["valid_start"]),
+            "p_valid_end": exp.get("valid_end", DEFAULT_SQL_WINDOWS["valid_end"]),
+            "p_test_start": exp.get("test_start", DEFAULT_SQL_WINDOWS["test_start"]),
+            "p_test_end": exp.get("test_end", DEFAULT_SQL_WINDOWS["test_end"]),
+            "p_predict_start": exp.get("predict_start", DEFAULT_SQL_WINDOWS["predict_start"]),
+            "p_predict_end": exp.get("predict_end", DEFAULT_SQL_WINDOWS["predict_end"]),
+            "p_initial_capital": exp.get("initial_capital", 100000.0),
+            "p_cost_profile_id": exp.get("cost_profile_id", "cn_a_share_wanyi_no_min_slip5_v20260602"),
+            "p_commission_bps": exp.get("commission_bps", 1.0),
+            "p_min_commission_cny": exp.get("min_commission_cny", 0.0),
+            "p_stamp_tax_buy_bps": exp.get("stamp_tax_buy_bps", 0.0),
+            "p_stamp_tax_sell_bps": exp.get("stamp_tax_sell_bps", 5.0),
+            "p_slippage_buy_bps": exp.get("slippage_buy_bps", 5.0),
+            "p_slippage_sell_bps": exp.get("slippage_sell_bps", 5.0),
+            "p_cost_bps": exp.get("cost_bps", 30.0),
+            "p_benchmark": exp.get("benchmark", "000852.SH"),
+        }
 
     def _run_python_script(self, script_path: str, log_path: str) -> bool:
         """运行 Python 脚本。"""
@@ -1126,29 +1294,66 @@ class ExperimentExecutor:
             logger.error("[%s] Python script error: %s: %s", self.experiment_id, script_path, e)
             return False
 
-    def _inject_parameter(self, sql: str, param_name: str, value: str) -> str:
-        """替换 SQL 中的 DECLARE 语句的默认值，保留类型和正确引用。"""
-        import re
-        pattern = rf"(DECLARE\s+{param_name}\s+)(STRING|INT64|FLOAT64|BOOL|DATE|TIMESTAMP)(\s+DEFAULT\s+)([^;]*?)(;)"
-        m = re.search(pattern, sql)
-        if m:
-            prefix = m.group(1)
-            dtype = m.group(2)
-            sep = m.group(3)
-            suffix = m.group(5)
-            if dtype == "STRING":
-                escaped = value.replace("'", "\\'")
-                new_decl = f"{prefix}{dtype}{sep}'{escaped}'{suffix}"
-            elif dtype == "BOOL":
-                new_decl = f"{prefix}{dtype}{sep}{value.upper()}{suffix}"
-            elif dtype == "DATE":
-                new_decl = f"{prefix}{dtype}{sep}DATE '{value}'{suffix}"
-            elif dtype == "TIMESTAMP":
-                new_decl = f"{prefix}{dtype}{sep}TIMESTAMP '{value}'{suffix}"
-            else:
-                new_decl = f"{prefix}{dtype}{sep}{value}{suffix}"
-            sql = sql[:m.start()] + new_decl + sql[m.end():]
-        return sql
+    def _inject_parameter(self, sql: str, param_name: str, value: Any) -> Tuple[str, bool]:
+        """替换 SQL 中的 DECLARE 语句默认值，并返回是否命中。"""
+        pattern = re.compile(
+            rf"(?im)^(\s*DECLARE\s+{re.escape(param_name)}\s+)"
+            r"(STRING|INT64|FLOAT64|BOOL|DATE|TIMESTAMP)"
+            r"(\s+DEFAULT\s+)([^;]*?)(;)"
+        )
+        m = pattern.search(sql)
+        if not m:
+            return sql, False
+
+        prefix = m.group(1)
+        dtype = m.group(2)
+        sep = m.group(3)
+        suffix = m.group(5)
+        literal = self._format_sql_literal(dtype, value, param_name)
+        new_decl = f"{prefix}{dtype}{sep}{literal}{suffix}"
+        return sql[:m.start()] + new_decl + sql[m.end():], True
+
+    def _format_sql_literal(self, dtype: str, value: Any, param_name: str) -> str:
+        """把 manifest 值转成对应 BigQuery DECLARE literal。"""
+        dtype_upper = dtype.upper()
+        if value is None:
+            return "NULL"
+
+        if dtype_upper == "STRING":
+            escaped = str(value).replace("'", "''")
+            return f"'{escaped}'"
+
+        if dtype_upper == "BOOL":
+            if isinstance(value, bool):
+                return "TRUE" if value else "FALSE"
+            text = str(value).strip().upper()
+            if text in {"TRUE", "FALSE"}:
+                return text
+            raise ValueError(f"{param_name} expects BOOL, got {value!r}")
+
+        if dtype_upper == "INT64":
+            if isinstance(value, bool):
+                raise ValueError(f"{param_name} expects INT64, got bool")
+            try:
+                return str(int(value))
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"{param_name} expects INT64, got {value!r}") from e
+
+        if dtype_upper == "FLOAT64":
+            if isinstance(value, bool):
+                raise ValueError(f"{param_name} expects FLOAT64, got bool")
+            try:
+                return repr(float(value))
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"{param_name} expects FLOAT64, got {value!r}") from e
+
+        if dtype_upper == "DATE":
+            return f"DATE '{value}'"
+
+        if dtype_upper == "TIMESTAMP":
+            return f"TIMESTAMP '{value}'"
+
+        raise ValueError(f"{param_name} has unsupported type {dtype}")
 
 
 # ---------------------------------------------------------------------------
@@ -1216,8 +1421,9 @@ class Scheduler:
 
         # dry-run 输出
         if self.dry_run:
+            preflight_ok = self._preflight_dry_run(experiments, mhash)
             self._print_dry_run_plan(manifest, experiments, batches)
-            return 0
+            return 0 if preflight_ok else 1
 
         # 执行
         rc = self._execute_batches(batches, manifest, mhash)
@@ -1273,6 +1479,39 @@ class Scheduler:
             batches.append(batch)
 
         return batches
+
+    def _preflight_dry_run(self, experiments: List[Dict[str, Any]], manifest_hash: str) -> bool:
+        """dry-run 阶段预检可执行实验的脚本与参数注入。"""
+        ok = True
+        for exp in experiments:
+            status = str(exp.get("status", "planned"))
+            if status.startswith("blocked"):
+                logger.info("[%s] dry-run preflight skipped blocked experiment: %s", exp.get("experiment_id"), status)
+                continue
+
+            executor_unit = ExperimentExecutor(
+                experiment=exp,
+                manifest_path=self.manifest_path,
+                manifest_hash=manifest_hash,
+                scheduler_instance_id=self.scheduler_instance_id,
+                lock_ttl_minutes=self.lock_ttl_minutes,
+                force_replace=self.force_replace,
+                resume=self.resume,
+                resume_from_step=self.resume_from_step,
+                dry_run=True,
+                log_dir_base=self.log_dir_base,
+                max_parallel_backtest=self.max_parallel_backtest,
+                backtest_semaphore=None,
+            )
+            for step_id in get_experiment_steps(exp, self.max_parallel_backtest):
+                step_def = STEP_DEFS.get(step_id, {})
+                bq_script = step_def.get("bq_script")
+                python_script = step_def.get("python_script")
+                if bq_script and not executor_unit._preflight_bq_script(bq_script):
+                    ok = False
+                if python_script and not executor_unit._preflight_python_script(python_script):
+                    ok = False
+        return ok
 
     def _print_dry_run_plan(
         self,

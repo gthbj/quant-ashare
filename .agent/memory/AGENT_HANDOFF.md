@@ -22,7 +22,7 @@
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
 
-**PR #45 最新修复（2026-06-03）**：OQ-010 并发调度 Phase 1 review follow-up 已修复：`run_oq010_experiments.py` 的 stale lock reclaim、heartbeat 和 release 均使用 GCS object generation 条件操作，避免并发调度器误删新锁；状态表 `lock_expires_at` / `last_heartbeat_at` 与 GCS lock lease 对齐。验证已通过 Python `py_compile`、`git diff --check`、Stage A dry-run、单实验 dry-run 和 fake GCS generation guard 测试；未执行 BigQuery。
+**PR #45 最新修复（2026-06-03）**：OQ-010 并发调度 Phase 1 review follow-up 已修复：`run_oq010_experiments.py` 的 stale lock reclaim、heartbeat 和 release 均使用 GCS object generation 条件操作，避免并发调度器误删新锁；SQL `DECLARE p_* DEFAULT` 参数注入改为强校验，dry-run 会预检可执行实验，禁止静默沿用 SQL 默认 `run_id` / `backtest_id`；锁获取后的释放统一进 `finally`，heartbeat 线程停止后才写 `succeeded` / `failed`；状态表 DDL 改为 `CREATE TABLE IF NOT EXISTS` 保留 audit/resume 历史；状态表 DDL 与并发 QA 文件编号改为 `02` / `07` 避免冲突。验证已通过 Python `py_compile`、`git diff --check`、stage_a dry-run、单实验 dry-run、全 manifest dry-run 和直接参数注入断言；未执行 BigQuery。
 
 **分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 和 `codex/implement-oq004-index` 已在本地和远端删除。
 
@@ -33,6 +33,72 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #45 / issuecomment-4612729919 / OQ-010
+
+### 已完成工作
+
+- 跟进 PR #45 最新 review comment `issuecomment-4612729919`，直接修复并发调度 Phase 1 实现。
+- 将 SQL `DECLARE p_* DEFAULT` 参数注入改为强校验：扫描所有可注入参数，缺少 manifest/default 值、格式不匹配、类型不匹配或必需隔离参数缺失时直接失败。
+- dry-run 新增可执行实验 SQL 参数注入预检；blocked placeholder 实验仅打印计划，不用 placeholder 做类型预检。
+- 锁释放改为获取 GCS lock 后统一 `finally` 释放；`running` 状态写失败、step 执行失败或异常均不会泄漏 GCS lock。
+- heartbeat 线程改为非 daemon，step 结束后先停止并 join，再写 `succeeded` / `failed`，避免 heartbeat 后写 `running` 覆盖 terminal status。
+- 状态表 DDL 从 `CREATE OR REPLACE TABLE` 改为 `CREATE TABLE IF NOT EXISTS`，保留 audit/resume 历史。
+- 文件编号避冲突：状态表 DDL 使用 `sql/meta/02_strategy1_experiment_run_status.sql`；并发 QA 使用 `sql/qa/07_strategy1_experiment_concurrency_checks.sql`，并同步文档/记忆/TODO 引用。
+
+### 重要上下文
+
+- 本次没有执行 BigQuery 实验、没有触碰正在运行的 A3 实验、没有删除或覆盖 `reports/strategy1` 已有产物。
+- 状态表仍只用于审计和 resume 输入；GCS object generation 条件操作仍是锁安全边界。
+- 后续若再调整 SQL runner，必须保持 dry-run 参数注入预检，否则会重新暴露静默沿用默认 `run_id` / `backtest_id` 的风险。
+
+### 改动文件
+
+- `scripts/strategy1/run_oq010_experiments.py`
+- `sql/meta/02_strategy1_experiment_run_status.sql`
+- `sql/qa/07_strategy1_experiment_concurrency_checks.sql`
+- `docs/策略1实验并发调度器运行手册.md`
+- `docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1/run_oq010_experiments.py`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run --stage-id stage_a`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run --experiment-id oq010_a1_n10_w10`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run`
+- 直接参数注入断言：确认 `05_build_candidates.sql` 的 `p_run_id` 被替换为实验 run_id，未保留 SQL 默认值。
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 等 PR #45 合并后再按 owner 决定是否在真实 OQ-010 实验中启用并发；首次实跑仍建议 `max_parallel_backtest=1`。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`（追加 `DECISION-20260603-05`，并同步本 PR 内改名后的文件路径引用）
+- `.agent/memory/OPEN_QUESTIONS.md`（仅同步本 PR 内改名后的文件路径引用）
+- `TODO.md`
+
+---
 
 日期: 2026-06-03
 Agent ID: Codex
@@ -82,7 +148,7 @@ Run ID: —
 ### 下一步建议
 
 - 合并 PR #41。
-- 后续实现 `ashare_meta.strategy1_experiment_run_status`、GCS lock、`scripts/strategy1/run_oq010_experiments.py`、runner 参数接口和 `sql/qa/06_strategy1_experiment_concurrency_checks.sql`。
+- 后续实现 `ashare_meta.strategy1_experiment_run_status`、GCS lock、`scripts/strategy1/run_oq010_experiments.py`、runner 参数接口和 `sql/qa/07_strategy1_experiment_concurrency_checks.sql`。
 
 ---
 
@@ -849,9 +915,9 @@ Run ID: —
 ### 已完成工作
 
 - 新建 worktree `/Users/luna/Desktop/git/quant-ashare-oq010-parallel-runner` 和分支 `codex/implement-oq010-parallel-runner`（基于 `main`）。
-- 新增 `sql/meta/03_strategy1_experiment_run_status.sql`：`ashare_meta.strategy1_experiment_run_status` 状态表 DDL，覆盖实验身份、step 状态、锁信息、产物和调度追踪字段。
+- 新增 `sql/meta/02_strategy1_experiment_run_status.sql`：`ashare_meta.strategy1_experiment_run_status` 状态表 DDL，覆盖实验身份、step 状态、锁信息、产物和调度追踪字段。
 - 新增 `scripts/strategy1/run_oq010_experiments.py`：OQ-010 并发调度器，支持全部 PRD 定义 CLI 参数。实现 GCS `ifGenerationMatch=0` 原子锁、lease/heartbeat/stale reclaim、manifest 解析与依赖拓扑排序、BigQuery 状态表 upsert（`MERGE`）、step 执行（bq / python subprocess）、实验参数注入 SQL `DECLARE`、ThreadPoolExecutor 并发控制、backtest semaphore。dry-run 展开完整计划（step 列表、锁 key、ADS 表、并发分组、依赖阻断）。
-- 新增 `sql/qa/06_strategy1_experiment_concurrency_checks.sql`：12 个 QA-CONC 断言。
+- 新增 `sql/qa/07_strategy1_experiment_concurrency_checks.sql`：12 个 QA-CONC 断言。
 - 新增 `docs/策略1实验并发调度器运行手册.md`。
 - 追加 `DECISION-20260603-04`（GCS 原子锁 + BigQuery 状态表架构决策）。
 - 更新 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`AGENT_HANDOFF.md` 和当前交接摘要。
@@ -865,9 +931,9 @@ Run ID: —
 
 ### 改动文件
 
-- `sql/meta/03_strategy1_experiment_run_status.sql`（新）
+- `sql/meta/02_strategy1_experiment_run_status.sql`（新）
 - `scripts/strategy1/run_oq010_experiments.py`（新）
-- `sql/qa/06_strategy1_experiment_concurrency_checks.sql`（新）
+- `sql/qa/07_strategy1_experiment_concurrency_checks.sql`（新）
 - `docs/策略1实验并发调度器运行手册.md`（新）
 - `TODO.md`
 - `.agent/memory/DECISION_LOG.md`

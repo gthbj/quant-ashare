@@ -3,9 +3,9 @@
 -- 实验并发调度状态表，记录每个 step 的调度生命周期、锁状态和审计信息。
 -- 该表只用于审计追踪和 resume 输入，不承担低延迟锁管理职责。
 -- 锁的原语是 GCS object create-if-not-exists (ifGenerationMatch=0)。
--- 本脚本幂等：CREATE OR REPLACE TABLE 重建 schema。
+-- 本脚本幂等：CREATE TABLE IF NOT EXISTS 只在表不存在时创建，保留历史审计和 resume 状态。
 
-CREATE OR REPLACE TABLE `data-aquarium.ashare_meta.strategy1_experiment_run_status` (
+CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_meta.strategy1_experiment_run_status` (
   -- 实验身份
   experiment_id STRING NOT NULL OPTIONS(description="实验 ID，manifest 内唯一"),
   run_id STRING NOT NULL OPTIONS(description="当前实验输出 run_id"),
