@@ -12,6 +12,7 @@
 - [ ] 修复诊断 QA：`sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 的 `split_tag` 歧义导致当前已上传诊断结果无法完成 QA 验收
 - [ ] 实现策略 1 valid/test live-available 预测池口径修正（按 `docs/prd/PRD_20260602_05_策略1预测池口径修正.md`）：train 继续用 trainable labeled sample，valid/test 预测池改为 t 日 live-available feature universe，标签有效性仅用于事后评价
 - [ ] 实现策略 1 模型质量诊断后续修订（按 `docs/prd/PRD_20260602_04_策略1模型质量诊断.md` + PRD 05）：补 prediction/eval coverage 证据，修正后重跑 local smoke → uploaded → `12_qa_model_diagnosis_outputs.sql`
+- [ ] 实现策略 1 score orientation 校准（按 `docs/prd/PRD_20260603_01_策略1分数方向校准.md`）：保留 `raw_score`，将最终 `score` 定义为方向校准后的排序分，03 选型登记 `score_orientation`，04 预测阶段应用方向并扩展 QA/report/diagnosis
 - [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基于诊断结论再做特征 / 标签 / 选股口径、调仓频率、持股数 / 单票权重上限实验
 
 ## P1 — 数据 / 特征扩展
@@ -33,6 +34,7 @@
 
 ## 近期完成
 
+- [x] 新增策略 1 分数方向校准 PRD：`docs/prd/PRD_20260603_01_策略1分数方向校准.md`，基于 livepool reverse-score shadow run，将 `raw_score` / oriented `score` / `score_orientation` 固化为待实现契约
 - [x] 新增策略 1 valid/test live-available 预测池口径修正 PRD：`docs/prd/PRD_20260602_05_策略1预测池口径修正.md`，明确 sample_filter_risk high 后先修预测池口径，不与信号反向或组合参数实验混做
 - [x] 新增策略 1 模型质量诊断 PRD：`docs/prd/PRD_20260602_04_策略1模型质量诊断.md`，明确先诊断 signal/label/sample/universe/portfolio/cost/style，再进入 OQ-010 参数和模型实验
 - [x] 策略 1 报告 GCS uploaded 模式已跑通：创建 `gs://ashare-artifacts`（`ASIA-EAST2`）、配置本机 ADC（quota project=`data-aquarium`），去掉 `--skip-gcs-upload` 重跑 `render_report.py`，ADS `report_upload_status=uploaded` 且 `report_uri=gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_20260601_01/backtest_id=bt_s1_bqml_20260601_01`，`sql/ml/strategy1/10_qa_runner_outputs.sql` 全部通过
