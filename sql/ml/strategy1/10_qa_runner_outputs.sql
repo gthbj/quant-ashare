@@ -202,18 +202,21 @@ ASSERT (
     AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
 ) AS 'QA-ORIENT-1: selected model must have score_orientation = identity or reverse_probability';
 
--- ── selected model 必须有 score_source 和 orientation 诊断字段 ──
+-- ── selected model 必须有 score_source、orientation 诊断字段和 bucket lift 证据 ──
 ASSERT (
   SELECT LOGICAL_AND(
     JSON_VALUE(reg.metrics_json, '$.score_source') IS NOT NULL
     AND JSON_VALUE(reg.metrics_json, '$.raw_valid_rank_ic_mean') IS NOT NULL
     AND JSON_VALUE(reg.metrics_json, '$.oriented_valid_rank_ic_mean') IS NOT NULL
+    AND JSON_VALUE(reg.metrics_json, '$.raw_valid_top_minus_bottom') IS NOT NULL
+    AND JSON_VALUE(reg.metrics_json, '$.reversed_valid_top_minus_bottom') IS NOT NULL
     AND JSON_VALUE(reg.metrics_json, '$.orientation_decision_reason') IS NOT NULL
+    AND JSON_VALUE(reg.metrics_json, '$.orientation_decision_split') = 'valid'
   )
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
     AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
-) AS 'QA-ORIENT-2: selected model must have score_source, raw/oriented rank_ic, and decision reason';
+) AS 'QA-ORIENT-2: selected model must have score_source, raw/oriented rank_ic, bucket lift, decision_split=valid, and decision reason';
 
 -- ── prediction 表的 score_orientation 必须和 registry 一致 ──
 ASSERT (
