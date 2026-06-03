@@ -6,7 +6,7 @@ Last updated: 2026-06-03
 
 ## 当前状态
 
-项目处于**P0 DIM/DWD 已物化并通过 smoke QA，OQ-004/OQ-006/OQ-003 已实现并关闭，策略 1 DWS/ADS 与 BigQuery ML runner 已端到端跑通，OQ-010 交易成本 profile、中文报告与归因分析、GCS uploaded 模式、模型质量诊断、valid/test live-available 预测池口径、score orientation 校准均已实现并通过相关 QA；`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已作为 OQ-010 第一轮实验方案由 PR #35 合并进入 `main`，且 owner 已确认阶段 A/B/C 不做 `4 * 3 * 3` 全量笛卡尔积，基础路径为 `4 + 3 + 3 = 10` 个实验，包含阶段 D 为 12 个实验，必要时才补 A/B、A/C、B/C pairwise 或最终 `2 * 2 * 2` 保底复核；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，当前诊断稳定性修复 PR 待合并后继续 A1-A3**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案、策略 1 PRD、runner 设计与实现 PRD、OQ-003/OQ-004/OQ-006/OQ-010 子项 PRD、策略 1 中文报告与归因分析 PRD、策略 1 报告 GCS 上传运行手册、策略 1 模型质量诊断 PRD、策略 1 预测池口径修正 PRD、策略 1 分数方向校准 PRD、策略 1 首轮质量迭代实验 PRD。下一步是在 BigQuery 上执行 OQ-010 第一轮对照实验的剩余阶段 A 组合实验。
+项目处于**P0 DIM/DWD 已物化并通过 smoke QA，OQ-004/OQ-006/OQ-003 已实现并关闭，策略 1 DWS/ADS 与 BigQuery ML runner 已端到端跑通，OQ-010 交易成本 profile、中文报告与归因分析、GCS uploaded 模式、模型质量诊断、valid/test live-available 预测池口径、score orientation 校准均已实现并通过相关 QA；`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已作为 OQ-010 第一轮实验方案由 PR #35 合并进入 `main`，且 owner 已确认阶段 A/B/C 不做 `4 * 3 * 3` 全量笛卡尔积，基础路径为 `4 + 3 + 3 = 10` 个实验，包含阶段 D 为 12 个实验，必要时才补 A/B、A/C、B/C pairwise 或最终 `2 * 2 * 2` 保底复核；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，当前诊断稳定性修复 PR 待合并后继续 A1-A3**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案、策略 1 PRD、runner 设计与实现 PRD、OQ-003/OQ-004/OQ-006/OQ-010 子项 PRD、策略 1 中文报告与归因分析 PRD、策略 1 报告 GCS 上传运行手册、策略 1 模型质量诊断 PRD、策略 1 预测池口径修正 PRD、策略 1 分数方向校准 PRD、策略 1 首轮质量迭代实验 PRD，以及 OQ-005 GCP 数据流水线 PRD。下一步是在 BigQuery 上执行 OQ-010 第一轮对照实验的剩余阶段 A 组合实验，或按 GCP 流水线 PRD 实现首批 ODS 采集与 Dataform / Composer 链路。
 
 ## 已完成（Completed）
 
@@ -16,6 +16,7 @@ Last updated: 2026-06-03
 - 物理设计敲定：按月分区 + `sec_code` 聚簇、行情表 `require_partition_filter=TRUE`。
 - 2019 前数据范围敲定：财务/事件 `partition_date >= '20170101'`；行情 DWD/DWS 写 `trade_date >= 2019-01-01`、构建时按最大窗口读取 2018 lookback buffer；维度/日历取最新快照或全量历史事件。
 - 新增 ODS/GCS 数据审查目录：`data_audit/ODS_GCS_DATA_AUDIT_PROMPT.md` 与 `data_audit/reports/`。提示词限定本次只审查 2019-01-01 及之后的数据，只读不补数据；审查 Agent 需自行编写审查脚本，并在请求、并发、限速、schema 检测或报告生成代码有问题时自行修正审查代码后继续；提示词已补 Tushare 官方文档链接、API 返回行数命中单次上限时的截断风险检查，以及按 endpoint/主题拆分脚本的代码组织规则。
+- 新增 OQ-005 GCP 数据流水线 PRD：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`。长期目标架构为 Cloud Run Jobs 采集 Tushare/Tinyshare 到 GCS Parquet，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 编排全流程；首批每日生产采集只覆盖当前实际消费的 14 张 ODS，未消费 ODS 暂不安排定时任务。
 - 表/字段注释规范敲定：内联 DDL / 后置 ALTER / 继承 ODS 描述三法。
 - 仓库初始化：`git init` + `.gitignore` + 首个 commit（`main`）。
 - 建立 `.agent/` Agent 工作记忆体系 + 根 `AGENTS.md` 读写协议；推送 GitHub（gthbj/quant-ashare）；加模型署名协议。

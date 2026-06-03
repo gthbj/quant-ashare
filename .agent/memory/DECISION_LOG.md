@@ -950,3 +950,42 @@ OQ-010 首轮质量迭代 PRD 已由 PR #35 合并，原矩阵包含阶段 A 的
 ### 相关文件
 
 `docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`
+
+## DECISION-20260603-02: GCP 生产数据流水线采用 Cloud Run Jobs + Dataform + Cloud Composer
+
+日期: 2026-06-03
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+OQ-005 原问题是物化与调度选型：dbt（含 `persist_docs`）还是纯 `bq` SQL 脚本 + 自建调度。随着项目已明确长期在 GCP / BigQuery 上完成每日采集、GCS raw、ODS→ADS ETL、策略 runner 和报告链路，owner 要求按 GCP 原生方案写详细 PRD，并明确每日定时拉取只覆盖当前已消费 ODS。
+
+### 决策
+
+长期生产链路采用：
+
+1. Cloud Run Jobs 负责 Tushare/Tinyshare API 到 GCS Parquet 的每日采集。
+2. Dataform / BigQuery Studio pipeline 负责 ODS→DIM/DWD/DWS/ADS 的 BigQuery SQL 转换、依赖、assertions 和文档。
+3. Cloud Composer 负责编排采集、ODS 检查、Dataform、metadata、QA、可选 runner / report、失败重试、补跑和告警。
+4. 首批每日生产采集只覆盖当前 SQL 实际消费的 14 张 ODS：`daily`、`adj_factor`、`stk_limit`、`suspend_d`、`daily_basic`、`index_daily`、`index_dailybasic`、`stock_basic`、`trade_cal`、`namechange`、`fina_indicator`、`income`、`balancesheet`、`cashflow`。
+5. 未被当前 DIM/DWD/DWS/ADS 消费的 ODS endpoint 不进入首批生产定时任务；新增 endpoint 必须先更新采集 manifest、schema contract、单位契约和 QA。
+6. BigQuery Studio / Colab Enterprise notebook 可用于探索、抽样验证和数据审查，不作为长期正式采集主方案。
+
+### 理由
+
+Cloud Run Jobs 更适合运行有明确开始/结束的 Python 采集任务，并能用容器固定依赖和权限边界。Dataform 是 GCP 原生 BigQuery SQL workflow 工具，适合管理 ODS→DIM/DWD/DWS/ADS 的 SQL 依赖、assertions、文档和增量表。Cloud Composer 是托管 Airflow，适合跨 Cloud Run、BigQuery、Dataform、报告和告警的全流程编排。该组合比纯 Scheduled Queries 覆盖面更完整，也比在 notebook 中维护生产采集更可测试、可回滚、可监控。
+
+### 影响
+
+`docs/prd/PRD_20260603_03_GCP数据流水线方案.md` 已定义实现阶段：先做采集 manifest 和 Cloud Run Jobs，再迁移 Dataform P0 转换，之后用 Cloud Composer 串全流程。`OPEN_QUESTIONS.md` 的 OQ-005 状态更新为 PRD 草案已新增，待 review/合并与实施后关闭。后续工程 TODO 应围绕首批 14 张 ODS 的 manifest、schema contract、Dataform definitions、Composer DAG 和 QA 门禁展开。
+
+### 备选方案
+
+继续纯 `bq` SQL + 手工 / 自建调度；放弃，因为依赖、重试、文档、QA 和补跑会随表数增长变脆。直接采用 dbt Core + 自建运行环境；保留为可选替代，但当前项目长期绑定 GCP / BigQuery，Dataform 的原生集成更直接。用 BigQuery Studio notebook 做每日采集；放弃作为长期主方案，因生产采集需要容器依赖、日志、权限、重试和回滚能力。只用 BigQuery Scheduled Queries；放弃，因为无法覆盖外部 API 采集和跨服务编排。
+
+### 相关文件
+
+`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`, `TODO.md`
