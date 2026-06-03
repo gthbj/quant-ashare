@@ -1,0 +1,31 @@
+{
+  "endpoint": "daily_basic",
+  "version": "v0",
+  "description": "每日指标（估值、市值、换手率等）",
+  "business_fields": {
+    "primary_key": ["ts_code", "trade_date"],
+    "date_fields": ["trade_date"],
+    "numeric_fields": ["close", "turnover_rate", "turnover_rate_f", "volume_ratio", "pe", "pe_ttm", "pb", "ps", "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share", "free_share", "total_mv", "circ_mv"],
+    "string_fields": ["ts_code"]
+  },
+  "fields": [
+    {"name": "ts_code", "type": "STRING", "nullable": false, "description": "TS股票代码"},
+    {"name": "trade_date", "type": "STRING", "nullable": false, "description": "交易日期 YYYYMMDD"},
+    {"name": "close", "type": "FLOAT", "nullable": true, "description": "当日收盘价"},
+    {"name": "turnover_rate", "type": "FLOAT", "nullable": true, "description": "换手率（%）"},
+    {"name": "turnover_rate_f", "type": "FLOAT", "nullable": true, "description": "换手率（自由流通股）"},
+    {"name": "volume_ratio", "type": "FLOAT", "nullable": true, "description": "量比"},
+    {"name": "pe", "type": "FLOAT", "nullable": true, "description": "市盈率（总市值/净利润，亏损的PE为空）"},
+    {"name": "pe_ttm", "type": "FLOAT", "nullable": true, "description": "市盈率TTM"},
+    {"name": "pb", "type": "FLOAT", "nullable": true, "description": "市净率（总市值/净资产）"},
+    {"name": "ps", "type": "FLOAT", "nullable": true, "description": "市销率"},
+    {"name": "ps_ttm", "type": "FLOAT", "nullable": true, "description": "市销率TTM"},
+    {"name": "dv_ratio", "type": "FLOAT", "nullable": true, "description": "股息率（%）"},
+    {"name": "dv_ttm", "type": "FLOAT", "nullable": true, "description": "股息率TTM（%）"},
+    {"name": "total_share", "type": "FLOAT", "nullable": true, "description": "总股本（万股）"},
+    {"name": "float_share", "type": "FLOAT", "nullable": true, "description": "流通股本（万股）"},
+    {"name": "free_share", "type": "FLOAT", "nullable": true, "description": "自由流通股本（万股）"},
+    {"name": "total_mv", "type": "FLOAT", "nullable": true, "description": "总市值（万元）"},
+    {"name": "circ_mv", "type": "FLOAT", "nullable": true, "description": "流通市值（万元）"}
+  ]
+}

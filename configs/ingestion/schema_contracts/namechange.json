@@ -1,0 +1,19 @@
+{
+  "endpoint": "namechange",
+  "version": "v0",
+  "description": "股票更名历史",
+  "business_fields": {
+    "primary_key": ["ts_code", "start_date"],
+    "date_fields": ["start_date", "end_date", "ann_date"],
+    "numeric_fields": [],
+    "string_fields": ["ts_code", "name", "change_reason"]
+  },
+  "fields": [
+    {"name": "ts_code", "type": "STRING", "nullable": false, "description": "TS股票代码"},
+    {"name": "name", "type": "STRING", "nullable": true, "description": "证券名称"},
+    {"name": "start_date", "type": "STRING", "nullable": false, "description": "开始日期 YYYYMMDD"},
+    {"name": "end_date", "type": "STRING", "nullable": true, "description": "结束日期 YYYYMMDD"},
+    {"name": "ann_date", "type": "STRING", "nullable": true, "description": "公告日期 YYYYMMDD"},
+    {"name": "change_reason", "type": "STRING", "nullable": true, "description": "变更原因"}
+  ]
+}

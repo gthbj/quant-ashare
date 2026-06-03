@@ -1,0 +1,24 @@
+{
+  "endpoint": "daily",
+  "version": "v0",
+  "description": "个股日频行情",
+  "business_fields": {
+    "primary_key": ["ts_code", "trade_date"],
+    "date_fields": ["trade_date"],
+    "numeric_fields": ["open", "high", "low", "close", "pre_close", "change", "pct_chg", "vol", "amount"],
+    "string_fields": ["ts_code"]
+  },
+  "fields": [
+    {"name": "ts_code", "type": "STRING", "nullable": false, "description": "TS股票代码"},
+    {"name": "trade_date", "type": "STRING", "nullable": false, "description": "交易日期 YYYYMMDD"},
+    {"name": "open", "type": "FLOAT", "nullable": true, "description": "开盘价"},
+    {"name": "high", "type": "FLOAT", "nullable": true, "description": "最高价"},
+    {"name": "low", "type": "FLOAT", "nullable": true, "description": "最低价"},
+    {"name": "close", "type": "FLOAT", "nullable": true, "description": "收盘价"},
+    {"name": "pre_close", "type": "FLOAT", "nullable": true, "description": "昨收价"},
+    {"name": "change", "type": "FLOAT", "nullable": true, "description": "涨跌额"},
+    {"name": "pct_chg", "type": "FLOAT", "nullable": true, "description": "涨跌幅（%）"},
+    {"name": "vol", "type": "FLOAT", "nullable": true, "description": "成交量（手）"},
+    {"name": "amount", "type": "FLOAT", "nullable": true, "description": "成交额（千元）"}
+  ]
+}

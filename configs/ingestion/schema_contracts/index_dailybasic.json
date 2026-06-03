@@ -1,0 +1,25 @@
+{
+  "endpoint": "index_dailybasic",
+  "version": "v0",
+  "description": "指数日频指标",
+  "business_fields": {
+    "primary_key": ["ts_code", "trade_date"],
+    "date_fields": ["trade_date"],
+    "numeric_fields": ["total_mv", "float_mv", "total_share", "float_share", "free_share", "turnover_rate", "turnover_rate_f", "pe", "pe_ttm", "pb"],
+    "string_fields": ["ts_code"]
+  },
+  "fields": [
+    {"name": "ts_code", "type": "STRING", "nullable": false, "description": "TS指数代码"},
+    {"name": "trade_date", "type": "STRING", "nullable": false, "description": "交易日期 YYYYMMDD"},
+    {"name": "total_mv", "type": "FLOAT", "nullable": true, "description": "总市值（万元）"},
+    {"name": "float_mv", "type": "FLOAT", "nullable": true, "description": "流通市值（万元）"},
+    {"name": "total_share", "type": "FLOAT", "nullable": true, "description": "总股本（万股）"},
+    {"name": "float_share", "type": "FLOAT", "nullable": true, "description": "流通股本（万股）"},
+    {"name": "free_share", "type": "FLOAT", "nullable": true, "description": "自由流通股本（万股）"},
+    {"name": "turnover_rate", "type": "FLOAT", "nullable": true, "description": "换手率（%）"},
+    {"name": "turnover_rate_f", "type": "FLOAT", "nullable": true, "description": "换手率（自由流通股）"},
+    {"name": "pe", "type": "FLOAT", "nullable": true, "description": "市盈率"},
+    {"name": "pe_ttm", "type": "FLOAT", "nullable": true, "description": "市盈率TTM"},
+    {"name": "pb", "type": "FLOAT", "nullable": true, "description": "市净率"}
+  ]
+}
