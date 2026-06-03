@@ -16,7 +16,7 @@
 
 **DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 已落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，以及 OQ-003 财务特征 `dws_stock_feature_fin_daily`；市场状态 `dws_market_state_daily` 待补。财务特征口径 PRD 已采纳、关闭并实现 OQ-003（PR #13）：P0 默认消费合并报表 `report_type='1'`，三大报表 DWD（`income/balancesheet/cashflow` + `_latest`）保留 `report_type`/`report_caliber`/`is_default_report_caliber`，`dws_stock_feature_fin_daily` 默认只过滤默认口径（口径契约 + `has_fin_*` 掩码），已物化并通过 `sql/qa/04_finance_caliber_checks.sql`，并按 OQ-006 单位契约补全 `ods_field_unit_map` 财务字段、跑通 `sql/qa/05_oq006_unit_checks.sql`。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md`、runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 和 runner SQL 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。**runner 已于 PR #12 端到端实跑并通过全部 QA**（08 已重写为账户级 ledger，详见本文件末尾 2026-06-02 交接条目与摘要顶部）。
 
-**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本和 horizon-aware 诊断/QA 已在 PR #37 实现并通过 dry-run，尚未合并或端到端实跑实验。下一步 review/合并 PR #37 后执行持股数/权重、调仓频率、标签 horizon、财务特征实验；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已在 PR #37 实现并通过 dry-run，尚未合并或端到端实跑实验。下一步 review/合并 PR #37 后执行持股数/权重、调仓频率、标签 horizon、财务特征实验；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%，实际入选不足时剩余现金保留；A0 作为 5d 基线复现检查可重训，A1-A3/B0-B2 为组合层实验，复用预测源并只重跑 05-12。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
 **待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
@@ -140,6 +140,64 @@ Run ID: —
 - `OPEN_QUESTIONS.md`
 - `IMPLEMENTATION_STATUS.md`
 - `AGENT_HANDOFF.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #37 / issuecomment-4610284627
+
+### 已完成工作
+
+- 处理 PR #37 review feedback：认可组合层实验不应全量重训，并实现 portfolio-only `prediction_run_id` 复用模型/预测路径。
+- 更新 `configs/strategy1/oq010_experiments_v0.json`：A0 保留 `requires_retrain=true` 作为 5d 基线复现检查；A1-A3 与 B0-B2 改为 `requires_retrain=false`，并显式记录 `prediction_run_id`。
+- 修改 `05/09/10/11/12` 与 `diagnose_model_quality.py`：输出仍写实验 `run_id/backtest_id`，模型注册、预测表、训练面板和分数方向 QA 改查 `prediction_run_id`。
+- 修改 `06_build_portfolio_targets.sql`：目标权重按 `min(1 / p_target_holdings, p_max_single_weight)` 计算；实际入选不足时保留现金，不按实际入选数重新满仓。
+- 更新 `compare_oq010_experiments.py` 和 README：对比脚本可从 summary 或 manifest 的 `prediction_run_id` 读取 registry 指标；执行说明区分 `requires_retrain=true` 的 01-12 和 `requires_retrain=false` 的 05-12 路径。
+
+### 重要上下文
+
+- 本轮仍未端到端实跑 OQ-010 实验；只做 SQL/Python/manifest/文档修订和 dry-run 级验证。
+- Claude review 的 P2 已采纳；P3 目标权重口径选择直接对齐 PRD 留现金要求；P3 基线复现建议通过 A0 保留重训检查承载。
+
+### 改动文件
+
+- `configs/strategy1/oq010_experiments_v0.json`
+- `scripts/strategy1/compare_oq010_experiments.py`
+- `scripts/strategy1/diagnose_model_quality.py`
+- `sql/ml/strategy1/05_build_candidates.sql`
+- `sql/ml/strategy1/06_build_portfolio_targets.sql`
+- `sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`
+- `sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `sql/ml/strategy1/11_model_quality_diagnostics.sql`
+- `sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql`
+- `sql/ml/strategy1/README.md`
+- `TODO.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m json.tool configs/strategy1/oq010_experiments_v0.json`
+- `python3 -m py_compile scripts/strategy1/compare_oq010_experiments.py scripts/strategy1/diagnose_model_quality.py scripts/strategy1/render_report.py`
+- `git diff --check`
+- BigQuery dry-run：`sql/ml/strategy1/05_build_candidates.sql`、`06_build_portfolio_targets.sql`、`09_build_metrics_and_report_inputs.sql`、`10_qa_runner_outputs.sql`、`11_model_quality_diagnostics.sql`、`12_qa_model_diagnosis_outputs.sql`
+
+### 阻塞项
+
+- 无代码阻塞；尚需提交并推送 PR #37。
+
+### 下一步建议
+
+- 完成验证并推送 PR #37 修订。
+- PR 合并后先跑 A0 基线复现，再执行 A1-A3 portfolio-only 实验。
 
 ---
 
@@ -279,7 +337,7 @@ Run ID: —
 
 - 新增 OQ-010 实验 manifest：`configs/strategy1/oq010_experiments_v0.json`，覆盖阶段 A/B/C/D 基础路径、blocked 依赖和非笛卡尔积执行策略。
 - 新增实验对比报告脚本：`scripts/strategy1/compare_oq010_experiments.py`，从 manifest + ADS summary/registry 生成 Markdown/JSON/CSV 对比 artifact。
-- 参数化策略 1 runner：`sql/ml/strategy1/01-06/09-12` 支持 `experiment_id`、`experiment_group`、`baseline_experiment_id`、`parent_experiment_id`、`parent_run_id`、`p_rebalance_frequency`、`p_target_holdings`、`p_max_single_weight`、`p_label_horizon`、`p_feature_set_id`。
+- 参数化策略 1 runner：`sql/ml/strategy1/01-06/09-12` 支持 `experiment_id`、`experiment_group`、`baseline_experiment_id`、`parent_experiment_id`、`parent_run_id`、`p_rebalance_frequency`、`p_target_holdings`、`p_max_single_weight`、`p_label_horizon`、`p_feature_set_id`，并在 05/09/10/11/12 与诊断脚本支持 portfolio-only `p_prediction_run_id` 复用预测源。
 - 扩展 `dws_stock_sample_daily` 输出 10d/20d 标签和收益字段，供 `p_label_horizon` 选择目标列。
 - 将 `diagnose_model_quality.py`、`11_model_quality_diagnostics.sql`、`12_qa_model_diagnosis_outputs.sql` 改为 horizon-aware，避免 10d/20d 实验仍按 5d 诊断或 QA。
 - 更新 `sql/ml/strategy1/README.md` 的 OQ-010 执行说明和参数表。
@@ -288,7 +346,7 @@ Run ID: —
 
 - 本轮只做实现和 dry-run 验证，尚未在 BigQuery 端到端执行任何 OQ-010 实验。
 - 财务特征实验中 `feature_version` 仍保留基础量价样本版本 `strategy1_pv_v0_20260601`，财务扩展通过 `feature_set_id='strategy1_pv_fin_quality_v0_20260603'` 控制；财务 DWS 来源版本为 `fin_default_v0_20260602`。
-- `30/5%` 由 `06_build_portfolio_targets.sql` 计算为 `min(1 / n_selected, max_single_weight)`，30 只时目标单票约 3.33%，不足持股数时保留现金，不突破单票上限。
+- `30/5%` 由 `06_build_portfolio_targets.sql` 计算为 `min(1 / target_holdings, max_single_weight)`，30 只时目标单票约 3.33%，实际入选不足持股数时保留现金，不按实际入选数重新满仓、不突破单票上限。
 
 ### 改动文件
 

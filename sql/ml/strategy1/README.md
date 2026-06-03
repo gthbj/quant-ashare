@@ -64,6 +64,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_m
 | 参数 | 说明 |
 |---|---|
 | `p_run_id` | 本次运行唯一 ID；嵌入模型对象名以保证 run 隔离 |
+| `p_prediction_run_id` | 模型/预测来源 run_id；默认等于 `p_run_id`。OQ-010 portfolio-only 实验（A1-A3、B0-B2）使用独立 `p_run_id` 输出候选/组合/回测，但把该参数设为基线或上一阶段晋级预测源 |
 | `p_backtest_id` | 回测 ID |
 | `p_experiment_id` | OQ-010 实验 ID；来自 `configs/strategy1/oq010_experiments_v0.json` |
 | `p_experiment_group` | OQ-010 阶段/实验组，如 `portfolio_concentration`、`rebalance_frequency` |
@@ -225,7 +226,14 @@ valid/test 预测、候选池、组合和回测从 live-available prediction poo
 3. 阶段 C：沿用阶段 B 晋级调仓频率，跑 5d / 10d / 20d 标签周期。
 4. 阶段 D：沿用阶段 C 晋级标签周期，对比基础量价特征与财务质量特征。
 
-每个实验执行 `01-12` 时，需要把 SQL 顶部 `DECLARE p_*` 参数替换为 manifest 对应值，并保持 `run_id` / `backtest_id` 唯一。`30/5%` 的目标权重由 `06` 计算为 `min(1/30, 0.05)=3.33%`，不会按 `30 * 5%` 建成 150% 仓位；若实际可买数量不足，剩余资金保留为现金。
+执行前先跑 `oq010_a0_n5_w20` 作为 5d 基线复现检查，并与 `s1_bqml_livepool_oriented_20260603_01` 对账训练面板行数、selected model 和核心回测指标，确认 train mask 与默认参数没有被本轮参数化改动意外改变。
+
+每个实验执行时，需要把 SQL 顶部 `DECLARE p_*` 参数替换为 manifest 对应值，并保持 `run_id` / `backtest_id` 唯一：
+
+- `requires_retrain=true`：执行 `01-12`，`p_prediction_run_id` 默认等于本实验 `p_run_id`。
+- `requires_retrain=false`：跳过 `01-04`，从 `05` 开始执行到 `12`；`05/09/10/12` 和 `diagnose_model_quality.py --prediction-run-id` 必须使用 manifest 的 `prediction_run_id`，只重建候选、组合、订单、回测、报告和诊断。
+
+`30/5%` 的目标权重由 `06` 计算为 `min(1/30, 0.05)=3.33%`，不会按 `30 * 5%` 建成 150% 仓位；若实际入选数量不足 `p_target_holdings`，剩余资金保留为现金，不按实际入选数重新满仓。
 
 完成一批实验后生成对比 artifact：
 

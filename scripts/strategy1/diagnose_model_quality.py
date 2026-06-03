@@ -59,6 +59,9 @@ def parse_args():
     p = argparse.ArgumentParser(description="策略 1 模型质量诊断")
     p.add_argument("--project", required=True, help="GCP project id")
     p.add_argument("--run-id", required=True)
+    p.add_argument("--prediction-run-id", default=None,
+                   help="Model/prediction source run_id; defaults to --run-id. "
+                        "Use this for OQ-010 portfolio-only experiments.")
     p.add_argument("--backtest-id", required=True)
     p.add_argument("--strategy-id", default="ml_pv_clf_v0")
     p.add_argument("--artifact-base-uri", required=True, help="gs://bucket/path")
@@ -437,7 +440,7 @@ def fetch_funnel_data(client: bigquery.Client, project: str,
 
 
 def fetch_prediction_funnel(client: bigquery.Client, project: str,
-                            run_id: str, strategy_id: str,
+                            prediction_run_id: str, candidate_run_id: str, strategy_id: str,
                             start_date: str, end_date: str) -> pd.DataFrame:
     sql = f"""
     SELECT
@@ -450,14 +453,15 @@ def fetch_prediction_funnel(client: bigquery.Client, project: str,
       ON cand.sec_code = pred.sec_code
      AND cand.rebalance_date = pred.predict_date
      AND cand.strategy_id = @sid
-     AND cand.run_id = @rid
-    WHERE pred.run_id = @rid
+     AND cand.run_id = @cand_rid
+    WHERE pred.run_id = @pred_rid
       AND pred.predict_date BETWEEN @sd AND @ed
     GROUP BY pred.predict_date
     ORDER BY pred.predict_date
     """
     return bq_query(client, sql, [
-        bigquery.ScalarQueryParameter("rid", "STRING", run_id),
+        bigquery.ScalarQueryParameter("pred_rid", "STRING", prediction_run_id),
+        bigquery.ScalarQueryParameter("cand_rid", "STRING", candidate_run_id),
         bigquery.ScalarQueryParameter("sid", "STRING", strategy_id),
         bigquery.ScalarQueryParameter("sd", "DATE", start_date),
         bigquery.ScalarQueryParameter("ed", "DATE", end_date),
@@ -573,7 +577,8 @@ def compute_funnel_summary(sample_df: pd.DataFrame, pred_df: pd.DataFrame,
 
 # ── FR-DIAG-6 特征暴露诊断 ────────────────────────────────────────────────────
 def fetch_feature_exposure(client: bigquery.Client, project: str,
-                           run_id: str, strategy_id: str,
+                           prediction_run_id: str, candidate_run_id: str,
+                           strategy_id: str,
                            backtest_id: str,
                            start_date: str, end_date: str) -> pd.DataFrame:
     # Pull features for predictions, candidates, positions, and loss contributors
@@ -598,7 +603,7 @@ def fetch_feature_exposure(client: bigquery.Client, project: str,
       ON cand.sec_code = pred.sec_code
      AND cand.rebalance_date = pred.predict_date
      AND cand.strategy_id = @sid
-     AND cand.run_id = @rid
+     AND cand.run_id = @cand_rid
     LEFT JOIN `{project}.ashare_ads.ads_backtest_position_daily` AS pos
       ON pos.sec_code = pred.sec_code
      AND pos.trade_date = pred.predict_date
@@ -607,11 +612,12 @@ def fetch_feature_exposure(client: bigquery.Client, project: str,
       ON f.sec_code = pred.sec_code
      AND f.trade_date = pred.predict_date
      AND f.trade_date BETWEEN @sd AND @ed
-    WHERE pred.run_id = @rid
+    WHERE pred.run_id = @pred_rid
       AND pred.predict_date BETWEEN @sd AND @ed
     """
     return bq_query(client, sql, [
-        bigquery.ScalarQueryParameter("rid", "STRING", run_id),
+        bigquery.ScalarQueryParameter("pred_rid", "STRING", prediction_run_id),
+        bigquery.ScalarQueryParameter("cand_rid", "STRING", candidate_run_id),
         bigquery.ScalarQueryParameter("sid", "STRING", strategy_id),
         bigquery.ScalarQueryParameter("bid", "STRING", backtest_id),
         bigquery.ScalarQueryParameter("sd", "DATE", start_date),
@@ -793,7 +799,7 @@ def fetch_market_regime(client: bigquery.Client, project: str,
 
 
 def fetch_style_exposure(client: bigquery.Client, project: str,
-                         run_id: str, backtest_id: str,
+                         prediction_run_id: str, backtest_id: str,
                          start_date: str, end_date: str) -> pd.DataFrame:
     sql = f"""
     SELECT
@@ -816,7 +822,7 @@ def fetch_style_exposure(client: bigquery.Client, project: str,
     WHERE pos.backtest_id = @bid AND pos.trade_date BETWEEN @sd AND @ed
     """
     return bq_query(client, sql, [
-        bigquery.ScalarQueryParameter("rid", "STRING", run_id),
+        bigquery.ScalarQueryParameter("rid", "STRING", prediction_run_id),
         bigquery.ScalarQueryParameter("bid", "STRING", backtest_id),
         bigquery.ScalarQueryParameter("sd", "DATE", start_date),
         bigquery.ScalarQueryParameter("ed", "DATE", end_date),
@@ -986,6 +992,7 @@ def write_diagnosis_status_to_ads(client: bigquery.Client, project: str,
         bigquery.ScalarQueryParameter("ver", "STRING", DIAGNOSIS_VERSION),
         bigquery.ScalarQueryParameter("primary", "STRING", diagnosis_summary.get("primary_diagnosis", "")),
         bigquery.ScalarQueryParameter("confidence", "STRING", diagnosis_summary.get("confidence", "")),
+        bigquery.ScalarQueryParameter("prediction_run_id", "STRING", diagnosis_summary.get("prediction_run_id", "")),
     ]
 
     json_expr = f"""JSON_SET({base},
@@ -993,6 +1000,7 @@ def write_diagnosis_status_to_ads(client: bigquery.Client, project: str,
       '$.model_diagnosis_version', @ver,
       '$.model_diagnosis_generated_utc', @ts,
       '$.local_model_diagnosis_path', @local_path,
+      '$.model_diagnosis_prediction_run_id', @prediction_run_id,
       '$.model_diagnosis_primary_diagnosis', @primary,
       '$.model_diagnosis_confidence', @confidence"""
 
@@ -1024,6 +1032,8 @@ def render_diagnosis_markdown(identity: dict, valid_ic: dict, test_ic: dict,
     lines.append("# 策略 1 模型质量诊断\n")
     lines.append(f"- **diagnosis_version**: `{DIAGNOSIS_VERSION}`")
     lines.append(f"- **run_id**: `{args.run_id}`")
+    if args.prediction_run_id != args.run_id:
+        lines.append(f"- **prediction_run_id**: `{args.prediction_run_id}`")
     lines.append(f"- **backtest_id**: `{args.backtest_id}`")
     lines.append(f"- **model_id**: `{identity.get('model_id')}`")
     lines.append(f"- **label_horizon**: `{args.p_label_horizon}d`")
@@ -1085,10 +1095,11 @@ def render_diagnosis_markdown(identity: dict, valid_ic: dict, test_ic: dict,
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     args = parse_args()
+    args.prediction_run_id = args.prediction_run_id or args.run_id
     bq = make_bq_client(args.project)
 
     print("读取模型身份...")
-    identity = fetch_model_identity(bq, args.project, args.strategy_id, args.run_id)
+    identity = fetch_model_identity(bq, args.project, args.strategy_id, args.prediction_run_id)
 
     # Infer date ranges from model registry if available
     mp = identity.get("model_params_json", {})
@@ -1101,9 +1112,9 @@ def main():
     # FR-DIAG-2: predictions + labels
     print("拉取预测与标签...")
     pred_valid = fetch_predictions_with_labels(
-        bq, args.project, args.run_id, valid_start, valid_end, args.p_label_horizon)
+        bq, args.project, args.prediction_run_id, valid_start, valid_end, args.p_label_horizon)
     pred_test = fetch_predictions_with_labels(
-        bq, args.project, args.run_id, test_start, test_end, args.p_label_horizon)
+        bq, args.project, args.prediction_run_id, test_start, test_end, args.p_label_horizon)
     pred_all = pd.concat([pred_valid, pred_test], ignore_index=True)
 
     print("计算 RankIC...")
@@ -1135,25 +1146,27 @@ def main():
     # FR-DIAG-4: label horizon
     print("标签 horizon 对照...")
     label_df = fetch_label_horizon(
-        bq, args.project, args.run_id, valid_start, test_end, args.p_label_horizon)
+        bq, args.project, args.prediction_run_id, valid_start, test_end, args.p_label_horizon)
     label_horizon = compute_label_horizon_comparison(label_df)
 
     # FR-DIAG-5: funnel
     print("样本漏斗...")
     sample_df = fetch_funnel_data(
-        bq, args.project, args.run_id, args.strategy_id, valid_start, test_end, args.p_label_horizon)
-    pred_funnel = fetch_prediction_funnel(bq, args.project, args.run_id, args.strategy_id, valid_start, test_end)
+        bq, args.project, args.prediction_run_id, args.strategy_id, valid_start, test_end, args.p_label_horizon)
+    pred_funnel = fetch_prediction_funnel(
+        bq, args.project, args.prediction_run_id, args.run_id, args.strategy_id, valid_start, test_end)
     trade_funnel = fetch_trade_funnel(bq, args.project, args.backtest_id, valid_start, test_end)
     funnel_summary = compute_funnel_summary(sample_df, pred_funnel, trade_funnel)
 
     print("检测 live-unavailable 过滤风险...")
     sample_risk_df = fetch_sample_filter_risk(
-        bq, args.project, args.run_id, valid_start, test_end, args.p_label_horizon)
+        bq, args.project, args.prediction_run_id, valid_start, test_end, args.p_label_horizon)
 
     # FR-DIAG-6: feature exposure
     print("特征暴露...")
     feat_df = fetch_feature_exposure(
-        bq, args.project, args.run_id, args.strategy_id, args.backtest_id, valid_start, test_end)
+        bq, args.project, args.prediction_run_id, args.run_id,
+        args.strategy_id, args.backtest_id, valid_start, test_end)
     feature_exposure = compute_feature_exposure_by_group(feat_df)
 
     # FR-DIAG-7: backtest attribution
@@ -1166,7 +1179,8 @@ def main():
     # FR-DIAG-8: market regime
     print("市场风格...")
     market_regime = fetch_market_regime(bq, args.project, test_start, test_end)
-    style_df = fetch_style_exposure(bq, args.project, args.run_id, args.backtest_id, test_start, test_end)
+    style_df = fetch_style_exposure(
+        bq, args.project, args.prediction_run_id, args.backtest_id, test_start, test_end)
 
     # FR-DIAG-9: diagnosis conclusion
     print("诊断结论...")
@@ -1180,6 +1194,7 @@ def main():
     diagnosis_summary = {
         "diagnosis_version": DIAGNOSIS_VERSION,
         "run_id": args.run_id,
+        "prediction_run_id": args.prediction_run_id,
         "backtest_id": args.backtest_id,
         "label_horizon": args.p_label_horizon,
         "model_id": identity.get("model_id"),

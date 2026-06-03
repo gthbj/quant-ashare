@@ -7,7 +7,7 @@
 ## P0 — 当前优先
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
-- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：PR #37 已落地实验参数化、manifest、对比报告脚本和 horizon-aware 诊断/QA；下一步合并后执行第一轮对照实验。阶段 A/B/C 基础路径为 `4 + 3 + 3 = 10`，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 全量笛卡尔积；必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核
+- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：PR #37 已落地实验参数化、manifest、对比报告脚本、horizon-aware 诊断/QA，并按 review 补充 portfolio-only `prediction_run_id` 复用预测源路径；下一步合并后执行第一轮对照实验。阶段 A/B/C 基础路径为 `4 + 3 + 3 = 10`，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 全量笛卡尔积；必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核
 
 ## P1 — 数据 / 特征扩展
 
@@ -29,7 +29,7 @@
 ## 近期完成
 
 - [x] 新增 ODS/GCS 数据审查目录与提示词：`data_audit/ODS_GCS_DATA_AUDIT_PROMPT.md`、`data_audit/reports/`；审查范围限定 2019-01-01 及之后，提示词要求只审查不补数据、审查脚本由执行 Agent 自行编写并在请求/限速/并发等问题上自修正；已补官方文档链接、API 返回上限命中风险和按 endpoint/主题拆脚本规则
-- [x] 实现 OQ-010 首轮实验 runner 参数化（PR #37）：新增 `configs/strategy1/oq010_experiments_v0.json`、`scripts/strategy1/compare_oq010_experiments.py`；`sql/ml/strategy1/01-06/09-12` 支持 `experiment_id`、调仓频率、持股数/权重、`p_label_horizon`、`feature_set_id`；诊断脚本和 QA 已改为 horizon-aware。已通过 Python/JSON/`git diff --check` 与 BigQuery dry-run，尚未端到端实跑实验
+- [x] 实现 OQ-010 首轮实验 runner 参数化（PR #37）：新增 `configs/strategy1/oq010_experiments_v0.json`、`scripts/strategy1/compare_oq010_experiments.py`；`sql/ml/strategy1/01-06/09-12` 支持 `experiment_id`、调仓频率、持股数/权重、`p_label_horizon`、`feature_set_id`；诊断脚本和 QA 已改为 horizon-aware，并支持 portfolio-only 实验用 `p_prediction_run_id` 复用模型/预测。已通过 Python/JSON/`git diff --check` 与 BigQuery dry-run，尚未端到端实跑实验
 - [x] 合并 OQ-010 策略 1 首轮质量迭代实验 PRD（PR #35）：`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`，定义持股数/权重、调仓频率、标签 horizon、财务特征的第一轮分阶段实验矩阵；已按 review 修订 canonical baseline id、parent experiment 关系和阶段 B/C 调仓频率口径
 - [x] 修订 OQ-010 首轮实验执行口径：阶段 A/B/C 不做 `4 * 3 * 3` 笛卡尔积，基础执行为 `4 + 3 + 3 = 10` 个实验，包含阶段 D 为 12 个实验；如阶段间暴露明显交互风险，再补最多 `2 * 2` A/B、A/C、B/C pairwise 复核，必要时补最多 `2 * 2 * 2` 最终保底复核
 - [x] 修复诊断 QA：`sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 的 `split_tag` 歧义已修复（PR #27/28），已可正常完成 QA 验收

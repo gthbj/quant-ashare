@@ -2,6 +2,7 @@
 -- 05: 周频调仓日候选池，只用 t 日已知字段，写 ads_stock_candidate_daily。
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
+DECLARE p_prediction_run_id STRING DEFAULT NULL;  -- 组合层实验可复用上一阶段/基线预测；NULL 表示使用 p_run_id
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_rebalance_frequency STRING DEFAULT 'weekly';
@@ -11,6 +12,8 @@ DECLARE p_target_holdings INT64 DEFAULT 5;  -- OQ-010 示例值
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 
 DECLARE p_selected_model_id STRING;
+SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
+
 IF p_label_horizon NOT IN (5, 10, 20) THEN
   RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
 END IF;
@@ -19,13 +22,21 @@ IF p_rebalance_frequency NOT IN ('weekly', 'biweekly', 'monthly') THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_rebalance_frequency: ', p_rebalance_frequency);
 END IF;
 
+IF p_target_holdings <= 0 THEN
+  RAISE USING MESSAGE = 'p_target_holdings must be positive';
+END IF;
+
 SET p_selected_model_id = (
   SELECT reg.model_id
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
-    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
   ORDER BY reg.created_at DESC LIMIT 1
 );
+
+IF p_selected_model_id IS NULL THEN
+  RAISE USING MESSAGE = CONCAT('no selected model for prediction_run_id ', p_prediction_run_id);
+END IF;
 
 IF NOT p_force_replace THEN
   IF (SELECT COUNT(*) > 0 FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
@@ -85,7 +96,7 @@ WITH scored AS (
   JOIN `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
     ON pred.predict_date = r.rebalance_date
    AND pred.model_id = p_selected_model_id
-   AND pred.run_id = p_run_id
+   AND pred.run_id = p_prediction_run_id
    AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
   LEFT JOIN `data-aquarium.ashare_dws.dws_stock_universe_daily` AS u
     ON u.sec_code = pred.sec_code

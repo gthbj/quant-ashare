@@ -2,6 +2,7 @@
 -- 10: 运行后 QA 断言（全部用 p_ 前缀变量，别名限定表列）。
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
+DECLARE p_prediction_run_id STRING DEFAULT NULL;  -- NULL 表示预测来源与 p_run_id 相同
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_oriented_20260603_01';
 DECLARE p_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n5_w20_pv';
@@ -13,6 +14,7 @@ DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
 DECLARE p_calendar_end DATE;
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
+SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
 
 IF p_rebalance_frequency NOT IN ('weekly', 'biweekly', 'monthly') THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_rebalance_frequency: ', p_rebalance_frequency);
@@ -28,16 +30,16 @@ ASSERT (
   FROM (
     SELECT tp.run_id, tp.sec_code, tp.trade_date, COUNT(*) AS n
     FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-    WHERE tp.run_id = p_run_id AND tp.trade_date BETWEEN DATE '2019-01-01' AND p_predict_end
+    WHERE tp.run_id = p_prediction_run_id AND tp.trade_date BETWEEN DATE '2019-01-01' AND p_predict_end
     GROUP BY tp.run_id, tp.sec_code, tp.trade_date HAVING n > 1
   )
-) AS 'training panel (run_id, sec_code, trade_date) must be unique';
+) AS 'training panel (prediction_run_id, sec_code, trade_date) must be unique';
 
 -- ── split 日期互斥 ──
 ASSERT (
   SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-  WHERE tp.run_id = p_run_id AND tp.trade_date BETWEEN DATE '2019-01-01' AND p_predict_end
+  WHERE tp.run_id = p_prediction_run_id AND tp.trade_date BETWEEN DATE '2019-01-01' AND p_predict_end
     AND (
       (tp.split_tag = 'train' AND tp.trade_date >= DATE '2024-01-01')
       OR (tp.split_tag = 'valid' AND (tp.trade_date < DATE '2024-01-01' OR tp.trade_date >= DATE '2025-01-01'))
@@ -62,7 +64,7 @@ ASSERT (
     SELECT col
     FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp,
          UNNEST(tp.feature_column_list) AS col
-    WHERE tp.run_id = p_run_id AND tp.trade_date BETWEEN DATE '2019-01-01' AND p_predict_end
+    WHERE tp.run_id = p_prediction_run_id AND tp.trade_date BETWEEN DATE '2019-01-01' AND p_predict_end
     LIMIT 100
   )
 ) AS 'feature_column_list must not contain label/target/qfq/board columns';
@@ -71,22 +73,22 @@ ASSERT (
 ASSERT (
   SELECT COUNT(*) > 0
   FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-  WHERE tp.run_id = p_run_id AND tp.trade_date BETWEEN DATE '2019-01-01' AND p_predict_end
-) AS 'training panel must have rows for this run_id';
+  WHERE tp.run_id = p_prediction_run_id AND tp.trade_date BETWEEN DATE '2019-01-01' AND p_predict_end
+) AS 'training panel must have rows for this prediction_run_id';
 
 -- ── 预测表非空且 rank_raw=1 唯一 ──
 ASSERT (
   SELECT COUNT(*) > 0
   FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-  WHERE pred.run_id = p_run_id AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
-) AS 'predictions must exist for this run_id';
+  WHERE pred.run_id = p_prediction_run_id AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
+) AS 'predictions must exist for this prediction_run_id';
 
 ASSERT (
   SELECT COUNT(*) = 0
   FROM (
     SELECT pred.predict_date, COUNT(*) AS n
     FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-    WHERE pred.run_id = p_run_id AND pred.rank_raw = 1
+    WHERE pred.run_id = p_prediction_run_id AND pred.rank_raw = 1
       AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
     GROUP BY pred.predict_date HAVING n > 1
   )
@@ -95,7 +97,7 @@ ASSERT (
 ASSERT (
   SELECT COUNTIF(pred.rank_pct < -0.0001 OR pred.rank_pct > 1.0001) = 0
   FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-  WHERE pred.run_id = p_run_id AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
+  WHERE pred.run_id = p_prediction_run_id AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
 ) AS 'rank_pct must be in [0,1]';
 
 -- ── 组合权重约束 ──
@@ -121,6 +123,7 @@ ASSERT (
 ASSERT (
   SELECT COUNT(*) = 1
     AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.experiment_id') = p_experiment_id)
+    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.prediction_run_id') = p_prediction_run_id)
     AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.rebalance_frequency') = p_rebalance_frequency)
     AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.target_holdings') AS INT64) = p_target_holdings)
     AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.label_horizon') AS INT64) = p_label_horizon)
@@ -280,9 +283,9 @@ ASSERT (
   SELECT COUNT(*) = 1
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
-    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
     AND reg.model_uri IS NOT NULL
-) AS 'exactly one run-scoped selected model must exist';
+) AS 'exactly one prediction-run-scoped selected model must exist';
 
 -- ── selected model 必须有 score_orientation（identity 或 reverse_probability）──
 ASSERT (
@@ -291,7 +294,7 @@ ASSERT (
   )
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
-    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
 ) AS 'QA-ORIENT-1: selected model must have score_orientation = identity or reverse_probability';
 
 -- ── selected model 必须有 score_source、orientation 诊断字段和 bucket lift 证据 ──
@@ -307,7 +310,7 @@ ASSERT (
   )
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
-    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
 ) AS 'QA-ORIENT-2: selected model must have score_source, raw/oriented rank_ic, bucket lift, decision_split=valid, and decision reason';
 
 -- ── prediction 表的 score_orientation 必须和 registry 一致 ──
@@ -318,11 +321,11 @@ ASSERT (
   FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
   JOIN `data-aquarium.ashare_ads.ads_model_registry` AS reg
     ON pred.model_id = reg.model_id
-  WHERE pred.run_id = p_run_id
+  WHERE pred.run_id = p_prediction_run_id
     AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
     AND reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
-    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
 ) AS 'QA-ORIENT-3: prediction score_orientation must match registry';
 
 -- ── score 与 raw_score 的关系必须和 score_orientation 一致 ──
@@ -337,7 +340,7 @@ ASSERT (
     END
   ) = 0
   FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-  WHERE pred.run_id = p_run_id
+  WHERE pred.run_id = p_prediction_run_id
     AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
 ) AS 'QA-ORIENT-4: score must equal raw_score (identity) or 1-raw_score (reverse_probability)';
 

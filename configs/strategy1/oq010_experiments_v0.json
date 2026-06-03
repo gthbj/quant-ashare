@@ -33,6 +33,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_run_id": "s1_bqml_livepool_oriented_20260603_01",
+      "prediction_run_id": "s1_bqml_oq010_oq010_a0_n5_w20_20260603_01",
       "rebalance_frequency": "weekly",
       "target_holdings": 5,
       "max_single_weight": 0.2,
@@ -51,6 +52,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_run_id": "s1_bqml_livepool_oriented_20260603_01",
+      "prediction_run_id": "s1_bqml_livepool_oriented_20260603_01",
       "rebalance_frequency": "weekly",
       "target_holdings": 10,
       "max_single_weight": 0.1,
@@ -58,7 +60,7 @@
       "horizon_natural_frequency": "weekly",
       "feature_set_id": "strategy1_pv_v0_20260601",
       "feature_version": "strategy1_pv_v0_20260601",
-      "requires_retrain": true,
+      "requires_retrain": false,
       "status": "planned"
     },
     {
@@ -69,6 +71,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_run_id": "s1_bqml_livepool_oriented_20260603_01",
+      "prediction_run_id": "s1_bqml_livepool_oriented_20260603_01",
       "rebalance_frequency": "weekly",
       "target_holdings": 20,
       "max_single_weight": 0.05,
@@ -76,7 +79,7 @@
       "horizon_natural_frequency": "weekly",
       "feature_set_id": "strategy1_pv_v0_20260601",
       "feature_version": "strategy1_pv_v0_20260601",
-      "requires_retrain": true,
+      "requires_retrain": false,
       "status": "planned"
     },
     {
@@ -87,6 +90,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_run_id": "s1_bqml_livepool_oriented_20260603_01",
+      "prediction_run_id": "s1_bqml_livepool_oriented_20260603_01",
       "rebalance_frequency": "weekly",
       "target_holdings": 30,
       "max_single_weight": 0.05,
@@ -94,7 +98,7 @@
       "horizon_natural_frequency": "weekly",
       "feature_set_id": "strategy1_pv_v0_20260601",
       "feature_version": "strategy1_pv_v0_20260601",
-      "requires_retrain": true,
+      "requires_retrain": false,
       "status": "planned"
     },
     {
@@ -105,6 +109,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "selected_stage_a_experiment_id",
       "parent_run_id": "selected_stage_a_run_id",
+      "prediction_run_id": "selected_stage_a_prediction_run_id",
       "rebalance_frequency": "weekly",
       "target_holdings": "selected_stage_a_target_holdings",
       "max_single_weight": "selected_stage_a_max_single_weight",
@@ -112,7 +117,7 @@
       "horizon_natural_frequency": "weekly",
       "feature_set_id": "strategy1_pv_v0_20260601",
       "feature_version": "strategy1_pv_v0_20260601",
-      "requires_retrain": true,
+      "requires_retrain": false,
       "status": "blocked_until_stage_a_selected"
     },
     {
@@ -123,6 +128,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "selected_stage_a_experiment_id",
       "parent_run_id": "selected_stage_a_run_id",
+      "prediction_run_id": "selected_stage_a_prediction_run_id",
       "rebalance_frequency": "biweekly",
       "target_holdings": "selected_stage_a_target_holdings",
       "max_single_weight": "selected_stage_a_max_single_weight",
@@ -130,7 +136,7 @@
       "horizon_natural_frequency": "biweekly",
       "feature_set_id": "strategy1_pv_v0_20260601",
       "feature_version": "strategy1_pv_v0_20260601",
-      "requires_retrain": true,
+      "requires_retrain": false,
       "status": "blocked_until_stage_a_selected"
     },
     {
@@ -141,6 +147,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "selected_stage_a_experiment_id",
       "parent_run_id": "selected_stage_a_run_id",
+      "prediction_run_id": "selected_stage_a_prediction_run_id",
       "rebalance_frequency": "monthly",
       "target_holdings": "selected_stage_a_target_holdings",
       "max_single_weight": "selected_stage_a_max_single_weight",
@@ -148,7 +155,7 @@
       "horizon_natural_frequency": "monthly",
       "feature_set_id": "strategy1_pv_v0_20260601",
       "feature_version": "strategy1_pv_v0_20260601",
-      "requires_retrain": true,
+      "requires_retrain": false,
       "status": "blocked_until_stage_a_selected"
     },
     {
@@ -159,6 +166,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "selected_stage_b_experiment_id",
       "parent_run_id": "selected_stage_b_run_id",
+      "prediction_run_id": "s1_bqml_oq010_oq010_c0_h5_20260603_01",
       "rebalance_frequency": "selected_stage_b_frequency",
       "target_holdings": "selected_stage_a_target_holdings",
       "max_single_weight": "selected_stage_a_max_single_weight",
@@ -177,6 +185,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "selected_stage_b_experiment_id",
       "parent_run_id": "selected_stage_b_run_id",
+      "prediction_run_id": "s1_bqml_oq010_oq010_c1_h10_20260603_01",
       "rebalance_frequency": "selected_stage_b_frequency",
       "target_holdings": "selected_stage_a_target_holdings",
       "max_single_weight": "selected_stage_a_max_single_weight",
@@ -195,6 +204,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "selected_stage_b_experiment_id",
       "parent_run_id": "selected_stage_b_run_id",
+      "prediction_run_id": "s1_bqml_oq010_oq010_c2_h20_20260603_01",
       "rebalance_frequency": "selected_stage_b_frequency",
       "target_holdings": "selected_stage_a_target_holdings",
       "max_single_weight": "selected_stage_a_max_single_weight",
@@ -213,6 +223,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "selected_stage_c_experiment_id",
       "parent_run_id": "selected_stage_c_run_id",
+      "prediction_run_id": "s1_bqml_oq010_oq010_d0_pv_20260603_01",
       "rebalance_frequency": "selected_stage_b_frequency",
       "target_holdings": "selected_stage_a_target_holdings",
       "max_single_weight": "selected_stage_a_max_single_weight",
@@ -231,6 +242,7 @@
       "baseline_experiment_id": "oq010_base_oriented_weekly_h5_n5_w20_pv",
       "parent_experiment_id": "selected_stage_c_experiment_id",
       "parent_run_id": "selected_stage_c_run_id",
+      "prediction_run_id": "s1_bqml_oq010_oq010_d1_pv_fin_quality_20260603_01",
       "rebalance_frequency": "selected_stage_b_frequency",
       "target_holdings": "selected_stage_a_target_holdings",
       "max_single_weight": "selected_stage_a_max_single_weight",

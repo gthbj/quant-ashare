@@ -95,7 +95,12 @@ def load_manifest(path: Path) -> dict[str, Any]:
 
 def fetch_ads_outputs(client: bigquery.Client, experiments: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     backtest_ids = [e["backtest_id"] for e in experiments if isinstance(e.get("backtest_id"), str)]
-    run_ids = [e["run_id"] for e in experiments if isinstance(e.get("run_id"), str)]
+    run_ids = sorted({
+        rid
+        for e in experiments
+        for rid in (e.get("run_id"), e.get("prediction_run_id"))
+        if isinstance(rid, str)
+    })
     if not backtest_ids and not run_ids:
         return {}
 
@@ -114,6 +119,12 @@ def fetch_ads_outputs(client: bigquery.Client, experiments: list[dict[str, Any]]
         [bigquery.ArrayQueryParameter("backtest_ids", "STRING", backtest_ids)],
     )
     summary_by_backtest = {r["backtest_id"]: r for r in summaries}
+    run_ids = sorted(set(run_ids) | {
+        str(prediction_run_id)
+        for r in summaries
+        for prediction_run_id in [parse_json_obj(r.get("metrics_json")).get("prediction_run_id")]
+        if prediction_run_id
+    })
 
     registries = query_rows(
         client,
@@ -135,7 +146,9 @@ def fetch_ads_outputs(client: bigquery.Client, experiments: list[dict[str, Any]]
     for exp in experiments:
         eid = exp["experiment_id"]
         summary = summary_by_backtest.get(exp.get("backtest_id"))
-        registry = registry_by_run.get(exp.get("run_id"))
+        summary_metrics = parse_json_obj((summary or {}).get("metrics_json"))
+        registry_run_id = summary_metrics.get("prediction_run_id") or exp.get("prediction_run_id") or exp.get("run_id")
+        registry = registry_by_run.get(registry_run_id)
         if summary or registry:
             out[eid] = {"summary": summary or {}, "registry": registry or {}}
     return out
@@ -151,6 +164,7 @@ def row_for_experiment(exp: dict[str, Any], ads: dict[str, Any] | None) -> dict[
         "experiment_group": exp.get("experiment_group"),
         "status": "completed" if summary else exp.get("status", "planned"),
         "run_id": exp.get("run_id"),
+        "prediction_run_id": sm.get("prediction_run_id") or exp.get("prediction_run_id") or exp.get("run_id"),
         "backtest_id": exp.get("backtest_id"),
         "parent_experiment_id": exp.get("parent_experiment_id"),
         "rebalance_frequency": exp.get("rebalance_frequency"),
@@ -192,7 +206,7 @@ def sort_key(row: dict[str, Any]) -> tuple:
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     cols = [
         "experiment_id", "experiment_group", "status", "run_id", "backtest_id",
-        "parent_experiment_id", "rebalance_frequency", "target_holdings",
+        "prediction_run_id", "parent_experiment_id", "rebalance_frequency", "target_holdings",
         "max_single_weight", "label_horizon", "feature_set_id", "requires_retrain",
         "total_return", "excess_return", "sharpe", "max_drawdown",
         "turnover_annual", "information_ratio", "economic_cost_cny",
