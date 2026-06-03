@@ -12,9 +12,9 @@ Tushare 等数据源
 
 ## GCP 生产流水线目标架构（OQ-005）
 
-长期生产链路采用 GCP 原生组合：Cloud Run Jobs 负责 Tushare/Tinyshare API 到 GCS Parquet 的每日采集；Dataform / BigQuery Studio pipeline 负责 ODS→DIM/DWD/DWS/ADS 的 BigQuery SQL 转换、依赖、assertions 和文档；Cloud Composer 负责全流程编排、失败重试、补跑和告警。方案文档为 `docs/prd/PRD_20260603_03_GCP数据流水线方案.md`。
+长期生产链路采用 GCP 原生组合：Cloud Run Jobs 负责 Tushare/Tinyshare API 到 GCS Parquet 的每日采集；Dataform / BigQuery Studio pipeline 负责 ODS→DIM/DWD/DWS/ADS 的 BigQuery SQL 转换、依赖、assertions 和文档；Cloud Composer 负责全流程编排、失败重试、补跑和告警。方案文档为 `docs/prd/PRD_20260603_03_GCP数据流水线方案.md`，正文已按 owner 反馈收敛为陈述性目标实现方案。
 
-首批每日生产采集只覆盖当前 SQL 实际消费的 14 张 ODS：`daily`、`adj_factor`、`stk_limit`、`suspend_d`、`daily_basic`、`index_daily`、`index_dailybasic`、`stock_basic`、`trade_cal`、`namechange`、`fina_indicator`、`income`、`balancesheet`、`cashflow`。P1+ 未消费 endpoint 不进入生产定时采集；新增 endpoint 必须先更新采集 manifest、schema contract、单位契约和 QA。
+首批每日生产采集只覆盖当前 SQL 实际消费的 14 张 ODS：`daily`、`adj_factor`、`stk_limit`、`suspend_d`、`daily_basic`、`index_daily`、`index_dailybasic`、`stock_basic`、`trade_cal`、`namechange`、`fina_indicator`、`income`、`balancesheet`、`cashflow`。P1+ 当前未消费 endpoint 进入后续接入池；新增 endpoint 必须先更新采集 manifest、schema contract、单位契约和 QA。
 
 ## ODS 三类分区语义（建模地基，务必牢记）
 

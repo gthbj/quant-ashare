@@ -16,7 +16,7 @@ Last updated: 2026-06-03
 - 物理设计敲定：按月分区 + `sec_code` 聚簇、行情表 `require_partition_filter=TRUE`。
 - 2019 前数据范围敲定：财务/事件 `partition_date >= '20170101'`；行情 DWD/DWS 写 `trade_date >= 2019-01-01`、构建时按最大窗口读取 2018 lookback buffer；维度/日历取最新快照或全量历史事件。
 - 新增 ODS/GCS 数据审查目录：`data_audit/ODS_GCS_DATA_AUDIT_PROMPT.md` 与 `data_audit/reports/`。提示词限定本次只审查 2019-01-01 及之后的数据，只读不补数据；审查 Agent 需自行编写审查脚本，并在请求、并发、限速、schema 检测或报告生成代码有问题时自行修正审查代码后继续；提示词已补 Tushare 官方文档链接、API 返回行数命中单次上限时的截断风险检查，以及按 endpoint/主题拆分脚本的代码组织规则。
-- 新增 OQ-005 GCP 数据流水线 PRD：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`。长期目标架构为 Cloud Run Jobs 采集 Tushare/Tinyshare 到 GCS Parquet，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 编排全流程；首批每日生产采集只覆盖当前实际消费的 14 张 ODS，未消费 ODS 暂不安排定时任务。
+- 新增 OQ-005 GCP 数据流水线 PRD：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`。长期目标架构为 Cloud Run Jobs 采集 Tushare/Tinyshare 到 GCS Parquet，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 编排全流程；首批每日生产采集只覆盖当前实际消费的 14 张 ODS，当前未消费 endpoint 进入后续接入池；PRD 已按 owner 反馈收敛为只描述最终实现方式的陈述性方案。
 - 表/字段注释规范敲定：内联 DDL / 后置 ALTER / 继承 ODS 描述三法。
 - 仓库初始化：`git init` + `.gitignore` + 首个 commit（`main`）。
 - 建立 `.agent/` Agent 工作记忆体系 + 根 `AGENTS.md` 读写协议；推送 GitHub（gthbj/quant-ashare）；加模型署名协议。
