@@ -232,7 +232,8 @@ class GcsLock:
     def acquire(self) -> bool:
         """尝试获取锁。返回 True 表示获取成功。"""
         acquired_at = _now_rfc3339()
-        expires_at = datetime.now(timezone.utc).isoformat()
+        from datetime import timedelta
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=self.ttl_minutes)).isoformat()
         if self.dry_run:
             logger.info("[DRY-RUN] acquire lock: %s", self._lock_path)
             return True
@@ -278,12 +279,13 @@ class GcsLock:
         """刷新锁 lease。"""
         if self.dry_run or self._blob is None:
             return
+        from datetime import timedelta
         try:
             blob = self._blob.bucket.blob(self._blob.name)
             existing = blob.download_as_string()
             data = json.loads(existing)
             data["last_heartbeat_at"] = _now_rfc3339()
-            data["lease_expires_at"] = datetime.now(timezone.utc).isoformat()
+            data["lease_expires_at"] = (datetime.now(timezone.utc) + timedelta(minutes=self.ttl_minutes)).isoformat()
             blob.upload_from_string(
                 json.dumps(data, ensure_ascii=False),
                 content_type="application/json",
@@ -762,23 +764,22 @@ class ExperimentExecutor:
                 )
 
                 if not gcs_lock.acquire():
-                    if step_id == BACKTEST_STEP:
-                        self.bq_status.upsert_step_status(
-                            self.experiment, step_id, "cancelled",
-                            error_message="lock busy",
-                            attempt=1,
-                            params_json=self._params_json,
-                            manifest_path=self.manifest_path,
-                            manifest_hash=self.manifest_hash,
-                            scheduler_instance_id=self.scheduler_instance_id,
-                            log_dir=log_dir,
-                            force_replace=self.force_replace,
-                        )
-                        result["status"] = "cancelled"
-                        result["failed_step"] = step_id
-                        result["error"] = f"lock busy: {lock_key}"
-                        logger.warning("[%s] step %s lock busy, cancelled", self.experiment_id, step_id)
-                        return result
+                    self.bq_status.upsert_step_status(
+                        self.experiment, step_id, "cancelled",
+                        error_message="lock busy or acquire error",
+                        attempt=1,
+                        params_json=self._params_json,
+                        manifest_path=self.manifest_path,
+                        manifest_hash=self.manifest_hash,
+                        scheduler_instance_id=self.scheduler_instance_id,
+                        log_dir=log_dir,
+                        force_replace=self.force_replace,
+                    )
+                    result["status"] = "cancelled"
+                    result["failed_step"] = step_id
+                    result["error"] = f"lock busy or acquire error: {lock_key}"
+                    logger.warning("[%s] step %s lock busy, cancelled", self.experiment_id, step_id)
+                    return result
 
                 # 记录 running 状态
                 self.bq_status.upsert_step_status(
@@ -795,7 +796,19 @@ class ExperimentExecutor:
                 )
 
                 # 执行 step
-                success = self._execute_step(step_id, step_def, step_log_path)
+                import threading
+                heartbeat_stop = threading.Event()
+                heartbeat_thread = threading.Thread(
+                    target=self._heartbeat_loop,
+                    args=(gcs_lock, heartbeat_stop),
+                    daemon=True,
+                )
+                heartbeat_thread.start()
+                try:
+                    success = self._execute_step(step_id, step_def, step_log_path)
+                finally:
+                    heartbeat_stop.set()
+                    heartbeat_thread.join(timeout=5)
 
                 if success:
                     # 记录 succeeded
@@ -855,6 +868,16 @@ class ExperimentExecutor:
         else:
             logger.warning("[%s] no executor for step: %s", self.experiment_id, step_id)
             return False
+
+    def _heartbeat_loop(self, lock: GcsLock, stop_event):
+        """后台心跳线程：每 HEARTBEAT_INTERVAL_SECONDS 刷新锁 lease。"""
+        while not stop_event.is_set():
+            stop_event.wait(timeout=HEARTBEAT_INTERVAL_SECONDS)
+            if not stop_event.is_set():
+                try:
+                    lock.heartbeat()
+                except Exception as e:
+                    logger.warning("[%s] heartbeat error: %s", self.experiment_id, e)
 
     def _run_bq_script(self, script_path: str, log_path: str) -> bool:
         """运行 BigQuery SQL 脚本。"""
@@ -965,10 +988,14 @@ class ExperimentExecutor:
                 cmd.append("--skip-gcs-upload")
         elif "diagnose" in script_path:
             cmd.extend([
+                "--artifact-base-uri", f"gs://{DEFAULT_LOCK_BUCKET}/reports/strategy1",
+                "--local-mirror-root", "reports/strategy1",
                 "--prediction-run-id", prediction_run_id,
                 "--p-target-holdings", str(exp.get("target_holdings", 5)),
                 "--p-label-horizon", str(label_horizon),
             ])
+            if not self.force_replace:
+                cmd.append("--skip-gcs-upload")
 
         try:
             with open(log_path, "w", encoding="utf-8") as log_f:
@@ -998,15 +1025,27 @@ class ExperimentExecutor:
             return False
 
     def _inject_parameter(self, sql: str, param_name: str, value: str) -> str:
-        """替换 SQL 中的 DECLARE 语句的默认值。"""
+        """替换 SQL 中的 DECLARE 语句的默认值，保留类型和正确引用。"""
         import re
-        pattern = rf"(DECLARE\s+{param_name}\s+(?:STRING|INT64|FLOAT64|BOOL|DATE|TIMESTAMP)\s+(?:DEFAULT\s+)([^;]*?);)"
-        # 仅替换默认值部分
-        sql = re.sub(
-            pattern,
-            f"DECLARE {param_name} DEFAULT {value};",
-            sql,
-        )
+        pattern = rf"(DECLARE\s+{param_name}\s+)(STRING|INT64|FLOAT64|BOOL|DATE|TIMESTAMP)(\s+DEFAULT\s+)([^;]*?)(;)"
+        m = re.search(pattern, sql)
+        if m:
+            prefix = m.group(1)
+            dtype = m.group(2)
+            sep = m.group(3)
+            suffix = m.group(5)
+            if dtype == "STRING":
+                escaped = value.replace("'", "\\'")
+                new_decl = f"{prefix}{dtype}{sep}'{escaped}'{suffix}"
+            elif dtype == "BOOL":
+                new_decl = f"{prefix}{dtype}{sep}{value.upper()}{suffix}"
+            elif dtype == "DATE":
+                new_decl = f"{prefix}{dtype}{sep}DATE '{value}'{suffix}"
+            elif dtype == "TIMESTAMP":
+                new_decl = f"{prefix}{dtype}{sep}TIMESTAMP '{value}'{suffix}"
+            else:
+                new_decl = f"{prefix}{dtype}{sep}{value}{suffix}"
+            sql = sql[:m.start()] + new_decl + sql[m.end():]
         return sql
 
 

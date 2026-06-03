@@ -109,9 +109,10 @@ ASSERT (
 -- ============================================================
 -- portfolio-only 实验的 run_id 与 prediction_run_id 不同时，
 -- 其 prediction_run_id 对应的 registry selected 模型不应被改动。
--- 检查：prediction_run_id 对应的 registry 行 updated_at 是否早于
--- 所有引用该 prediction_run_id 的 portfolio-only 实验的 started_at。
--- 注：本 TEST 仅在有 portfolio-only 实验记录时触发。
+-- 断言：对每个 portfolio-only 实验的 prediction_run_id，
+-- registry 中必须存在 is_selected=TRUE 且 run_id 匹配的模型。
+-- 若 selected 模型缺失，说明 portfolio-only 实验误删了上游 registry。
+
 SELECT
   'QA-CONC-5' AS qa_id,
   rs.experiment_id,
@@ -127,15 +128,6 @@ ASSERT (
     FROM `data-aquarium.ashare_meta.strategy1_experiment_run_status` rs
     WHERE rs.experiment_type = 'portfolio_only'
       AND rs.run_id != rs.prediction_run_id
-      AND EXISTS (
-        SELECT 1
-        FROM `data-aquarium.ashare_ads.ads_model_registry` reg
-        WHERE JSON_VALUE(reg.model_params_json, '$.run_id') = rs.prediction_run_id
-          AND reg.is_selected = TRUE
-          -- 不依赖 updated_at 字段，仅检查 selected 状态是否仍为 TRUE
-          -- 若 registry 中 prediction_run_id 对应 selected 模型不存在或 is_selected=FALSE，
-          -- 则上层的 EXISTS 返回空，COUNT=0，ASSERT 失败
-      )
       AND NOT EXISTS (
         SELECT 1
         FROM `data-aquarium.ashare_ads.ads_model_registry` reg
@@ -143,7 +135,7 @@ ASSERT (
           AND reg.is_selected = TRUE
       )
   )) = 0
-) AS 'QA-CONC-5: portfolio-only 实验的 prediction_run_id 对应 registry selected 状态缺失';
+) AS 'QA-CONC-5: portfolio-only 实验的 prediction_run_id 对应 registry selected 模型缺失';
 
 -- ============================================================
 -- QA-CONC-6: ads_stock_candidate_daily 按 run_id 无串号
