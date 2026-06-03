@@ -116,11 +116,19 @@ bq query --location=asia-east2 --use_legacy_sql=false \
 - 源文件 schema 已匹配 contract 时跳过重写和发布
 - 临时 BQ 验证表名包含 `run_id` + `src_hash`，delete-then-create 保证并发安全
 - 验证查询对所有字段名加反引号（`` ` ``），避免 BigQuery 保留字冲突（如 `limit`）
+- 临时 staging 文件在 BQ 验证失败、backup/publish 失败或发布成功后都会尝试清理
 
 ## INT->FLOAT64 精度安全
 
-整型字段加宽到 FLOAT64 时，脚本检查非空最大值是否 < 2^53。
-超过阈值的字段标记为 `manual_review`，不自动写入。
+整型字段加宽到 FLOAT64 时，脚本用 `pyarrow.compute` 检查非空最小值和最大值的绝对值是否 < 2^53。
+超过阈值或精度检查无法计算的字段标记为 `manual_review`，不自动写入。
+
+## 发布阻断规则
+
+- cast 后行数变化：阻断发布，写入 `status=error`
+- cast 后任一字段 null count 变化：阻断发布，写入 `status=null_count_changed`
+- staging BigQuery 外部表验证失败：阻断发布，写入 `status=bq_validation_failed`
+- staging BigQuery 验证只检查列可读和行数一致，不把字段全 NULL 当作 schema 错误
 
 ## 回滚方式
 
@@ -160,6 +168,7 @@ with open('data_audit/reports/repair_manifest_repair_20260603_01.csv') as f:
 | `read_failed` | 原始文件无法读取 |
 | `staging_write_failed` | staging 写入失败 |
 | `bq_validation_failed` | BigQuery 临时外部表验证失败（publish 前阻断） |
+| `null_count_changed` | cast 后 null count 变化，阻断发布 |
 | `backup_failed` | 备份失败 |
 | `publish_failed` | 发布到正式路径失败 |
 | `error` | 其他错误（如行数变化） |

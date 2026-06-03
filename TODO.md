@@ -7,7 +7,7 @@
 ## P0 — 当前优先
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
-- [~] 修复 ODS 外部表 Parquet schema mismatch：PR 实现已提交（schema contract YAML × 10 endpoint + 修复/验证脚本 + QA SQL + README），已按 PR #43 review 修正 P0/full QA 的 `bq --parameter` 示例格式；P0 `stk_limit` 待在 BigQuery 实际执行修复并验证，再分批修其余 9 张 P1/P2/P3 表；默认从 GCS 原 Parquet 按 schema contract 重写，不从 API 重拉覆盖历史 raw
+- [~] 修复 ODS 外部表 Parquet schema mismatch：PR 实现已提交（schema contract YAML × 10 endpoint + 修复/验证脚本 + QA SQL + README），已按 PR #43 review 修正 QA 参数格式、INT->FLOAT64 fail-closed、null count 阻断、BQ staging 行数/列可读验证和 staging 清理；P0 `stk_limit` 待在 BigQuery 实际执行修复并验证，再分批修其余 9 张 P1/P2/P3 表；默认从 GCS 原 Parquet 按 schema contract 重写，不从 API 重拉覆盖历史 raw
 - [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：PR #37 已合并，实验参数化、manifest、对比报告脚本、horizon-aware 诊断/QA 和 portfolio-only `prediction_run_id` 复用预测源路径已进入 `main`；A0（`oq010_a0_n5_w20`）已跑通 01-12，诊断稳定性修复 PR 待合并后继续 A1-A3。阶段 A/B/C 基础路径为 `4 + 3 + 3 = 10`，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 全量笛卡尔积；必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核；`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md` 已定义同阶段实验并发调度与隔离方案，后续实现状态表、GCS 原子锁、调度器和并发 QA 后才允许安全并发
 
 ## P1 — 数据 / 特征扩展

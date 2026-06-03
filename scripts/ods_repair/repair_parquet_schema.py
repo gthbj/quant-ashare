@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import yaml
 from google.cloud import bigquery, storage
@@ -118,6 +119,14 @@ def upload_parquet_to_gcs(client: storage.Client, uri: str, table: pa.Table):
     blob.upload_from_string(buf.getvalue().to_pybytes())
 
 
+def delete_gcs_object_if_exists(client: storage.Client, uri: str):
+    bucket_name, blob_path = parse_gcs_uri(uri)
+    blob = client.bucket(bucket_name).blob(blob_path)
+    if blob.exists():
+        blob.delete()
+        logger.info(f"  Deleted staging object: {uri}")
+
+
 def copy_gcs_object(client: storage.Client, src_uri: str, dst_uri: str):
     src_bucket, src_blob = parse_gcs_uri(src_uri)
     dst_bucket, dst_blob = parse_gcs_uri(dst_uri)
@@ -189,12 +198,21 @@ def check_int_to_float_precision(table: pa.Table, field_name: str) -> Dict[str, 
     if len(non_null) == 0:
         return {"safe": True, "max_value": None, "reason": "all_null"}
     try:
-        max_val = pa.compute.max(non_null).as_py()
-    except Exception:
-        return {"safe": True, "max_value": None, "reason": "max_computation_failed"}
-    if max_val is not None and abs(max_val) >= MAX_SAFE_INT_FLOAT64:
-        return {"safe": False, "max_value": max_val, "reason": f"|{max_val}| >= 2^53"}
-    return {"safe": True, "max_value": max_val, "reason": "within_safe_range"}
+        min_val = pc.min(non_null).as_py()
+        max_val = pc.max(non_null).as_py()
+    except Exception as e:
+        return {
+            "safe": False,
+            "max_value": None,
+            "reason": f"min_max_computation_failed: {e}",
+        }
+    values = [v for v in (min_val, max_val) if v is not None]
+    if not values:
+        return {"safe": True, "max_value": None, "reason": "all_null"}
+    max_abs = max(abs(v) for v in values)
+    if max_abs >= MAX_SAFE_INT_FLOAT64:
+        return {"safe": False, "max_value": max_abs, "reason": f"|value| {max_abs} >= 2^53"}
+    return {"safe": True, "max_value": max_abs, "reason": "within_safe_range"}
 
 
 def cast_table_to_contract(
@@ -283,12 +301,17 @@ def write_manifest_row(manifest_path: Path, row: Dict[str, str], write_header: b
 # Per-file repair
 # ---------------------------------------------------------------------------
 
+def quote_bq_identifier(identifier: str) -> str:
+    return f"`{identifier.replace('`', '``')}`"
+
+
 def validate_staging_with_bigquery(
     bq_client: bigquery.Client,
     staging_uri: str,
     contract: Dict[str, Any],
     run_id: str,
     src_hash: str,
+    expected_row_count: int,
     temp_dataset: str = "ashare_meta",
 ) -> List[str]:
     """Create a temp external table from staging URI with explicit contract schema,
@@ -319,16 +342,23 @@ def validate_staging_with_bigquery(
         return [f"temp_table_create_failed: {e}"]
 
     business_cols = [f["field_name"] for f in contract["fields"]]
-    col_exprs = ", ".join([f"COUNT(`{c}`) AS `{c}_cnt`" for c in business_cols])
-    query = f"SELECT {col_exprs} FROM `{temp_table_id}`"
+    col_exprs = [
+        f"COUNTIF({quote_bq_identifier(c)} IS NULL OR {quote_bq_identifier(c)} IS NOT NULL) "
+        f"AS {quote_bq_identifier(c + '_read_rows')}"
+        for c in business_cols
+    ]
+    query = f"SELECT COUNT(*) AS total_rows, {', '.join(col_exprs)} FROM `{temp_table_id}`"
 
     try:
         result = bq_client.query(query).result()
         row = next(iter(result))
+        total_rows = row["total_rows"]
+        if total_rows != expected_row_count:
+            errors.append(f"bq_row_count_mismatch: expected={expected_row_count} actual={total_rows}")
         for c in business_cols:
-            cnt = row[f"{c}_cnt"]
-            if cnt is None:
-                errors.append(f"bq_col_unreadable: {c}")
+            read_rows = row[f"{c}_read_rows"]
+            if read_rows != total_rows:
+                errors.append(f"bq_col_readability_mismatch: {c} rows={read_rows} total={total_rows}")
     except Exception as e:
         errors.append(f"bq_query_failed: {e}")
 
@@ -462,6 +492,15 @@ def repair_file(
         logger.error(f"  Row count mismatch after cast!")
         return False
 
+    if null_mismatch:
+        row.update({
+            "status": "null_count_changed",
+            "error_summary": f"null_count_changed: before={json.dumps(null_counts)} after={json.dumps(new_null_counts)}",
+        })
+        write_manifest_row(manifest_path, row, write_header)
+        logger.error("  Null count changed after cast; blocking publish")
+        return False
+
     row["staging_row_count"] = str(casted_table.num_rows)
 
     try:
@@ -473,8 +512,16 @@ def repair_file(
         logger.error(f"  Staging write failed: {e}")
         return False
 
-    bq_errors = validate_staging_with_bigquery(bq_client, staging_uri, contract, run_id, src_hash)
+    bq_errors = validate_staging_with_bigquery(
+        bq_client,
+        staging_uri,
+        contract,
+        run_id,
+        src_hash,
+        source_row_count,
+    )
     if bq_errors:
+        delete_gcs_object_if_exists(client, staging_uri)
         row.update({
             "status": "bq_validation_failed",
             "error_summary": f"bq_validation: {json.dumps(bq_errors)}",
@@ -496,6 +543,7 @@ def repair_file(
                 backup_status = "existing"
                 logger.info(f"  Backup created by concurrent worker, continuing: {backup_uri}")
         except Exception as e:
+            delete_gcs_object_if_exists(client, staging_uri)
             row.update({"status": "backup_failed", "error_summary": str(e)})
             write_manifest_row(manifest_path, row, write_header)
             logger.error(f"  Backup failed: {e}")
@@ -506,6 +554,7 @@ def repair_file(
         copy_gcs_object(client, staging_uri, source_uri)
         published_uri = source_uri
     except Exception as e:
+        delete_gcs_object_if_exists(client, staging_uri)
         row.update({
             "status": "publish_failed",
             "error_summary": str(e),
@@ -522,8 +571,7 @@ def repair_file(
         "staging_row_count": str(casted_table.num_rows),
         "null_count_after": json.dumps(new_null_counts),
     })
-    if null_mismatch:
-        row["error_summary"] = "null_count_changed_see_null_count_after"
+    delete_gcs_object_if_exists(client, staging_uri)
     write_manifest_row(manifest_path, row, write_header)
     logger.info(f"  REPAIRED: {source_uri}")
     return True

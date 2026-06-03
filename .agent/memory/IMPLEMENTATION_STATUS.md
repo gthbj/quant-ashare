@@ -74,7 +74,7 @@ Last updated: 2026-06-03
 
 ## 进行中 / 部分（In Progress）
 
-- ODS Parquet schema repair 实现已启动：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 新增 10 个 endpoint 的 schema contract YAML（`configs/ods_schema_contracts/*.yml`）、修复脚本（`scripts/ods_repair/repair_parquet_schema.py`）、验证脚本（`scripts/ods_repair/validate_repair.py`）、QA SQL（`sql/qa/06_ods_parquet_schema_checks.sql`）和执行文档（`scripts/ods_repair/README.md`）。脚本支持幂等（manifest 跟踪）、backup write-once、INT->FLOAT64 `<2^53` 精度复核、dry-run 模式；PR #43 review 后已将 P0/full QA 命令示例修正为 BigQuery CLI `name:type:value` 参数格式（`priority_filter::P0` / `priority_filter::all`）。P0 `stk_limit` 待在 BigQuery 上实际执行修复并验证。
+- ODS Parquet schema repair 实现已启动：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 新增 10 个 endpoint 的 schema contract YAML（`configs/ods_schema_contracts/*.yml`）、修复脚本（`scripts/ods_repair/repair_parquet_schema.py`）、验证脚本（`scripts/ods_repair/validate_repair.py`）、QA SQL（`sql/qa/06_ods_parquet_schema_checks.sql`）和执行文档（`scripts/ods_repair/README.md`）。脚本支持幂等（manifest 跟踪）、backup write-once、INT->FLOAT64 `<2^53` fail-closed 精度复核、dry-run 模式；PR #43 review 后已修正 P0/full QA 命令示例格式、null count 变化阻断发布、BQ staging 行数/列可读验证和 staging 清理。P0 `stk_limit` 待在 BigQuery 上实际执行修复并验证。
 
 ## 未开始 / 未来（Not Started / Future）
 

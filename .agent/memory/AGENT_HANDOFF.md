@@ -18,7 +18,7 @@
 
 **下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run。2026-06-03 已配置本机 BigQuery Storage API 客户端并修复诊断脚本大 DataFrame 拉取不稳定问题；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，`10`/`12` QA 通过，诊断 artifact 已上传 GCS。下一步在诊断稳定性修复 PR 合并后继续 A1-A3；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%，实际入选不足时剩余现金保留；A1-A3/B0-B2 为组合层实验，复用预测源并只重跑 05-12。`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md` 已新增为待实现方案，要求先实现状态表、GCS 原子锁、lease/heartbeat、调度器、写隔离和并发 QA；实现前当前 runner 仍不允许并发执行。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线 PRD 待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；OQ-012 ODS Parquet schema 修复实现 PR #43 已提交，已按 review 修正 P0/full QA 的 `bq --parameter` 示例格式，待合并后在 BigQuery 实际执行 P0 `stk_limit` 修复并验证。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
+**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线 PRD 待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；OQ-012 ODS Parquet schema 修复实现 PR #43 已提交，已按 review 修正 QA 参数格式、INT->FLOAT64 fail-closed、null count 阻断、BQ staging 行数/列可读验证和 staging 清理，待合并后在 BigQuery 实际执行 P0 `stk_limit` 修复并验证。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
 
@@ -965,5 +965,63 @@ Run ID: —
 ### 已更新记忆文件
 
 - `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+- `TODO.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #43 / issuecomment-4612637333 / OQ-012
+
+### 已完成工作
+
+- 跟进 PR #43 review comment `issuecomment-4612637333`。
+- 将 `scripts/ods_repair/repair_parquet_schema.py` 的 INT->FLOAT64 精度护栏改为显式 `pyarrow.compute` min/max 计算；计算失败时 fail-closed，进入 `manual_review`。
+- 将 cast 后 null count 变化改为 `status=null_count_changed` 并阻断发布，不再标记 `ok`。
+- 补强 staging BigQuery 验证：使用显式 schema，检查 staging 行数与源行数一致，并用 NULL 谓词验证列可读，不再把非空计数当作可读性。
+- 修正 `sql/qa/06_ods_parquet_schema_checks.sql` 的可读性断言：列可读不要求字段非空，P0 `pre_close` 范围检查仍保留非空和值域约束。
+- 增加 staging 文件清理：BQ validation、backup、publish 失败或发布成功后尝试删除 staging 对象。
+- 同步 README、OQ-012 状态、TODO 和当前交接摘要。
+
+### 重要上下文
+
+- 本次未执行 BigQuery 修复、未写 GCS 生产 raw 数据，只修改 PR #43 分支代码/文档/记忆。
+- `staging -> BQ explicit schema validation -> write-once backup -> publish` 主流程保持不变。
+
+### 改动文件
+
+- `scripts/ods_repair/repair_parquet_schema.py`
+- `sql/qa/06_ods_parquet_schema_checks.sql`
+- `scripts/ods_repair/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/ods_repair/repair_parquet_schema.py`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 继续 review / 合并 PR #43。
+- 合并后先对 P0 `stk_limit` 执行 dry-run，再执行实际修复、`validate_repair.py` 和 P0 QA。
+
+### 已更新记忆文件
+
+- `IMPLEMENTATION_STATUS.md`
+- `OPEN_QUESTIONS.md`
 - `AGENT_HANDOFF.md`
 - `TODO.md`
