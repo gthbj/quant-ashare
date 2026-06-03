@@ -60,3 +60,4 @@
   - `02_train_bqml_logistic_candidates.sql` 用 `FOR ... EXECUTE IMMEDIATE 'CREATE OR REPLACE MODEL ...'` 顺序训练 5 个候选，单次执行约 5 分钟。**同一 run_id 的两个 02 执行重叠**会让后启动的那个撞上正在训练的同名模型，报 `Concurrent model update with retrain is not supported`（约 5 秒即失败）；先启动的那个其实仍在后台正常跑完。教训：一个 runner 步骤跑起来后，未确认结束前不要重复提交，CLI 返回报错≠后台 job 已停。
   - 事故经过：误判第一个 02「被拒绝/失败」而重跑，导致两执行重叠；随后又依据**过期的 `bq ls` 快照**把仍在运行的 job 正在训练的模型 `s1_bqml_20260601_01__l1_0_l2_0` `DROP` 掉，造成 job 完成后 `ads_model_registry` 有 5 条记录但只剩 4 个模型对象（registry 指向已删模型）。
   - 规则：① 动手 `DROP MODEL` / 删表前，先 `bq ls --jobs ... | grep RUNNING` 确认没有在跑的相关 job；② 用 `bq --location=asia-east2 wait <job_id> <秒>` 等 job 真正结束再做下一步；③ 修复 registry/模型不一致用 runner 自带幂等：以 `p_force_replace=TRUE` 重跑 02（会先 DELETE 同 run_id registry 再重建全部模型），不要手工拼 DDL 单独补建。
+- OQ-010 实验并发调度与隔离仅有 PRD 草案（`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`）时，现有 runner 仍按“不并发”约束执行；只有状态表、GCS 原子锁、lease/heartbeat、调度器、写隔离、单实验 QA 和并发串号 QA 实现并验收后，才允许同阶段 portfolio-only / retrain 实验按配置并发。
