@@ -5,7 +5,7 @@
 --   train: sample_trainable_default（含 label_entry_tradable / label_valid_5d，训练允许）
 --   valid/test: predict_live_available_mask（仅 t 日已知 universe/feature/history/valuation，不含未来标签）
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_preprocess_version STRING DEFAULT 'raw_v0';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';

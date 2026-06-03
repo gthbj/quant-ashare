@@ -2,9 +2,9 @@
 -- 12: 断言诊断 artifact 状态、manifest、关键指标非空和结论字段合法。
 -- 必须在 diagnose_model_quality.py 之后执行。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
-DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_20260602_01';
+DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_oriented_20260603_01';
 DECLARE p_train_start DATE DEFAULT DATE '2019-04-03';
 DECLARE p_train_end DATE DEFAULT DATE '2023-12-31';
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';

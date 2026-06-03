@@ -1420,7 +1420,7 @@ def render_html(summary: dict, model_info: dict, evidence: dict,
 <p><b>模式</b>: {html.escape(status_label)} {'| <b>模型</b>: ' + html.escape(ai_result.get('model', '')) if ai_result.get('model') else ''}</p>
 <div style="white-space:pre-wrap;background:#f9f9f9;padding:16px;border-radius:4px;font-size:0.95em">{html.escape(ai_result.get('analysis', ''))}</div>"""
 
-    model_metrics = html.escape(json.dumps(json.loads(model_info.get("metrics_json") or "{}"), indent=2))
+    model_metrics_pre = html.escape(json.dumps(json.loads(model_info.get("metrics_json") or "{}"), indent=2))
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1456,7 +1456,7 @@ pre{{background:#f6f6f6;padding:12px;overflow:auto;font-size:0.85em}}
 <p>口径: 每日持仓权重 × 股票当日收益的累计贡献（覆盖率 {cov.get('attribution_coverage_ratio', 0):.1%}）</p>
 {loss_table}
 {ai_html}
-<h2>模型选型</h2><pre>{model_metrics}</pre>
+<h2>模型选型</h2><pre>{model_metrics_pre}</pre>
 <h2>附件说明</h2>
 <table>
 <tr><th>文件</th><th>说明</th></tr>

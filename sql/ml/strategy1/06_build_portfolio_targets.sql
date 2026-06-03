@@ -1,7 +1,7 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
 -- 06: 从候选池生成等权目标组合，写 ads_portfolio_target_daily。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_horizon INT64 DEFAULT 5;
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
