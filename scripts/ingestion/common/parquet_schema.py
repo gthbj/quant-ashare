@@ -27,9 +27,37 @@ def build_parquet_schema(contract_fields: list[dict]) -> pa.Schema:
 
 
 def cast_rows(rows: list[dict], schema: pa.Schema) -> pa.Table:
-    """将原始行数据按 schema cast 为 PyArrow Table。"""
+    """将原始行数据按 schema cast 为 PyArrow Table。
+
+    对 FLOAT/INTEGER 字段做 None-safe 数值强转：
+    Tushare 偶尔给 FLOAT 返回字符串、给 INT 返回浮点。
+    """
     arrays = []
     for field in schema:
         values = [row.get(field.name) for row in rows]
+        if pa.types.is_floating(field.type):
+            values = [_safe_float(v) for v in values]
+        elif pa.types.is_integer(field.type):
+            values = [_safe_int(v) for v in values]
         arrays.append(pa.array(values, type=field.type))
     return pa.table(arrays, schema=schema)
+
+
+def _safe_float(v):
+    """None-safe float 转换，无法转换返回 None。"""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_int(v):
+    """None-safe int 转换，无法转换返回 None。"""
+    if v is None:
+        return None
+    try:
+        return int(float(v))
+    except (ValueError, TypeError):
+        return None
