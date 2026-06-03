@@ -6,12 +6,12 @@
 --
 -- Run P0 only (after repairing stk_limit):
 --   bq query --location=asia-east2 --use_legacy_sql=false \
---     --parameter='priority_filter:P0' \
+--     --parameter='priority_filter::P0' \
 --     < sql/qa/06_ods_parquet_schema_checks.sql
 --
 -- Run all (after all 10 tables repaired):
 --   bq query --location=asia-east2 --use_legacy_sql=false \
---     --parameter='priority_filter:all' \
+--     --parameter='priority_filter::all' \
 --     < sql/qa/06_ods_parquet_schema_checks.sql
 --
 -- Each ASSERT raises an error if the condition fails, blocking downstream

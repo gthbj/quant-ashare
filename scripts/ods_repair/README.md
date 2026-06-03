@@ -62,7 +62,7 @@ python scripts/ods_repair/validate_repair.py \
 
 ```bash
 bq query --location=asia-east2 --use_legacy_sql=false \
-  --parameter='priority_filter:P0' \
+  --parameter='priority_filter::P0' \
   < sql/qa/06_ods_parquet_schema_checks.sql
 ```
 
@@ -90,7 +90,7 @@ python scripts/ods_repair/repair_parquet_schema.py \
 
 ```bash
 bq query --location=asia-east2 --use_legacy_sql=false \
-  --parameter='priority_filter:all' \
+  --parameter='priority_filter::all' \
   < sql/qa/06_ods_parquet_schema_checks.sql
 ```
 

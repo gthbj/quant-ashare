@@ -18,7 +18,7 @@
 
 **下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run。2026-06-03 已配置本机 BigQuery Storage API 客户端并修复诊断脚本大 DataFrame 拉取不稳定问题；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，`10`/`12` QA 通过，诊断 artifact 已上传 GCS。下一步在诊断稳定性修复 PR 合并后继续 A1-A3；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%，实际入选不足时剩余现金保留；A1-A3/B0-B2 为组合层实验，复用预测源并只重跑 05-12。`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md` 已新增为待实现方案，要求先实现状态表、GCS 原子锁、lease/heartbeat、调度器、写隔离和并发 QA；实现前当前 runner 仍不允许并发执行。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线 PRD 待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；OQ-012 ODS Parquet schema 修复实现 PR 已提交，待 review/合并后在 BigQuery 实际执行 P0 `stk_limit` 修复并验证。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
+**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线 PRD 待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；OQ-012 ODS Parquet schema 修复实现 PR #43 已提交，已按 review 修正 P0/full QA 的 `bq --parameter` 示例格式，待合并后在 BigQuery 实际执行 P0 `stk_limit` 修复并验证。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
 
@@ -914,4 +914,56 @@ Run ID: —
 - `IMPLEMENTATION_STATUS.md`
 - `AGENT_HANDOFF.md`
 - `OPEN_QUESTIONS.md`
+- `TODO.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #43 / issuecomment-4612563694 / OQ-012
+
+### 已完成工作
+
+- 跟进 PR #43 review comment `issuecomment-4612563694`。
+- 将 `scripts/ods_repair/README.md` 中 P0/full BigQuery QA 示例的 `--parameter` 从 `priority_filter:P0` / `priority_filter:all` 修正为 BigQuery CLI `name:type:value` 格式下省略类型的 `priority_filter::P0` / `priority_filter::all`。
+- 同步 `sql/qa/06_ods_parquet_schema_checks.sql` 文件头注释中的运行命令。
+- 更新 OQ-012 实现状态、TODO 和当前交接摘要。
+
+### 重要上下文
+
+- 本次只修复命令示例与记忆/TODO，不改修复脚本逻辑、不执行 BigQuery 修复、不触碰 GCS 数据。
+- 本机 `bq version` 已可执行，版本为 `BigQuery CLI 2.1.31`；`bq help query` 显示 `--parameter` 格式为 `name:type:value`。
+
+### 改动文件
+
+- `scripts/ods_repair/README.md`
+- `sql/qa/06_ods_parquet_schema_checks.sql`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `bq version`
+- `bq help query`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 继续 review / 合并 PR #43。
+- 合并后先对 P0 `stk_limit` 执行 dry-run，再执行实际修复和 P0 QA。
+
+### 已更新记忆文件
+
+- `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
 - `TODO.md`
