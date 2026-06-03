@@ -30,7 +30,7 @@
 ## 近期完成
 
 - [x] 新增 OQ-005 GCP 数据流水线 PRD：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`，固化 Cloud Run Jobs + Dataform / BigQuery Studio pipeline + Cloud Composer 架构，限定每日生产采集只覆盖当前实际消费的 14 张 ODS，并已收敛为陈述性目标实现方案；PR #39 review 两条低优先级建议已补入正文
-- [x] 新增 ODS 外部表 Parquet schema 修复 PRD：`docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`，定义 10 张 schema mismatch 外部表的 GCS 原文件 schema-preserving rewrite、staging/backup/发布、QA 门禁和 ingestion 显式 cast 防复发方案
+- [x] 新增 ODS 外部表 Parquet schema 修复 PRD：`docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`，定义 10 张 schema mismatch 外部表的 GCS 原文件 schema-preserving rewrite、staging/backup/发布、QA 门禁和 ingestion 显式 cast 防复发方案；PR #40 review 建议已补入 backup write-once、临时表显式 schema 和 INT→FLOAT64 精度复核
 - [x] 新增 ODS/GCS 数据审查目录与提示词：`data_audit/ODS_GCS_DATA_AUDIT_PROMPT.md`、`data_audit/reports/`；审查范围限定 2019-01-01 及之后，提示词要求只审查不补数据、审查脚本由执行 Agent 自行编写并在请求/限速/并发等问题上自修正；已补官方文档链接、API 返回上限命中风险和按 endpoint/主题拆脚本规则
 - [x] 实现 OQ-010 首轮实验 runner 参数化（PR #37 已合并）：新增 `configs/strategy1/oq010_experiments_v0.json`、`scripts/strategy1/compare_oq010_experiments.py`；`sql/ml/strategy1/01-06/09-12` 支持 `experiment_id`、调仓频率、持股数/权重、`p_label_horizon`、`feature_set_id`；诊断脚本和 QA 已改为 horizon-aware，并支持 portfolio-only 实验用 `p_prediction_run_id` 复用模型/预测。已通过 Python/JSON/`git diff --check` 与 BigQuery dry-run，尚未端到端实跑实验
 - [x] 配置本机 BigQuery Storage API 客户端并修复 OQ-010 诊断稳定性：`data-aquarium` 已启用 `bigquerystorage.googleapis.com`，本机 conda 与默认 `python3` 均已安装 `google-cloud-bigquery-storage`；诊断脚本改为一次性拉取 valid/test 预测标签并将 feature exposure 改为 BigQuery 侧聚合，A0 诊断与 `12_qa_model_diagnosis_outputs.sql` 已通过

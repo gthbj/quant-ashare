@@ -1004,11 +1004,12 @@ Agent ID: Codex
 
 ### 决策
 
-1. ODS Parquet schema mismatch 的默认修复路径为 schema contract → GCS 原 Parquet 读取 → 显式 cast → staging → 临时 external table 验证 → backup → 发布正式 prefix → 正式 ODS QA。
+1. ODS Parquet schema mismatch 的默认修复路径为 schema contract → GCS 原 Parquet 读取 → 显式 cast → staging → 临时 external table 显式 schema 验证 → write-once backup → 发布正式 prefix → 正式 ODS QA。
 2. 修复过程只改变 Parquet 物理 schema，不改变业务值口径、不补缺数、不创建伪空 Parquet。
 3. API 重拉只作为原文件损坏、缺失、行数无法复原或 owner 明确要求的补救路径，不作为默认修复方式。
 4. 当前 P0 源表 `ods_tushare_stk_limit` 优先修复；其余 9 张表按 P1/P2/P3 分批修复。
 5. ingestion / Parquet 生成侧必须按同一 schema contract 显式 cast，防止新增分区再次出现类型漂移。
+6. 已匹配 contract 的文件应标记为 `ok` 并跳过重写 / 发布；整数物理类型加宽到 `FLOAT64` 时必须确认字段量级低于 `2^53`，否则进入 `manual_review`。
 
 ### 理由
 
@@ -1016,7 +1017,7 @@ Agent ID: Codex
 
 ### 影响
 
-`docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 定义后续实现产物：schema contract、repair script、validate script、`sql/qa/06_ods_parquet_schema_checks.sql` 和修复报告。`KNOWN_CONSTRAINTS.md` 已写入该修复边界。后续任何 raw schema 修复 PR 不应默认用当前 API 快照覆盖历史 GCS raw；若触发 API 重拉补救路径，必须单独记录请求参数、row limit 命中状态、分区范围和与原文件差异。
+`docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 定义后续实现产物：schema contract、repair script、validate script、`sql/qa/06_ods_parquet_schema_checks.sql` 和修复报告。`KNOWN_CONSTRAINTS.md` 已写入该修复边界。后续任何 raw schema 修复 PR 不应默认用当前 API 快照覆盖历史 GCS raw；若触发 API 重拉补救路径，必须单独记录请求参数、row limit 命中状态、分区范围和与原文件差异。实现脚本必须保证 backup write-once 和重复执行幂等。
 
 ### 备选方案
 

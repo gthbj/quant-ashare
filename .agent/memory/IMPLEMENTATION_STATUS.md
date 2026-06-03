@@ -18,6 +18,7 @@ Last updated: 2026-06-03
 - 新增 ODS/GCS 数据审查目录：`data_audit/ODS_GCS_DATA_AUDIT_PROMPT.md` 与 `data_audit/reports/`。提示词限定本次只审查 2019-01-01 及之后的数据，只读不补数据；审查 Agent 需自行编写审查脚本，并在请求、并发、限速、schema 检测或报告生成代码有问题时自行修正审查代码后继续；提示词已补 Tushare 官方文档链接、API 返回行数命中单次上限时的截断风险检查，以及按 endpoint/主题拆分脚本的代码组织规则。
 - 新增 OQ-005 GCP 数据流水线 PRD：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`。长期目标架构为 Cloud Run Jobs 采集 Tushare/Tinyshare 到 GCS Parquet，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 编排全流程；首批每日生产采集只覆盖当前实际消费的 14 张 ODS，当前未消费 endpoint 进入后续接入池；PRD 已按 owner 反馈收敛为只描述最终实现方式的陈述性方案，并已跟进 PR #39 review 两条低优先级建议：财务 empty-return 口径、Phase 1 Cloud Scheduler / Composer 触发入口。
 - 新增 ODS 外部表 Parquet schema 修复 PRD：`docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`。PRD 覆盖 10 张 2019+ schema mismatch 外部表，定义从 GCS 原 Parquet 按 schema contract 做 schema-preserving rewrite、staging/backup/发布、QA 门禁和 ingestion 显式 cast 防复发；当前 P0 源表 `ods_tushare_stk_limit` 优先修复。
+- 跟进 PR #40 review comment `issuecomment-4611909699`：PRD 已补 backup write-once / `ok` 文件跳过、临时 external table 显式 contract schema、INT→FLOAT64 `<2^53` 精度复核，并同步 ODS schema 修复决策与约束。
 - 表/字段注释规范敲定：内联 DDL / 后置 ALTER / 继承 ODS 描述三法。
 - 仓库初始化：`git init` + `.gitignore` + 首个 commit（`main`）。
 - 建立 `.agent/` Agent 工作记忆体系 + 根 `AGENTS.md` 读写协议；推送 GitHub（gthbj/quant-ashare）；加模型署名协议。

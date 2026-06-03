@@ -140,6 +140,8 @@ SAFE_CAST(down_limit AS FLOAT64) AS down_limit
 
 若字段当前 BQ schema 为 `INT64` 但实测 Parquet 出现 `DOUBLE`，应复核字段语义。若字段属于数量但存在小数或空分区导致自动推断漂移，应将 contract 升级为 `FLOAT64` 并同步更新 BigQuery 外部表 schema；该类变更需要单独列为 breaking schema decision。
 
+整数物理类型加宽到 `FLOAT64` 时，contract review 必须确认字段量级低于 `2^53`，保证整数值可被 IEEE-754 double 精确表示。对 `sz_daily_info.total_share/total_mv` 等大量级字段，应在 repair manifest 中记录修复前最大值、修复后最大值和是否低于 `2^53`；超过该阈值的字段不得自动转 `FLOAT64`，必须进入 `manual_review`。
+
 ## 8. 修复流程
 
 ### 8.1 Phase 0: 盘点与冻结
@@ -153,6 +155,7 @@ SAFE_CAST(down_limit AS FLOAT64) AS down_limit
    - `read_failed`
    - `missing_file`
    - `manual_review`
+5. `ok` 表示文件 schema 已匹配 contract，修复脚本必须跳过重写、跳过发布、只记录 inventory；该规则用于保证重复执行幂等。
 
 ### 8.2 Phase 1: P0 源表修复
 
@@ -162,7 +165,7 @@ SAFE_CAST(down_limit AS FLOAT64) AS down_limit
 2. 按 contract 将 `pre_close`, `up_limit`, `down_limit` 等业务字段写成稳定 `FLOAT64`。
 3. 写 staging prefix。
 4. 验证 staging 行数、schema、null count。
-5. 建临时 BigQuery external table 指向 staging。
+5. 建临时 BigQuery external table 指向 staging，临时表 schema 必须从 schema contract 显式生成，禁止使用 autodetect。
 6. 执行目标列读取：
 
 ```sql
@@ -223,13 +226,16 @@ gs://data-aquarium/a-share/tushare/repair_backup/run_id=<run_id>/api=<api>/endpo
 
 1. staging 校验通过后才能发布。
 2. 发布前必须完成 backup copy。
-3. repair manifest 必须记录：
+3. backup 对每个 `(endpoint, partition_date, source_uri)` 执行 write-once 语义：目标 backup object 已存在时不得覆盖，只记录 `backup_status='existing'` 并复用该 URI。重复修复或二次发布时，不能把已修复版本覆盖到原始备份路径。
+4. 若正式源文件当前 schema 已匹配 contract，发布流程必须跳过该文件，不创建新 backup、不覆盖正式 prefix。
+5. repair manifest 必须记录：
    - `run_id`
    - `endpoint`
    - `partition_date`
    - `source_uri`
    - `staging_uri`
    - `backup_uri`
+   - `backup_status`
    - `published_uri`
    - `source_row_count`
    - `staging_row_count`
@@ -239,7 +245,7 @@ gs://data-aquarium/a-share/tushare/repair_backup/run_id=<run_id>/api=<api>/endpo
    - `null_count_after`
    - `status`
    - `error_summary`
-4. 发布后正式 ODS 外部表 QA 失败时，按 backup 回滚。
+6. 发布后正式 ODS 外部表 QA 失败时，按 backup 回滚。
 
 ## 10. QA 门禁
 
@@ -256,7 +262,7 @@ gs://data-aquarium/a-share/tushare/repair_backup/run_id=<run_id>/api=<api>/endpo
 
 ### 10.2 BigQuery 临时外部表 QA
 
-staging 发布前，对 staging 建临时 external table，执行：
+staging 发布前，对 staging 建临时 external table。临时表 schema 必须直接取自 schema contract，不能使用 BigQuery autodetect；验证目标是确认 staging 文件能满足既定 contract，而不是让 BigQuery 重新推断类型。临时表创建后执行：
 
 - `SELECT COUNT(*)`；
 - 所有业务列 `COUNT(column)`；
@@ -324,7 +330,7 @@ API 重拉仅在以下场景启用：
 3. 每个 endpoint 有 schema contract。
 4. 每个修复 run 有 repair manifest、backup URI 和修复报告。
 5. 修复前后行数一致；null count 差异为 0 或有明确记录。
-6. 正式 GCS raw 路径发布前已完成 backup。
+6. 正式 GCS raw 路径发布前已完成 write-once backup；重复执行不会覆盖原始 backup。
 7. ingestion / Parquet 写入侧已接入 schema contract 和显式 cast。
 8. 新增或后续重跑的分区不会再次出现本次类型漂移。
 9. 修复过程未向 repo、日志、memory 或报告写入 token / key / 凭据。
@@ -334,8 +340,9 @@ API 重拉仅在以下场景启用：
 | 风险 | 影响 | 控制 |
 |---|---|---|
 | contract 类型定错 | 后续 DWD 口径错误 | contract review + 官方文档 + 字段语义复核 |
-| 覆盖正式文件后发现异常 | ODS 读取或下游失败 | backup prefix + repair manifest + 回滚流程 |
+| 覆盖正式文件后发现异常 | ODS 读取或下游失败 | write-once backup prefix + repair manifest + 回滚流程 |
 | pyarrow cast 引入值变化 | 数据值被改写 | 行数 / null count / 抽样值 / 非目标字段 hash 验证 |
+| 大整数加宽到 FLOAT64 后丢精度 | 股本 / 市值等字段值被改变 | contract review 检查 `<2^53`，超过阈值进入 manual_review |
 | API 重拉引入口径变化 | 历史 raw 与原始采集不一致 | API 重拉仅作补救路径，并独立记录差异 |
 | ingestion 未修复 | 新分区继续 mismatch | publish 前 schema check 阻断 |
 | P1/P2 表延后修复 | 后续特征开发被卡住 | P0 先修，P1/P2/P3 分批修，所有接入 PR 前强制 QA |
