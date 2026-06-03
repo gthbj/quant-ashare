@@ -16,6 +16,12 @@ Tushare 等数据源
 
 首批每日生产采集只覆盖当前 SQL 实际消费的 14 张 ODS：`daily`、`adj_factor`、`stk_limit`、`suspend_d`、`daily_basic`、`index_daily`、`index_dailybasic`、`stock_basic`、`trade_cal`、`namechange`、`fina_indicator`、`income`、`balancesheet`、`cashflow`。P1+ 当前未消费 endpoint 进入后续接入池；新增 endpoint 必须先更新采集 manifest、schema contract、单位契约和 QA。
 
+## ODS Raw Parquet Schema 修复约束
+
+2026-06-03 已确认 10 张 ODS 外部表存在 2019+ Parquet 物理类型 mismatch，方案文档为 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`。修复优先级：先修当前 P0 源表 `ods_tushare_stk_limit`，再分批修 P1/P2/P3 扩展表 `limit_list_d`、`moneyflow`、`margin_detail`、`dividend`、`margin`、`daily_info`、`sz_daily_info`、`fina_audit`、`stk_rewards`。
+
+修复路径固定为：schema contract → GCS 原 Parquet 读取 → 显式 cast → staging → 临时 external table 验证 → backup → 发布正式 prefix → 正式 ODS QA。默认不从 API 重拉覆盖历史 raw；API 重拉仅作为原文件损坏、缺失、行数无法复原或 owner 明确要求的补救路径。
+
 ## ODS 三类分区语义（建模地基，务必牢记）
 
 | 类 | 语义 | 例 | 处理方式 |

@@ -6,7 +6,7 @@ Last updated: 2026-06-03
 
 ## 当前状态
 
-项目处于**P0 DIM/DWD 已物化并通过 smoke QA，OQ-004/OQ-006/OQ-003 已实现并关闭，策略 1 DWS/ADS 与 BigQuery ML runner 已端到端跑通，OQ-010 交易成本 profile、中文报告与归因分析、GCS uploaded 模式、模型质量诊断、valid/test live-available 预测池口径、score orientation 校准均已实现并通过相关 QA；`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已作为 OQ-010 第一轮实验方案由 PR #35 合并进入 `main`，且 owner 已确认阶段 A/B/C 不做 `4 * 3 * 3` 全量笛卡尔积，基础路径为 `4 + 3 + 3 = 10` 个实验，包含阶段 D 为 12 个实验，必要时才补 A/B、A/C、B/C pairwise 或最终 `2 * 2 * 2` 保底复核；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，当前诊断稳定性修复 PR 待合并后继续 A1-A3**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案、策略 1 PRD、runner 设计与实现 PRD、OQ-003/OQ-004/OQ-006/OQ-010 子项 PRD、策略 1 中文报告与归因分析 PRD、策略 1 报告 GCS 上传运行手册、策略 1 模型质量诊断 PRD、策略 1 预测池口径修正 PRD、策略 1 分数方向校准 PRD、策略 1 首轮质量迭代实验 PRD，以及 OQ-005 GCP 数据流水线 PRD；PR #42 分支已实现 OQ-005 Phase 0 采集 manifest、14 张 schema contract、meta 表 DDL 与采集脚本 stub，并已合入 #44/#46 review 修复。下一步是在 BigQuery 上执行 OQ-010 第一轮对照实验的剩余阶段 A 组合实验，或继续实现 OQ-005 Cloud Run Jobs、Dataform P0 转换和 Composer DAG。
+项目处于**P0 DIM/DWD 已物化并通过 smoke QA，OQ-004/OQ-006/OQ-003 已实现并关闭，策略 1 DWS/ADS 与 BigQuery ML runner 已端到端跑通，OQ-010 交易成本 profile、中文报告与归因分析、GCS uploaded 模式、模型质量诊断、valid/test live-available 预测池口径、score orientation 校准均已实现并通过相关 QA；`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已作为 OQ-010 第一轮实验方案由 PR #35 合并进入 `main`，且 owner 已确认阶段 A/B/C 不做 `4 * 3 * 3` 全量笛卡尔积，基础路径为 `4 + 3 + 3 = 10` 个实验，包含阶段 D 为 12 个实验，必要时才补 A/B、A/C、B/C pairwise 或最终 `2 * 2 * 2` 保底复核；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，当前诊断稳定性修复 PR 待合并后继续 A1-A3；OQ-010 同阶段实验并发调度与隔离 PRD 已新增为待实现方案，当前 runner 仍需遵守未实现隔离前不并发约束**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案、策略 1 PRD、runner 设计与实现 PRD、OQ-003/OQ-004/OQ-006/OQ-010 子项 PRD、策略 1 中文报告与归因分析 PRD、策略 1 报告 GCS 上传运行手册、策略 1 模型质量诊断 PRD、策略 1 预测池口径修正 PRD、策略 1 分数方向校准 PRD、策略 1 首轮质量迭代实验 PRD、策略 1 实验并发调度与隔离 PRD、OQ-005 GCP 数据流水线 PRD 与 Phase 0 实现分支，以及 ODS 外部表 Parquet schema 修复 PRD。下一步是在 BigQuery 上执行 OQ-010 第一轮对照实验的剩余阶段 A 组合实验、完成 GCP 流水线 Cloud Run Jobs / Dataform / Composer 链路，或按 schema 修复 PRD 先修 `ods_tushare_stk_limit`。
 
 ## 已完成（Completed）
 
@@ -17,7 +17,9 @@ Last updated: 2026-06-03
 - 2019 前数据范围敲定：财务/事件 `partition_date >= '20170101'`；行情 DWD/DWS 写 `trade_date >= 2019-01-01`、构建时按最大窗口读取 2018 lookback buffer；维度/日历取最新快照或全量历史事件。
 - 新增 ODS/GCS 数据审查目录：`data_audit/ODS_GCS_DATA_AUDIT_PROMPT.md` 与 `data_audit/reports/`。提示词限定本次只审查 2019-01-01 及之后的数据，只读不补数据；审查 Agent 需自行编写审查脚本，并在请求、并发、限速、schema 检测或报告生成代码有问题时自行修正审查代码后继续；提示词已补 Tushare 官方文档链接、API 返回行数命中单次上限时的截断风险检查，以及按 endpoint/主题拆分脚本的代码组织规则。
 - 新增 OQ-005 GCP 数据流水线 PRD：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`。长期目标架构为 Cloud Run Jobs 采集 Tushare/Tinyshare 到 GCS Parquet，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 编排全流程；首批每日生产采集只覆盖当前实际消费的 14 张 ODS，当前未消费 endpoint 进入后续接入池；PRD 已按 owner 反馈收敛为只描述最终实现方式的陈述性方案，并已跟进 PR #39 review 两条低优先级建议：财务 empty-return 口径、Phase 1 Cloud Scheduler / Composer 触发入口。
-- OQ-005 Phase 0 实现分支已整合：PR #44 已合入 #42 分支；#46 的 GCS 路径、API 行数上限、Parquet cast、日志脱敏修复已手动合入 #42 分支，并追加修复 `partition_endpoint` 路径契约与参数化日志脱敏泄露问题。当前仍未实现实际 Cloud Run Jobs / Dataform / Composer 执行链路。
+- OQ-005 Phase 0 实现分支已整合 review 修复：PR #42 分支新增首批 14 张当前消费 ODS 的采集 manifest、schema contract、meta 表 DDL、通用 API client / Parquet schema / manifest / logging 模块和每日采集脚本 stub；PR #44 已合入 #42 分支，PR #46 的 GCS 路径、API 行数上限、Parquet cast、日志脱敏修复已手动合入，并追加修复 `partition_endpoint` 路径契约与参数化日志脱敏泄露问题。OQ-005 仍未关闭，后续需实现 Cloud Run Jobs、Dataform P0 转换和 Composer DAG。
+- 新增 ODS 外部表 Parquet schema 修复 PRD：`docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`。PRD 覆盖 10 张 2019+ schema mismatch 外部表，定义从 GCS 原 Parquet 按 schema contract 做 schema-preserving rewrite、staging/backup/发布、QA 门禁和 ingestion 显式 cast 防复发；当前 P0 源表 `ods_tushare_stk_limit` 优先修复。
+- 跟进 PR #40 review comment `issuecomment-4611909699`：PRD 已补 backup write-once / `ok` 文件跳过、临时 external table 显式 contract schema、INT→FLOAT64 `<2^53` 精度复核，并同步 ODS schema 修复决策与约束。
 - 表/字段注释规范敲定：内联 DDL / 后置 ALTER / 继承 ODS 描述三法。
 - 仓库初始化：`git init` + `.gitignore` + 首个 commit（`main`）。
 - 建立 `.agent/` Agent 工作记忆体系 + 根 `AGENTS.md` 读写协议；推送 GitHub（gthbj/quant-ashare）；加模型署名协议。
@@ -62,6 +64,7 @@ Last updated: 2026-06-03
 - 工作记忆瘦身完成：旧交接归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md`；已关闭问题迁移到 `.agent/memory/archive/CLOSED_QUESTIONS.md`；`OPEN_QUESTIONS.md` 仅保留 open 项；`UPDATE_PROTOCOL.md` 增加只读任务免追加交接和归档规则。
 - `TODO.md` 已整理为下一步可执行清单：已移除 PR #13 / OQ-003 待合并旧项和 GCS uploaded 已完成项，当前保留 `dws_market_state_daily`、OQ-010 策略质量、P1 扩展与工程/调度待办；开放问题继续以 `OPEN_QUESTIONS.md` 为唯一来源。
 - OQ-010 首轮实验 runner 实现已由 PR #37 合并进入 `main`：新增 `configs/strategy1/oq010_experiments_v0.json` 和 `scripts/strategy1/compare_oq010_experiments.py`；`sql/ml/strategy1/01-06/09-12` 支持实验身份、调仓频率、目标持股/权重、`p_label_horizon`、`feature_set_id` 和 portfolio-only `p_prediction_run_id`；`diagnose_model_quality.py`、`11`、`12` 改为 horizon-aware 且可用预测源 run 诊断组合层实验；`sql/dws/06_dws_stock_sample_daily.sql` 暴露 10d/20d 标签字段。验证：JSON 校验、Python `py_compile`、`git diff --check`、BigQuery dry-run（`sql/dws/06`、`sql/ml/strategy1/01-06/09-12`）均通过。尚未执行端到端实验。
+- 新增 OQ-010 策略 1 实验并发调度与隔离 PRD：`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`。PRD 定义同阶段 portfolio-only / retrain 实验安全并发所需的状态表、GCS 原子锁、lease/heartbeat、调度器、runner 参数化和写隔离、08 ledger 并发边界、单实验 QA 和并发串号 QA。本次只写 PRD，未改 SQL runner、未跑 BigQuery、未触碰正在运行的 A3 实验。
 
 ## 进行中 / 部分（In Progress）
 
@@ -73,10 +76,11 @@ Last updated: 2026-06-03
 ## 未开始 / 未来（Not Started / Future）
 
 - `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置。
+- ODS Parquet schema repair 实现：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 新增 schema contract、修复脚本、QA SQL 和修复报告，先修 `ods_tushare_stk_limit`，再分批修其余 9 张表。
 - 「从 ODS 继承字段描述」的脚本（bq show → 映射 → bq update）。
 - 增量调度（dbt 或 Airflow + SQL）、数据质量断言。
 - P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily` 已落地物化（OQ-003 默认合并报表口径）；`dws_market_state_daily` 仍待补。三大报表单季 `q_*` 派生延后 P1。
-- 策略 1 runner v0 模型质量提升（独立于管线）：历史 raw/source run（`s1_bqml_livepool_20260602_01`）valid rank_ic≈-0.10（反向预测）、回测 NAV≈0.02，诊断结论为 `signal_inverted`。当前 oriented run（`s1_bqml_livepool_oriented_20260603_01`）已通过 score orientation 校准修正方向，valid/test RankIC 转正，shadow backtest total_return=0.2787。诊断 QA（`12`）已全部通过，live-available 预测池口径（PR #29/30）和 score orientation 校准（PR #32）已实现并验证。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并；OQ-010 首轮实验 runner 参数化、manifest、portfolio-only `prediction_run_id` 复用预测源、对比报告脚本和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并 dry-run 通过。A0 已端到端跑通，A1-A3 待诊断稳定性修复合并后继续。阶段 A/B/C 基础执行不做全量笛卡尔积：先固定 weekly + 5d 跑 4 个持股/权重，再用 A 晋级组合跑 3 个频率，再用 A/B 晋级参数跑 3 个 horizon；阶段 D 只接晋级参数跑 2 个特征集合。`30/5%` 表示目标持股 30 只、上限 5%，等权目标约 3.33%，实际入选不足时剩余现金保留。A0 作为 5d 基线复现检查可重训，A1-A3/B0-B2 仅重跑 05-12 并复用预测源。如需要再补 A/B、A/C、B/C pairwise 小型交互复核，最终 `2 * 2 * 2` 仅作条件触发保底复核。
+- 策略 1 runner v0 模型质量提升（独立于管线）：历史 raw/source run（`s1_bqml_livepool_20260602_01`）valid rank_ic≈-0.10（反向预测）、回测 NAV≈0.02，诊断结论为 `signal_inverted`。当前 oriented run（`s1_bqml_livepool_oriented_20260603_01`）已通过 score orientation 校准修正方向，valid/test RankIC 转正，shadow backtest total_return=0.2787。诊断 QA（`12`）已全部通过，live-available 预测池口径（PR #29/30）和 score orientation 校准（PR #32）已实现并验证。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并；OQ-010 首轮实验 runner 参数化、manifest、portfolio-only `prediction_run_id` 复用预测源、对比报告脚本和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并 dry-run 通过。A0 已端到端跑通，A1-A3 待诊断稳定性修复合并后继续。阶段 A/B/C 基础执行不做全量笛卡尔积：先固定 weekly + 5d 跑 4 个持股/权重，再用 A 晋级组合跑 3 个频率，再用 A/B 晋级参数跑 3 个 horizon；阶段 D 只接晋级参数跑 2 个特征集合。`30/5%` 表示目标持股 30 只、上限 5%，等权目标约 3.33%，实际入选不足时剩余现金保留。A0 作为 5d 基线复现检查可重训，A1-A3/B0-B2 仅重跑 05-12 并复用预测源。如需要再补 A/B、A/C、B/C pairwise 小型交互复核，最终 `2 * 2 * 2` 仅作条件触发保底复核。并发执行需等 `PRD_20260603_05_策略1实验并发调度与隔离.md` 的状态表、GCS 原子锁、lease/heartbeat、调度器和 QA 实现后再启用。
 - lookback-capable 价格构建输入：当前策略 1 DWS 只读取最终 DWD/DIM，不直接读 ODS；由于最终 DWD 价格表不落 2018 buffer 行，2019 年初 60 日价格窗口用 `has_full_history_60d=FALSE` 显式标记并由默认样本掩码剔除。若要求 2019-01 起 60 日窗口完整，需要补专用 lookback 构建输入或调整 DWD/DWS 构建方式。
 - P1+ 资金面/事件/行业族 DWD。
 - `dim_stock_sw_industry_hist` / `dim_stock_ci_industry_hist` 建表 SQL 与 QA（`out_date` 边界、区间重叠/缺口、2019+ 覆盖率）。
