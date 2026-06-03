@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-`quant-ashare` 已完成 P0 DIM/DWD 物化、OQ-004 指数基准口径、策略 1 DWS/ADS、策略 1 BigQuery ML runner 端到端实跑、OQ-006 单位契约、OQ-003 财务三表 DWD/DWS、OQ-010 交易成本 profile、策略 1 中文报告与归因分析、策略 1 报告 GCS uploaded 模式、策略 1 模型质量诊断 PRD 及实现、策略 1 valid/test live-available 预测池口径修正 PRD 及实现，以及策略 1 分数方向校准 PRD 及实现。2026-06-02 已创建 `gs://ashare-artifacts`（`ASIA-EAST2`）、配置本机 ADC（quota project=`data-aquarium`）、去掉 `--skip-gcs-upload` 重跑 `render_report.py`，ADS 已回写 `report_upload_status=uploaded` 和真实 `report_uri`，`sql/ml/strategy1/10_qa_runner_outputs.sql` 全部通过。诊断 QA（`12`）已全部通过：PR #27/28 修复 `split_tag` 歧义（QA-DIAG-6 valid/test 日数校验通过），PR #29/30 实现 live-available 预测池口径（QA-POOL-1~6 全部通过），PR #32 实现 score orientation 校准（QA-ORIENT-DIAG-1 通过）。2026-06-03 已完成 livepool reverse-score shadow run（`s1_bqml_livepool_revscore_20260603_01`），验证反向后的 valid/test RankIC 转正且回测从亏损转为正收益（total_return=0.2787）；oriented run（`s1_bqml_livepool_oriented_20260603_01`）的 `12` QA 全部通过。已新增 `data_audit/` ODS/GCS 数据审查入口和 `data_audit/reports/` 报告目录，提示词限定本次只审查 2019-01-01 及之后的数据、只读不补数据，并要求审查 Agent 自行编写和维护审查脚本；提示词已补 Tushare 官方文档链接、API 返回行数打满单次上限时的截断风险检查，以及按 endpoint/主题拆脚本规则。OQ-005 GCP 数据流水线 PRD 已新增并按 owner 反馈收敛为陈述性目标实现方案：长期方案为 Cloud Run Jobs 采集 Tushare/Tinyshare→GCS Parquet，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 做全流程编排；首批每日生产采集只覆盖当前实际消费的 14 张 ODS，当前未消费 endpoint 进入后续接入池；PR #39 review 两条低优先级建议已补入财务 empty-return 口径和 Phase 1 Cloud Scheduler / Composer 触发入口。核心规范保持：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属时点区间、血缘与版本字段、按月分区 + 聚簇；当前阶段先把 2019+ 数据做正确，2019 年以前正式样本/明细是下一步。
+`quant-ashare` 已完成 P0 DIM/DWD 物化、OQ-004 指数基准口径、策略 1 DWS/ADS、策略 1 BigQuery ML runner 端到端实跑、OQ-006 单位契约、OQ-003 财务三表 DWD/DWS、OQ-010 交易成本 profile、策略 1 中文报告与归因分析、策略 1 报告 GCS uploaded 模式、策略 1 模型质量诊断 PRD 及实现、策略 1 valid/test live-available 预测池口径修正 PRD 及实现，以及策略 1 分数方向校准 PRD 及实现。2026-06-02 已创建 `gs://ashare-artifacts`（`ASIA-EAST2`）、配置本机 ADC（quota project=`data-aquarium`）、去掉 `--skip-gcs-upload` 重跑 `render_report.py`，ADS 已回写 `report_upload_status=uploaded` 和真实 `report_uri`，`sql/ml/strategy1/10_qa_runner_outputs.sql` 全部通过。诊断 QA（`12`）已全部通过：PR #27/28 修复 `split_tag` 歧义（QA-DIAG-6 valid/test 日数校验通过），PR #29/30 实现 live-available 预测池口径（QA-POOL-1~6 全部通过），PR #32 实现 score orientation 校准（QA-ORIENT-DIAG-1 通过）。2026-06-03 已完成 livepool reverse-score shadow run（`s1_bqml_livepool_revscore_20260603_01`），验证反向后的 valid/test RankIC 转正且回测从亏损转为正收益（total_return=0.2787）；oriented run（`s1_bqml_livepool_oriented_20260603_01`）的 `12` QA 全部通过。已新增 `data_audit/` ODS/GCS 数据审查入口和 `data_audit/reports/` 报告目录，提示词限定本次只审查 2019-01-01 及之后的数据、只读不补数据，并要求审查 Agent 自行编写和维护审查脚本；提示词已补 Tushare 官方文档链接、API 返回行数打满单次上限时的截断风险检查，以及按 endpoint/主题拆脚本规则。OQ-005 GCP 数据流水线 PRD 已新增并按 owner 反馈收敛为陈述性目标实现方案：长期方案为 Cloud Run Jobs 采集 Tushare/Tinyshare→GCS Parquet，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 做全流程编排；首批每日生产采集只覆盖当前实际消费的 14 张 ODS，当前未消费 endpoint 进入后续接入池；PR #39 review 两条低优先级建议已补入财务 empty-return 口径和 Phase 1 Cloud Scheduler / Composer 触发入口。已新增 OQ-012 ODS 外部表 Parquet schema 修复 PRD：10 张 2019+ schema mismatch 外部表按 GCS 原文件 schema-preserving rewrite 方案修复，API 重拉只作补救路径，当前 P0 源表 `ods_tushare_stk_limit` 优先；PR #40 review 建议已补入 backup write-once / `ok` 文件幂等跳过、临时 external table 显式 contract schema、INT→FLOAT64 `<2^53` 精度复核。核心规范保持：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属时点区间、血缘与版本字段、按月分区 + 聚簇；当前阶段先把 2019+ 数据做正确，2019 年以前正式样本/明细是下一步。
 
 **已物化表**：`data-aquarium.ashare_meta` 下 `ods_field_unit_map`；`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`、`dim_index`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`，以及 OQ-003 财务三大报表 `dwd_fin_income`/`dwd_fin_balancesheet`/`dwd_fin_cashflow` 及各自 `_latest`（PR #13）；`data-aquarium.ashare_dws` 下策略 1 六表（universe、价格特征、估值特征、标签、特征宽表、样本表）和 `dws_stock_feature_fin_daily`（默认合并口径 PIT 财务特征，PR #13）；`data-aquarium.ashare_ads` 下 11 张训练/预测/组合/回测/监控契约表。PR #9 合并后的 `dim_stock` 依赖链已在 2026-06-02 重建：`dim_stock`、`dwd_stock_eod_price`、策略 1 DWS 六表和 ADS 契约表均已刷新，`sql/metadata/01_p0_table_column_descriptions.sql` 已执行，`sql/qa/01_p0_smoke_checks.sql` 与 `sql/qa/02_strategy1_dws_ads_checks.sql` 均通过；`sql/qa/03_oq004_index_checks.sql` 近期通过。二轮评审发现已修复：盘中临停不再误标全天停牌，财务 latest 改为 `update_flag DESC` 优先。P0 DIM/DWD 字段说明缺失数为 0。
 
@@ -18,7 +18,7 @@
 
 **下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run。2026-06-03 已配置本机 BigQuery Storage API 客户端并修复诊断脚本大 DataFrame 拉取不稳定问题；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，`10`/`12` QA 通过，诊断 artifact 已上传 GCS。下一步在诊断稳定性修复 PR 合并后继续 A1-A3；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%，实际入选不足时剩余现金保留；A1-A3/B0-B2 为组合层实验，复用预测源并只重跑 05-12。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线 PRD 待 review/合并与实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
+**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线 PRD 待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；按 OQ-012 PRD 实现 ODS Parquet schema 修复。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
 
@@ -31,6 +31,125 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #40 / issuecomment-4611909699 / OQ-012
+
+### 已完成工作
+
+- 跟进 PR #40 review comment `issuecomment-4611909699` 的 1 个 P2 和 2 个 P3 建议。
+- 在 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 补充 backup write-once 规则：每个 `(endpoint, partition_date, source_uri)` 已存在 backup 时不得覆盖，重复执行只记录 `backup_status='existing'`。
+- 在 Phase 0 / 发布规则中补充 `ok` 文件跳过重写、跳过发布，保证修复脚本幂等。
+- 在临时 BigQuery external table QA 中补充 schema 必须显式取自 schema contract，禁止 autodetect。
+- 在类型策略 / 风险控制中补充 INT→FLOAT64 仅对 `<2^53` 整数无损，超阈值字段进入 `manual_review`。
+- 同步 `DECISION_LOG.md`、`KNOWN_CONSTRAINTS.md`、`IMPLEMENTATION_STATUS.md`、`TODO.md` 和当前交接摘要。
+
+### 重要上下文
+
+- PR #40 review 结论为可以合并，无阻断项。
+- 本次仍只修订 PRD 和记忆/TODO，未修改 GCS、BigQuery ODS 外部表或生产数据。
+
+### 改动文件
+
+- `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+- `git diff --cached --check`
+- conflict marker / credential keyword scan
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 合并 PR #40。
+- 合并后实现 schema contract、repair manifest 和 `ods_tushare_stk_limit` staging 修复验证。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `AGENT_HANDOFF.md`
+- `DECISION_LOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `KNOWN_CONSTRAINTS.md`
+
+---
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: OQ-012 / ODS 外部表 Parquet schema 修复 PRD
+
+### 已完成工作
+
+- 新建 worktree `/Users/luna/Desktop/git/quant-ashare-ods-parquet-schema-repair-prd` 和分支 `codex/prd-ods-parquet-schema-repair`。
+- 新增 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`，定义 10 张 ODS 外部表 Parquet 物理类型 mismatch 的修复方案。
+- PRD 明确默认修复路径为 schema contract → GCS 原 Parquet 读取 → 显式 cast → staging → 临时 external table 验证 → backup → 发布正式 prefix → 正式 ODS QA。
+- PRD 明确 API 重拉只作为原文件损坏、缺失、行数无法复原或 owner 明确要求的补救路径，不作为默认修复方式。
+- PRD 明确优先修当前 P0 源表 `ods_tushare_stk_limit`，再分批修 `limit_list_d`、`moneyflow`、`margin_detail`、`dividend`、`margin`、`daily_info`、`sz_daily_info`、`fina_audit`、`stk_rewards`。
+- 新增 `DECISION-20260603-03` 和 OQ-012，更新 `KNOWN_CONSTRAINTS.md`、`ARCHITECTURE_MEMORY.md`、`PROJECT_CONTEXT.md`、`IMPLEMENTATION_STATUS.md`、`MEMORY_INDEX.md` 和 `TODO.md`。
+
+### 重要上下文
+
+- 本次只写 PRD 和记忆/TODO，未修改 GCS、BigQuery ODS 外部表或生产数据。
+- 10 张表中当前策略相关的只有 `ods_tushare_stk_limit`；现有 DWD 只读取 `up_limit/down_limit`，但 `pre_close` mismatch 仍需修复，避免未来全字段读取或扩展失败。
+- API 6000 行上限和值级差异问题继续按数据审查流程复核，不纳入本 PRD 的默认修复输入。
+
+### 改动文件
+
+- `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`
+- `TODO.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- Review 并合并本 PRD。
+- 合并后先实现 schema contract、repair manifest 和 `ods_tushare_stk_limit` 的 staging 修复验证。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `MEMORY_INDEX.md`
+- `PROJECT_CONTEXT.md`
+- `ARCHITECTURE_MEMORY.md`
+- `OPEN_QUESTIONS.md`
+- `IMPLEMENTATION_STATUS.md`
+- `DECISION_LOG.md`
+- `KNOWN_CONSTRAINTS.md`
+- `AGENT_HANDOFF.md`
+
+---
 
 日期: 2026-06-03
 Agent ID: Codex
