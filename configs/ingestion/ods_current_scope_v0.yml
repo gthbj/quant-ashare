@@ -1,223 +1,208 @@
-# ODS 生产采集 manifest — 当前实际消费 scope (Phase 0)
-# 每日 DAG 只调度 enabled=true 的 endpoint。
-# 新增 endpoint 必须先更新本 manifest、单位契约和 QA，再启用采集。
-#
-# 文档维护：mimo-v2.5-pro（最近更新 2026-06-03）
-
 version: 0
 name: ods_current_scope_v0
 description: 当前 SQL 实际消费的 14 个 ODS endpoint 生产采集清单
-
 defaults:
   source_system: tushare
   enabled: true
   schema_contract_dir: configs/ingestion/schema_contracts
-  gcs_bucket: ashare-raw  # 待 owner 确认
-  gcs_prefix_template: "tushare/{endpoint}/partition_date={partition_date}/"
-
+  gcs_bucket: data-aquarium
+  gcs_prefix_template: a-share/tushare/raw_data/api={api}/endpoint={endpoint}/partition_date={partition_date}/
 endpoints:
-  # ── 日频行情 ──
-  - endpoint: daily
-    ods_table: ashare_ods.ods_tushare_daily
-    cadence: trade_day_daily
-    business_date_field: trade_date
-    partition_date_semantics: business_date
-    unit_contract_required: false
-    current_consumer:
-      - dwd_stock_eod_price
-      - dim_stock
-    qa_required:
-      - p0_smoke
-    notes: 个股日频行情（开高低收、涨跌幅、成交量额）
-
-  - endpoint: adj_factor
-    ods_table: ashare_ods.ods_tushare_adj_factor
-    cadence: trade_day_daily
-    business_date_field: trade_date
-    partition_date_semantics: business_date
-    unit_contract_required: false
-    current_consumer:
-      - dwd_stock_eod_price
-    qa_required:
-      - p0_smoke
-    notes: 复权因子
-
-  - endpoint: stk_limit
-    ods_table: ashare_ods.ods_tushare_stk_limit
-    cadence: trade_day_daily
-    business_date_field: trade_date
-    partition_date_semantics: business_date
-    unit_contract_required: false
-    current_consumer:
-      - dwd_stock_eod_price
-    qa_required:
-      - p0_smoke
-    notes: 涨跌停价格
-
-  - endpoint: suspend_d
-    ods_table: ashare_ods.ods_tushare_suspend_d
-    cadence: trade_day_daily
-    business_date_field: trade_date
-    partition_date_semantics: business_date
-    unit_contract_required: false
-    current_consumer:
-      - dwd_stock_eod_price
-    qa_required:
-      - p0_smoke
-    notes: 停复牌明细
-
-  - endpoint: daily_basic
-    ods_table: ashare_ods.ods_tushare_daily_basic
-    cadence: trade_day_daily
-    business_date_field: trade_date
-    partition_date_semantics: business_date
-    unit_contract_required: true
-    current_consumer:
-      - dwd_stock_eod_valuation
-    qa_required:
-      - p0_smoke
-      - unit_contract
-    notes: 每日指标（估值、市值、换手率等）
-
-  # ── 指数行情 ──
-  - endpoint: index_daily
-    ods_table: ashare_ods.ods_tushare_index_daily
-    cadence: trade_day_daily
-    business_date_field: trade_date
-    partition_date_semantics: business_date
-    unit_contract_required: false
-    current_consumer:
-      - dim_index
-      - dwd_index_eod
-    qa_required:
-      - p0_smoke
-      - oq004_index
-    notes: 指数日频行情
-
-  - endpoint: index_dailybasic
-    ods_table: ashare_ods.ods_tushare_index_dailybasic
-    cadence: trade_day_daily
-    business_date_field: trade_date
-    partition_date_semantics: business_date
-    unit_contract_required: true
-    current_consumer:
-      - dim_index
-      - dwd_index_eod
-    qa_required:
-      - p0_smoke
-      - oq004_index
-      - unit_contract
-    notes: 指数日频指标（市值、换手率等）
-
-  # ── 维度快照 ──
-  - endpoint: stock_basic
-    ods_table: ashare_ods.ods_tushare_stock_basic
-    cadence: calendar_daily_snapshot
-    business_date_field: _logical_date
-    partition_date_semantics: snapshot_date
-    unit_contract_required: false
-    request_variants:
-      - variant: stock_basic_listed
-        params: { list_status: "L" }
-        partition_endpoint: stock_basic_listed
-        notes: dim_stock 读取 endpoint IN ('stock_basic_listed', 'stock_basic_delisted')
-      - variant: stock_basic_delisted
-        params: { list_status: "D" }
-        partition_endpoint: stock_basic_delisted
-    current_consumer:
-      - dim_stock
-    qa_required:
-      - p0_smoke
-    notes: 股票基本信息（上市/退市）。采集时按 list_status 拆分为 stock_basic_listed 和 stock_basic_delisted 两个分区写入 ODS，dim_stock 按 partition endpoint 消费。
-
-  - endpoint: trade_cal
-    ods_table: ashare_ods.ods_tushare_trade_cal
-    cadence: calendar_daily_snapshot
-    business_date_field: _logical_date
-    partition_date_semantics: snapshot_date
-    unit_contract_required: false
-    current_consumer:
-      - dim_trade_calendar
-    qa_required:
-      - p0_smoke
-    notes: 交易日历
-
-  - endpoint: namechange
-    ods_table: ashare_ods.ods_tushare_namechange
-    cadence: calendar_daily_snapshot
-    business_date_field: _logical_date
-    partition_date_semantics: snapshot_date
-    unit_contract_required: false
-    current_consumer:
-      - dim_stock_name_hist
-    qa_required:
-      - p0_smoke
-    notes: 股票更名历史
-
-  # ── 财务报告期 ──
-  - endpoint: fina_indicator
-    ods_table: ashare_ods.ods_tushare_fina_indicator
-    cadence: finance_recent_window
-    business_date_field: end_date
-    partition_date_semantics: report_period
-    unit_contract_required: true
-    current_consumer:
-      - dwd_fin_indicator
-      - dws_stock_feature_fin_daily
-    qa_required:
-      - p0_smoke
-      - unit_contract
-      - finance_caliber
-    notes: 财务指标（衍生 ROE/EPS/杠杆等），ann_date 做 PIT
-
-  - endpoint: income
-    ods_table: ashare_ods.ods_tushare_income
-    cadence: finance_recent_window
-    business_date_field: end_date
-    partition_date_semantics: report_period
-    unit_contract_required: true
-    current_consumer:
-      - dwd_fin_income
-      - dws_stock_feature_fin_daily
-    qa_required:
-      - p0_smoke
-      - unit_contract
-      - finance_caliber
-    notes: 利润表，f_ann_date 做 PIT
-
-  - endpoint: balancesheet
-    ods_table: ashare_ods.ods_tushare_balancesheet
-    cadence: finance_recent_window
-    business_date_field: end_date
-    partition_date_semantics: report_period
-    unit_contract_required: true
-    current_consumer:
-      - dwd_fin_balancesheet
-      - dws_stock_feature_fin_daily
-    qa_required:
-      - p0_smoke
-      - unit_contract
-      - finance_caliber
-    notes: 资产负债表，f_ann_date 做 PIT
-
-  - endpoint: cashflow
-    ods_table: ashare_ods.ods_tushare_cashflow
-    cadence: finance_recent_window
-    business_date_field: end_date
-    partition_date_semantics: report_period
-    unit_contract_required: true
-    current_consumer:
-      - dwd_fin_cashflow
-      - dws_stock_feature_fin_daily
-    qa_required:
-      - p0_smoke
-      - unit_contract
-      - finance_caliber
-    notes: 现金流量表，f_ann_date 做 PIT
-
-# ── 后续扩展池（disabled，不进入生产采集）──
-# moneyflow / moneyflow_hsgt
-# margin / margin_detail
-# hk_hold / ccass_hold
-# 龙虎榜、涨跌停扩展、股东增减持、质押回购、业绩预告/快报、分红、研报
-# 行业/指数权重扩展
+- endpoint: daily
+  ods_table: ashare_ods.ods_tushare_daily
+  cadence: trade_day_daily
+  business_date_field: trade_date
+  partition_date_semantics: business_date
+  unit_contract_required: false
+  current_consumer:
+  - dwd_stock_eod_price
+  - dim_stock
+  qa_required:
+  - p0_smoke
+  notes: 个股日频行情（开高低收、涨跌幅、成交量额）
+  api: daily
+- endpoint: adj_factor
+  ods_table: ashare_ods.ods_tushare_adj_factor
+  cadence: trade_day_daily
+  business_date_field: trade_date
+  partition_date_semantics: business_date
+  unit_contract_required: false
+  current_consumer:
+  - dwd_stock_eod_price
+  qa_required:
+  - p0_smoke
+  notes: 复权因子
+  api: adj_factor
+- endpoint: stk_limit
+  ods_table: ashare_ods.ods_tushare_stk_limit
+  cadence: trade_day_daily
+  business_date_field: trade_date
+  partition_date_semantics: business_date
+  unit_contract_required: false
+  current_consumer:
+  - dwd_stock_eod_price
+  qa_required:
+  - p0_smoke
+  notes: 涨跌停价格
+  api: stk_limit
+- endpoint: suspend_d
+  ods_table: ashare_ods.ods_tushare_suspend_d
+  cadence: trade_day_daily
+  business_date_field: trade_date
+  partition_date_semantics: business_date
+  unit_contract_required: false
+  current_consumer:
+  - dwd_stock_eod_price
+  qa_required:
+  - p0_smoke
+  notes: 停复牌明细
+  api: suspend_d
+- endpoint: daily_basic
+  ods_table: ashare_ods.ods_tushare_daily_basic
+  cadence: trade_day_daily
+  business_date_field: trade_date
+  partition_date_semantics: business_date
+  unit_contract_required: true
+  current_consumer:
+  - dwd_stock_eod_valuation
+  qa_required:
+  - p0_smoke
+  - unit_contract
+  notes: 每日指标（估值、市值、换手率等）
+  api: daily_basic
+- endpoint: index_daily
+  ods_table: ashare_ods.ods_tushare_index_daily
+  cadence: trade_day_daily
+  business_date_field: trade_date
+  partition_date_semantics: business_date
+  unit_contract_required: false
+  current_consumer:
+  - dim_index
+  - dwd_index_eod
+  qa_required:
+  - p0_smoke
+  - oq004_index
+  notes: 指数日频行情
+  api: index_daily
+- endpoint: index_dailybasic
+  ods_table: ashare_ods.ods_tushare_index_dailybasic
+  cadence: trade_day_daily
+  business_date_field: trade_date
+  partition_date_semantics: business_date
+  unit_contract_required: true
+  current_consumer:
+  - dim_index
+  - dwd_index_eod
+  qa_required:
+  - p0_smoke
+  - oq004_index
+  - unit_contract
+  notes: 指数日频指标（市值、换手率等）
+  api: index_dailybasic
+- endpoint: stock_basic
+  ods_table: ashare_ods.ods_tushare_stock_basic
+  cadence: calendar_daily_snapshot
+  business_date_field: _logical_date
+  partition_date_semantics: snapshot_date
+  unit_contract_required: false
+  request_variants:
+  - variant: stock_basic_listed
+    params:
+      list_status: L
+    partition_endpoint: stock_basic_listed
+    notes: dim_stock 读取 endpoint IN ('stock_basic_listed', 'stock_basic_delisted')
+  - variant: stock_basic_delisted
+    params:
+      list_status: D
+    partition_endpoint: stock_basic_delisted
+  current_consumer:
+  - dim_stock
+  qa_required:
+  - p0_smoke
+  notes: 股票基本信息（上市/退市）。采集时按 list_status 拆分为 stock_basic_listed 和 stock_basic_delisted
+    两个分区写入 ODS，dim_stock 按 partition endpoint 消费。
+  api: stock_basic
+- endpoint: trade_cal
+  ods_table: ashare_ods.ods_tushare_trade_cal
+  cadence: calendar_daily_snapshot
+  business_date_field: _logical_date
+  partition_date_semantics: snapshot_date
+  unit_contract_required: false
+  current_consumer:
+  - dim_trade_calendar
+  qa_required:
+  - p0_smoke
+  notes: 交易日历
+  api: trade_cal
+- endpoint: namechange
+  ods_table: ashare_ods.ods_tushare_namechange
+  cadence: calendar_daily_snapshot
+  business_date_field: _logical_date
+  partition_date_semantics: snapshot_date
+  unit_contract_required: false
+  current_consumer:
+  - dim_stock_name_hist
+  qa_required:
+  - p0_smoke
+  notes: 股票更名历史
+  api: namechange
+- endpoint: fina_indicator
+  ods_table: ashare_ods.ods_tushare_fina_indicator
+  cadence: finance_recent_window
+  business_date_field: end_date
+  partition_date_semantics: report_period
+  unit_contract_required: true
+  current_consumer:
+  - dwd_fin_indicator
+  - dws_stock_feature_fin_daily
+  qa_required:
+  - p0_smoke
+  - unit_contract
+  - finance_caliber
+  notes: 财务指标（衍生 ROE/EPS/杠杆等），ann_date 做 PIT
+  api: fina_indicator
+- endpoint: income
+  ods_table: ashare_ods.ods_tushare_income
+  cadence: finance_recent_window
+  business_date_field: end_date
+  partition_date_semantics: report_period
+  unit_contract_required: true
+  current_consumer:
+  - dwd_fin_income
+  - dws_stock_feature_fin_daily
+  qa_required:
+  - p0_smoke
+  - unit_contract
+  - finance_caliber
+  notes: 利润表，f_ann_date 做 PIT
+  api: income
+- endpoint: balancesheet
+  ods_table: ashare_ods.ods_tushare_balancesheet
+  cadence: finance_recent_window
+  business_date_field: end_date
+  partition_date_semantics: report_period
+  unit_contract_required: true
+  current_consumer:
+  - dwd_fin_balancesheet
+  - dws_stock_feature_fin_daily
+  qa_required:
+  - p0_smoke
+  - unit_contract
+  - finance_caliber
+  notes: 资产负债表，f_ann_date 做 PIT
+  api: balancesheet
+- endpoint: cashflow
+  ods_table: ashare_ods.ods_tushare_cashflow
+  cadence: finance_recent_window
+  business_date_field: end_date
+  partition_date_semantics: report_period
+  unit_contract_required: true
+  current_consumer:
+  - dwd_fin_cashflow
+  - dws_stock_feature_fin_daily
+  qa_required:
+  - p0_smoke
+  - unit_contract
+  - finance_caliber
+  notes: 现金流量表，f_ann_date 做 PIT
+  api: cashflow

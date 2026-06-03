@@ -12,8 +12,8 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# Tushare 官方单次返回上限
-TUSHARE_ROW_LIMIT = 5000
+# Tushare 官方单次返回上限（按 endpoint 可覆盖）
+DEFAULT_ROW_LIMIT = 5000
 # 请求间隔（秒）
 DEFAULT_THROTTLE_SECONDS = 0.3
 # 重试次数
@@ -29,12 +29,14 @@ class TushareClient:
                  base_url: str = "https://api.tushare.pro",
                  throttle: float = DEFAULT_THROTTLE_SECONDS,
                  max_retries: int = DEFAULT_MAX_RETRIES,
-                 timeout: int = DEFAULT_TIMEOUT_SECONDS):
+                 timeout: int = DEFAULT_TIMEOUT_SECONDS,
+                 row_limit: int = DEFAULT_ROW_LIMIT):
         self.token = token or os.environ.get("TUSHARE_TOKEN", "")
         self.base_url = base_url
         self.throttle = throttle
         self.max_retries = max_retries
         self.timeout = timeout
+        self.row_limit = row_limit
         self._last_request_time = 0.0
 
     def query(self, api_name: str, params: dict[str, Any] | None = None,
@@ -70,11 +72,12 @@ class TushareClient:
                 items = data.get("data", {}).get("items", [])
                 columns = data.get("data", {}).get("fields", [])
                 rows = [dict(zip(columns, row)) for row in items]
-                # 返回上限命中检测
-                if len(rows) >= TUSHARE_ROW_LIMIT:
-                    logger.warning(
-                        "API %s returned %d rows (hit limit %d). "
-                        "May need to split request.", api_name, len(rows), TUSHARE_ROW_LIMIT)
+                # 返回上限命中检测：命中即 raise，不静默发布截断数据
+                if len(rows) >= self.row_limit:
+                    raise RuntimeError(
+                        f"API {api_name} returned {len(rows)} rows (hit limit {self.row_limit}). "
+                        f"Must split request to avoid silent data loss."
+                    )
                 return rows
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 last_error = e
