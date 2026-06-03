@@ -4,11 +4,23 @@
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_oriented_20260603_01';
+DECLARE p_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n5_w20_pv';
+DECLARE p_rebalance_frequency STRING DEFAULT 'weekly';
+DECLARE p_target_holdings INT64 DEFAULT 5;
+DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
 DECLARE p_calendar_end DATE;
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
+
+IF p_rebalance_frequency NOT IN ('weekly', 'biweekly', 'monthly') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_rebalance_frequency: ', p_rebalance_frequency);
+END IF;
+
+IF p_label_horizon NOT IN (5, 10, 20) THEN
+  RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
 
 -- ── 训练面板唯一性 ──
 ASSERT (
@@ -37,7 +49,11 @@ ASSERT (
 ASSERT (
   SELECT LOGICAL_AND(
     col NOT IN ('fwd_ret_1d','fwd_ret_5d','fwd_ret_10d','fwd_ret_20d',
-                'fwd_xs_ret_5d','rank_pct_5d','label_top30_5d','label_above_median_5d',
+                'fwd_xs_ret_1d','fwd_xs_ret_5d','fwd_xs_ret_10d','fwd_xs_ret_20d',
+                'rank_pct_1d','rank_pct_5d','rank_pct_10d','rank_pct_20d',
+                'label_top30_1d','label_top30_5d','label_top30_10d','label_top30_20d',
+                'label_above_median_1d','label_above_median_5d',
+                'label_above_median_10d','label_above_median_20d',
                 'label_entry_tradable','label_valid_1d','label_valid_5d',
                 'label_valid_10d','label_valid_20d','board')
     AND col NOT LIKE '%qfq%'
@@ -100,6 +116,82 @@ ASSERT (
   WHERE pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
     AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
 ) AS 'single stock weight must not exceed max_single_weight';
+
+-- ── OQ-010 experiment identity and parameter QA ──
+ASSERT (
+  SELECT COUNT(*) = 1
+    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.experiment_id') = p_experiment_id)
+    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.rebalance_frequency') = p_rebalance_frequency)
+    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.target_holdings') AS INT64) = p_target_holdings)
+    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.label_horizon') AS INT64) = p_label_horizon)
+    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.feature_set_id') IS NOT NULL)
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-EXP-1: summary metrics_json must contain OQ-010 experiment identity and parameters';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT
+      cand.rebalance_date,
+      COUNTIF(cand.is_selected_candidate) AS selected_count
+    FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
+    WHERE cand.strategy_id = p_strategy_id AND cand.run_id = p_run_id
+      AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
+    GROUP BY cand.rebalance_date
+    HAVING selected_count > p_target_holdings
+  )
+) AS 'QA-EXP-2: selected candidates must not exceed p_target_holdings';
+
+ASSERT (
+  SELECT COUNTIF(pt.horizon != p_label_horizon) = 0
+  FROM `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
+  WHERE pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
+    AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
+) AS 'QA-EXP-3: portfolio target horizon must match p_label_horizon';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    WITH cal AS (
+      SELECT cal_date
+      FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+      WHERE exchange = 'SSE' AND is_open = 1
+        AND cal_date BETWEEN p_predict_start AND p_predict_end
+    ),
+    weekly AS (
+      SELECT MAX(cal_date) AS rebalance_date
+      FROM cal
+      GROUP BY EXTRACT(ISOYEAR FROM cal_date), EXTRACT(ISOWEEK FROM cal_date)
+    ),
+    weekly_ranked AS (
+      SELECT rebalance_date, ROW_NUMBER() OVER (ORDER BY rebalance_date) AS week_idx
+      FROM weekly
+    ),
+    monthly AS (
+      SELECT MAX(cal_date) AS rebalance_date
+      FROM cal
+      GROUP BY DATE_TRUNC(cal_date, MONTH)
+    ),
+    expected AS (
+      SELECT rebalance_date FROM weekly_ranked WHERE p_rebalance_frequency = 'weekly'
+      UNION ALL
+      SELECT rebalance_date FROM weekly_ranked WHERE p_rebalance_frequency = 'biweekly' AND MOD(week_idx - 1, 2) = 0
+      UNION ALL
+      SELECT rebalance_date FROM monthly WHERE p_rebalance_frequency = 'monthly'
+    ),
+    actual AS (
+      SELECT DISTINCT cand.rebalance_date
+      FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
+      WHERE cand.strategy_id = p_strategy_id AND cand.run_id = p_run_id
+        AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
+    )
+    SELECT COALESCE(e.rebalance_date, a.rebalance_date) AS rebalance_date
+    FROM expected AS e
+    FULL OUTER JOIN actual AS a USING (rebalance_date)
+    WHERE e.rebalance_date IS NULL OR a.rebalance_date IS NULL
+  )
+) AS 'QA-EXP-4: rebalance dates must match p_rebalance_frequency definition';
 
 -- ── 数据侧 PIT 验证：t+1 不可买但仍入选的统计 ──
 SELECT

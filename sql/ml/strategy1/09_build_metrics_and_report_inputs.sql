@@ -4,6 +4,17 @@
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_oriented_20260603_01';
+DECLARE p_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n5_w20_pv';
+DECLARE p_experiment_group STRING DEFAULT 'baseline';
+DECLARE p_baseline_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n5_w20_pv';
+DECLARE p_parent_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n5_w20_pv';
+DECLARE p_parent_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
+DECLARE p_rebalance_frequency STRING DEFAULT 'weekly';
+DECLARE p_target_holdings INT64 DEFAULT 5;
+DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
+DECLARE p_label_horizon INT64 DEFAULT 5;
+DECLARE p_horizon_natural_frequency STRING DEFAULT 'weekly';
+DECLARE p_feature_set_id STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;
@@ -20,6 +31,14 @@ DECLARE p_benchmark STRING DEFAULT '000852.SH';
 DECLARE p_calendar_end DATE;
 DECLARE p_selected_model_id STRING;
 DECLARE p_force_replace BOOL DEFAULT FALSE;
+
+IF p_rebalance_frequency NOT IN ('weekly', 'biweekly', 'monthly') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_rebalance_frequency: ', p_rebalance_frequency);
+END IF;
+
+IF p_label_horizon NOT IN (5, 10, 20) THEN
+  RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
 
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
 SET p_selected_model_id = (
@@ -131,6 +150,18 @@ SELECT
   p_commission_bps + p_stamp_tax_buy_bps + p_slippage_buy_bps
     + p_commission_bps + p_stamp_tax_sell_bps + p_slippage_sell_bps,
   TO_JSON_STRING(STRUCT(
+    -- OQ-010 experiment identity and parameters
+    p_experiment_id AS experiment_id,
+    p_experiment_group AS experiment_group,
+    p_baseline_experiment_id AS baseline_experiment_id,
+    p_parent_experiment_id AS parent_experiment_id,
+    p_parent_run_id AS parent_run_id,
+    p_rebalance_frequency AS rebalance_frequency,
+    p_target_holdings AS target_holdings,
+    p_max_single_weight AS max_single_weight,
+    p_label_horizon AS label_horizon,
+    p_horizon_natural_frequency AS horizon_natural_frequency,
+    p_feature_set_id AS feature_set_id,
     a.n_days, a.annual_return, a.annual_vol,
     SAFE_DIVIDE(a.annual_return, a.annual_vol) AS sharpe,
     dd.max_dd AS max_drawdown,

@@ -66,6 +66,8 @@ def parse_args():
     p.add_argument("--skip-gcs-upload", action="store_true")
     p.add_argument("--p-target-holdings", type=int, default=5,
                    help="Current portfolio target holdings (OQ-010 default)")
+    p.add_argument("--p-label-horizon", type=int, default=None,
+                   help="Current target label horizon in trading days; default reads registry model_params_json, then 5")
     return p.parse_args()
 
 
@@ -115,6 +117,13 @@ def bq_query_scalar(client: bigquery.Client, sql: str, params: list | None = Non
     return df.iloc[0, 0]
 
 
+def normalize_label_horizon(value: Any) -> int:
+    horizon = int(value or 5)
+    if horizon not in (5, 10, 20):
+        raise SystemExit("--p-label-horizon must be one of 5, 10, 20")
+    return horizon
+
+
 # ── FR-DIAG-1 运行身份冻结 ────────────────────────────────────────────────────
 def fetch_model_identity(client: bigquery.Client, project: str,
                          strategy_id: str, run_id: str) -> dict:
@@ -153,7 +162,8 @@ def fetch_model_identity(client: bigquery.Client, project: str,
 
 # ── FR-DIAG-2 信号方向与稳定性 ────────────────────────────────────────────────
 def fetch_predictions_with_labels(client: bigquery.Client, project: str,
-                                  run_id: str, start_date: str, end_date: str) -> pd.DataFrame:
+                                  run_id: str, start_date: str, end_date: str,
+                                  label_horizon: int) -> pd.DataFrame:
     sql = f"""
     SELECT
       pred.predict_date AS trade_date,
@@ -161,11 +171,19 @@ def fetch_predictions_with_labels(client: bigquery.Client, project: str,
       pred.score,
       pred.rank_raw,
       pred.rank_pct,
-      s.fwd_xs_ret_5d,
-      s.fwd_ret_5d,
-      s.label_top30_5d,
-      s.label_above_median_5d,
-      s.split_tag
+      tp.target_return,
+      CASE @h
+        WHEN 5 THEN s.fwd_ret_5d
+        WHEN 10 THEN s.fwd_ret_10d
+        WHEN 20 THEN s.fwd_ret_20d
+      END AS target_abs_return,
+      tp.target_label,
+      CASE @h
+        WHEN 5 THEN s.label_above_median_5d
+        WHEN 10 THEN s.label_above_median_10d
+        WHEN 20 THEN s.label_above_median_20d
+      END AS target_above_median,
+      tp.split_tag
     FROM `{project}.ashare_ads.ads_model_prediction_daily` AS pred
     JOIN `{project}.ashare_ads.ads_ml_training_panel_daily` AS tp
       ON tp.trade_date = pred.predict_date
@@ -179,13 +197,17 @@ def fetch_predictions_with_labels(client: bigquery.Client, project: str,
      AND s.label_version = tp.label_version
     WHERE pred.run_id = @rid
       AND pred.predict_date BETWEEN @sd AND @ed
-      AND s.split_tag IN ('valid', 'test')
+      AND tp.split_tag IN ('valid', 'test')
+      AND tp.horizon = @h
+      AND tp.target_label IS NOT NULL
+      AND tp.target_return IS NOT NULL
     ORDER BY pred.predict_date, pred.score DESC
     """
     return bq_query(client, sql, [
         bigquery.ScalarQueryParameter("rid", "STRING", run_id),
         bigquery.ScalarQueryParameter("sd", "DATE", start_date),
         bigquery.ScalarQueryParameter("ed", "DATE", end_date),
+        bigquery.ScalarQueryParameter("h", "INT64", label_horizon),
     ])
 
 
@@ -197,7 +219,7 @@ def compute_rank_ic(pred_df: pd.DataFrame) -> pd.DataFrame:
         if len(g) < 3:
             records.append({"trade_date": dt, "rank_ic": np.nan})
         else:
-            records.append({"trade_date": dt, "rank_ic": g["score"].corr(g["fwd_xs_ret_5d"], method="spearman")})
+            records.append({"trade_date": dt, "rank_ic": g["score"].corr(g["target_return"], method="spearman")})
     ic = pd.DataFrame.from_records(records)
     if not ic.empty:
         ic["year"] = pd.to_datetime(ic["trade_date"]).dt.year
@@ -230,19 +252,19 @@ def compute_bucket_lift(pred_df: pd.DataFrame, n_buckets: int = 5) -> pd.DataFra
     agg = df.groupby("bucket").agg(
         n=("score", "count"),
         avg_score=("score", "mean"),
-        hit_rate=("label_top30_5d", "mean"),
-        avg_fwd_xs_ret_5d=("fwd_xs_ret_5d", "mean"),
-        median_fwd_xs_ret_5d=("fwd_xs_ret_5d", "median"),
-        avg_fwd_ret_5d=("fwd_ret_5d", "mean"),
+        hit_rate=("target_label", "mean"),
+        avg_target_return=("target_return", "mean"),
+        median_target_return=("target_return", "median"),
+        avg_target_abs_return=("target_abs_return", "mean"),
     ).reset_index()
     agg = agg.sort_values("bucket", ascending=False).reset_index(drop=True)
     if len(agg) >= 2:
-        agg["top_minus_bottom"] = agg["avg_fwd_xs_ret_5d"] - agg.iloc[-1]["avg_fwd_xs_ret_5d"]
+        agg["top_minus_bottom"] = agg["avg_target_return"] - agg.iloc[-1]["avg_target_return"]
     else:
         agg["top_minus_bottom"] = np.nan
-    # Monotonicity: correlation between bucket rank and avg_fwd_xs_ret_5d
+    # Monotonicity: correlation between bucket rank and avg target return.
     if len(agg) >= 3:
-        agg["monotonicity"] = agg["bucket"].corr(agg["avg_fwd_xs_ret_5d"], method="spearman")
+        agg["monotonicity"] = agg["bucket"].corr(agg["avg_target_return"], method="spearman")
     else:
         agg["monotonicity"] = np.nan
     return agg
@@ -255,8 +277,8 @@ def compute_topn_ret(pred_df: pd.DataFrame, top_n: int) -> dict:
     return {
         "top_n": top_n,
         "count": int(len(top)),
-        "avg_fwd_xs_ret_5d": round(float(top["fwd_xs_ret_5d"].mean()), 6),
-        "median_fwd_xs_ret_5d": round(float(top["fwd_xs_ret_5d"].median()), 6),
+        "avg_target_return": round(float(top["target_return"].mean()), 6),
+        "median_target_return": round(float(top["target_return"].median()), 6),
     }
 
 
@@ -271,10 +293,10 @@ def compute_score_calibration(pred_df: pd.DataFrame, n_buckets: int = 10) -> pd.
     agg = df.groupby("bucket").agg(
         n=("score", "count"),
         avg_score=("score", "mean"),
-        actual_pos_rate=("label_top30_5d", "mean"),
-        actual_above_median_rate=("label_above_median_5d", "mean"),
-        avg_fwd_xs_ret_5d=("fwd_xs_ret_5d", "mean"),
-        std_fwd_xs_ret_5d=("fwd_xs_ret_5d", "std"),
+        actual_pos_rate=("target_label", "mean"),
+        actual_above_median_rate=("target_above_median", "mean"),
+        avg_target_return=("target_return", "mean"),
+        std_target_return=("target_return", "std"),
     ).reset_index()
     agg = agg.sort_values("bucket", ascending=False).reset_index(drop=True)
     # Score spread
@@ -287,7 +309,8 @@ def compute_score_calibration(pred_df: pd.DataFrame, n_buckets: int = 10) -> pd.
 
 # ── FR-DIAG-4 标签 horizon 对照 ──────────────────────────────────────────────
 def fetch_label_horizon(client: bigquery.Client, project: str,
-                        run_id: str, start_date: str, end_date: str) -> pd.DataFrame:
+                        run_id: str, start_date: str, end_date: str,
+                        label_horizon: int) -> pd.DataFrame:
     sql = f"""
     SELECT
       pred.predict_date AS trade_date,
@@ -298,8 +321,16 @@ def fetch_label_horizon(client: bigquery.Client, project: str,
       l.fwd_xs_ret_5d,
       l.fwd_xs_ret_10d,
       l.fwd_xs_ret_20d,
-      l.label_top30_5d,
-      l.label_above_median_5d,
+      CASE @h
+        WHEN 5 THEN l.label_top30_5d
+        WHEN 10 THEN l.label_top30_10d
+        WHEN 20 THEN l.label_top30_20d
+      END AS target_label,
+      CASE @h
+        WHEN 5 THEN l.label_above_median_5d
+        WHEN 10 THEN l.label_above_median_10d
+        WHEN 20 THEN l.label_above_median_20d
+      END AS target_above_median,
       tp.split_tag
     FROM `{project}.ashare_ads.ads_model_prediction_daily` AS pred
     JOIN `{project}.ashare_ads.ads_ml_training_panel_daily` AS tp
@@ -314,11 +345,13 @@ def fetch_label_horizon(client: bigquery.Client, project: str,
     WHERE pred.run_id = @rid
       AND pred.predict_date BETWEEN @sd AND @ed
       AND tp.split_tag IN ('valid', 'test')
+      AND tp.horizon = @h
     """
     return bq_query(client, sql, [
         bigquery.ScalarQueryParameter("rid", "STRING", run_id),
         bigquery.ScalarQueryParameter("sd", "DATE", start_date),
         bigquery.ScalarQueryParameter("ed", "DATE", end_date),
+        bigquery.ScalarQueryParameter("h", "INT64", label_horizon),
     ])
 
 
@@ -338,10 +371,10 @@ def compute_label_horizon_comparison(df: pd.DataFrame) -> pd.DataFrame:
                 "split": split,
                 "horizon": horizon,
                 "rank_ic": round(float(sub["score"].corr(sub[col], method="spearman")), 6),
-                "top30_hit_rate": round(float(sub[sub["label_top30_5d"] == 1][col].mean()), 6)
-                    if (sub["label_top30_5d"] == 1).sum() > 0 else None,
-                "bottom70_hit_rate": round(float(sub[sub["label_top30_5d"] == 0][col].mean()), 6)
-                    if (sub["label_top30_5d"] == 0).sum() > 0 else None,
+                "target_top30_avg_return": round(float(sub[sub["target_label"] == 1][col].mean()), 6)
+                    if (sub["target_label"] == 1).sum() > 0 else None,
+                "target_bottom70_avg_return": round(float(sub[sub["target_label"] == 0][col].mean()), 6)
+                    if (sub["target_label"] == 0).sum() > 0 else None,
                 "top_minus_bottom": round(float(
                     sub.nlargest(int(max(1, len(sub) * 0.3)), "score")[col].mean() -
                     sub.nsmallest(int(max(1, len(sub) * 0.3)), "score")[col].mean()
@@ -353,17 +386,32 @@ def compute_label_horizon_comparison(df: pd.DataFrame) -> pd.DataFrame:
 # ── FR-DIAG-5 样本和股票池漏斗 ───────────────────────────────────────────────
 def fetch_funnel_data(client: bigquery.Client, project: str,
                       run_id: str, strategy_id: str,
-                      start_date: str, end_date: str) -> pd.DataFrame:
+                      start_date: str, end_date: str,
+                      label_horizon: int) -> pd.DataFrame:
     sql = f"""
     SELECT
       s.trade_date,
       s.split_tag,
       COUNT(*) AS pure_universe,
-      COUNTIF(s.sample_trainable_default) AS sample_trainable,
+      COUNTIF(
+        COALESCE(s.in_universe_default, FALSE)
+        AND COALESCE(s.has_full_history_60d, FALSE)
+        AND COALESCE(s.has_valuation_data, FALSE)
+        AND COALESCE(s.label_entry_tradable, FALSE)
+        AND CASE @h
+          WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.label_top30_5d IS NOT NULL AND s.fwd_xs_ret_5d IS NOT NULL
+          WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.label_top30_10d IS NOT NULL AND s.fwd_xs_ret_10d IS NOT NULL
+          WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.label_top30_20d IS NOT NULL AND s.fwd_xs_ret_20d IS NOT NULL
+        END
+      ) AS sample_trainable,
       COUNTIF(u.in_universe_default) AS in_universe_default,
       COUNTIF(s.has_full_history_60d) AS has_full_history,
       COUNTIF(s.has_valuation_data) AS has_valuation_data,
-      COUNTIF(s.label_valid_5d) AS label_valid_5d,
+      COUNTIF(CASE @h
+        WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE)
+        WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE)
+        WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE)
+      END) AS label_valid_target,
       COUNTIF(s.label_entry_tradable) AS label_entry_tradable,
       COUNTIF(s.is_st) AS is_st_count,
       COUNTIF(NOT COALESCE(s.is_tradable_hard, FALSE)) AS not_tradable_hard
@@ -384,6 +432,7 @@ def fetch_funnel_data(client: bigquery.Client, project: str,
         bigquery.ScalarQueryParameter("rid", "STRING", run_id),
         bigquery.ScalarQueryParameter("sd", "DATE", start_date),
         bigquery.ScalarQueryParameter("ed", "DATE", end_date),
+        bigquery.ScalarQueryParameter("h", "INT64", label_horizon),
     ])
 
 
@@ -436,26 +485,52 @@ def fetch_trade_funnel(client: bigquery.Client, project: str,
 
 
 def fetch_sample_filter_risk(client: bigquery.Client, project: str,
-                             run_id: str, start_date: str, end_date: str) -> pd.DataFrame:
+                             run_id: str, start_date: str, end_date: str,
+                             label_horizon: int) -> pd.DataFrame:
     """Check whether valid/test prediction pool uses live-available mask
     (PRD-20260602-05: compare panel rows against legacy trainable and live-available)."""
     sql = f"""
     SELECT
       tp.split_tag,
       COUNT(*) AS panel_rows,
-      COUNTIF(s.sample_trainable_default) AS legacy_trainable_rows,
+      COUNTIF(
+        COALESCE(s.in_universe_default, FALSE)
+        AND COALESCE(s.has_full_history_60d, FALSE)
+        AND COALESCE(s.has_valuation_data, FALSE)
+        AND COALESCE(s.label_entry_tradable, FALSE)
+        AND CASE @h
+          WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.label_top30_5d IS NOT NULL AND s.fwd_xs_ret_5d IS NOT NULL
+          WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.label_top30_10d IS NOT NULL AND s.fwd_xs_ret_10d IS NOT NULL
+          WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.label_top30_20d IS NOT NULL AND s.fwd_xs_ret_20d IS NOT NULL
+        END
+      ) AS legacy_trainable_rows,
       COUNTIF(COALESCE(s.in_universe_default, FALSE)
           AND COALESCE(s.has_full_history_60d, FALSE)
           AND COALESCE(s.has_valuation_data, FALSE)) AS live_available_rows,
-      COUNTIF(s.label_valid_5d AND s.fwd_xs_ret_5d IS NOT NULL) AS label_available_eval_rows,
+      COUNTIF(CASE @h
+        WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.fwd_xs_ret_5d IS NOT NULL
+        WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.fwd_xs_ret_10d IS NOT NULL
+        WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.fwd_xs_ret_20d IS NOT NULL
+      END) AS label_available_eval_rows,
       -- rows in live-available but NOT in legacy trainable
       COUNTIF(COALESCE(s.in_universe_default, FALSE)
           AND COALESCE(s.has_full_history_60d, FALSE)
           AND COALESCE(s.has_valuation_data, FALSE)
-          AND NOT s.sample_trainable_default) AS live_only_rows,
+          AND NOT (
+            COALESCE(s.label_entry_tradable, FALSE)
+            AND CASE @h
+              WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.label_top30_5d IS NOT NULL AND s.fwd_xs_ret_5d IS NOT NULL
+              WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.label_top30_10d IS NOT NULL AND s.fwd_xs_ret_10d IS NOT NULL
+              WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.label_top30_20d IS NOT NULL AND s.fwd_xs_ret_20d IS NOT NULL
+            END
+          )) AS live_only_rows,
       -- legacy exclusion diagnostics
       COUNTIF(NOT COALESCE(s.label_entry_tradable, FALSE)) AS excluded_by_tradable,
-      COUNTIF(NOT COALESCE(s.label_valid_5d, FALSE)) AS excluded_by_label_valid
+      COUNTIF(NOT CASE @h
+        WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE)
+        WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE)
+        WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE)
+      END) AS excluded_by_label_valid
     FROM `{project}.ashare_ads.ads_ml_training_panel_daily` AS tp
     JOIN `{project}.ashare_dws.dws_stock_sample_daily` AS s
       ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
@@ -469,6 +544,7 @@ def fetch_sample_filter_risk(client: bigquery.Client, project: str,
         bigquery.ScalarQueryParameter("rid", "STRING", run_id),
         bigquery.ScalarQueryParameter("sd", "DATE", start_date),
         bigquery.ScalarQueryParameter("ed", "DATE", end_date),
+        bigquery.ScalarQueryParameter("h", "INT64", label_horizon),
     ])
 
 
@@ -486,7 +562,7 @@ def compute_funnel_summary(sample_df: pd.DataFrame, pred_df: pd.DataFrame,
         + merged["not_tradable_hard"]
         + (merged["pure_universe"] - merged["has_full_history"])
         + (merged["pure_universe"] - merged["has_valuation_data"])
-        # label_valid_5d exclusion only for train; we approximate here
+        # label_valid_* exclusion only applies to train; this is a horizon-aware approximation.
     )
     merged["unexplained_exclusion_rate"] = (
         (merged["total_exclusion"] - merged["explained_exclusion"]).clip(lower=0)
@@ -755,7 +831,8 @@ def determine_primary_diagnosis(valid_ic: dict, test_ic: dict,
                                 cost_turnover_df: pd.DataFrame,
                                 style_df: pd.DataFrame,
                                 sample_risk_df: pd.DataFrame,
-                                backtest_summary: dict) -> dict:
+                                backtest_summary: dict,
+                                label_horizon: int) -> dict:
     """Rule-based primary diagnosis with confidence level.
     Pipeline/sample risks are checked first so they cannot be masked by signal conclusions."""
     evidence = []
@@ -810,14 +887,16 @@ def determine_primary_diagnosis(valid_ic: dict, test_ic: dict,
 
     # Label horizon mismatch
     if not label_horizon_df.empty:
-        h5 = label_horizon_df[label_horizon_df["horizon"] == "5d"]["rank_ic"].mean()
-        h10 = label_horizon_df[label_horizon_df["horizon"] == "10d"]["rank_ic"].mean()
-        h20 = label_horizon_df[label_horizon_df["horizon"] == "20d"]["rank_ic"].mean()
-        h1 = label_horizon_df[label_horizon_df["horizon"] == "1d"]["rank_ic"].mean()
-        if pd.isna(h5) or abs(h5 or 0) < 0.02:
-            best_alt = max([(h1, "1d"), (h10, "10d"), (h20, "20d")], key=lambda x: abs(x[0] or 0))
+        target_name = f"{label_horizon}d"
+        target_ic = label_horizon_df[label_horizon_df["horizon"] == target_name]["rank_ic"].mean()
+        alt_ics = []
+        for hname in ("1d", "5d", "10d", "20d"):
+            if hname != target_name:
+                alt_ics.append((label_horizon_df[label_horizon_df["horizon"] == hname]["rank_ic"].mean(), hname))
+        if pd.isna(target_ic) or abs(target_ic or 0) < 0.02:
+            best_alt = max(alt_ics, key=lambda x: abs(x[0] or 0))
             if abs(best_alt[0] or 0) > 0.05:
-                add_evidence("rank_ic_5d", h5, "abs<0.02", "weak")
+                add_evidence(f"rank_ic_{target_name}", target_ic, "abs<0.02", "weak")
                 add_evidence(f"rank_ic_{best_alt[1]}", best_alt[0], "abs>0.05", "stronger")
                 return {"primary": "label_horizon_mismatch", "confidence": "medium", "evidence": evidence}
 
@@ -947,6 +1026,7 @@ def render_diagnosis_markdown(identity: dict, valid_ic: dict, test_ic: dict,
     lines.append(f"- **run_id**: `{args.run_id}`")
     lines.append(f"- **backtest_id**: `{args.backtest_id}`")
     lines.append(f"- **model_id**: `{identity.get('model_id')}`")
+    lines.append(f"- **label_horizon**: `{args.p_label_horizon}d`")
     lines.append(f"- **score_orientation**: `{identity.get('score_orientation', 'identity')}`")
     lines.append(f"- **score_source**: `{identity.get('score_source', 'positive_class_probability')}`")
     if identity.get("orientation_decision_reason"):
@@ -1012,6 +1092,7 @@ def main():
 
     # Infer date ranges from model registry if available
     mp = identity.get("model_params_json", {})
+    args.p_label_horizon = normalize_label_horizon(args.p_label_horizon or mp.get("label_horizon"))
     valid_start = mp.get("valid_start_date", "2024-01-01")
     valid_end = mp.get("valid_end_date", "2024-12-31")
     test_start = mp.get("test_start_date", "2025-01-01")
@@ -1019,8 +1100,10 @@ def main():
 
     # FR-DIAG-2: predictions + labels
     print("拉取预测与标签...")
-    pred_valid = fetch_predictions_with_labels(bq, args.project, args.run_id, valid_start, valid_end)
-    pred_test = fetch_predictions_with_labels(bq, args.project, args.run_id, test_start, test_end)
+    pred_valid = fetch_predictions_with_labels(
+        bq, args.project, args.run_id, valid_start, valid_end, args.p_label_horizon)
+    pred_test = fetch_predictions_with_labels(
+        bq, args.project, args.run_id, test_start, test_end, args.p_label_horizon)
     pred_all = pd.concat([pred_valid, pred_test], ignore_index=True)
 
     print("计算 RankIC...")
@@ -1051,18 +1134,21 @@ def main():
 
     # FR-DIAG-4: label horizon
     print("标签 horizon 对照...")
-    label_df = fetch_label_horizon(bq, args.project, args.run_id, valid_start, test_end)
+    label_df = fetch_label_horizon(
+        bq, args.project, args.run_id, valid_start, test_end, args.p_label_horizon)
     label_horizon = compute_label_horizon_comparison(label_df)
 
     # FR-DIAG-5: funnel
     print("样本漏斗...")
-    sample_df = fetch_funnel_data(bq, args.project, args.run_id, args.strategy_id, valid_start, test_end)
+    sample_df = fetch_funnel_data(
+        bq, args.project, args.run_id, args.strategy_id, valid_start, test_end, args.p_label_horizon)
     pred_funnel = fetch_prediction_funnel(bq, args.project, args.run_id, args.strategy_id, valid_start, test_end)
     trade_funnel = fetch_trade_funnel(bq, args.project, args.backtest_id, valid_start, test_end)
     funnel_summary = compute_funnel_summary(sample_df, pred_funnel, trade_funnel)
 
     print("检测 live-unavailable 过滤风险...")
-    sample_risk_df = fetch_sample_filter_risk(bq, args.project, args.run_id, valid_start, test_end)
+    sample_risk_df = fetch_sample_filter_risk(
+        bq, args.project, args.run_id, valid_start, test_end, args.p_label_horizon)
 
     # FR-DIAG-6: feature exposure
     print("特征暴露...")
@@ -1089,11 +1175,13 @@ def main():
         valid_ic_summary, test_ic_summary,
         bucket_lift_all, label_horizon, funnel_summary,
         cost_turnover, style_df, sample_risk_df, backtest_summary,
+        args.p_label_horizon,
     )
     diagnosis_summary = {
         "diagnosis_version": DIAGNOSIS_VERSION,
         "run_id": args.run_id,
         "backtest_id": args.backtest_id,
+        "label_horizon": args.p_label_horizon,
         "model_id": identity.get("model_id"),
         "score_orientation": identity.get("score_orientation", "identity"),
         "score_source": identity.get("score_source", "positive_class_probability"),

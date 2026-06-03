@@ -237,7 +237,7 @@
       "label_horizon": "selected_stage_c_label_horizon",
       "horizon_natural_frequency": "selected_stage_c_horizon_natural_frequency",
       "feature_set_id": "strategy1_pv_fin_quality_v0_20260603",
-      "feature_version": "strategy1_pv_fin_quality_v0_20260603",
+      "feature_version": "strategy1_pv_v0_20260601",
       "requires_retrain": true,
       "status": "blocked_until_stage_c_selected"
     }

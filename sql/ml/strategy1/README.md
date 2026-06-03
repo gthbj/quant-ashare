@@ -1,4 +1,4 @@
-> 文档维护：mimo-v2.5-pro（最近更新 2026-06-02）
+> 文档维护：GPT-5（最近更新 2026-06-03）
 
 # Strategy 1 BigQuery ML Runner
 
@@ -65,9 +65,17 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_m
 |---|---|
 | `p_run_id` | 本次运行唯一 ID；嵌入模型对象名以保证 run 隔离 |
 | `p_backtest_id` | 回测 ID |
+| `p_experiment_id` | OQ-010 实验 ID；来自 `configs/strategy1/oq010_experiments_v0.json` |
+| `p_experiment_group` | OQ-010 阶段/实验组，如 `portfolio_concentration`、`rebalance_frequency` |
+| `p_baseline_experiment_id` | OQ-010 全局 baseline：`oq010_base_oriented_weekly_h5_n5_w20_pv` |
+| `p_parent_experiment_id` / `p_parent_run_id` | 当前实验依赖的上一阶段晋级实验，用于追溯 |
 | `p_train_start` | 训练起点（默认 2019-04-03，避开 60 日窗口不完整期） |
+| `p_label_horizon` | 训练标签周期，支持 5 / 10 / 20；`01/03/11/12` 会按该值选择目标标签和收益列 |
+| `p_rebalance_frequency` | 调仓频率，支持 `weekly` / `biweekly` / `monthly` |
 | `p_target_holdings` | 持股数（OQ-010 待确认，示例值 5） |
 | `p_max_single_weight` | 单票权重上限（OQ-010 待确认，示例值 0.20） |
+| `p_feature_set_id` | 特征集合 ID；基础为 `strategy1_pv_v0_20260601`，财务扩展为 `strategy1_pv_fin_quality_v0_20260603` |
+| `p_fin_feature_version` | 财务 DWS 来源版本，默认 `fin_default_v0_20260602`；仅 `p_feature_set_id` 为财务扩展时使用 |
 | `p_cost_profile_id` | OQ-010 默认成本 profile：`cn_a_share_wanyi_no_min_slip5_v20260602`（佣金万一免五 + 卖出印花税 5 bps + 买卖滑点各 5 bps） |
 | `p_commission_bps` | 佣金，默认 1.0（万一） |
 | `p_min_commission_cny` | 最低佣金，默认 0.0（免五） |
@@ -109,7 +117,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_m
 
 | split | 入池规则 | 说明 |
 |---|---|---|
-| train | `sample_trainable_default` | 含 label_entry_tradable / label_valid_5d，训练允许使用标签有效性 |
+| train | horizon-aware trainable mask | 含 label_entry_tradable / 当前 `p_label_horizon` 的 label_valid / target 非空，训练允许使用标签有效性 |
 | valid | `predict_live_available_mask` | t 日已知 universe + feature + history + valuation，不含未来标签 |
 | test | `predict_live_available_mask` | 同 valid |
 
@@ -206,6 +214,31 @@ valid/test 预测、候选池、组合和回测从 live-available prediction poo
 | `--local-mirror-root` | 本地镜像根目录 |
 | `--skip-gcs-upload` | 跳过 GCS 上传 |
 | `--p-target-holdings` | 当前目标持股数（默认 5） |
+| `--p-label-horizon` | 当前目标标签周期；默认从 registry `model_params_json.label_horizon` 读取，缺失时为 5 |
+
+## OQ-010 首轮实验执行
+
+实验矩阵由 `configs/strategy1/oq010_experiments_v0.json` 管理。基础路径不是 `4 * 3 * 3` 笛卡尔积，而是阶段 A/B/C/D 逐步晋级：
+
+1. 阶段 A：固定周频、5d 标签、基础量价特征，跑 `5/20%`、`10/10%`、`20/5%`、`30/5%` 四组持股/权重。
+2. 阶段 B：沿用阶段 A 晋级持股/权重，跑 weekly / biweekly / monthly。
+3. 阶段 C：沿用阶段 B 晋级调仓频率，跑 5d / 10d / 20d 标签周期。
+4. 阶段 D：沿用阶段 C 晋级标签周期，对比基础量价特征与财务质量特征。
+
+每个实验执行 `01-12` 时，需要把 SQL 顶部 `DECLARE p_*` 参数替换为 manifest 对应值，并保持 `run_id` / `backtest_id` 唯一。`30/5%` 的目标权重由 `06` 计算为 `min(1/30, 0.05)=3.33%`，不会按 `30 * 5%` 建成 150% 仓位；若实际可买数量不足，剩余资金保留为现金。
+
+完成一批实验后生成对比 artifact：
+
+```bash
+python scripts/strategy1/compare_oq010_experiments.py \
+    --project data-aquarium \
+    --manifest configs/strategy1/oq010_experiments_v0.json \
+    --comparison-id oq010_stage_a_20260603_01 \
+    --output-root reports/strategy1/oq010_experiment_comparison \
+    --include-planned
+```
+
+输出包括 `experiment_comparison.md`、`experiment_comparison.json`、`experiment_metrics.csv` 和 `experiment_manifest_resolved.json`。该脚本只汇总事实和排序，不替 owner 决定最终默认参数。
 
 ## Score orientation 校准（PRD-20260603-01）
 

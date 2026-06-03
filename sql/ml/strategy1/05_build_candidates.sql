@@ -3,13 +3,22 @@
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
-DECLARE p_horizon INT64 DEFAULT 5;
+DECLARE p_label_horizon INT64 DEFAULT 5;
+DECLARE p_rebalance_frequency STRING DEFAULT 'weekly';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_target_holdings INT64 DEFAULT 5;  -- OQ-010 示例值
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 
 DECLARE p_selected_model_id STRING;
+IF p_label_horizon NOT IN (5, 10, 20) THEN
+  RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
+
+IF p_rebalance_frequency NOT IN ('weekly', 'biweekly', 'monthly') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_rebalance_frequency: ', p_rebalance_frequency);
+END IF;
+
 SET p_selected_model_id = (
   SELECT reg.model_id
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
@@ -32,11 +41,31 @@ IF p_force_replace THEN
 END IF;
 
 CREATE TEMP TABLE rebalance_dates AS
-SELECT MAX(cal_date) AS rebalance_date
-FROM `data-aquarium.ashare_dim.dim_trade_calendar`
-WHERE exchange = 'SSE' AND is_open = 1
-  AND cal_date BETWEEN p_predict_start AND p_predict_end
-GROUP BY EXTRACT(ISOYEAR FROM cal_date), EXTRACT(ISOWEEK FROM cal_date);
+WITH cal AS (
+  SELECT cal_date
+  FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+  WHERE exchange = 'SSE' AND is_open = 1
+    AND cal_date BETWEEN p_predict_start AND p_predict_end
+),
+weekly AS (
+  SELECT MAX(cal_date) AS rebalance_date
+  FROM cal
+  GROUP BY EXTRACT(ISOYEAR FROM cal_date), EXTRACT(ISOWEEK FROM cal_date)
+),
+weekly_ranked AS (
+  SELECT rebalance_date, ROW_NUMBER() OVER (ORDER BY rebalance_date) AS week_idx
+  FROM weekly
+),
+monthly AS (
+  SELECT MAX(cal_date) AS rebalance_date
+  FROM cal
+  GROUP BY DATE_TRUNC(cal_date, MONTH)
+)
+SELECT rebalance_date FROM weekly_ranked WHERE p_rebalance_frequency = 'weekly'
+UNION ALL
+SELECT rebalance_date FROM weekly_ranked WHERE p_rebalance_frequency = 'biweekly' AND MOD(week_idx - 1, 2) = 0
+UNION ALL
+SELECT rebalance_date FROM monthly WHERE p_rebalance_frequency = 'monthly';
 
 INSERT INTO `data-aquarium.ashare_ads.ads_stock_candidate_daily`
 (strategy_id, rebalance_date, sec_code, model_id, horizon,
@@ -68,7 +97,7 @@ universe_only AS (
   FROM scored
   WHERE filter_reason IS NULL
 )
-SELECT p_strategy_id, rebalance_date, sec_code, p_selected_model_id, p_horizon,
+SELECT p_strategy_id, rebalance_date, sec_code, p_selected_model_id, p_label_horizon,
        score, rk,
        1.0 - SAFE_DIVIDE(rk - 1, COUNT(*) OVER (PARTITION BY rebalance_date) - 1),
        TRUE, rk <= p_target_holdings,
@@ -78,7 +107,7 @@ FROM universe_only
 
 UNION ALL
 
-SELECT p_strategy_id, rebalance_date, sec_code, p_selected_model_id, p_horizon,
+SELECT p_strategy_id, rebalance_date, sec_code, p_selected_model_id, p_label_horizon,
        score, NULL, NULL, in_universe_default, FALSE,
        filter_reason, p_run_id, CURRENT_TIMESTAMP()
 FROM scored WHERE filter_reason IS NOT NULL;
