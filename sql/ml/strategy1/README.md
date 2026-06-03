@@ -226,7 +226,7 @@ ELSE score_orientation = 'identity'
 - `score_source`: 始终为 `positive_class_probability`
 - `score_orientation`: `identity` 或 `reverse_probability`
 - `raw_valid_rank_ic_mean` / `oriented_valid_rank_ic_mean`
-- `raw_valid_top_minus_bottom` / `rev_valid_top_minus_bottom`
+- `raw_valid_top_minus_bottom` / `reversed_valid_top_minus_bottom`
 - `orientation_decision_reason`
 - `orientation_decision_split`: 始终为 `valid`（test 不参与方向决策）
 
