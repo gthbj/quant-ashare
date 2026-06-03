@@ -18,7 +18,7 @@
 
 **下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run。2026-06-03 已配置本机 BigQuery Storage API 客户端并修复诊断脚本大 DataFrame 拉取不稳定问题；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，`10`/`12` QA 通过，诊断 artifact 已上传 GCS。下一步在诊断稳定性修复 PR 合并后继续 A1-A3；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%，实际入选不足时剩余现金保留；A1-A3/B0-B2 为组合层实验，复用预测源并只重跑 05-12。`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md` 已新增为待实现方案，要求先实现状态表、GCS 原子锁、lease/heartbeat、调度器、写隔离和并发 QA；实现前当前 runner 仍不允许并发执行。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线 PRD 待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；按 OQ-012 PRD 实现 ODS Parquet schema 修复。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
+**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线 PRD 待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；OQ-012 ODS Parquet schema 修复实现 PR 已提交，待 review/合并后在 BigQuery 实际执行 P0 `stk_limit` 修复并验证。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
 
@@ -851,3 +851,67 @@ Run ID: —
 - `OPEN_QUESTIONS.md`
 - `IMPLEMENTATION_STATUS.md`
 - `AGENT_HANDOFF.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: opencode session
+模型: MiMo v2.5 Pro
+运行环境: opencode CLI
+Run ID: —
+相关 issue/PR: OQ-012
+
+### 已完成工作
+
+- 按 `PRD_20260603_04_ODS外部表ParquetSchema修复.md` 实现 ODS Parquet schema 修复交付物：
+  - 新增 10 个 endpoint schema contract YAML：`configs/ods_schema_contracts/{stk_limit,limit_list_d,moneyflow,margin_detail,dividend,margin,daily_info,sz_daily_info,fina_audit,stk_rewards}.yml`
+  - 新增修复脚本 `scripts/ods_repair/repair_parquet_schema.py`：支持按 contract 做 schema-preserving cast、staging/backup/publish 流程、manifest CSV 跟踪、幂等（ok 跳过 + backup write-once）、INT→FLOAT64 `<2^53` 精度安全检查、dry-run 模式
+  - 新增验证脚本 `scripts/ods_repair/validate_repair.py`：读取 manifest CSV 验证修复后文件 schema/行数一致性
+  - 新增 QA SQL `sql/qa/06_ods_parquet_schema_checks.sql`：11 条 BigQuery ASSERT 覆盖 10 张 ODS 表的业务列可读性和 P0 `stk_limit` 的 `pre_close` 范围校验
+  - 新增执行文档 `scripts/ods_repair/README.md`：执行顺序、参数说明、幂等机制、精度安全、回滚方式、manifest 状态枚举
+
+### 重要上下文
+
+- P0 `ods_tushare_stk_limit` 的 `pre_close` 字段存在 INT→FLOAT64 mismatch，是当前策略 1 依赖链唯一尚未被 SAFE_CAST 兜住的风险点
+- 脚本设计为可并发执行不同 endpoint/partition，不会互相覆盖（manifest 按 endpoint+partition_date+source_uri 唯一跟踪）
+- 所有修复只改 Parquet 物理 schema，不改业务值口径、不补数据
+
+### 改动文件
+
+- `configs/ods_schema_contracts/*.yml`（10 个新文件）
+- `scripts/ods_repair/repair_parquet_schema.py`（新文件）
+- `scripts/ods_repair/validate_repair.py`（新文件）
+- `scripts/ods_repair/README.md`（新文件）
+- `sql/qa/06_ods_parquet_schema_checks.sql`（新文件）
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/ods_repair/repair_parquet_schema.py`
+- `python3 -m py_compile scripts/ods_repair/validate_repair.py`
+- `python3 scripts/ods_repair/repair_parquet_schema.py --endpoint stk_limit --run-id test_dry --dry-run`（需 GCS 访问权限）
+- `bq query --location=asia-east2 --use_legacy_sql=false < sql/qa/06_ods_parquet_schema_checks.sql`（需 BigQuery 访问权限）
+
+### 阻塞项
+
+- 无代码阻塞；实际修复执行需要 GCS 写入权限和 BigQuery 访问权限。
+
+### 下一步建议
+
+- Review 并合并本 PR。
+- 合并后先对 P0 `stk_limit` 执行 dry-run 盘点，确认 mismatch 文件清单。
+- 再对 P0 `stk_limit` 执行实际修复，跑 `validate_repair.py` 和 `06_ods_parquet_schema_checks.sql`。
+- P0 验证通过后分批修复 P1/P2/P3。
+
+### 已更新记忆文件
+
+- `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+- `OPEN_QUESTIONS.md`
+- `TODO.md`

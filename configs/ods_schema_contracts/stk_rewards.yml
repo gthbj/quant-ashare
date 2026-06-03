@@ -1,0 +1,60 @@
+# ODS Schema Contract: stk_rewards (管理层薪酬持股)
+# P3 priority
+# Known mismatch: hold_vol (INT->FLOAT64)
+source_system: tushare
+endpoint: stk_rewards
+ods_table: ods_tushare_stk_rewards
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=stk_rewards
+partition_field: partition_date
+priority: P3
+consumers: []
+fields:
+  - field_name: ts_code
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: text
+    unit_note: "股票代码"
+    repair_policy: cast_preserve_value
+  - field_name: ann_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 公告日"
+    repair_policy: cast_preserve_value
+  - field_name: end_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 报告期"
+    repair_policy: cast_preserve_value
+  - field_name: name
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "姓名"
+    repair_policy: cast_preserve_value
+  - field_name: title
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "职务"
+    repair_policy: cast_preserve_value
+  - field_name: reward
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元 报酬"
+    repair_policy: cast_preserve_value
+  - field_name: hold_vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "股 持股数"
+    repair_policy: cast_preserve_value

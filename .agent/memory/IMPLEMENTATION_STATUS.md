@@ -72,10 +72,13 @@ Last updated: 2026-06-03
 - score orientation 校准已实现并合并（PR #32）：`03_select_model_and_register.sql` 在选型阶段计算 `raw_score` 和 `reversed_score`，按 valid RankIC 和 bucket lift 决策 `score_orientation`（`identity` 或 `reverse_probability`），`04_predict_daily.sql` 应用方向校准；`ads_model_registry` 持久化 `score_orientation`，`12` 新增 QA-ORIENT-DIAG-1 断言。2026-06-03 已完成 livepool reverse-score shadow run（`s1_bqml_livepool_revscore_20260603_01`），验证反向后的 valid/test RankIC 转正且回测从亏损转为正收益（total_return=0.2787）。 oriented run（`s1_bqml_livepool_oriented_20260603_01`）的 `12` QA 全部通过。
 - OQ-010 首轮实验 runner 实现 PR #37 已合并并验证 dry-run；review 后已补 portfolio-only `prediction_run_id` 路径和目标权重留现金口径。2026-06-03 已执行 A0（`run_id=s1_bqml_oq010_oq010_a0_n5_w20_20260603_01` / `backtest_id=bt_s1_bqml_oq010_oq010_a0_n5_w20_20260603_01`）01-12：`10` 和 `12` QA 均通过，诊断 artifact 已上传 GCS，summary `total_return=0.27868`、`sharpe=0.7258`、`max_drawdown=-0.2217`、`excess_return=-0.01145`，诊断 `primary_diagnosis=usable_signal`、`confidence=low`。执行中发现诊断脚本本地拉取大 DataFrame 不稳定，本机已配置 BigQuery Storage API 客户端，诊断脚本修复 PR 待合并后继续 A1-A3。
 
+## 进行中 / 部分（In Progress）
+
+- ODS Parquet schema repair 实现已启动：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 新增 10 个 endpoint 的 schema contract YAML（`configs/ods_schema_contracts/*.yml`）、修复脚本（`scripts/ods_repair/repair_parquet_schema.py`）、验证脚本（`scripts/ods_repair/validate_repair.py`）、QA SQL（`sql/qa/06_ods_parquet_schema_checks.sql`）和执行文档（`scripts/ods_repair/README.md`）。脚本支持幂等（manifest 跟踪）、backup write-once、INT->FLOAT64 `<2^53` 精度复核、dry-run 模式。P0 `stk_limit` 待在 BigQuery 上实际执行修复并验证。
+
 ## 未开始 / 未来（Not Started / Future）
 
 - `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置。
-- ODS Parquet schema repair 实现：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 新增 schema contract、修复脚本、QA SQL 和修复报告，先修 `ods_tushare_stk_limit`，再分批修其余 9 张表。
 - 「从 ODS 继承字段描述」的脚本（bq show → 映射 → bq update）。
 - 增量调度（dbt 或 Airflow + SQL）、数据质量断言。
 - P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily` 已落地物化（OQ-003 默认合并报表口径）；`dws_market_state_daily` 仍待补。三大报表单季 `q_*` 派生延后 P1。

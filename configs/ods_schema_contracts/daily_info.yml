@@ -1,0 +1,95 @@
+# ODS Schema Contract: daily_info (每日市场概况)
+# P2 priority
+# Known mismatch: com_count, trans_count (INT->FLOAT64)
+source_system: tushare
+endpoint: daily_info
+ods_table: ods_tushare_daily_info
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=daily_info
+partition_field: partition_date
+priority: P2
+consumers: []
+fields:
+  - field_name: ts_code
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: text
+    unit_note: "指数代码"
+    repair_policy: cast_preserve_value
+  - field_name: trade_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: date
+    unit_note: "YYYYMMDD"
+    repair_policy: cast_preserve_value
+  - field_name: com_count
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: count
+    unit_note: "上涨家数"
+    repair_policy: cast_preserve_value
+  - field_name: free_share
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: share
+    unit_note: "万股 流通股本"
+    repair_policy: cast_preserve_value
+  - field_name: total_mv
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元 总市值"
+    repair_policy: cast_preserve_value
+  - field_name: float_mv
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元 流通市值"
+    repair_policy: cast_preserve_value
+  - field_name: amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元 总成交额"
+    repair_policy: cast_preserve_value
+  - field_name: vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手 总成交量"
+    repair_policy: cast_preserve_value
+  - field_name: trans_count
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: count
+    unit_note: "成交笔数"
+    repair_policy: cast_preserve_value
+  - field_name: pe
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: ratio
+    unit_note: "市盈率"
+    repair_policy: cast_preserve_value
+  - field_name: tr
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: ratio
+    unit_note: "换手率"
+    repair_policy: cast_preserve_value
+  - field_name: exchange
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "交易所 SSE/SZSE"
+    repair_policy: cast_preserve_value

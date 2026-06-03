@@ -1,0 +1,74 @@
+# ODS Schema Contract: margin_detail (融资融券交易明细)
+# P1 priority
+# Known mismatch: rqye, rzrqye (INT->FLOAT64)
+source_system: tushare
+endpoint: margin_detail
+ods_table: ods_tushare_margin_detail
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=margin_detail
+partition_field: partition_date
+priority: P1
+consumers: []
+fields:
+  - field_name: trade_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: date
+    unit_note: "YYYYMMDD"
+    repair_policy: cast_preserve_value
+  - field_name: ts_code
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: text
+    unit_note: "股票代码"
+    repair_policy: cast_preserve_value
+  - field_name: rzye
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 融资余额"
+    repair_policy: cast_preserve_value
+  - field_name: rzmre
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 融资买入额"
+    repair_policy: cast_preserve_value
+  - field_name: rzche
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 融资偿还额"
+    repair_policy: cast_preserve_value
+  - field_name: rqye
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 融券余额"
+    repair_policy: cast_preserve_value
+  - field_name: rqmcl
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "股 融券卖出量"
+    repair_policy: cast_preserve_value
+  - field_name: rqchl
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "股 融券偿还量"
+    repair_policy: cast_preserve_value
+  - field_name: rzrqye
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 融资融券余额"
+    repair_policy: cast_preserve_value

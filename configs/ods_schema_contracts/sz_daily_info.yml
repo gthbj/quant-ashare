@@ -1,0 +1,67 @@
+# ODS Schema Contract: sz_daily_info (深圳市场每日概况)
+# P2 priority
+# Known mismatch: total_share, total_mv, float_share, float_mv (INT->FLOAT64)
+source_system: tushare
+endpoint: sz_daily_info
+ods_table: ods_tushare_sz_daily_info
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=sz_daily_info
+partition_field: partition_date
+priority: P2
+consumers: []
+fields:
+  - field_name: ts_code
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: text
+    unit_note: "指数代码"
+    repair_policy: cast_preserve_value
+  - field_name: trade_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: date
+    unit_note: "YYYYMMDD"
+    repair_policy: cast_preserve_value
+  - field_name: total_share
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: share
+    unit_note: "万股 总股本"
+    repair_policy: cast_preserve_value
+  - field_name: float_share
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: share
+    unit_note: "万股 流通股本"
+    repair_policy: cast_preserve_value
+  - field_name: amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元 总成交额"
+    repair_policy: cast_preserve_value
+  - field_name: vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手 总成交量"
+    repair_policy: cast_preserve_value
+  - field_name: total_mv
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元 总市值"
+    repair_policy: cast_preserve_value
+  - field_name: float_mv
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元 流通市值"
+    repair_policy: cast_preserve_value

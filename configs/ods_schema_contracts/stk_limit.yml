@@ -1,0 +1,54 @@
+# ODS Schema Contract: stk_limit (涨跌停价格)
+# P0 priority - used by dwd_stock_eod_price
+# Known mismatch: pre_close (INT->FLOAT64)
+source_system: tushare
+endpoint: stk_limit
+ods_table: ods_tushare_stk_limit
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=stk_limit
+partition_field: partition_date
+priority: P0
+consumers:
+  - dwd_stock_eod_price (up_limit, down_limit)
+fields:
+  - field_name: ts_code
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: text
+    unit_note: "股票代码"
+    repair_policy: cast_preserve_value
+  - field_name: trade_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: date
+    unit_note: "YYYYMMDD"
+    repair_policy: cast_preserve_value
+  - field_name: pre_close
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: price
+    unit_note: "元/股"
+    repair_policy: cast_preserve_value
+  - field_name: up_limit
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: price
+    unit_note: "元/股"
+    repair_policy: cast_preserve_value
+  - field_name: down_limit
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: price
+    unit_note: "元/股"
+    repair_policy: cast_preserve_value
+  - field_name: limit
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "涨跌停状态 U/D/Z"
+    repair_policy: cast_preserve_value
