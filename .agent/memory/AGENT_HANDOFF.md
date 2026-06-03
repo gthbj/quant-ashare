@@ -16,7 +16,7 @@
 
 **DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 已落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，以及 OQ-003 财务特征 `dws_stock_feature_fin_daily`；市场状态 `dws_market_state_daily` 待补。财务特征口径 PRD 已采纳、关闭并实现 OQ-003（PR #13）：P0 默认消费合并报表 `report_type='1'`，三大报表 DWD（`income/balancesheet/cashflow` + `_latest`）保留 `report_type`/`report_caliber`/`is_default_report_caliber`，`dws_stock_feature_fin_daily` 默认只过滤默认口径（口径契约 + `has_fin_*` 掩码），已物化并通过 `sql/qa/04_finance_caliber_checks.sql`，并按 OQ-006 单位契约补全 `ods_field_unit_map` 财务字段、跑通 `sql/qa/05_oq006_unit_checks.sql`。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md`、runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 和 runner SQL 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。**runner 已于 PR #12 端到端实跑并通过全部 QA**（08 已重写为账户级 ledger，详见本文件末尾 2026-06-02 交接条目与摘要顶部）。
 
-**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`，下一步按已合并 PRD 实现实验参数化、manifest、对比报告，并执行持股数/权重、调仓频率、标签 horizon、财务特征实验。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`，下一步按已合并 PRD 实现实验参数化、manifest、对比报告，并执行持股数/权重、调仓频率、标签 horizon、财务特征实验；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
 **待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
@@ -25,55 +25,6 @@
 **分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 和 `codex/implement-oq004-index` 已在本地和远端删除。
 
 > 历史交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md` 和 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动只需阅读本文件的当前摘要和最近交接；归档仅用于审计追溯。
-
----
-
----
-
----
-
-## 交接条目
-
-日期: 2026-06-03
-Agent ID: Codex
-Agent 实例 ID: Codex desktop session
-模型: GPT-5
-运行环境: Codex desktop
-Run ID: —
-相关 issue/PR: 记忆瘦身 / handoff 归档
-
-### 已完成工作
-
-- 按 `.agent/memory/UPDATE_PROTOCOL.md` 的归档规则，创建 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。
-- 将 `.agent/memory/AGENT_HANDOFF.md` 中较早的 2026-06 历史交接块迁入 6 月归档。
-- 主 handoff 文件仅保留当前交接摘要、最近几段交接和本次清理交接，降低常规启动读取成本。
-
-### 重要上下文
-
-- 本次为记忆维护，不涉及 SQL、BigQuery 数据、策略逻辑或 PRD 内容变更。
-- 历史交接仍可通过 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md` 审计追溯。
-
-### 改动文件
-
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-
-### 测试 / 验证
-
-- `git diff --check`
-- `wc -l .agent/memory/AGENT_HANDOFF.md .agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-
-### 阻塞项
-
-- 无。
-
-### 下一步建议
-
-- 继续保持 `AGENT_HANDOFF.md` 只存摘要和最近 2-3 条交接；更早条目按月归档。
-
-### 已更新记忆文件
-
-- `AGENT_HANDOFF.md`
 
 ---
 
@@ -138,6 +89,8 @@ Run ID: —
 
 ---
 
+---
+
 ## 交接条目
 
 日期: 2026-06-03
@@ -191,4 +144,66 @@ Run ID: —
 - `PROJECT_CONTEXT.md`
 - `OPEN_QUESTIONS.md`
 - `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: OQ-010 / 策略 1 首轮实验非笛卡尔积口径
+
+### 已完成工作
+
+- 按 owner 确认修订 `docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`。
+- 明确阶段 A/B/C 不做 `4 * 3 * 3` 全量笛卡尔积；基础执行为阶段 A 固定 weekly + 5d 跑 4 个持股 / 权重实验，再用阶段 A 晋级组合跑阶段 B 的 3 个调仓频率实验，再用阶段 A/B 晋级参数跑阶段 C 的 3 个 label horizon 实验，即 `4 + 3 + 3 = 10`。
+- 明确阶段 D 只使用阶段 C 或最终保底复核晋级参数跑 2 个特征集合；完整第一轮基础实验数为 12。
+- 增加可选小型交互复核规则：阶段 A/B 或 B/C 暴露明显交互风险时，补最多 `2 * 2 = 4` 个 pairwise 实验；最终 `2 * 2 * 2` 只在 pairwise 复核显示明显联动、晋级结果不稳或 owner 明确要求时作为保底复核。
+- 补充 `30/5%` 解释：表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%，不是每只买 5%。
+- 追加 `DECISION-20260603-01`，同步 `TODO.md`、`OPEN_QUESTIONS.md`、`PROJECT_CONTEXT.md`、`IMPLEMENTATION_STATUS.md`、`MEMORY_INDEX.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 本次仍是 PRD / 记忆修订，未修改 runner SQL 或 Python。
+- 后续实现 manifest / 对比报告 / QA 应以 `4 + 3 + 3` 为 A/B/C 基础路径、包含阶段 D 为 12 个基础实验；只有满足触发条件时才补 pairwise 或最终 `2 * 2 * 2` 复核，不应默认生成 36 个 A/B/C 全量组合。
+
+### 改动文件
+
+- `docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`
+- `TODO.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+- 已复核 PRD / TODO / memory 中阶段 A/B/C 非笛卡尔积、基础 `4 + 3 + 3`、阶段 D 12 个基础实验、可选 `2 * 2` pairwise 和最终 `2 * 2 * 2` 保底复核口径一致。
+- 文档 / 记忆更新，未执行 SQL。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 实现 OQ-010 第一轮实验参数化、manifest、对比报告和 QA。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `MEMORY_INDEX.md`
+- `PROJECT_CONTEXT.md`
+- `OPEN_QUESTIONS.md`
+- `IMPLEMENTATION_STATUS.md`
+- `DECISION_LOG.md`
 - `AGENT_HANDOFF.md`

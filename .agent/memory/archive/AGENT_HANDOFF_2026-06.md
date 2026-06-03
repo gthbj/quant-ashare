@@ -2247,3 +2247,50 @@ Run ID: —
 ---
 
 ---
+
+---
+
+## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: 记忆瘦身 / handoff 归档
+
+### 已完成工作
+
+- 按 `.agent/memory/UPDATE_PROTOCOL.md` 的归档规则，创建 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。
+- 将 `.agent/memory/AGENT_HANDOFF.md` 中较早的 2026-06 历史交接块迁入 6 月归档。
+- 主 handoff 文件仅保留当前交接摘要、最近几段交接和本次清理交接，降低常规启动读取成本。
+
+### 重要上下文
+
+- 本次为记忆维护，不涉及 SQL、BigQuery 数据、策略逻辑或 PRD 内容变更。
+- 历史交接仍可通过 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md` 审计追溯。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+- `wc -l .agent/memory/AGENT_HANDOFF.md .agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 继续保持 `AGENT_HANDOFF.md` 只存摘要和最近 2-3 条交接；更早条目按月归档。
+
+### 已更新记忆文件
+
+- `AGENT_HANDOFF.md`
+
+---
