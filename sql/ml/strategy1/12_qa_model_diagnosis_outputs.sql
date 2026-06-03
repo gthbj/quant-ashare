@@ -2,9 +2,9 @@
 -- 12: 断言诊断 artifact 状态、manifest、关键指标非空和结论字段合法。
 -- 必须在 diagnose_model_quality.py 之后执行。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
-DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_20260602_01';
+DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_oriented_20260603_01';
 DECLARE p_train_start DATE DEFAULT DATE '2019-04-03';
 DECLARE p_train_end DATE DEFAULT DATE '2023-12-31';
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
@@ -205,3 +205,12 @@ ASSERT (
   WHERE tp.run_id = p_run_id AND tp.split_tag IN ('valid', 'test')
     AND tp.trade_date BETWEEN p_valid_start AND p_test_end
 ) AS 'QA-POOL-6: valid/test panel must contain live-only rows (live-available mask is active)';
+
+-- ── Score orientation 一致性 ──
+ASSERT (
+  SELECT JSON_VALUE(reg.metrics_json, '$.score_orientation') IN ('identity', 'reverse_probability')
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+  LIMIT 1
+) AS 'QA-ORIENT-DIAG-1: selected model must have valid score_orientation in registry';

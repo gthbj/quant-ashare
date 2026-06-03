@@ -56,9 +56,11 @@ CREATE OR REPLACE TABLE `data-aquarium.ashare_ads.ads_model_prediction_daily` (
   predict_date DATE OPTIONS(description = '预测日，月分区字段'),
   horizon INT64 OPTIONS(description = '预测 horizon，交易日'),
   sec_code STRING OPTIONS(description = '统一证券代码'),
-  score FLOAT64 OPTIONS(description = '模型原始分数或正类概率'),
-  rank_raw INT64 OPTIONS(description = '当日分数降序名次，1 为最高'),
-  rank_pct FLOAT64 OPTIONS(description = '当日分数横截面分位，1 为最高'),
+  score FLOAT64 OPTIONS(description = '经 orientation 校准后的最终分数（identity 时 = raw_score，reverse_probability 时 = 1 - raw_score）；选股/排名使用此列'),
+  raw_score FLOAT64 OPTIONS(description = 'ML.PREDICT 原始 label=1 正类概率，未经 orientation 校准'),
+  score_orientation STRING OPTIONS(description = 'score 校准方向：identity（原样）或 reverse_probability（1-raw_score）'),
+  rank_raw INT64 OPTIONS(description = '当日 score 降序名次，1 为最高（基于 oriented score）'),
+  rank_pct FLOAT64 OPTIONS(description = '当日 score 横截面分位，1 为最高（基于 oriented score）'),
   feature_version STRING OPTIONS(description = '特征版本'),
   run_id STRING OPTIONS(description = '预测 run id'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
@@ -66,7 +68,7 @@ CREATE OR REPLACE TABLE `data-aquarium.ashare_ads.ads_model_prediction_daily` (
 PARTITION BY DATE_TRUNC(predict_date, MONTH)
 CLUSTER BY model_id, sec_code
 OPTIONS (
-  description = 'Daily model predictions and cross-sectional ranks',
+  description = 'Daily model predictions with orientation-calibrated scores and cross-sectional ranks',
   require_partition_filter = TRUE
 );
 

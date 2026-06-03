@@ -143,6 +143,11 @@ def fetch_model_identity(client: bigquery.Client, project: str,
         "preprocess_version": row["preprocess_version"],
         "model_params_json": p,
         "metrics_json": m,
+        "score_orientation": m.get("score_orientation", "identity"),
+        "score_source": m.get("score_source", "positive_class_probability"),
+        "raw_valid_rank_ic_mean": m.get("raw_valid_rank_ic_mean"),
+        "oriented_valid_rank_ic_mean": m.get("oriented_valid_rank_ic_mean"),
+        "orientation_decision_reason": m.get("orientation_decision_reason"),
     }
 
 
@@ -942,6 +947,13 @@ def render_diagnosis_markdown(identity: dict, valid_ic: dict, test_ic: dict,
     lines.append(f"- **run_id**: `{args.run_id}`")
     lines.append(f"- **backtest_id**: `{args.backtest_id}`")
     lines.append(f"- **model_id**: `{identity.get('model_id')}`")
+    lines.append(f"- **score_orientation**: `{identity.get('score_orientation', 'identity')}`")
+    lines.append(f"- **score_source**: `{identity.get('score_source', 'positive_class_probability')}`")
+    if identity.get("orientation_decision_reason"):
+        lines.append(f"- **orientation_reason**: {identity.get('orientation_decision_reason')}")
+    if identity.get("raw_valid_rank_ic_mean") is not None:
+        lines.append(f"- **raw_valid_rank_ic**: {identity.get('raw_valid_rank_ic_mean')}")
+        lines.append(f"- **oriented_valid_rank_ic**: {identity.get('oriented_valid_rank_ic_mean')}")
     lines.append(f"- **生成时间**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
     lines.append("")
 
@@ -1083,6 +1095,11 @@ def main():
         "run_id": args.run_id,
         "backtest_id": args.backtest_id,
         "model_id": identity.get("model_id"),
+        "score_orientation": identity.get("score_orientation", "identity"),
+        "score_source": identity.get("score_source", "positive_class_probability"),
+        "raw_valid_rank_ic_mean": identity.get("raw_valid_rank_ic_mean"),
+        "oriented_valid_rank_ic_mean": identity.get("oriented_valid_rank_ic_mean"),
+        "orientation_decision_reason": identity.get("orientation_decision_reason"),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "primary_diagnosis": diagnosis["primary"],
         "confidence": diagnosis["confidence"],

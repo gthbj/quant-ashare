@@ -3,8 +3,9 @@
 -- 动态引用 selected model（EXECUTE IMMEDIATE），不依赖跨脚本临时表。
 -- PRD-20260602-05: 预测输入来自 ads_ml_training_panel_daily（已按 live-available mask 构建），
 -- 不引用 target_label / target_return / label_entry_tradable / label_valid_* / sample_trainable_default。
+-- Score orientation: 从 registry metrics_json 读取 score_orientation，应用到最终 score。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_horizon INT64 DEFAULT 5;
@@ -13,6 +14,7 @@ DECLARE p_test_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 DECLARE p_selected_model_id STRING;
 DECLARE p_selected_model_path STRING;
+DECLARE p_score_orientation STRING;
 DECLARE p_feat_sql STRING;
 
 -- selected model（run-scoped）
@@ -26,6 +28,22 @@ SET (p_selected_model_id, p_selected_model_path) = (
 
 IF p_selected_model_id IS NULL THEN
   RAISE USING MESSAGE = 'No selected model for this run_id. Run 03 first.';
+END IF;
+
+-- Read score_orientation from registry metrics_json (set by 03).
+-- PRD requires failure if orientation is missing — no COALESCE fallback.
+SET p_score_orientation = (
+  SELECT JSON_VALUE(reg.metrics_json, '$.score_orientation')
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.model_id = p_selected_model_id
+    AND reg.strategy_id = p_strategy_id
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+  LIMIT 1
+);
+
+IF p_score_orientation IS NULL OR p_score_orientation NOT IN ('identity', 'reverse_probability') THEN
+  RAISE USING MESSAGE = CONCAT('score_orientation missing or invalid: ', COALESCE(p_score_orientation, 'NULL'),
+                                '. Run 03 must set score_orientation in registry metrics_json.');
 END IF;
 
 -- 幂等
@@ -75,12 +93,17 @@ SET p_feat_sql = """
 """;
 
 -- ── 动态预测并写入（横截面排序）──
+-- raw_score = ML.PREDICT label='1' probability
+-- score = oriented score: identity keeps raw, reverse_probability uses 1.0 - raw
+-- rank_raw / rank_pct 按最终 oriented score DESC 计算
 EXECUTE IMMEDIATE FORMAT("""
   INSERT INTO `data-aquarium.ashare_ads.ads_model_prediction_daily`
-  (model_id, predict_date, horizon, sec_code, score, rank_raw, rank_pct,
-   feature_version, run_id, created_at)
+  (model_id, predict_date, horizon, sec_code, score, raw_score, score_orientation,
+   rank_raw, rank_pct, feature_version, run_id, created_at)
   WITH preds AS (
-    SELECT p.trade_date AS predict_date, p.sec_code, prob.prob AS score
+    SELECT p.trade_date AS predict_date, p.sec_code,
+           prob.prob AS raw_score,
+           IF('%s' = 'reverse_probability', 1.0 - prob.prob, prob.prob) AS oriented_score
     FROM ML.PREDICT(MODEL `%s`,
       (SELECT trade_date, sec_code, %s
        FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily`
@@ -90,13 +113,18 @@ EXECUTE IMMEDIATE FORMAT("""
     WHERE CAST(prob.label AS STRING) = '1'
   )
   SELECT
-    '%s', predict_date, %d, sec_code, score,
-    ROW_NUMBER() OVER (PARTITION BY predict_date ORDER BY score DESC, sec_code),
+    '%s', predict_date, %d, sec_code,
+    oriented_score,
+    raw_score,
+    '%s',
+    ROW_NUMBER() OVER (PARTITION BY predict_date ORDER BY oriented_score DESC, sec_code),
     1.0 - SAFE_DIVIDE(
-      ROW_NUMBER() OVER (PARTITION BY predict_date ORDER BY score DESC, sec_code) - 1,
+      ROW_NUMBER() OVER (PARTITION BY predict_date ORDER BY oriented_score DESC, sec_code) - 1,
       COUNT(*) OVER (PARTITION BY predict_date) - 1),
     '%s', '%s', CURRENT_TIMESTAMP()
   FROM preds
-""", p_selected_model_path, p_feat_sql, p_run_id,
+""", p_score_orientation, p_selected_model_path, p_feat_sql, p_run_id,
      CAST(p_valid_start AS STRING), CAST(p_test_end AS STRING),
-     p_selected_model_id, p_horizon, p_feature_version, p_run_id);
+     p_selected_model_id, p_horizon,
+     p_score_orientation,
+     p_feature_version, p_run_id);
