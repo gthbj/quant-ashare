@@ -57,7 +57,7 @@ ashare_ods (已有, 外部表)
 - 策略 1 score orientation 校准 PRD 已新增并实现：`docs/prd/PRD_20260603_01_策略1分数方向校准.md`。当前 oriented run 已修正 raw 正类概率反向问题，`12` QA 全部通过。
 - OQ-010 首轮质量迭代实验 PRD 已合并（PR #35）：`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`，用于分阶段比较持股数/权重、调仓频率、标签 horizon 和财务特征；已明确 canonical baseline id、parent experiment 追溯关系，以及阶段 C 固定沿用阶段 B 晋级调仓频率以隔离 label horizon。owner 已确认阶段 A/B/C 不做 `4 * 3 * 3` 笛卡尔积，基础路径为 `4 + 3 + 3 = 10` 个实验，包含阶段 D 为 12 个实验；必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 小型交互复核，最终 `2 * 2 * 2` 只作为条件触发的保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权为 3.33%，不是每只买 5%。
 - OQ-010 首轮实验 runner 实现已由 PR #37 合并进入 `main`：新增实验 manifest 和对比报告脚本；`sql/ml/strategy1/01-06/09-12` 支持实验身份、调仓频率、目标持股/权重、`p_label_horizon`、`feature_set_id` 和 portfolio-only `p_prediction_run_id` 复用预测源路径；诊断脚本与 QA 已改为 horizon-aware；已通过 JSON/Python/`git diff --check` 和 BigQuery dry-run，尚未端到端实跑实验。
-- OQ-005 GCP 数据流水线 PRD 已新增：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`。长期方案采用 Cloud Run Jobs 做 Tushare/Tinyshare→GCS Parquet 采集，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 做全流程编排、重试、补跑和告警；每日生产采集只覆盖当前实际消费的 14 张 ODS，当前未消费 endpoint 进入后续接入池；PRD 已按 owner 反馈收敛为陈述性目标实现方案，并已补入 PR #39 review 的财务 empty-return 口径和 Phase 1 触发入口。
+- OQ-005 GCP 数据流水线 PRD 已新增：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`。长期方案采用 Cloud Run Jobs 做 Tushare/Tinyshare→GCS Parquet 采集，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 做全流程编排、重试、补跑和告警；每日生产采集只覆盖当前实际消费的 14 张 ODS，当前未消费 endpoint 进入后续接入池。PR #42 分支已实现 Phase 0 采集 manifest、14 张 schema contract、meta 表 DDL 与采集脚本 stub，并已合入 #44/#46 review 修复；后续仍需实现 Cloud Run Jobs、Dataform P0 转换和 Composer DAG。
 - **下一步**：执行 OQ-010 第一轮对照实验。也可补 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
 
 ## 不可妥协的约定

@@ -6,20 +6,27 @@ import logging
 import re
 import sys
 
-# 自动脱敏模式：匹配常见 token / key 模式
-_SENSITIVE_PATTERNS = [
-    re.compile(r'(token|key|secret|password|authorization)[\s=:]+[\w\-\.]+', re.IGNORECASE),
-    re.compile(r'Bearer\s+[\w\-\.]+', re.IGNORECASE),
-]
+# 自动脱敏模式：匹配常见 token / key 模式。
+_KEY_VALUE_SECRET_PATTERN = re.compile(
+    r"\b([A-Za-z0-9_.-]*(?:token|key|secret|password)[A-Za-z0-9_.-]*|authorization)\b"
+    r"\s*(?:[:=]\s*|\s+)(?:Bearer\s+)?[^\s,;]+",
+    re.IGNORECASE,
+)
+_BEARER_PATTERN = re.compile(r"\bBearer\s+[^\s,;]+", re.IGNORECASE)
+
+
+def _scrub_text(value: str) -> str:
+    """脱敏已格式化的日志文本。"""
+    value = _KEY_VALUE_SECRET_PATTERN.sub(lambda m: f"{m.group(1)}=***", value)
+    return _BEARER_PATTERN.sub("Bearer ***", value)
 
 
 class _ScrubbingFilter(logging.Filter):
     """自动过滤日志中的敏感信息。"""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, str):
-            for pat in _SENSITIVE_PATTERNS:
-                record.msg = pat.sub(lambda m: m.group().split('=')[0].split(':')[0] + '=***', record.msg)
+        record.msg = _scrub_text(record.getMessage())
+        record.args = ()
         return True
 
 

@@ -3,6 +3,7 @@
 ## 数据约束（Tushare / ODS 事实）
 
 - ODS 全部为 Hive 分区外部表，**查询必须带 `partition_date`/`endpoint` 过滤**（强制分区裁剪），否则报错。`partition_date` 是 `YYYYMMDD` 字符串。
+- OQ-005 采集 manifest 中 `endpoint` 表示 Tushare API endpoint，`partition_endpoint` 表示写入 GCS Hive 分区 `endpoint=` 的值；两者不得混用。普通接口二者相同，`stock_basic` 必须按 request variant 写入 `stock_basic_listed` / `stock_basic_delisted` 两个 `partition_endpoint`，以匹配 `dim_stock` 的 `endpoint IN (...)` 消费口径。
 - **财务表 `partition_date == 报告期(end_date)`，不是公告日**：禁止用 partition_date 当数据可见时间，必须用 `ann_date_eff = COALESCE(f_ann_date, ann_date)` 做 PIT。
 - 财务表同一 `(sec_code, 报告期)` 有多条（不同 `report_type`/修正/`update_flag`）：P0 默认消费合并报表 `report_type='1'`；带 `report_type` 的 DWD 版本事实表保留源 `report_type` 并派生 `report_caliber`/`is_default_report_caliber`，P0 DWS 默认过滤默认口径，多口径特征后续另建/扩展。
 - **三大报表 `income/balancesheet/cashflow` 已落地**（`sql/dwd/06/08/10` + `_latest` 07/09/11，OQ-003/DECISION-20260601-05）：实测当前 ODS 三表**仅含 `report_type='1'`**（合并报表，分 `comp_type` 1/2/3/4/7）；版本事实键 `(sec_code, report_period, report_type, ann_date_eff, update_flag)`，可见日 `COALESCE(f_ann_date, ann_date)`；默认 `_latest` 与 `dws_stock_feature_fin_daily` 只消费默认合并口径。`report_type>'1'` 的 caliber 映射为前向兼容、当前不触发。金额单位为元（Tushare 原始口径，未换算），income/cashflow 为累计/YTD、balancesheet 为时点值。
