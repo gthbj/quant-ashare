@@ -1026,3 +1026,78 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`
+
+## DECISION-20260603-04: OQ-010 实验并发调度与隔离采用 GCS 原子锁 + BigQuery 状态表
+
+日期: 2026-06-03
+状态: active
+负责人: owner
+Agent ID: DeepSeek V4
+模型: DeepSeek V4
+
+### 背景
+
+OQ-010 同阶段实验串行执行耗时过长，但直接本地多进程并发跑 SQL 存在互相污染风险。PRD 已定义并发方案（`docs/prd/PRD_20260603_05`），需要实现状态表、锁机制和调度器。
+
+### 决策
+
+1. 锁原语采用 GCS object `ifGenerationMatch=0` create-if-not-exists，放在 `gs://ashare-artifacts/locks/strategy1/oq010/<lock_key>.lock`。不依赖 BigQuery 状态表做低延迟锁管理。
+2. BigQuery `ashare_meta.strategy1_experiment_run_status` 只用于审计追踪和 resume 输入，不承担锁管理职责。
+3. 调度器 `scripts/strategy1/run_oq010_experiments.py` 支持全部 PRD 定义参数：`--manifest`、`--stage-id`、`--experiment-id`、`--max-parallel`、`--max-parallel-backtest`、`--dry-run`、`--force-replace`、`--resume`、`--resume-from-step`、`--fail-fast`、`--allow-cross-stage`、`--log-dir`、`--scheduler-instance-id`、`--lock-ttl-minutes`。
+4. 锁 key 分 6 类：`train`、`predict`、`portfolio`、`backtest`、`summary`、`diagnosis`，按 `prediction_run_id` / `run_id` / `backtest_id` 粒度隔离。
+5. 默认 `max_parallel_backtest=1`，08 ledger 并发需 owner 验收后手动提高。
+6. Phase 1 只实现状态表 DDL、调度器 dry-run、GCS 锁原语和并发 QA SQL，不实际在 BigQuery 端到端执行并发实验。Phase 2-4 后续再实现。
+
+### 理由
+
+GCS object 条件创建是 BigQuery 项目中最简单、最廉价的原子锁机制，无额外服务依赖、无需 Firestore/Cloud Tasks。状态表用 MERGE 做 upsert，只保证最终一致性，不解决「查-写」竞态。锁 lease/heartbeat 防止调度器崩溃后锁永久残留。
+
+### 影响
+
+新增文件：`sql/meta/02_strategy1_experiment_run_status.sql`、`scripts/strategy1/run_oq010_experiments.py`、`sql/qa/07_strategy1_experiment_concurrency_checks.sql`、`docs/策略1实验并发调度器运行手册.md`。`KNOWN_CONSTRAINTS.md` 更新并发约束。Phase 1 不改变现有 runner 执行方式；启用并发前需实现 Phase 2+。
+
+### 备选方案
+
+- 用 BigQuery 事务 + 状态表 CAS 做锁：不可行，BigQuery 无行级锁或 SELECT FOR UPDATE。
+- 用 Firestore 事务做锁：增加服务依赖和权限管理，P0 不必要。
+- 仅依赖 BigQuery 状态表「查无 running 写 running」做锁：竞态不可靠，PRD 已明确禁止。
+
+### 相关文件
+
+`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`, `sql/meta/02_strategy1_experiment_run_status.sql`, `scripts/strategy1/run_oq010_experiments.py`, `sql/qa/07_strategy1_experiment_concurrency_checks.sql`, `docs/策略1实验并发调度器运行手册.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`
+
+## DECISION-20260603-05: OQ-010 调度器参数注入和状态表历史必须硬门禁
+
+日期: 2026-06-03
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+PR #45 review 指出并发调度器的 SQL 参数注入存在静默失败风险：当 `DECLARE p_* DEFAULT` 格式未匹配时，runner 会继续使用 SQL 文件内默认 `run_id` / `backtest_id`，可能把并发实验写入错误输出范围。状态表 DDL 原先使用 `CREATE OR REPLACE TABLE`，会清空 audit/resume 历史。
+
+### 决策
+
+1. `scripts/strategy1/run_oq010_experiments.py` 执行 BigQuery step 前必须扫描所有 `DECLARE p_* DEFAULT` 参数，并为每个参数注入 manifest/default 值。
+2. 参数缺失、声明格式不支持、类型不匹配或必需隔离参数未声明时，step 必须失败；禁止静默沿用 SQL 默认值。
+3. dry-run 必须对可执行实验做 SQL 参数注入预检；blocked placeholder 实验只展开计划，不做类型预检。
+4. `ashare_meta.strategy1_experiment_run_status` DDL 必须使用 `CREATE TABLE IF NOT EXISTS`，保留历史 audit/resume 记录。
+5. terminal status 写入前必须停止 heartbeat，避免 `running` 覆盖 `succeeded` / `failed`；获取 GCS lock 后释放必须在 `finally` 中完成。
+
+### 理由
+
+OQ-010 并发的核心安全边界是 experiment/run/backtest 隔离。参数注入静默失败会绕过隔离，且 dry-run 若不预检无法提前发现。状态表承载失败恢复和审计，重建清空会破坏 resume 与问题追溯。
+
+### 影响
+
+PR #45 中 `run_oq010_experiments.py` 已实现强校验参数注入、dry-run 预检、heartbeat terminal status 保护和锁 finally 释放；状态表 DDL 改为 `sql/meta/02_strategy1_experiment_run_status.sql` 且使用 `CREATE TABLE IF NOT EXISTS`；并发 QA 改名为 `sql/qa/07_strategy1_experiment_concurrency_checks.sql`，避开 PR #43 的 `06_ods_parquet_schema_checks.sql`。
+
+### 备选方案
+
+继续用 `_inject_parameter()` 找不到声明就返回原 SQL；放弃，因为会让默认 SQL 参数在并发实验中静默生效。只在真实执行时检查、不在 dry-run 预检；放弃，因为 dry-run 是 owner 启动前识别 manifest/SQL 参数问题的主要入口。继续 `CREATE OR REPLACE TABLE` 重建状态表；放弃，因为会破坏 audit/resume 历史。
+
+### 相关文件
+
+`scripts/strategy1/run_oq010_experiments.py`, `sql/meta/02_strategy1_experiment_run_status.sql`, `sql/qa/07_strategy1_experiment_concurrency_checks.sql`, `docs/策略1实验并发调度器运行手册.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`

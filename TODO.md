@@ -8,7 +8,8 @@
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
 - [ ] 修复 ODS 外部表 Parquet schema mismatch：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 先修当前 P0 源表 `ods_tushare_stk_limit`，再分批修其余 9 张 P1/P2/P3 表；默认从 GCS 原 Parquet 按 schema contract 重写，不从 API 重拉覆盖历史 raw
-- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：PR #37 已合并，实验参数化、manifest、对比报告脚本、horizon-aware 诊断/QA 和 portfolio-only `prediction_run_id` 复用预测源路径已进入 `main`；A0（`oq010_a0_n5_w20`）已跑通 01-12，诊断稳定性修复 PR 待合并后继续 A1-A3。阶段 A/B/C 基础路径为 `4 + 3 + 3 = 10`，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 全量笛卡尔积；必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核；`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md` 已定义同阶段实验并发调度与隔离方案，后续实现状态表、GCS 原子锁、调度器和并发 QA 后才允许安全并发
+- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：PR #37 已合并，实验参数化、manifest、对比报告脚本、horizon-aware 诊断/QA 和 portfolio-only `prediction_run_id` 复用预测源路径已进入 `main`；A0（`oq010_a0_n5_w20`）已跑通 01-12，诊断稳定性修复 PR 待合并后继续 A1-A3。阶段 A/B/C 基础路径为 `4 + 3 + 3 = 10`，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 全量笛卡尔积；必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核
+- [ ] OQ-010 并发调度 Phase 2-4：实现 05-12 参数化调度 + portfolio-only 并发（Phase 2）、08 ledger 并发与 resume（Phase 3）、retrain 实验训练/预测锁与混合队列（Phase 4）；当前 Phase 1（状态表、调度器 dry-run、GCS 原子锁、并发 QA）已实现
 
 ## P1 — 数据 / 特征扩展
 
@@ -29,6 +30,7 @@
 
 ## 近期完成
 
+- [x] 实现 OQ-010 策略 1 实验并发调度与隔离 Phase 1：新增 `sql/meta/02_strategy1_experiment_run_status.sql` 状态表 DDL（`CREATE TABLE IF NOT EXISTS` 保留 audit/resume 历史）、`scripts/strategy1/run_oq010_experiments.py` 调度器（支持 --dry-run 展开完整计划、SQL 参数注入强校验、GCS ifGenerationMatch=0 原子锁、generation-guarded stale reclaim/release、lease/heartbeat、锁 finally 释放、heartbeat 终态保护、resume、max-parallel、max-parallel-backtest、fail-fast 等全部 PRD 定义参数）、`sql/qa/07_strategy1_experiment_concurrency_checks.sql` 并发 QA（QA-CONC-1~12），以及 `docs/策略1实验并发调度器运行手册.md`；已通过 Python 静态检查、stage_a dry-run、单实验 dry-run、全 manifest dry-run、直接参数注入断言；已更新 TODO/memory；尚未执行 BigQuery、不碰正在运行的 A3 实验、不删 reports/strategy1 已有产物
 - [x] 新增 OQ-010 策略 1 实验并发调度与隔离 PRD：`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`，定义同阶段 portfolio-only / retrain 实验安全并发的状态表、GCS 原子锁、lease/heartbeat、调度器、runner 改造要求、08 ledger 并发边界和 QA；本次只写 PRD，未改 runner、未跑 BigQuery
 - [x] 新增 OQ-005 GCP 数据流水线 PRD：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`，固化 Cloud Run Jobs + Dataform / BigQuery Studio pipeline + Cloud Composer 架构，限定每日生产采集只覆盖当前实际消费的 14 张 ODS，并已收敛为陈述性目标实现方案；PR #39 review 两条低优先级建议已补入正文
 - [x] 新增 ODS 外部表 Parquet schema 修复 PRD：`docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`，定义 10 张 schema mismatch 外部表的 GCS 原文件 schema-preserving rewrite、staging/backup/发布、QA 门禁和 ingestion 显式 cast 防复发方案；PR #40 review 建议已补入 backup write-once、临时表显式 schema 和 INT→FLOAT64 精度复核

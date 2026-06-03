@@ -60,7 +60,7 @@ ashare_ods (已有, 外部表)
 - OQ-010 策略 1 实验并发调度与隔离 PRD 已新增：`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`。该 PRD 定义同阶段 portfolio-only / retrain 实验安全并发所需的状态表、GCS 原子锁、lease/heartbeat、调度器、runner 参数化和写隔离、08 ledger 并发边界、单实验 QA 和并发串号 QA；实现前当前 runner 仍遵守不并发约束。
 - OQ-005 GCP 数据流水线 PRD 已新增：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`。长期方案采用 Cloud Run Jobs 做 Tushare/Tinyshare→GCS Parquet 采集，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 做全流程编排、重试、补跑和告警；每日生产采集只覆盖当前实际消费的 14 张 ODS，当前未消费 endpoint 进入后续接入池；PRD 已按 owner 反馈收敛为陈述性目标实现方案，并已补入 PR #39 review 的财务 empty-return 口径和 Phase 1 触发入口。
 - ODS 外部表 Parquet schema 修复 PRD 已新增：`docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`。2026-06-03 只读复核确认 10 张 ODS 外部表存在 2019+ Parquet 物理类型 mismatch；修复方案为先按 schema contract 从 GCS 原 Parquet 做 schema-preserving rewrite，API 重拉只作为原文件损坏、缺失或 owner 明确要求的补救路径。当前策略相关表只有 `ods_tushare_stk_limit`，需优先修。
-- **下一步**：执行 OQ-010 第一轮对照实验。也可补 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
+- **下一步**：执行 OQ-010 第一轮对照实验（可用 `run_oq010_experiments.py` 调度器加速同阶段实验）。也可补 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
 
 ## 不可妥协的约定
 

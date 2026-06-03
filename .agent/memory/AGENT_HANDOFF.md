@@ -16,11 +16,13 @@
 
 **DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 已落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，以及 OQ-003 财务特征 `dws_stock_feature_fin_daily`；市场状态 `dws_market_state_daily` 待补。财务特征口径 PRD 已采纳、关闭并实现 OQ-003（PR #13）：P0 默认消费合并报表 `report_type='1'`，三大报表 DWD（`income/balancesheet/cashflow` + `_latest`）保留 `report_type`/`report_caliber`/`is_default_report_caliber`，`dws_stock_feature_fin_daily` 默认只过滤默认口径（口径契约 + `has_fin_*` 掩码），已物化并通过 `sql/qa/04_finance_caliber_checks.sql`，并按 OQ-006 单位契约补全 `ods_field_unit_map` 财务字段、跑通 `sql/qa/05_oq006_unit_checks.sql`。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md`、runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 和 runner SQL 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。**runner 已于 PR #12 端到端实跑并通过全部 QA**（08 已重写为账户级 ledger，详见本文件末尾 2026-06-02 交接条目与摘要顶部）。
 
-**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run。2026-06-03 已配置本机 BigQuery Storage API 客户端并修复诊断脚本大 DataFrame 拉取不稳定问题；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，`10`/`12` QA 通过，诊断 artifact 已上传 GCS。下一步在诊断稳定性修复 PR 合并后继续 A1-A3；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%，实际入选不足时剩余现金保留；A1-A3/B0-B2 为组合层实验，复用预测源并只重跑 05-12。`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md` 已新增为待实现方案，要求先实现状态表、GCS 原子锁、lease/heartbeat、调度器、写隔离和并发 QA；实现前当前 runner 仍不允许并发执行。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run。2026-06-03 已配置本机 BigQuery Storage API 客户端并修复诊断脚本大 DataFrame 拉取不稳定问题；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，`10`/`12` QA 通过，诊断 artifact 已上传 GCS。OQ-010 实验并发调度 Phase 1（状态表 DDL、GCS 原子锁调度器、并发 QA）已实现并通过 dry-run。下一步在诊断稳定性修复 PR 合并后继续 A1-A3，可使用调度器加速同阶段实验；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%，实际入选不足时剩余现金保留；A1-A3/B0-B2 为组合层实验，复用预测源并只重跑 05-12。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线 PRD 待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；按 OQ-012 PRD 实现 ODS Parquet schema 修复。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
+**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线 PRD 待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径、分数方向校准和并发调度 Phase 1 均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；按 OQ-012 PRD 实现 ODS Parquet schema 修复。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
+
+**PR #45 最新修复（2026-06-03）**：OQ-010 并发调度 Phase 1 review follow-up 已修复：`run_oq010_experiments.py` 的 stale lock reclaim、heartbeat 和 release 均使用 GCS object generation 条件操作，避免并发调度器误删新锁；SQL `DECLARE p_* DEFAULT` 参数注入改为强校验，dry-run 会预检可执行实验，禁止静默沿用 SQL 默认 `run_id` / `backtest_id`；锁获取后的释放统一进 `finally`，heartbeat 线程停止后才写 `succeeded` / `failed`；状态表 DDL 改为 `CREATE TABLE IF NOT EXISTS` 保留 audit/resume 历史；状态表 DDL 与并发 QA 文件编号改为 `02` / `07` 避免冲突。验证已通过 Python `py_compile`、`git diff --check`、stage_a dry-run、单实验 dry-run、全 manifest dry-run 和直接参数注入断言；未执行 BigQuery。
 
 **分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 和 `codex/implement-oq004-index` 已在本地和远端删除。
 
@@ -31,6 +33,72 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #45 / issuecomment-4612729919 / OQ-010
+
+### 已完成工作
+
+- 跟进 PR #45 最新 review comment `issuecomment-4612729919`，直接修复并发调度 Phase 1 实现。
+- 将 SQL `DECLARE p_* DEFAULT` 参数注入改为强校验：扫描所有可注入参数，缺少 manifest/default 值、格式不匹配、类型不匹配或必需隔离参数缺失时直接失败。
+- dry-run 新增可执行实验 SQL 参数注入预检；blocked placeholder 实验仅打印计划，不用 placeholder 做类型预检。
+- 锁释放改为获取 GCS lock 后统一 `finally` 释放；`running` 状态写失败、step 执行失败或异常均不会泄漏 GCS lock。
+- heartbeat 线程改为非 daemon，step 结束后先停止并 join，再写 `succeeded` / `failed`，避免 heartbeat 后写 `running` 覆盖 terminal status。
+- 状态表 DDL 从 `CREATE OR REPLACE TABLE` 改为 `CREATE TABLE IF NOT EXISTS`，保留 audit/resume 历史。
+- 文件编号避冲突：状态表 DDL 使用 `sql/meta/02_strategy1_experiment_run_status.sql`；并发 QA 使用 `sql/qa/07_strategy1_experiment_concurrency_checks.sql`，并同步文档/记忆/TODO 引用。
+
+### 重要上下文
+
+- 本次没有执行 BigQuery 实验、没有触碰正在运行的 A3 实验、没有删除或覆盖 `reports/strategy1` 已有产物。
+- 状态表仍只用于审计和 resume 输入；GCS object generation 条件操作仍是锁安全边界。
+- 后续若再调整 SQL runner，必须保持 dry-run 参数注入预检，否则会重新暴露静默沿用默认 `run_id` / `backtest_id` 的风险。
+
+### 改动文件
+
+- `scripts/strategy1/run_oq010_experiments.py`
+- `sql/meta/02_strategy1_experiment_run_status.sql`
+- `sql/qa/07_strategy1_experiment_concurrency_checks.sql`
+- `docs/策略1实验并发调度器运行手册.md`
+- `docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1/run_oq010_experiments.py`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run --stage-id stage_a`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run --experiment-id oq010_a1_n10_w10`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run`
+- 直接参数注入断言：确认 `05_build_candidates.sql` 的 `p_run_id` 被替换为实验 run_id，未保留 SQL 默认值。
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 等 PR #45 合并后再按 owner 决定是否在真实 OQ-010 实验中启用并发；首次实跑仍建议 `max_parallel_backtest=1`。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`（追加 `DECISION-20260603-05`，并同步本 PR 内改名后的文件路径引用）
+- `.agent/memory/OPEN_QUESTIONS.md`（仅同步本 PR 内改名后的文件路径引用）
+- `TODO.md`
+
+---
 
 日期: 2026-06-03
 Agent ID: Codex
@@ -80,7 +148,7 @@ Run ID: —
 ### 下一步建议
 
 - 合并 PR #41。
-- 后续实现 `ashare_meta.strategy1_experiment_run_status`、GCS lock、`scripts/strategy1/run_oq010_experiments.py`、runner 参数接口和 `sql/qa/06_strategy1_experiment_concurrency_checks.sql`。
+- 后续实现 `ashare_meta.strategy1_experiment_run_status`、GCS lock、`scripts/strategy1/run_oq010_experiments.py`、runner 参数接口和 `sql/qa/07_strategy1_experiment_concurrency_checks.sql`。
 
 ---
 
@@ -256,6 +324,64 @@ Run ID: —
 - `ARCHITECTURE_MEMORY.md`
 - `OPEN_QUESTIONS.md`
 - `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #45 / OQ-010 实验并发调度 Phase 1
+
+### 已完成工作
+
+- 跟进 PR #45 最新 review comment，修复 OQ-010 并发调度器的 GCS lock 安全问题。
+- `scripts/strategy1/run_oq010_experiments.py` 的 GCS lock acquire 记录 `acquired_at`、`lease_expires_at` 和 object generation。
+- stale lock reclaim 改为读取并删除同一 generation：只删除刚检查过且已过期的 lock object，避免多个调度器竞争时误删对方刚创建的新锁。
+- heartbeat 和 release 也改为 generation 条件操作，旧进程不会刷新或删除新 generation 的 lock object。
+- 状态表 upsert 支持写入真实 `lock_acquired_at`、`lock_expires_at` 和 `last_heartbeat_at`；running 状态写入失败仍会释放 GCS lock 并取消 step。
+- heartbeat loop 同步刷新 BigQuery 状态表中的 `last_heartbeat_at` 和 `lock_expires_at`，让审计字段与 GCS lease 对齐。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`KNOWN_CONSTRAINTS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 本次未执行 BigQuery，不触碰正在运行的 A3 实验，不删除或覆盖 `reports/strategy1` 下已有产物。
+- 该修复只收口 PR #45 Phase 1 锁安全与审计字段；Phase 2-4 仍待后续实现和端到端验收。
+
+### 改动文件
+
+- `scripts/strategy1/run_oq010_experiments.py`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1/run_oq010_experiments.py`
+- `git diff --check origin/main..HEAD`
+- `git diff --check`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run --stage-id stage_a`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run --experiment-id oq010_a1_n10_w10`
+- fake GCS blob 测试：stale reclaim 使用被检查到的 generation 条件删除，非过期锁不删除。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- Review PR #45 最新提交后合并。
+- 合并后先继续 dry-run / 单实验执行验证，再按 Phase 2-4 推进 portfolio-only 并发、08 ledger 并发和 retrain 混合队列。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `IMPLEMENTATION_STATUS.md`
+- `KNOWN_CONSTRAINTS.md`
 - `AGENT_HANDOFF.md`
 
 ---
@@ -772,8 +898,67 @@ Run ID: —
 - `PROJECT_CONTEXT.md`
 - `OPEN_QUESTIONS.md`
 - `IMPLEMENTATION_STATUS.md`
-- `DECISION_LOG.md`
 - `AGENT_HANDOFF.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-03
+Agent ID: DeepSeek V4
+Agent 实例 ID: opencode desktop session
+模型: DeepSeek V4
+运行环境: opencode desktop
+Run ID: —
+相关 issue/PR: OQ-010 / PRD_20260603_05 策略1实验并发调度与隔离
+
+### 已完成工作
+
+- 新建 worktree `/Users/luna/Desktop/git/quant-ashare-oq010-parallel-runner` 和分支 `codex/implement-oq010-parallel-runner`（基于 `main`）。
+- 新增 `sql/meta/02_strategy1_experiment_run_status.sql`：`ashare_meta.strategy1_experiment_run_status` 状态表 DDL，覆盖实验身份、step 状态、锁信息、产物和调度追踪字段。
+- 新增 `scripts/strategy1/run_oq010_experiments.py`：OQ-010 并发调度器，支持全部 PRD 定义 CLI 参数。实现 GCS `ifGenerationMatch=0` 原子锁、lease/heartbeat/stale reclaim、manifest 解析与依赖拓扑排序、BigQuery 状态表 upsert（`MERGE`）、step 执行（bq / python subprocess）、实验参数注入 SQL `DECLARE`、ThreadPoolExecutor 并发控制、backtest semaphore。dry-run 展开完整计划（step 列表、锁 key、ADS 表、并发分组、依赖阻断）。
+- 新增 `sql/qa/07_strategy1_experiment_concurrency_checks.sql`：12 个 QA-CONC 断言。
+- 新增 `docs/策略1实验并发调度器运行手册.md`。
+- 追加 `DECISION-20260603-04`（GCS 原子锁 + BigQuery 状态表架构决策）。
+- 更新 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`AGENT_HANDOFF.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 本次只实现 Phase 1（状态表 DDL、调度器 dry-run、GCS 锁原语、并发 QA SQL），未修改现有 SQL runner 脚本，未在 BigQuery 执行真正并发实验，未触碰正在运行的 A3 实验，未删除或覆盖 `reports/strategy1` 下已有产物。
+- 调度器使用 `subprocess` 调用 `bq query` 执行 SQL 和 `python` 执行报告/诊断脚本。SQL 参数注入使用 `_inject_parameter()` 替换 `DECLARE ... DEFAULT` 值。
+- GCS 锁 bucket 为 `ashare-artifacts`，锁前缀 `locks/strategy1/oq010/`。锁默认 TTL 30 分钟，heartbeat 每 60 秒刷新。
+- Phase 2-4（portfolio-only 并发执行、08 ledger 并发、retrain 训练锁与混合队列）仍待实现和验收。当前约束下禁止本机裸多进程直接并发跑 SQL。
+
+### 改动文件
+
+- `sql/meta/02_strategy1_experiment_run_status.sql`（新）
+- `scripts/strategy1/run_oq010_experiments.py`（新）
+- `sql/qa/07_strategy1_experiment_concurrency_checks.sql`（新）
+- `docs/策略1实验并发调度器运行手册.md`（新）
+- `TODO.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1/run_oq010_experiments.py`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run`（通过：展开 stage_a 多实验计划）
+- `python3 scripts/strategy1/run_oq010_experiments.py --experiment-id oq010_a1_n10_w10 --dry-run`（通过：单实验 dry-run）
+- `git diff --check`（无 whitespace error）
+- 未执行 BigQuery，未触碰 A3 / reports 产物
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- Review 并合并本 PR。
+- 合并后先用调度器 dry-run 验证同 stage 计划展开，再选择适当实验用调度器执行。
+- 后续实现 Phase 2-4 以支持真正的并发执行。
 
 ---
 
