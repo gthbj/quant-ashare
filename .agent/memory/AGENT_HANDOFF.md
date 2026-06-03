@@ -16,7 +16,7 @@
 
 **DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 已落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，以及 OQ-003 财务特征 `dws_stock_feature_fin_daily`；市场状态 `dws_market_state_daily` 待补。财务特征口径 PRD 已采纳、关闭并实现 OQ-003（PR #13）：P0 默认消费合并报表 `report_type='1'`，三大报表 DWD（`income/balancesheet/cashflow` + `_latest`）保留 `report_type`/`report_caliber`/`is_default_report_caliber`，`dws_stock_feature_fin_daily` 默认只过滤默认口径（口径契约 + `has_fin_*` 掩码），已物化并通过 `sql/qa/04_finance_caliber_checks.sql`，并按 OQ-006 单位契约补全 `ods_field_unit_map` 财务字段、跑通 `sql/qa/05_oq006_unit_checks.sql`。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md`、runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 和 runner SQL 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。**runner 已于 PR #12 端到端实跑并通过全部 QA**（08 已重写为账户级 ledger，详见本文件末尾 2026-06-02 交接条目与摘要顶部）。
 
-**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run，尚未端到端实跑实验。下一步执行持股数/权重、调仓频率、标签 horizon、财务特征实验；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%，实际入选不足时剩余现金保留；A0 作为 5d 基线复现检查可重训，A1-A3/B0-B2 为组合层实验，复用预测源并只重跑 05-12。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main` 并通过 dry-run。2026-06-03 已配置本机 BigQuery Storage API 客户端并修复诊断脚本大 DataFrame 拉取不稳定问题；A0（`oq010_a0_n5_w20`）已端到端跑通 01-12，`10`/`12` QA 通过，诊断 artifact 已上传 GCS。下一步在诊断稳定性修复 PR 合并后继续 A1-A3；阶段 A/B/C 基础路径按 `4 + 3 + 3 = 10` 分阶段跑，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 笛卡尔积，必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权约 3.33%，实际入选不足时剩余现金保留；A1-A3/B0-B2 为组合层实验，复用预测源并只重跑 05-12。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
 **待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
@@ -138,6 +138,66 @@ Run ID: —
 - `MEMORY_INDEX.md`
 - `PROJECT_CONTEXT.md`
 - `OPEN_QUESTIONS.md`
+- `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: `s1_bqml_oq010_oq010_a0_n5_w20_20260603_01`
+相关 issue/PR: `codex/fix-diagnosis-bqstorage-fetch`
+
+### 已完成工作
+
+- 配置本机 BigQuery Storage API 客户端：`data-aquarium` 已启用 `bigquerystorage.googleapis.com`；本机 conda Python 与默认 `python3` 均已安装 `google-cloud-bigquery-storage==2.38.0`。
+- 修复 `scripts/strategy1/diagnose_model_quality.py` 的本地大 DataFrame 拉取不稳定问题：
+  - `bq_query()` 显式使用 `BigQueryReadClient`，优先 ADC，ADC 不可用时复用 `gcloud auth print-access-token` fallback；缺依赖或无可用凭据时保留 REST fallback。
+  - valid/test 预测标签改为一次拉取 2024-2025 后按 `split_tag` 分片，减少重复查询和本地对象复制。
+  - feature exposure 改为 BigQuery 侧聚合，只回传聚合统计行，不再把预测池全部特征拉回本地。
+- 更新 `scripts/strategy1/requirements.txt`，新增 `google-cloud-bigquery-storage>=2.0`。
+- 完成 A0（`oq010_a0_n5_w20`）后续诊断与 QA：`diagnose_model_quality.py` uploaded 模式成功，`sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 全部 ASSERT 通过。
+
+### 重要上下文
+
+- A0 已端到端跑通 01-12：`run_id=s1_bqml_oq010_oq010_a0_n5_w20_20260603_01`，`backtest_id=bt_s1_bqml_oq010_oq010_a0_n5_w20_20260603_01`。
+- A0 summary：`total_return=0.27868`，`sharpe=0.7258`，`max_drawdown=-0.2217`，相对中证1000 `excess_return=-0.01145`。
+- A0 诊断：`primary_diagnosis=usable_signal`，`confidence=low`，valid RankIC mean `0.098666`，test RankIC mean `0.055965`；诊断 artifact 上传至 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_oq010_oq010_a0_n5_w20_20260603_01/backtest_id=bt_s1_bqml_oq010_oq010_a0_n5_w20_20260603_01/model_diagnosis`。
+- 继续 A1-A3 前应先合并本修复 PR，避免诊断阶段重复出现本地拉取不稳定。
+
+### 改动文件
+
+- `scripts/strategy1/diagnose_model_quality.py`
+- `scripts/strategy1/requirements.txt`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `/Users/luna/miniconda3/bin/python -m py_compile scripts/strategy1/diagnose_model_quality.py scripts/strategy1/render_report.py scripts/strategy1/compare_oq010_experiments.py`
+- 仓库 `bq_query()` helper 验证：`rest_endpoint_warning=False`，`BigQueryReadClient` fallback 路径可导入和编译
+- 受控预测标签拉取：1,055,737 行，DataFrame 约 195.8 MB，BigQuery Storage 生效
+- `fetch_feature_exposure()` 聚合验证：返回 90 行
+- A0 `diagnose_model_quality.py`：`diagnose_rc=0`
+- A0 `sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql`：全部 ASSERT successful
+
+### 阻塞项
+
+- 无代码阻塞；需 review/合并诊断稳定性修复 PR 后继续 A1-A3。
+
+### 下一步建议
+
+- 合并诊断稳定性修复 PR。
+- 回到 `main` 后继续阶段 A：A1/A2/A3 只跑 05-12，并使用 `prediction_run_id=s1_bqml_livepool_oriented_20260603_01`。
+- 阶段 A 全部完成后再运行 `compare_oq010_experiments.py`，只记录事实，不直接下默认参数结论。
+
+### 已更新记忆文件
+
+- `TODO.md`
 - `IMPLEMENTATION_STATUS.md`
 - `AGENT_HANDOFF.md`
 
