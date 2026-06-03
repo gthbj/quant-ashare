@@ -3,21 +3,21 @@
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
-DECLARE p_horizon INT64 DEFAULT 5;
+DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
+DECLARE p_target_holdings INT64 DEFAULT 5;  -- 用目标持股数分配权重，实际入选不足时剩余现金保留
 DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;  -- OQ-010 示例值
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;  -- OQ-010 示例值，用于估算目标金额
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 
-DECLARE p_selected_model_id STRING;
-SET p_selected_model_id = (
-  SELECT reg.model_id
-  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
-  WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
-    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
-  ORDER BY reg.created_at DESC LIMIT 1
-);
+IF p_label_horizon NOT IN (5, 10, 20) THEN
+  RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
+
+IF p_target_holdings <= 0 THEN
+  RAISE USING MESSAGE = 'p_target_holdings must be positive';
+END IF;
 
 IF NOT p_force_replace THEN
   IF (SELECT COUNT(*) > 0 FROM `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
@@ -36,8 +36,7 @@ INSERT INTO `data-aquarium.ashare_ads.ads_portfolio_target_daily`
 (strategy_id, rebalance_date, sec_code, target_weight, target_shares, target_amount_cny,
  model_id, horizon, run_id, created_at)
 WITH sel AS (
-  SELECT cand.rebalance_date, cand.sec_code,
-         COUNT(*) OVER (PARTITION BY cand.rebalance_date) AS n_selected
+  SELECT cand.rebalance_date, cand.sec_code, cand.model_id
   FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
   WHERE cand.strategy_id = p_strategy_id AND cand.run_id = p_run_id
     AND cand.is_selected_candidate
@@ -45,8 +44,8 @@ WITH sel AS (
 )
 SELECT
   p_strategy_id, rebalance_date, sec_code,
-  LEAST(SAFE_DIVIDE(1.0, n_selected), p_max_single_weight) AS target_weight,
+  LEAST(SAFE_DIVIDE(1.0, p_target_holdings), p_max_single_weight) AS target_weight,
   CAST(NULL AS FLOAT64) AS target_shares,  -- 实际股数由 08 按 t+1 开盘价和滚动 NAV 计算
-  LEAST(SAFE_DIVIDE(1.0, n_selected), p_max_single_weight) * p_initial_capital AS target_amount_cny,
-  p_selected_model_id, p_horizon, p_run_id, CURRENT_TIMESTAMP()
+  LEAST(SAFE_DIVIDE(1.0, p_target_holdings), p_max_single_weight) * p_initial_capital AS target_amount_cny,
+  model_id, p_label_horizon, p_run_id, CURRENT_TIMESTAMP()
 FROM sel;

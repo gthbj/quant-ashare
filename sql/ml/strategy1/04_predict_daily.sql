@@ -8,7 +8,8 @@
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
-DECLARE p_horizon INT64 DEFAULT 5;
+DECLARE p_feature_set_id STRING DEFAULT 'strategy1_pv_v0_20260601';
+DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_test_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_force_replace BOOL DEFAULT FALSE;
@@ -16,6 +17,14 @@ DECLARE p_selected_model_id STRING;
 DECLARE p_selected_model_path STRING;
 DECLARE p_score_orientation STRING;
 DECLARE p_feat_sql STRING;
+
+IF p_label_horizon NOT IN (5, 10, 20) THEN
+  RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
+
+IF p_feature_set_id NOT IN ('strategy1_pv_v0_20260601', 'strategy1_pv_fin_quality_v0_20260603') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_feature_set_id: ', p_feature_set_id);
+END IF;
 
 -- selected model（run-scoped）
 SET (p_selected_model_id, p_selected_model_path) = (
@@ -92,6 +101,37 @@ SET p_feat_sql = """
   SAFE_CAST(JSON_VALUE(feature_values_json,'$.log_circ_mv') AS FLOAT64) AS log_circ_mv
 """;
 
+IF p_feature_set_id = 'strategy1_pv_fin_quality_v0_20260603' THEN
+  SET p_feat_sql = CONCAT(p_feat_sql, """,
+  CAST(SAFE_CAST(JSON_VALUE(feature_values_json,'$.has_fin_indicator') AS BOOL) AS INT64) AS has_fin_indicator,
+  CAST(SAFE_CAST(JSON_VALUE(feature_values_json,'$.has_fin_income') AS BOOL) AS INT64) AS has_fin_income,
+  CAST(SAFE_CAST(JSON_VALUE(feature_values_json,'$.has_fin_balancesheet') AS BOOL) AS INT64) AS has_fin_balancesheet,
+  CAST(SAFE_CAST(JSON_VALUE(feature_values_json,'$.has_fin_cashflow') AS BOOL) AS INT64) AS has_fin_cashflow,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.report_age_days') AS FLOAT64) AS report_age_days,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.fin_report_lag_days') AS FLOAT64) AS fin_report_lag_days,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.roe') AS FLOAT64) AS roe,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.roe_deducted') AS FLOAT64) AS roe_deducted,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.roa') AS FLOAT64) AS roa,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.roic') AS FLOAT64) AS roic,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.grossprofit_margin') AS FLOAT64) AS grossprofit_margin,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.netprofit_margin') AS FLOAT64) AS netprofit_margin,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.debt_to_assets') AS FLOAT64) AS debt_to_assets,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.current_ratio') AS FLOAT64) AS current_ratio,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.quick_ratio') AS FLOAT64) AS quick_ratio,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.assets_to_equity') AS FLOAT64) AS assets_to_equity,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ocf_to_or') AS FLOAT64) AS ocf_to_or,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ocf_to_profit') AS FLOAT64) AS ocf_to_profit,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.cash_ratio') AS FLOAT64) AS cash_ratio,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.netprofit_yoy') AS FLOAT64) AS netprofit_yoy,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.operating_revenue_yoy') AS FLOAT64) AS operating_revenue_yoy,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.total_revenue_yoy') AS FLOAT64) AS total_revenue_yoy,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.basic_eps_yoy') AS FLOAT64) AS basic_eps_yoy,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.q_roe') AS FLOAT64) AS q_roe,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.q_netprofit_margin') AS FLOAT64) AS q_netprofit_margin,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.q_grossprofit_margin') AS FLOAT64) AS q_grossprofit_margin
+""");
+END IF;
+
 -- ── 动态预测并写入（横截面排序）──
 -- raw_score = ML.PREDICT label='1' probability
 -- score = oriented score: identity keeps raw, reverse_probability uses 1.0 - raw
@@ -125,6 +165,6 @@ EXECUTE IMMEDIATE FORMAT("""
   FROM preds
 """, p_score_orientation, p_selected_model_path, p_feat_sql, p_run_id,
      CAST(p_valid_start AS STRING), CAST(p_test_end AS STRING),
-     p_selected_model_id, p_horizon,
+    p_selected_model_id, p_label_horizon,
      p_score_orientation,
      p_feature_version, p_run_id);

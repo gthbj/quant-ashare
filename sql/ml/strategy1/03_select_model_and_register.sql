@@ -6,13 +6,26 @@
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
+DECLARE p_feature_set_id STRING DEFAULT 'strategy1_pv_v0_20260601';
+DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_valid_end DATE DEFAULT DATE '2024-12-31';
 DECLARE p_topn INT64 DEFAULT 5;  -- TopN 收益统计用，对齐组合持股数
+DECLARE p_target_holdings INT64 DEFAULT 5;
 DECLARE p_run_safe STRING;
 DECLARE p_feat_sql STRING;
 DECLARE p_selected_cand STRING;
 DECLARE p_selected_orientation STRING;
+
+IF p_label_horizon NOT IN (5, 10, 20) THEN
+  RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
+
+IF p_feature_set_id NOT IN ('strategy1_pv_v0_20260601', 'strategy1_pv_fin_quality_v0_20260603') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_feature_set_id: ', p_feature_set_id);
+END IF;
+
+SET p_topn = p_target_holdings;
 
 SET p_run_safe = REGEXP_REPLACE(p_run_id, r'[^A-Za-z0-9_]', '_');
 SET p_feat_sql = """
@@ -46,6 +59,37 @@ SET p_feat_sql = """
   SAFE_CAST(JSON_VALUE(feature_values_json,'$.log_total_mv') AS FLOAT64) AS log_total_mv,
   SAFE_CAST(JSON_VALUE(feature_values_json,'$.log_circ_mv') AS FLOAT64) AS log_circ_mv
 """;
+
+IF p_feature_set_id = 'strategy1_pv_fin_quality_v0_20260603' THEN
+  SET p_feat_sql = CONCAT(p_feat_sql, """,
+  CAST(SAFE_CAST(JSON_VALUE(feature_values_json,'$.has_fin_indicator') AS BOOL) AS INT64) AS has_fin_indicator,
+  CAST(SAFE_CAST(JSON_VALUE(feature_values_json,'$.has_fin_income') AS BOOL) AS INT64) AS has_fin_income,
+  CAST(SAFE_CAST(JSON_VALUE(feature_values_json,'$.has_fin_balancesheet') AS BOOL) AS INT64) AS has_fin_balancesheet,
+  CAST(SAFE_CAST(JSON_VALUE(feature_values_json,'$.has_fin_cashflow') AS BOOL) AS INT64) AS has_fin_cashflow,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.report_age_days') AS FLOAT64) AS report_age_days,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.fin_report_lag_days') AS FLOAT64) AS fin_report_lag_days,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.roe') AS FLOAT64) AS roe,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.roe_deducted') AS FLOAT64) AS roe_deducted,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.roa') AS FLOAT64) AS roa,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.roic') AS FLOAT64) AS roic,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.grossprofit_margin') AS FLOAT64) AS grossprofit_margin,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.netprofit_margin') AS FLOAT64) AS netprofit_margin,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.debt_to_assets') AS FLOAT64) AS debt_to_assets,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.current_ratio') AS FLOAT64) AS current_ratio,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.quick_ratio') AS FLOAT64) AS quick_ratio,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.assets_to_equity') AS FLOAT64) AS assets_to_equity,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ocf_to_or') AS FLOAT64) AS ocf_to_or,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.ocf_to_profit') AS FLOAT64) AS ocf_to_profit,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.cash_ratio') AS FLOAT64) AS cash_ratio,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.netprofit_yoy') AS FLOAT64) AS netprofit_yoy,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.operating_revenue_yoy') AS FLOAT64) AS operating_revenue_yoy,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.total_revenue_yoy') AS FLOAT64) AS total_revenue_yoy,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.basic_eps_yoy') AS FLOAT64) AS basic_eps_yoy,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.q_roe') AS FLOAT64) AS q_roe,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.q_netprofit_margin') AS FLOAT64) AS q_netprofit_margin,
+  SAFE_CAST(JSON_VALUE(feature_values_json,'$.q_grossprofit_margin') AS FLOAT64) AS q_grossprofit_margin
+""");
+END IF;
 
 -- ── 候选预测与分类指标临时表 ──
 CREATE TEMP TABLE candidate_preds (cand_id STRING, trade_date DATE, sec_code STRING, score FLOAT64);
@@ -88,10 +132,10 @@ CREATE TEMP TABLE ranked_preds AS
 SELECT
   cp.cand_id, cp.trade_date, cp.sec_code, cp.score AS raw_score,
   1.0 - cp.score AS reversed_score,
-  s.fwd_ret_5d,
+  tp.target_return,
   -- raw score ranks
   RANK() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY cp.score) AS raw_score_rank,
-  RANK() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY s.fwd_ret_5d) AS ret_rank,
+  RANK() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY tp.target_return) AS ret_rank,
   ROW_NUMBER() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY cp.score DESC, cp.sec_code) AS raw_score_desc_rank,
   NTILE(5) OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY cp.score) AS raw_quintile,
   -- reversed score ranks
@@ -99,12 +143,13 @@ SELECT
   ROW_NUMBER() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY (1.0 - cp.score) DESC, cp.sec_code) AS rev_score_desc_rank,
   NTILE(5) OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY (1.0 - cp.score)) AS rev_quintile
 FROM candidate_preds AS cp
-JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
-  ON cp.sec_code = s.sec_code AND cp.trade_date = s.trade_date
-  AND s.trade_date BETWEEN p_valid_start AND p_valid_end
-  AND s.feature_version = p_feature_version
-WHERE s.label_valid_5d
-  AND s.fwd_xs_ret_5d IS NOT NULL;
+JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+  ON cp.sec_code = tp.sec_code AND cp.trade_date = tp.trade_date
+  AND tp.run_id = p_run_id
+  AND tp.split_tag = 'valid'
+  AND tp.trade_date BETWEEN p_valid_start AND p_valid_end
+WHERE tp.target_label IS NOT NULL
+  AND tp.target_return IS NOT NULL;
 
 -- 日频 RankIC — raw
 CREATE TEMP TABLE daily_rank_ic_raw AS
@@ -119,13 +164,13 @@ FROM ranked_preds GROUP BY cand_id, trade_date;
 -- 分层收益 — raw quintile（用于 orientation 决策）
 CREATE TEMP TABLE raw_layer_spread AS
 SELECT cand_id,
-  AVG(IF(raw_quintile = 5, fwd_ret_5d, NULL)) - AVG(IF(raw_quintile = 1, fwd_ret_5d, NULL)) AS raw_top_minus_bottom
+  AVG(IF(raw_quintile = 5, target_return, NULL)) - AVG(IF(raw_quintile = 1, target_return, NULL)) AS raw_top_minus_bottom
 FROM ranked_preds GROUP BY cand_id;
 
 -- 分层收益 — reversed quintile（用于 orientation 决策）
 CREATE TEMP TABLE rev_layer_spread AS
 SELECT cand_id,
-  AVG(IF(rev_quintile = 5, fwd_ret_5d, NULL)) - AVG(IF(rev_quintile = 1, fwd_ret_5d, NULL)) AS rev_top_minus_bottom
+  AVG(IF(rev_quintile = 5, target_return, NULL)) - AVG(IF(rev_quintile = 1, target_return, NULL)) AS rev_top_minus_bottom
 FROM ranked_preds GROUP BY cand_id;
 
 -- ── Score orientation 决策：PRD §6.2 保守三条件规则 ──
@@ -193,12 +238,12 @@ FROM daily_rank_ic GROUP BY cand_id, yr;
 -- 分层收益（quintile 平均）— 使用 oriented quintile
 CREATE TEMP TABLE layer_spread AS
 SELECT cand_id,
-  AVG(IF(oriented_quintile = 5, fwd_ret_5d, NULL)) - AVG(IF(oriented_quintile = 1, fwd_ret_5d, NULL)) AS top_minus_bottom
+  AVG(IF(oriented_quintile = 5, target_return, NULL)) - AVG(IF(oriented_quintile = 1, target_return, NULL)) AS top_minus_bottom
 FROM oriented_ranked_preds GROUP BY cand_id;
 
--- TopN 未来收益（每日 oriented score 前 N 的 fwd_ret_5d 均值）
+-- TopN 未来收益（每日 oriented score 前 N 的 target_return 均值）
 CREATE TEMP TABLE topn_ret AS
-SELECT cand_id, AVG(fwd_ret_5d) AS topn_fwd_ret_mean
+SELECT cand_id, AVG(target_return) AS topn_fwd_ret_mean
 FROM oriented_ranked_preds WHERE oriented_score_desc_rank <= p_topn
 GROUP BY cand_id;
 
@@ -216,11 +261,12 @@ SELECT
   -- valid label-available eval rows
   COUNT(*) AS valid_eval_rows
 FROM candidate_preds AS cp
-JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
-  ON cp.sec_code = s.sec_code AND cp.trade_date = s.trade_date
-  AND s.trade_date BETWEEN p_valid_start AND p_valid_end
-  AND s.feature_version = p_feature_version
-WHERE s.label_valid_5d AND s.fwd_xs_ret_5d IS NOT NULL
+JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+  ON cp.sec_code = tp.sec_code AND cp.trade_date = tp.trade_date
+  AND tp.run_id = p_run_id
+  AND tp.split_tag = 'valid'
+  AND tp.trade_date BETWEEN p_valid_start AND p_valid_end
+WHERE tp.target_label IS NOT NULL AND tp.target_return IS NOT NULL
 GROUP BY cp.cand_id;
 
 -- 按年 RankIC 的 JSON 串（预聚合，避免汇总里写相关子查询）

@@ -3,6 +3,7 @@
 -- 必须在 diagnose_model_quality.py 之后执行。
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
+DECLARE p_prediction_run_id STRING DEFAULT NULL;  -- NULL 表示诊断使用 p_run_id 对应的模型/预测
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_oriented_20260603_01';
 DECLARE p_train_start DATE DEFAULT DATE '2019-04-03';
@@ -11,6 +12,13 @@ DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_valid_end DATE DEFAULT DATE '2024-12-31';
 DECLARE p_test_start DATE DEFAULT DATE '2025-01-01';
 DECLARE p_test_end DATE DEFAULT DATE '2025-12-31';
+DECLARE p_label_horizon INT64 DEFAULT 5;
+
+SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
+
+IF p_label_horizon NOT IN (5, 10, 20) THEN
+  RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
 
 -- ── QA-DIAG-1: diagnosis status completed ──
 ASSERT (
@@ -29,6 +37,15 @@ ASSERT (
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
 ) AS 'QA-DIAG-2: model_diagnosis_version must be strategy1_model_diagnosis_v1';
+
+-- ── QA-DIAG-2b: diagnosis prediction source recorded ──
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(
+    JSON_VALUE(bs.metrics_json, '$.model_diagnosis_prediction_run_id') = p_prediction_run_id
+  ) > 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-DIAG-2b: model diagnosis must record p_prediction_run_id';
 
 -- ── QA-DIAG-3: primary_diagnosis in allowed enum ──
 ASSERT (
@@ -77,12 +94,13 @@ ASSERT (
     SELECT s.split_tag AS split_tag, COUNT(DISTINCT predict_date) AS n_days
     FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
     JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-      ON tp.trade_date = pred.predict_date AND tp.sec_code = pred.sec_code AND tp.run_id = p_run_id
+      ON tp.trade_date = pred.predict_date AND tp.sec_code = pred.sec_code AND tp.run_id = p_prediction_run_id
     JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
       ON s.trade_date = pred.predict_date AND s.sec_code = pred.sec_code
      AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
-    WHERE pred.run_id = p_run_id
+    WHERE pred.run_id = p_prediction_run_id
       AND pred.predict_date BETWEEN p_valid_start AND p_test_end
+      AND tp.horizon = p_label_horizon
       AND s.split_tag IN ('valid', 'test')
     GROUP BY s.split_tag
   )
@@ -93,7 +111,7 @@ ASSERT (
 ASSERT (
   SELECT COUNT(*) > 0
   FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-  WHERE pred.run_id = p_run_id AND pred.predict_date BETWEEN p_valid_start AND p_test_end
+  WHERE pred.run_id = p_prediction_run_id AND pred.predict_date BETWEEN p_valid_start AND p_test_end
 ) AS 'QA-DIAG-7a: predictions must exist for rank_ic computation';
 
 -- candidate funnel non-empty
@@ -121,16 +139,27 @@ SELECT 'QA-DIAG-8: reviewer must confirm all queries in 11_model_quality_diagnos
 -- PRD-20260602-05 预测池口径 QA
 -- ============================================================
 
--- QA-POOL-1: train rows 全部满足 sample_trainable_default=TRUE
+-- QA-POOL-1: train rows 全部满足当前 label horizon 的可训练条件
 ASSERT (
-  SELECT COUNT(*) > 0 AND COUNTIF(NOT s.sample_trainable_default) = 0
+  SELECT COUNT(*) > 0 AND COUNTIF(NOT (
+    COALESCE(s.in_universe_default, FALSE)
+    AND COALESCE(s.has_full_history_60d, FALSE)
+    AND COALESCE(s.has_valuation_data, FALSE)
+    AND COALESCE(s.label_entry_tradable, FALSE)
+    AND CASE p_label_horizon
+      WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.label_top30_5d IS NOT NULL AND s.fwd_xs_ret_5d IS NOT NULL
+      WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.label_top30_10d IS NOT NULL AND s.fwd_xs_ret_10d IS NOT NULL
+      WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.label_top30_20d IS NOT NULL AND s.fwd_xs_ret_20d IS NOT NULL
+    END
+  )) = 0
   FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
   JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
     ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
    AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
-  WHERE tp.run_id = p_run_id AND tp.split_tag = 'train'
+  WHERE tp.run_id = p_prediction_run_id AND tp.split_tag = 'train'
+    AND tp.horizon = p_label_horizon
     AND tp.trade_date BETWEEN p_train_start AND p_train_end
-) AS 'QA-POOL-1: train rows must all satisfy sample_trainable_default=TRUE';
+) AS 'QA-POOL-1: train rows must all satisfy horizon-aware trainable mask';
 
 -- QA-POOL-2: valid/test prediction rows 全部满足 predict_live_available_mask
 ASSERT (
@@ -143,27 +172,34 @@ ASSERT (
   JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
     ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
    AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
-  WHERE tp.run_id = p_run_id AND tp.split_tag IN ('valid', 'test')
+  WHERE tp.run_id = p_prediction_run_id AND tp.split_tag IN ('valid', 'test')
+    AND tp.horizon = p_label_horizon
     AND tp.trade_date BETWEEN p_valid_start AND p_test_end
 ) AS 'QA-POOL-2: valid/test rows must all satisfy predict_live_available_mask';
 
--- QA-POOL-3: valid/test prediction rows 不要求 label_entry_tradable 或 label_valid_5d
+-- QA-POOL-3: valid/test prediction rows 不要求 label_entry_tradable 或当前 horizon label_valid
 -- 如果全部满足反而说明预测池可能仍被未来字段过滤
 ASSERT (
-  SELECT COUNTIF(NOT s.label_entry_tradable AND NOT s.label_valid_5d) > 0
+  SELECT COUNTIF(NOT s.label_entry_tradable AND NOT CASE p_label_horizon
+    WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE)
+    WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE)
+    WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE)
+  END) > 0
   FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
   JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
     ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
    AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
-  WHERE tp.run_id = p_run_id AND tp.split_tag IN ('valid', 'test')
+  WHERE tp.run_id = p_prediction_run_id AND tp.split_tag IN ('valid', 'test')
+    AND tp.horizon = p_label_horizon
     AND tp.trade_date BETWEEN p_valid_start AND p_test_end
-) AS 'QA-POOL-3: valid/test pool must contain rows failing label_entry_tradable or label_valid_5d (proves live-available mask is active)';
+) AS 'QA-POOL-3: valid/test pool must contain rows failing label_entry_tradable or horizon label_valid (proves live-available mask is active)';
 
 -- QA-POOL-4: train target_label 和 target_return 不得为空
 ASSERT (
   SELECT COUNT(*) > 0 AND COUNTIF(tp.target_label IS NULL OR tp.target_return IS NULL) = 0
   FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-  WHERE tp.run_id = p_run_id AND tp.split_tag = 'train'
+  WHERE tp.run_id = p_prediction_run_id AND tp.split_tag = 'train'
+    AND tp.horizon = p_label_horizon
     AND tp.trade_date BETWEEN p_train_start AND p_train_end
 ) AS 'QA-POOL-4: train target_label and target_return must not be NULL';
 
@@ -174,21 +210,31 @@ ASSERT (
     SELECT
       (SELECT COUNT(*)
        FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-       WHERE tp.run_id = p_run_id AND tp.split_tag IN ('valid', 'test')
+       WHERE tp.run_id = p_prediction_run_id AND tp.split_tag IN ('valid', 'test')
+         AND tp.horizon = p_label_horizon
          AND tp.trade_date BETWEEN p_valid_start AND p_test_end) AS panel_rows,
       (SELECT COUNT(*)
        FROM `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
        WHERE s.trade_date BETWEEN p_valid_start AND p_test_end
          AND s.split_tag IN ('valid', 'test')
-         AND s.sample_trainable_default
+         AND COALESCE(s.in_universe_default, FALSE)
+         AND COALESCE(s.has_full_history_60d, FALSE)
+         AND COALESCE(s.has_valuation_data, FALSE)
+         AND COALESCE(s.label_entry_tradable, FALSE)
+         AND CASE p_label_horizon
+           WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.label_top30_5d IS NOT NULL AND s.fwd_xs_ret_5d IS NOT NULL
+           WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.label_top30_10d IS NOT NULL AND s.fwd_xs_ret_10d IS NOT NULL
+           WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.label_top30_20d IS NOT NULL AND s.fwd_xs_ret_20d IS NOT NULL
+         END
           AND s.feature_version = (
             SELECT ANY_VALUE(tp.feature_version)
             FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-            WHERE tp.run_id = p_run_id
+            WHERE tp.run_id = p_prediction_run_id
+              AND tp.horizon = p_label_horizon
               AND tp.trade_date BETWEEN p_valid_start AND p_test_end
             LIMIT 1)) AS legacy_trainable
   )
-) AS 'QA-POOL-5: valid/test prediction panel rows must be >= DWS legacy trainable rows';
+) AS 'QA-POOL-5: valid/test prediction panel rows must be >= DWS horizon-aware legacy trainable rows';
 
 -- QA-POOL-6: valid/test panel 包含 live-only 行（证明 live-available mask 生效）
 ASSERT (
@@ -196,13 +242,21 @@ ASSERT (
     COALESCE(s.in_universe_default, FALSE)
     AND COALESCE(s.has_full_history_60d, FALSE)
     AND COALESCE(s.has_valuation_data, FALSE)
-    AND NOT s.sample_trainable_default
+    AND NOT (
+      COALESCE(s.label_entry_tradable, FALSE)
+      AND CASE p_label_horizon
+        WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.label_top30_5d IS NOT NULL AND s.fwd_xs_ret_5d IS NOT NULL
+        WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.label_top30_10d IS NOT NULL AND s.fwd_xs_ret_10d IS NOT NULL
+        WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.label_top30_20d IS NOT NULL AND s.fwd_xs_ret_20d IS NOT NULL
+      END
+    )
   ) > 0
   FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
   JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
     ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
    AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
-  WHERE tp.run_id = p_run_id AND tp.split_tag IN ('valid', 'test')
+  WHERE tp.run_id = p_prediction_run_id AND tp.split_tag IN ('valid', 'test')
+    AND tp.horizon = p_label_horizon
     AND tp.trade_date BETWEEN p_valid_start AND p_test_end
 ) AS 'QA-POOL-6: valid/test panel must contain live-only rows (live-available mask is active)';
 
@@ -211,6 +265,6 @@ ASSERT (
   SELECT JSON_VALUE(reg.metrics_json, '$.score_orientation') IN ('identity', 'reverse_probability')
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
-    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
   LIMIT 1
 ) AS 'QA-ORIENT-DIAG-1: selected model must have valid score_orientation in registry';

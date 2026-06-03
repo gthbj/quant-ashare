@@ -4,6 +4,7 @@
 -- 所有查询必须显式过滤分区日期（trade_date / predict_date / rebalance_date）。
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
+DECLARE p_prediction_run_id STRING DEFAULT NULL;  -- NULL 表示诊断源 run_id 与 p_run_id 相同
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_20260602_01';
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
@@ -11,6 +12,13 @@ DECLARE p_valid_end DATE DEFAULT DATE '2024-12-31';
 DECLARE p_test_start DATE DEFAULT DATE '2025-01-01';
 DECLARE p_test_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_target_holdings INT64 DEFAULT 5;
+DECLARE p_label_horizon INT64 DEFAULT 5;
+
+SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
+
+IF p_label_horizon NOT IN (5, 10, 20) THEN
+  RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
 
 -- ── FR-DIAG-2: daily RankIC (Spearman proxy via rank correlation) ────────────
 -- 事后评价：prediction + label-available join（PRD-20260602-05 eval_label_available_mask）
@@ -18,34 +26,35 @@ WITH ranked AS (
   SELECT
     pred.predict_date,
     pred.score,
-    s.fwd_xs_ret_5d,
+    tp.target_return,
     DENSE_RANK() OVER (PARTITION BY pred.predict_date ORDER BY pred.score) AS score_rank,
-    DENSE_RANK() OVER (PARTITION BY pred.predict_date ORDER BY s.fwd_xs_ret_5d) AS ret_rank
+    DENSE_RANK() OVER (PARTITION BY pred.predict_date ORDER BY tp.target_return) AS ret_rank
   FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
   JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
     ON tp.trade_date = pred.predict_date
    AND tp.sec_code = pred.sec_code
-   AND tp.run_id = p_run_id
+   AND tp.run_id = p_prediction_run_id
    AND tp.trade_date BETWEEN p_valid_start AND p_test_end
   JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
     ON s.trade_date = pred.predict_date
    AND s.sec_code = pred.sec_code
    AND s.feature_version = tp.feature_version
    AND s.label_version = tp.label_version
-  WHERE pred.run_id = p_run_id
+  WHERE pred.run_id = p_prediction_run_id
     AND pred.predict_date BETWEEN p_valid_start AND p_test_end
-    AND s.split_tag IN ('valid', 'test')
-    AND s.label_valid_5d
-    AND s.fwd_xs_ret_5d IS NOT NULL
+    AND tp.split_tag IN ('valid', 'test')
+    AND tp.horizon = p_label_horizon
+    AND tp.target_label IS NOT NULL
+    AND tp.target_return IS NOT NULL
 )
 SELECT
   predict_date AS trade_date,
   COUNT(*) AS n,
-  CORR(score, fwd_xs_ret_5d) AS pearson_ic,
+  CORR(score, target_return) AS pearson_ic,
   CORR(score_rank, ret_rank) AS rank_ic_approx,
   AVG(score) AS avg_score,
   STDDEV_SAMP(score) AS std_score,
-  AVG(fwd_xs_ret_5d) AS avg_fwd_xs_ret_5d
+  AVG(target_return) AS avg_target_return
 FROM ranked
 GROUP BY predict_date
 ORDER BY predict_date;
@@ -57,35 +66,40 @@ WITH scored AS (
     pred.sec_code,
     pred.score,
     pred.rank_pct,
-    s.fwd_xs_ret_5d,
-    s.fwd_ret_5d,
-    s.label_top30_5d,
+    tp.target_return,
+    CASE p_label_horizon
+      WHEN 5 THEN s.fwd_ret_5d
+      WHEN 10 THEN s.fwd_ret_10d
+      WHEN 20 THEN s.fwd_ret_20d
+    END AS target_abs_return,
+    tp.target_label,
     NTILE(5) OVER (PARTITION BY pred.predict_date ORDER BY pred.score DESC, pred.sec_code) AS bucket
   FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
   JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
     ON tp.trade_date = pred.predict_date
    AND tp.sec_code = pred.sec_code
-   AND tp.run_id = p_run_id
+   AND tp.run_id = p_prediction_run_id
    AND tp.trade_date BETWEEN p_valid_start AND p_test_end
   JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
     ON s.trade_date = pred.predict_date
    AND s.sec_code = pred.sec_code
    AND s.feature_version = tp.feature_version
    AND s.label_version = tp.label_version
-  WHERE pred.run_id = p_run_id
+  WHERE pred.run_id = p_prediction_run_id
     AND pred.predict_date BETWEEN p_valid_start AND p_test_end
-    AND s.split_tag IN ('valid', 'test')
-    AND s.label_valid_5d
-    AND s.fwd_xs_ret_5d IS NOT NULL
+    AND tp.split_tag IN ('valid', 'test')
+    AND tp.horizon = p_label_horizon
+    AND tp.target_label IS NOT NULL
+    AND tp.target_return IS NOT NULL
 )
 SELECT
   bucket,
   COUNT(*) AS n,
   AVG(score) AS avg_score,
-  AVG(fwd_xs_ret_5d) AS avg_fwd_xs_ret_5d,
-  AVG(fwd_ret_5d) AS avg_fwd_ret_5d,
-  AVG(label_top30_5d) AS hit_rate,
-  STDDEV_SAMP(fwd_xs_ret_5d) AS std_fwd_xs_ret_5d
+  AVG(target_return) AS avg_target_return,
+  AVG(target_abs_return) AS avg_target_abs_return,
+  AVG(target_label) AS hit_rate,
+  STDDEV_SAMP(target_return) AS std_target_return
 FROM scored
 GROUP BY bucket
 ORDER BY bucket;
@@ -96,34 +110,39 @@ WITH scored AS (
     pred.predict_date,
     pred.sec_code,
     pred.score,
-    s.fwd_xs_ret_5d,
-    s.label_top30_5d,
-    s.label_above_median_5d,
+    tp.target_return,
+    tp.target_label,
+    CASE p_label_horizon
+      WHEN 5 THEN s.label_above_median_5d
+      WHEN 10 THEN s.label_above_median_10d
+      WHEN 20 THEN s.label_above_median_20d
+    END AS target_above_median,
     NTILE(10) OVER (PARTITION BY pred.predict_date ORDER BY pred.score DESC, pred.sec_code) AS bucket
   FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
   JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
     ON tp.trade_date = pred.predict_date
    AND tp.sec_code = pred.sec_code
-   AND tp.run_id = p_run_id
+   AND tp.run_id = p_prediction_run_id
    AND tp.trade_date BETWEEN p_valid_start AND p_test_end
   JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
     ON s.trade_date = pred.predict_date
    AND s.sec_code = pred.sec_code
    AND s.feature_version = tp.feature_version
    AND s.label_version = tp.label_version
-  WHERE pred.run_id = p_run_id
+  WHERE pred.run_id = p_prediction_run_id
     AND pred.predict_date BETWEEN p_valid_start AND p_test_end
-    AND s.split_tag IN ('valid', 'test')
-    AND s.label_valid_5d
-    AND s.fwd_xs_ret_5d IS NOT NULL
+    AND tp.split_tag IN ('valid', 'test')
+    AND tp.horizon = p_label_horizon
+    AND tp.target_label IS NOT NULL
+    AND tp.target_return IS NOT NULL
 )
 SELECT
   bucket,
   COUNT(*) AS n,
   AVG(score) AS avg_score,
-  AVG(label_top30_5d) AS actual_pos_rate,
-  AVG(label_above_median_5d) AS actual_above_median_rate,
-  AVG(fwd_xs_ret_5d) AS avg_fwd_xs_ret_5d
+  AVG(target_label) AS actual_pos_rate,
+  AVG(target_above_median) AS actual_above_median_rate,
+  AVG(target_return) AS avg_target_return
 FROM scored
 GROUP BY bucket
 ORDER BY bucket;
@@ -142,15 +161,16 @@ WITH base AS (
   JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
     ON tp.trade_date = pred.predict_date
    AND tp.sec_code = pred.sec_code
-   AND tp.run_id = p_run_id
+   AND tp.run_id = p_prediction_run_id
    AND tp.trade_date BETWEEN p_valid_start AND p_test_end
   JOIN `data-aquarium.ashare_dws.dws_stock_label_daily` AS l
     ON l.trade_date = pred.predict_date
    AND l.sec_code = pred.sec_code
    AND l.label_version = tp.label_version
-  WHERE pred.run_id = p_run_id
+  WHERE pred.run_id = p_prediction_run_id
     AND pred.predict_date BETWEEN p_valid_start AND p_test_end
     AND tp.split_tag IN ('valid', 'test')
+    AND tp.horizon = p_label_horizon
 )
 SELECT split_tag, 'fwd_xs_ret_1d'  AS horizon, CORR(score, fwd_xs_ret_1d)  AS rank_ic_approx FROM base GROUP BY split_tag
 UNION ALL
@@ -165,11 +185,25 @@ SELECT
   s.trade_date,
   s.split_tag,
   COUNT(*) AS pure_universe,
-  COUNTIF(s.sample_trainable_default) AS sample_trainable,
+  COUNTIF(
+    COALESCE(s.in_universe_default, FALSE)
+    AND COALESCE(s.has_full_history_60d, FALSE)
+    AND COALESCE(s.has_valuation_data, FALSE)
+    AND COALESCE(s.label_entry_tradable, FALSE)
+    AND CASE p_label_horizon
+      WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.label_top30_5d IS NOT NULL AND s.fwd_xs_ret_5d IS NOT NULL
+      WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.label_top30_10d IS NOT NULL AND s.fwd_xs_ret_10d IS NOT NULL
+      WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.label_top30_20d IS NOT NULL AND s.fwd_xs_ret_20d IS NOT NULL
+    END
+  ) AS sample_trainable,
   COUNTIF(u.in_universe_default) AS in_universe_default,
   COUNTIF(s.has_full_history_60d) AS has_full_history,
   COUNTIF(s.has_valuation_data) AS has_valuation_data,
-  COUNTIF(s.label_valid_5d) AS label_valid_5d,
+  COUNTIF(CASE p_label_horizon
+    WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE)
+    WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE)
+    WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE)
+  END) AS label_valid_target,
   COUNTIF(s.label_entry_tradable) AS label_entry_tradable,
   COUNTIF(s.is_st) AS is_st_count,
   COUNTIF(NOT COALESCE(s.is_tradable_hard, FALSE)) AS not_tradable_hard
@@ -180,7 +214,7 @@ LEFT JOIN `data-aquarium.ashare_dws.dws_stock_universe_daily` AS u
 WHERE s.trade_date BETWEEN p_valid_start AND p_test_end
   AND s.feature_version = (SELECT ANY_VALUE(tp.feature_version)
                            FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-                           WHERE tp.run_id = p_run_id
+                           WHERE tp.run_id = p_prediction_run_id
                              AND tp.trade_date BETWEEN p_valid_start AND p_test_end
                            LIMIT 1)
 GROUP BY s.trade_date, s.split_tag
@@ -198,7 +232,7 @@ LEFT JOIN `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
  AND cand.rebalance_date = pred.predict_date
  AND cand.strategy_id = p_strategy_id
  AND cand.run_id = p_run_id
-WHERE pred.run_id = p_run_id
+WHERE pred.run_id = p_prediction_run_id
   AND pred.predict_date BETWEEN p_valid_start AND p_test_end
 GROUP BY pred.predict_date
 ORDER BY pred.predict_date;
@@ -233,7 +267,7 @@ WITH base AS (
     ON f.sec_code = pred.sec_code
    AND f.trade_date = pred.predict_date
    AND f.trade_date BETWEEN p_test_start AND p_test_end
-  WHERE pred.run_id = p_run_id
+  WHERE pred.run_id = p_prediction_run_id
     AND pred.predict_date BETWEEN p_test_start AND p_test_end
 )
 SELECT
@@ -355,7 +389,7 @@ LEFT JOIN `data-aquarium.ashare_dws.dws_stock_feature_daily_v0` AS f
  AND f.trade_date BETWEEN p_test_start AND p_test_end
 LEFT JOIN `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
   ON pred.sec_code = pos.sec_code AND pred.predict_date = pos.trade_date
- AND pred.run_id = p_run_id
+ AND pred.run_id = p_prediction_run_id
 WHERE pos.backtest_id = p_backtest_id
   AND pos.trade_date BETWEEN p_test_start AND p_test_end
 ORDER BY pos.trade_date, pos.weight DESC;
@@ -365,21 +399,50 @@ ORDER BY pos.trade_date, pos.weight DESC;
 SELECT
   tp.split_tag,
   COUNT(*) AS total_panel_rows,
-  COUNTIF(s.sample_trainable_default) AS legacy_trainable_rows,
+  COUNTIF(
+    COALESCE(s.in_universe_default, FALSE)
+    AND COALESCE(s.has_full_history_60d, FALSE)
+    AND COALESCE(s.has_valuation_data, FALSE)
+    AND COALESCE(s.label_entry_tradable, FALSE)
+    AND CASE p_label_horizon
+      WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.label_top30_5d IS NOT NULL AND s.fwd_xs_ret_5d IS NOT NULL
+      WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.label_top30_10d IS NOT NULL AND s.fwd_xs_ret_10d IS NOT NULL
+      WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.label_top30_20d IS NOT NULL AND s.fwd_xs_ret_20d IS NOT NULL
+    END
+  ) AS legacy_trainable_rows,
   COUNTIF(COALESCE(s.in_universe_default, FALSE)
       AND COALESCE(s.has_full_history_60d, FALSE)
       AND COALESCE(s.has_valuation_data, FALSE)) AS live_available_rows,
-  COUNTIF(s.label_valid_5d AND s.fwd_xs_ret_5d IS NOT NULL) AS label_available_eval_rows,
-  SAFE_DIVIDE(COUNTIF(s.sample_trainable_default), COUNT(*)) AS legacy_trainable_ratio,
+  COUNTIF(CASE p_label_horizon
+    WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.fwd_xs_ret_5d IS NOT NULL
+    WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.fwd_xs_ret_10d IS NOT NULL
+    WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.fwd_xs_ret_20d IS NOT NULL
+  END) AS label_available_eval_rows,
+  SAFE_DIVIDE(COUNTIF(
+    COALESCE(s.in_universe_default, FALSE)
+    AND COALESCE(s.has_full_history_60d, FALSE)
+    AND COALESCE(s.has_valuation_data, FALSE)
+    AND COALESCE(s.label_entry_tradable, FALSE)
+    AND CASE p_label_horizon
+      WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.label_top30_5d IS NOT NULL AND s.fwd_xs_ret_5d IS NOT NULL
+      WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.label_top30_10d IS NOT NULL AND s.fwd_xs_ret_10d IS NOT NULL
+      WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.label_top30_20d IS NOT NULL AND s.fwd_xs_ret_20d IS NOT NULL
+    END
+  ), COUNT(*)) AS legacy_trainable_ratio,
   SAFE_DIVIDE(COUNTIF(COALESCE(s.in_universe_default, FALSE)
       AND COALESCE(s.has_full_history_60d, FALSE)
       AND COALESCE(s.has_valuation_data, FALSE)), COUNT(*)) AS live_available_ratio,
-  SAFE_DIVIDE(COUNTIF(s.label_valid_5d AND s.fwd_xs_ret_5d IS NOT NULL), COUNT(*)) AS label_eval_ratio
+  SAFE_DIVIDE(COUNTIF(CASE p_label_horizon
+    WHEN 5 THEN COALESCE(s.label_valid_5d, FALSE) AND s.fwd_xs_ret_5d IS NOT NULL
+    WHEN 10 THEN COALESCE(s.label_valid_10d, FALSE) AND s.fwd_xs_ret_10d IS NOT NULL
+    WHEN 20 THEN COALESCE(s.label_valid_20d, FALSE) AND s.fwd_xs_ret_20d IS NOT NULL
+  END), COUNT(*)) AS label_eval_ratio
 FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
 JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
   ON s.trade_date = tp.trade_date AND s.sec_code = tp.sec_code
  AND s.feature_version = tp.feature_version AND s.label_version = tp.label_version
-WHERE tp.run_id = p_run_id
+WHERE tp.run_id = p_prediction_run_id
   AND tp.trade_date BETWEEN p_valid_start AND p_test_end
   AND tp.split_tag IN ('valid', 'test')
+  AND tp.horizon = p_label_horizon
 GROUP BY tp.split_tag;

@@ -2,8 +2,20 @@
 -- 09: 从 ADS 回测表计算汇总绩效与信号监控，写 performance_summary / signal_monitor。
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
+DECLARE p_prediction_run_id STRING DEFAULT NULL;  -- 组合层实验可独立输出 run_id，同时复用模型/预测来源 run_id
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_backtest_id STRING DEFAULT 'bt_s1_bqml_livepool_oriented_20260603_01';
+DECLARE p_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n5_w20_pv';
+DECLARE p_experiment_group STRING DEFAULT 'baseline';
+DECLARE p_baseline_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n5_w20_pv';
+DECLARE p_parent_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n5_w20_pv';
+DECLARE p_parent_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
+DECLARE p_rebalance_frequency STRING DEFAULT 'weekly';
+DECLARE p_target_holdings INT64 DEFAULT 5;
+DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
+DECLARE p_label_horizon INT64 DEFAULT 5;
+DECLARE p_horizon_natural_frequency STRING DEFAULT 'weekly';
+DECLARE p_feature_set_id STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;
@@ -21,14 +33,28 @@ DECLARE p_calendar_end DATE;
 DECLARE p_selected_model_id STRING;
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 
+SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
+
+IF p_rebalance_frequency NOT IN ('weekly', 'biweekly', 'monthly') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_rebalance_frequency: ', p_rebalance_frequency);
+END IF;
+
+IF p_label_horizon NOT IN (5, 10, 20) THEN
+  RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
+
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
 SET p_selected_model_id = (
   SELECT reg.model_id
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
-    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
   ORDER BY reg.created_at DESC LIMIT 1
 );
+
+IF p_selected_model_id IS NULL THEN
+  RAISE USING MESSAGE = CONCAT('no selected model for prediction_run_id ', p_prediction_run_id);
+END IF;
 
 -- ── 幂等 ──
 IF NOT p_force_replace THEN
@@ -131,6 +157,19 @@ SELECT
   p_commission_bps + p_stamp_tax_buy_bps + p_slippage_buy_bps
     + p_commission_bps + p_stamp_tax_sell_bps + p_slippage_sell_bps,
   TO_JSON_STRING(STRUCT(
+    -- OQ-010 experiment identity and parameters
+    p_experiment_id AS experiment_id,
+    p_experiment_group AS experiment_group,
+    p_baseline_experiment_id AS baseline_experiment_id,
+    p_parent_experiment_id AS parent_experiment_id,
+    p_parent_run_id AS parent_run_id,
+    p_prediction_run_id AS prediction_run_id,
+    p_rebalance_frequency AS rebalance_frequency,
+    p_target_holdings AS target_holdings,
+    p_max_single_weight AS max_single_weight,
+    p_label_horizon AS label_horizon,
+    p_horizon_natural_frequency AS horizon_natural_frequency,
+    p_feature_set_id AS feature_set_id,
     a.n_days, a.annual_return, a.annual_vol,
     SAFE_DIVIDE(a.annual_return, a.annual_vol) AS sharpe,
     dd.max_dd AS max_drawdown,
@@ -184,7 +223,7 @@ WITH t1 AS (
 panel_cnt AS (
   SELECT tp.trade_date, COUNT(*) AS sample_count
   FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-  WHERE tp.run_id = p_run_id AND tp.trade_date BETWEEN p_predict_start AND p_predict_end
+  WHERE tp.run_id = p_prediction_run_id AND tp.trade_date BETWEEN p_predict_start AND p_predict_end
   GROUP BY tp.trade_date
 )
 SELECT
@@ -206,6 +245,6 @@ LEFT JOIN panel_cnt AS pc ON pc.trade_date = pred.predict_date
 LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
   ON px.sec_code = pred.sec_code AND px.trade_date = t1.exec_date
   AND px.trade_date BETWEEN p_predict_start AND p_calendar_end
-WHERE pred.model_id = p_selected_model_id AND pred.run_id = p_run_id
+WHERE pred.model_id = p_selected_model_id AND pred.run_id = p_prediction_run_id
   AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
 GROUP BY pred.predict_date;
