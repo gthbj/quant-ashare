@@ -6,7 +6,7 @@ Last updated: 2026-06-03
 
 ## 当前状态
 
-项目处于**P0 DIM/DWD 已物化并通过 smoke QA，OQ-004/OQ-006/OQ-003 已实现并关闭，策略 1 DWS/ADS 与 BigQuery ML runner 已端到端跑通，OQ-010 交易成本 profile、中文报告与归因分析、GCS uploaded 模式、模型质量诊断、valid/test live-available 预测池口径、score orientation 校准均已实现并通过相关 QA；当前新增 `docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 作为 OQ-010 第一轮实验方案草案**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案、策略 1 PRD、runner 设计与实现 PRD、OQ-003/OQ-004/OQ-006/OQ-010 子项 PRD、策略 1 中文报告与归因分析 PRD、策略 1 报告 GCS 上传运行手册、策略 1 模型质量诊断 PRD、策略 1 预测池口径修正 PRD、策略 1 分数方向校准 PRD、策略 1 首轮质量迭代实验 PRD。下一步是 owner review 首轮实验矩阵，并按确认后的 PRD 实现实验参数化、manifest、对比报告和第一轮对照实验。
+项目处于**P0 DIM/DWD 已物化并通过 smoke QA，OQ-004/OQ-006/OQ-003 已实现并关闭，策略 1 DWS/ADS 与 BigQuery ML runner 已端到端跑通，OQ-010 交易成本 profile、中文报告与归因分析、GCS uploaded 模式、模型质量诊断、valid/test live-available 预测池口径、score orientation 校准均已实现并通过相关 QA；当前新增 `docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 作为 OQ-010 第一轮实验方案草案，并已按 PR #35 review 修订 canonical baseline id、parent experiment 关系和阶段 B/C 调仓频率口径**阶段。已产出 DWD/DIM 建模方案、DWS/ADS 表设计方案、策略方案、策略 1 PRD、runner 设计与实现 PRD、OQ-003/OQ-004/OQ-006/OQ-010 子项 PRD、策略 1 中文报告与归因分析 PRD、策略 1 报告 GCS 上传运行手册、策略 1 模型质量诊断 PRD、策略 1 预测池口径修正 PRD、策略 1 分数方向校准 PRD、策略 1 首轮质量迭代实验 PRD。下一步是 owner 确认首轮实验矩阵，并按确认后的 PRD 实现实验参数化、manifest、对比报告和第一轮对照实验。
 
 ## 已完成（Completed）
 
@@ -71,7 +71,7 @@ Last updated: 2026-06-03
 - 「从 ODS 继承字段描述」的脚本（bq show → 映射 → bq update）。
 - 增量调度（dbt 或 Airflow + SQL）、数据质量断言。
 - P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily` 已落地物化（OQ-003 默认合并报表口径）；`dws_market_state_daily` 仍待补。三大报表单季 `q_*` 派生延后 P1。
-- 策略 1 runner v0 模型质量提升（独立于管线）：历史 raw/source run（`s1_bqml_livepool_20260602_01`）valid rank_ic≈-0.10（反向预测）、回测 NAV≈0.02，诊断结论为 `signal_inverted`。当前 oriented run（`s1_bqml_livepool_oriented_20260603_01`）已通过 score orientation 校准修正方向，valid/test RankIC 转正，shadow backtest total_return=0.2787。诊断 QA（`12`）已全部通过，live-available 预测池口径（PR #29/30）和 score orientation 校准（PR #32）已实现并验证。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已新增为 OQ-010 第一轮实验方案草案，待 owner review 后实现实验参数化、manifest、对比报告并执行持股数/权重、调仓频率、标签 horizon、财务特征矩阵。
+- 策略 1 runner v0 模型质量提升（独立于管线）：历史 raw/source run（`s1_bqml_livepool_20260602_01`）valid rank_ic≈-0.10（反向预测）、回测 NAV≈0.02，诊断结论为 `signal_inverted`。当前 oriented run（`s1_bqml_livepool_oriented_20260603_01`）已通过 score orientation 校准修正方向，valid/test RankIC 转正，shadow backtest total_return=0.2787。诊断 QA（`12`）已全部通过，live-available 预测池口径（PR #29/30）和 score orientation 校准（PR #32）已实现并验证。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已新增为 OQ-010 第一轮实验方案草案，并已按 PR #35 review 修订；待 owner 确认后实现实验参数化、manifest、对比报告并执行持股数/权重、调仓频率、标签 horizon、财务特征矩阵。
 - lookback-capable 价格构建输入：当前策略 1 DWS 只读取最终 DWD/DIM，不直接读 ODS；由于最终 DWD 价格表不落 2018 buffer 行，2019 年初 60 日价格窗口用 `has_full_history_60d=FALSE` 显式标记并由默认样本掩码剔除。若要求 2019-01 起 60 日窗口完整，需要补专用 lookback 构建输入或调整 DWD/DWS 构建方式。
 - P1+ 资金面/事件/行业族 DWD。
 - `dim_stock_sw_industry_hist` / `dim_stock_ci_industry_hist` 建表 SQL 与 QA（`out_date` 边界、区间重叠/缺口、2019+ 覆盖率）。

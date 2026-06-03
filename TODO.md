@@ -7,7 +7,7 @@
 ## P0 — 当前优先
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
-- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：按 `docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` review 结果，落地实验参数化、manifest、对比报告，并执行第一轮对照实验
+- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：按 `docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 修订后矩阵，落地实验参数化、manifest、对比报告，并执行第一轮对照实验
 
 ## P1 — 数据 / 特征扩展
 
@@ -28,7 +28,7 @@
 
 ## 近期完成
 
-- [x] 新增 OQ-010 策略 1 首轮质量迭代实验 PRD：`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`，定义持股数/权重、调仓频率、标签 horizon、财务特征的第一轮分阶段实验矩阵
+- [x] 新增 OQ-010 策略 1 首轮质量迭代实验 PRD：`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`，定义持股数/权重、调仓频率、标签 horizon、财务特征的第一轮分阶段实验矩阵；已按 PR #35 review 修订 canonical baseline id、parent experiment 关系和阶段 B/C 调仓频率口径
 - [x] 修复诊断 QA：`sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 的 `split_tag` 歧义已修复（PR #27/28），已可正常完成 QA 验收
 - [x] 实现策略 1 valid/test live-available 预测池口径修正（按 `docs/prd/PRD_20260602_05_策略1预测池口径修正.md`）：train 继续用 trainable labeled sample，valid/test 预测池改为 t 日 live-available feature universe，标签有效性仅用于事后评价（PR #29/30 已合并）
 - [x] 实现策略 1 模型质量诊断后续修订（按 `docs/prd/PRD_20260602_04_策略1模型质量诊断.md` + PRD 05）：补 prediction/eval coverage 证据，修正后重跑 local smoke → uploaded → `12_qa_model_diagnosis_outputs.sql`

@@ -16,7 +16,7 @@
 
 **DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 已落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，以及 OQ-003 财务特征 `dws_stock_feature_fin_daily`；市场状态 `dws_market_state_daily` 待补。财务特征口径 PRD 已采纳、关闭并实现 OQ-003（PR #13）：P0 默认消费合并报表 `report_type='1'`，三大报表 DWD（`income/balancesheet/cashflow` + `_latest`）保留 `report_type`/`report_caliber`/`is_default_report_caliber`，`dws_stock_feature_fin_daily` 默认只过滤默认口径（口径契约 + `has_fin_*` 掩码），已物化并通过 `sql/qa/04_finance_caliber_checks.sql`，并按 OQ-006 单位契约补全 `ods_field_unit_map` 财务字段、跑通 `sql/qa/05_oq006_unit_checks.sql`。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md`、runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 和 runner SQL 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。**runner 已于 PR #12 端到端实跑并通过全部 QA**（08 已重写为账户级 ledger，详见本文件末尾 2026-06-02 交接条目与摘要顶部）。
 
-**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已新增为 OQ-010 第一轮实验方案草案，待 owner review 后按矩阵实现实验参数化、manifest、对比报告，并执行持股数/权重、调仓频率、标签 horizon、财务特征实验。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已新增为 OQ-010 第一轮实验方案草案，并已按 PR #35 review 修订 canonical baseline id、parent experiment 关系和阶段 B/C 调仓频率口径；待 owner 确认后按矩阵实现实验参数化、manifest、对比报告，并执行持股数/权重、调仓频率、标签 horizon、财务特征实验。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
 **待 owner 确认**：dbt vs 纯 SQL（OQ-005）；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径和分数方向校准均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
@@ -27,61 +27,6 @@
 > 历史交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md` 和 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动只需阅读本文件的当前摘要和最近交接；归档仅用于审计追溯。
 
 ---
-
-## 交接条目
-
-日期: 2026-06-03
-Agent ID: Kimi
-Agent 实例 ID: Kimi Code CLI
-模型: Kimi-k2.6
-运行环境: Kimi Code CLI
-Run ID: s1_bqml_livepool_oriented_20260603_01 / s1_bqml_livepool_revscore_20260603_01
-相关 issue/PR: gthbj/quant-ashare#27~#32 / 诊断 QA 修复 + livepool 口径 + score orientation
-
-### 已完成工作
-
-- 确认 `origin/main`（8564311）已包含并合并 PR #27/28（`split_tag` 歧义修复）、PR #29/30（live-available 预测池口径）、PR #32（score orientation 校准）。本地分支 `codex/fix-diagnosis-qa-livepool` 已与 `origin/main` 对齐。
-- 验证 `sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 全部断言通过（ oriented run_id `s1_bqml_livepool_oriented_20260603_01`）：QA-DIAG-1~5 诊断状态/版本/结论/置信度/产物清单通过；QA-DIAG-6 valid/test 各 >=100 预测交易日通过；QA-DIAG-7a~7c 预测/候选/回测存在性通过；QA-POOL-1~6 训练/预测池口径语义通过；QA-ORIENT-DIAG-1 `score_orientation` 登记通过。
-- 2026-06-03 已完成 livepool reverse-score shadow run（`s1_bqml_livepool_revscore_20260603_01`）：复制 3,055,781 训练面板行，插入 1,056,716 条反向预测（score = 1.0 - source_score），完整执行 05→08→09→report→10→diagnosis→12，全部 QA 通过；shadow backtest total_return=0.2787（source run 为 -0.9712），验证方向反转可将策略从亏损转为正收益。
-- 更新 `TODO.md`：将诊断 QA 修复、livepool 预测池口径、score orientation 校准标记为已完成。
-- 更新 `IMPLEMENTATION_STATUS.md`：刷新「进行中」和「未开始」状态，明确 split_tag 修复、livepool 口径、score orientation 均已实现并验证。
-- 更新 `OPEN_QUESTIONS.md`：刷新 OQ-010 状态，明确诊断、预测池口径和分数方向校准均已完成。
-- 更新 `AGENT_HANDOFF.md` 当前交接摘要和待 owner 确认项。
-
-### 重要上下文
-
-- 当前 `main`（8564311）已是全量合并后的最新状态；`codex/fix-diagnosis-qa-livepool` 分支无代码改动，仅文档/记忆更新。
-- `ads_model_prediction_daily` 当前仅有 oriented run（`s1_bqml_livepool_oriented_20260603_01`）的 1,056,716 行预测；source run 预测已被覆盖/清理。
-- 诊断 QA 全部通过后，管线已具备：训练 → 选型（含方向校准）→ 预测（含 live-available 池）→ 候选 → 组合 → 回测 → 报告 → 诊断 → QA 验收的完整闭环。
-
-### 改动文件
-
-- `TODO.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/OPEN_QUESTIONS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-
-### 测试 / 验证
-
-- `bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql`：全部 11 个 ASSERT successful + 1 条 manual_check 输出。
-- shadow run 端到端验证：05→08→09→report→10→diagnosis→12 全部通过。
-
-### 阻塞项
-
-- 无。
-
-### 下一步建议
-
-- 合并本 PR（文档/记忆状态同步）。
-- 由 owner 决策 OQ-010 剩余参数（调仓频率、持股数/单票权重上限）和模型质量迭代方向（特征/标签/选股口径实验）。
-- 如需新一轮正式 run，使用新的 `run_id/backtest_id` 执行完整 01→12 流程。
-
-### 已更新记忆文件
-
-- `TODO.md`
-- `IMPLEMENTATION_STATUS.md`
-- `OPEN_QUESTIONS.md`
-- `AGENT_HANDOFF.md`
 
 ---
 
@@ -146,6 +91,8 @@ Run ID: —
 
 ---
 
+---
+
 ## 交接条目
 
 日期: 2026-06-03
@@ -187,4 +134,63 @@ Run ID: —
 
 ### 已更新记忆文件
 
+- `AGENT_HANDOFF.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: gthbj/quant-ashare#35 / issuecomment-4609670537
+
+### 已完成工作
+
+- 评估 PR #35 comment 中两条 P2，均认可并修订 PRD。
+- 将 `baseline_experiment_id` 改为 canonical `oq010_base_oriented_weekly_h5_n5_w20_pv`，阶段 A/B/C 使用独立 `experiment_id` 并通过 `parent_experiment_id` 追溯来源。
+- 明确阶段 C 固定使用阶段 B 晋级调仓频率，以隔离 label horizon 变量；`horizon_natural_frequency` 仅写入 manifest / 报告作解释。
+- 同步 `TODO.md`、`OPEN_QUESTIONS.md`、`PROJECT_CONTEXT.md`、`IMPLEMENTATION_STATUS.md`、`MEMORY_INDEX.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 本次仍是 PRD / 记忆修订，未修改 runner SQL 或 Python。
+- 后续实现应按修订后的 manifest 字段补 `baseline_experiment_id` / `parent_experiment_id`，并在 QA 中校验阶段 C 频率不被 horizon 硬绑覆盖。
+
+### 改动文件
+
+- `docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`
+- `TODO.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+- 复核旧 baseline id、旧“建议调仓频率”表头和 conflict marker 均无正文残留。
+- 文档 / 记忆更新，未执行 SQL。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- owner 确认修订后的首轮实验矩阵。
+- 根据确认结果实现实验参数化、manifest、对比报告和 QA。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `MEMORY_INDEX.md`
+- `PROJECT_CONTEXT.md`
+- `OPEN_QUESTIONS.md`
+- `IMPLEMENTATION_STATUS.md`
 - `AGENT_HANDOFF.md`

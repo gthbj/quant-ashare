@@ -2123,3 +2123,62 @@ Run ID: s1_bqml_20260601_01 / bt_s1_bqml_20260601_01
 - `IMPLEMENTATION_STATUS.md`
 - `AGENT_HANDOFF.md`
 - `TODO.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-03
+Agent ID: Kimi
+Agent 实例 ID: Kimi Code CLI
+模型: Kimi-k2.6
+运行环境: Kimi Code CLI
+Run ID: s1_bqml_livepool_oriented_20260603_01 / s1_bqml_livepool_revscore_20260603_01
+相关 issue/PR: gthbj/quant-ashare#27~#32 / 诊断 QA 修复 + livepool 口径 + score orientation
+
+### 已完成工作
+
+- 确认 `origin/main`（8564311）已包含并合并 PR #27/28（`split_tag` 歧义修复）、PR #29/30（live-available 预测池口径）、PR #32（score orientation 校准）。本地分支 `codex/fix-diagnosis-qa-livepool` 已与 `origin/main` 对齐。
+- 验证 `sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 全部断言通过（ oriented run_id `s1_bqml_livepool_oriented_20260603_01`）：QA-DIAG-1~5 诊断状态/版本/结论/置信度/产物清单通过；QA-DIAG-6 valid/test 各 >=100 预测交易日通过；QA-DIAG-7a~7c 预测/候选/回测存在性通过；QA-POOL-1~6 训练/预测池口径语义通过；QA-ORIENT-DIAG-1 `score_orientation` 登记通过。
+- 2026-06-03 已完成 livepool reverse-score shadow run（`s1_bqml_livepool_revscore_20260603_01`）：复制 3,055,781 训练面板行，插入 1,056,716 条反向预测（score = 1.0 - source_score），完整执行 05→08→09→report→10→diagnosis→12，全部 QA 通过；shadow backtest total_return=0.2787（source run 为 -0.9712），验证方向反转可将策略从亏损转为正收益。
+- 更新 `TODO.md`：将诊断 QA 修复、livepool 预测池口径、score orientation 校准标记为已完成。
+- 更新 `IMPLEMENTATION_STATUS.md`：刷新「进行中」和「未开始」状态，明确 split_tag 修复、livepool 口径、score orientation 均已实现并验证。
+- 更新 `OPEN_QUESTIONS.md`：刷新 OQ-010 状态，明确诊断、预测池口径和分数方向校准均已完成。
+- 更新 `AGENT_HANDOFF.md` 当前交接摘要和待 owner 确认项。
+
+### 重要上下文
+
+- 当前 `main`（8564311）已是全量合并后的最新状态；`codex/fix-diagnosis-qa-livepool` 分支无代码改动，仅文档/记忆更新。
+- `ads_model_prediction_daily` 当前仅有 oriented run（`s1_bqml_livepool_oriented_20260603_01`）的 1,056,716 行预测；source run 预测已被覆盖/清理。
+- 诊断 QA 全部通过后，管线已具备：训练 → 选型（含方向校准）→ 预测（含 live-available 池）→ 候选 → 组合 → 回测 → 报告 → 诊断 → QA 验收的完整闭环。
+
+### 改动文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql`：全部 11 个 ASSERT successful + 1 条 manual_check 输出。
+- shadow run 端到端验证：05→08→09→report→10→diagnosis→12 全部通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 合并本 PR（文档/记忆状态同步）。
+- 由 owner 决策 OQ-010 剩余参数（调仓频率、持股数/单票权重上限）和模型质量迭代方向（特征/标签/选股口径实验）。
+- 如需新一轮正式 run，使用新的 `run_id/backtest_id` 执行完整 01→12 流程。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `IMPLEMENTATION_STATUS.md`
+- `OPEN_QUESTIONS.md`
+- `AGENT_HANDOFF.md`
+
+---
