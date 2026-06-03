@@ -1,0 +1,18 @@
+{
+  "endpoint": "stk_limit",
+  "version": "v0",
+  "description": "涨跌停价格",
+  "business_fields": {
+    "primary_key": ["ts_code", "trade_date"],
+    "date_fields": ["trade_date"],
+    "numeric_fields": ["pre_close", "up_limit", "down_limit"],
+    "string_fields": ["ts_code"]
+  },
+  "fields": [
+    {"name": "trade_date", "type": "STRING", "nullable": false, "description": "交易日期 YYYYMMDD"},
+    {"name": "ts_code", "type": "STRING", "nullable": false, "description": "TS股票代码"},
+    {"name": "pre_close", "type": "FLOAT", "nullable": true, "description": "昨日收盘价"},
+    {"name": "up_limit", "type": "FLOAT", "nullable": true, "description": "涨停价"},
+    {"name": "down_limit", "type": "FLOAT", "nullable": true, "description": "跌停价"}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "endpoint": "suspend_d",
+  "version": "v0",
+  "description": "停复牌明细",
+  "business_fields": {
+    "primary_key": ["ts_code", "trade_date", "suspend_timing"],
+    "date_fields": ["trade_date"],
+    "numeric_fields": [],
+    "string_fields": ["ts_code", "suspend_timing", "suspend_type"]
+  },
+  "fields": [
+    {"name": "ts_code", "type": "STRING", "nullable": false, "description": "TS股票代码"},
+    {"name": "trade_date", "type": "STRING", "nullable": false, "description": "交易日期 YYYYMMDD"},
+    {"name": "suspend_timing", "type": "STRING", "nullable": false, "description": "停牌时间段（全天/半天）"},
+    {"name": "suspend_type", "type": "STRING", "nullable": true, "description": "停牌类型"}
+  ]
+}

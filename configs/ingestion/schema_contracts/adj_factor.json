@@ -1,0 +1,16 @@
+{
+  "endpoint": "adj_factor",
+  "version": "v0",
+  "description": "复权因子",
+  "business_fields": {
+    "primary_key": ["ts_code", "trade_date"],
+    "date_fields": ["trade_date"],
+    "numeric_fields": ["adj_factor"],
+    "string_fields": ["ts_code"]
+  },
+  "fields": [
+    {"name": "ts_code", "type": "STRING", "nullable": false, "description": "TS股票代码"},
+    {"name": "trade_date", "type": "STRING", "nullable": false, "description": "交易日期 YYYYMMDD"},
+    {"name": "adj_factor", "type": "FLOAT", "nullable": true, "description": "复权因子"}
+  ]
+}

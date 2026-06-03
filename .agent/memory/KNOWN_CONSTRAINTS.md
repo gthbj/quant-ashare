@@ -3,6 +3,7 @@
 ## 数据约束（Tushare / ODS 事实）
 
 - ODS 全部为 Hive 分区外部表，**查询必须带 `partition_date`/`endpoint` 过滤**（强制分区裁剪），否则报错。`partition_date` 是 `YYYYMMDD` 字符串。
+- OQ-005 采集 manifest 中 `endpoint` 表示 Tushare API endpoint，`partition_endpoint` 表示写入 GCS Hive 分区 `endpoint=` 的值；两者不得混用。普通接口二者相同，`stock_basic` 必须按 request variant 写入 `stock_basic_listed` / `stock_basic_delisted` 两个 `partition_endpoint`，以匹配 `dim_stock` 的 `endpoint IN (...)` 消费口径。
 - 2026-06-03 复核确认 10 张 ODS 外部表存在 Parquet schema mismatch：`ods_tushare_daily_info`、`ods_tushare_dividend`、`ods_tushare_fina_audit`、`ods_tushare_limit_list_d`、`ods_tushare_margin`、`ods_tushare_margin_detail`、`ods_tushare_moneyflow`、`ods_tushare_stk_limit`、`ods_tushare_stk_rewards`、`ods_tushare_sz_daily_info`。修复按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 执行：先从 GCS 原 Parquet 按 schema contract 做 schema-preserving rewrite，API 重拉只作为原文件损坏、缺失或 owner 明确要求的补救路径；修复过程只改 Parquet 物理 schema，不补数据、不改业务值口径、不写伪空 Parquet；backup 必须 write-once，已匹配 contract 的文件跳过重写 / 发布。
 - **财务表 `partition_date == 报告期(end_date)`，不是公告日**：禁止用 partition_date 当数据可见时间，必须用 `ann_date_eff = COALESCE(f_ann_date, ann_date)` 做 PIT。
 - 财务表同一 `(sec_code, 报告期)` 有多条（不同 `report_type`/修正/`update_flag`）：P0 默认消费合并报表 `report_type='1'`；带 `report_type` 的 DWD 版本事实表保留源 `report_type` 并派生 `report_caliber`/`is_default_report_caliber`，P0 DWS 默认过滤默认口径，多口径特征后续另建/扩展。

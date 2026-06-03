@@ -23,13 +23,14 @@
 
 ## 工程 / 调度
 
-- [ ] OQ-005 GCP 数据流水线落地：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md` 已定义 Cloud Run Jobs 采集、Dataform / BigQuery Studio pipeline 做 ODS→ADS、Cloud Composer 编排，且已按 owner 要求收敛为只描述最终实现方式的陈述性方案；PR #39 review 两条低优先级建议已补入财务 empty-return 口径和 Phase 1 触发入口；下一步实现首批 14 张当前消费 ODS 的采集 manifest、Cloud Run Jobs、Dataform P0 转换和 Composer DAG
+- [ ] OQ-005 GCP 数据流水线落地：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md` 已定义 Cloud Run Jobs 采集、Dataform / BigQuery Studio pipeline 做 ODS→ADS、Cloud Composer 编排，且已按 owner 要求收敛为只描述最终实现方式的陈述性方案；PR #42 分支已实现 Phase 0 采集 manifest、14 张 schema contract、meta 表 DDL 与采集脚本 stub，并已合入 #44/#46 review 修复；下一步实现 Cloud Run Jobs、Dataform P0 转换和 Composer DAG
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算 / 调度配置
 - [ ] 写"从 ODS 继承字段描述"脚本（`bq show` -> 映射 -> `bq update`）
 - [ ] 增量调度（dbt 或 Airflow + SQL）与数据质量断言
 
 ## 近期完成
 
+- [x] OQ-005 Phase 0 实现分支已整合 review 修复：PR #44 已合入 #42 分支，#46 的 GCS 路径、API 行数上限、Parquet cast、日志脱敏修复已手动合入，并追加修复 `partition_endpoint` 路径契约与参数化日志脱敏泄露问题
 - [x] 实现 OQ-010 策略 1 实验并发调度与隔离 Phase 1：新增 `sql/meta/02_strategy1_experiment_run_status.sql` 状态表 DDL（`CREATE TABLE IF NOT EXISTS` 保留 audit/resume 历史）、`scripts/strategy1/run_oq010_experiments.py` 调度器（支持 --dry-run 展开完整计划、SQL 参数注入强校验、GCS ifGenerationMatch=0 原子锁、generation-guarded stale reclaim/release、lease/heartbeat、锁 finally 释放、heartbeat 终态保护、resume、max-parallel、max-parallel-backtest、fail-fast 等全部 PRD 定义参数）、`sql/qa/07_strategy1_experiment_concurrency_checks.sql` 并发 QA（QA-CONC-1~12），以及 `docs/策略1实验并发调度器运行手册.md`；已通过 Python 静态检查、stage_a dry-run、单实验 dry-run、全 manifest dry-run、直接参数注入断言；已更新 TODO/memory；尚未执行 BigQuery、不碰正在运行的 A3 实验、不删 reports/strategy1 已有产物
 - [x] 新增 OQ-010 策略 1 实验并发调度与隔离 PRD：`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`，定义同阶段 portfolio-only / retrain 实验安全并发的状态表、GCS 原子锁、lease/heartbeat、调度器、runner 改造要求、08 ledger 并发边界和 QA；本次只写 PRD，未改 runner、未跑 BigQuery
 - [x] 新增 OQ-005 GCP 数据流水线 PRD：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`，固化 Cloud Run Jobs + Dataform / BigQuery Studio pipeline + Cloud Composer 架构，限定每日生产采集只覆盖当前实际消费的 14 张 ODS，并已收敛为陈述性目标实现方案；PR #39 review 两条低优先级建议已补入正文
