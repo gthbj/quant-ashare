@@ -55,7 +55,7 @@ ashare_ods (已有, 外部表)
 - 策略 1 模型质量诊断 PRD 已新增并实现：`docs/prd/PRD_20260602_04_策略1模型质量诊断.md`，范围限定为先诊断 signal / label / sample-universe / candidate / portfolio / cost / style，不直接改模型或调参。`sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 的 `split_tag` 歧义已修复，诊断 QA 已通过。
 - 策略 1 valid/test live-available 预测池口径修正 PRD 已新增并实现：`docs/prd/PRD_20260602_05_策略1预测池口径修正.md`。valid/test 预测池已改为 t 日 live-available feature universe，标签有效性只用于事后评价。
 - 策略 1 score orientation 校准 PRD 已新增并实现：`docs/prd/PRD_20260603_01_策略1分数方向校准.md`。当前 oriented run 已修正 raw 正类概率反向问题，`12` QA 全部通过。
-- OQ-010 首轮质量迭代实验 PRD 已合并（PR #35）：`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`，用于分阶段比较持股数/权重、调仓频率、标签 horizon 和财务特征；已明确 canonical baseline id、parent experiment 追溯关系，以及阶段 C 固定沿用阶段 B 晋级调仓频率以隔离 label horizon。owner 已确认阶段 A/B/C 不做 `4 * 3 * 3` 笛卡尔积，基础路径为 `4 + 3 + 3 = 10` 个实验，包含阶段 D 为 12 个实验；必要时补最多 `2 * 2` pairwise 小型交互复核，最终 `2 * 2 * 2` 只作为条件触发的保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权为 3.33%，不是每只买 5%。
+- OQ-010 首轮质量迭代实验 PRD 已合并（PR #35）：`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`，用于分阶段比较持股数/权重、调仓频率、标签 horizon 和财务特征；已明确 canonical baseline id、parent experiment 追溯关系，以及阶段 C 固定沿用阶段 B 晋级调仓频率以隔离 label horizon。owner 已确认阶段 A/B/C 不做 `4 * 3 * 3` 笛卡尔积，基础路径为 `4 + 3 + 3 = 10` 个实验，包含阶段 D 为 12 个实验；必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 小型交互复核，最终 `2 * 2 * 2` 只作为条件触发的保底复核。阶段 A 的 `30/5%` 表示目标持股 30 只、单票权重上限 5%，目标单票等权为 3.33%，不是每只买 5%。
 - **下一步**：按已合并 PRD 实现实验参数化、manifest、对比报告，并执行第一轮对照实验。也可补 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生和行业/资金/事件特征扩展。
 
 ## 不可妥协的约定
