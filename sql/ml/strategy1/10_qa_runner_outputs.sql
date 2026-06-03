@@ -192,6 +192,60 @@ ASSERT (
     AND reg.model_uri IS NOT NULL
 ) AS 'exactly one run-scoped selected model must exist';
 
+-- ── selected model 必须有 score_orientation（identity 或 reverse_probability）──
+ASSERT (
+  SELECT COUNT(*) = 1 AND LOGICAL_AND(
+    JSON_VALUE(reg.metrics_json, '$.score_orientation') IN ('identity', 'reverse_probability')
+  )
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+) AS 'QA-ORIENT-1: selected model must have score_orientation = identity or reverse_probability';
+
+-- ── selected model 必须有 score_source 和 orientation 诊断字段 ──
+ASSERT (
+  SELECT LOGICAL_AND(
+    JSON_VALUE(reg.metrics_json, '$.score_source') IS NOT NULL
+    AND JSON_VALUE(reg.metrics_json, '$.raw_valid_rank_ic_mean') IS NOT NULL
+    AND JSON_VALUE(reg.metrics_json, '$.oriented_valid_rank_ic_mean') IS NOT NULL
+    AND JSON_VALUE(reg.metrics_json, '$.orientation_decision_reason') IS NOT NULL
+  )
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+) AS 'QA-ORIENT-2: selected model must have score_source, raw/oriented rank_ic, and decision reason';
+
+-- ── prediction 表的 score_orientation 必须和 registry 一致 ──
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(
+    pred.score_orientation != JSON_VALUE(reg.metrics_json, '$.score_orientation')
+  ) = 0
+  FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
+  JOIN `data-aquarium.ashare_ads.ads_model_registry` AS reg
+    ON pred.model_id = reg.model_id
+  WHERE pred.run_id = p_run_id
+    AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
+    AND reg.strategy_id = p_strategy_id
+    AND reg.status = 'selected'
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+) AS 'QA-ORIENT-3: prediction score_orientation must match registry';
+
+-- ── score 与 raw_score 的关系必须和 score_orientation 一致 ──
+ASSERT (
+  SELECT COUNTIF(
+    CASE
+      WHEN pred.score_orientation = 'identity'
+        THEN ABS(pred.score - pred.raw_score) > 1e-9
+      WHEN pred.score_orientation = 'reverse_probability'
+        THEN ABS(pred.score - (1.0 - pred.raw_score)) > 1e-9
+      ELSE TRUE
+    END
+  ) = 0
+  FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
+  WHERE pred.run_id = p_run_id
+    AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
+) AS 'QA-ORIENT-4: score must equal raw_score (identity) or 1-raw_score (reverse_probability)';
+
 -- ── 回测 summary 存在且有 metrics_json ──
 ASSERT (
   SELECT COUNT(*) > 0 AND COUNTIF(bs.metrics_json IS NOT NULL) > 0

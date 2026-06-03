@@ -207,6 +207,25 @@ valid/test 预测、候选池、组合和回测从 live-available prediction poo
 | `--skip-gcs-upload` | 跳过 GCS 上传 |
 | `--p-target-holdings` | 当前目标持股数（默认 5） |
 
+## Score orientation 校准
+
+`03` 在 valid 期对每个候选模型同时评估 raw score（label='1' 正类概率）和 reversed score（`1.0 - raw_score`）的 RankIC。如果 raw RankIC 明显为负（< -0.03）且 reversed 更好，该候选的 `score_orientation` 记为 `reverse_probability`；否则记为 `identity`。
+
+选模型时使用 oriented score 口径的 RankIC / layer_spread / TopN。selected model 的 registry `metrics_json` 持久记录：
+
+- `score_source`: 始终为 `positive_class_probability`
+- `score_orientation`: `identity` 或 `reverse_probability`
+- `raw_valid_rank_ic_mean` / `oriented_valid_rank_ic_mean`
+- `orientation_decision_reason`
+
+`04` 从 registry 读取 `score_orientation`，ML.PREDICT 仍取 label='1' 概率作为 `raw_score`；写入 `ads_model_prediction_daily` 时：
+- `score` = oriented score（identity 保留原始，reverse 用 `1.0 - raw_score`）
+- `raw_score` = 原始 label='1' 概率（可追溯）
+- `score_orientation` = 来自 registry
+- `rank_raw` / `rank_pct` 按 oriented `score DESC` 计算
+
+QA 断言（`10`）验证 registry 有 `score_orientation`、prediction 表的 `score_orientation` 与 registry 一致、`score` 与 `raw_score` 的关系和 orientation 一致。
+
 ## 关键设计
 
 - **run 隔离**：模型对象名嵌入 `p_run_id`，registry 用 `JSON_VALUE(model_params_json, '$.run_id')` 过滤。

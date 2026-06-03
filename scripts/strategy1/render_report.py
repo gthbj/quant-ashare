@@ -1157,6 +1157,10 @@ def render_markdown(summary: dict, model_info: dict, evidence: dict,
     sections.append(f"- **run_id**: `{args.run_id}`")
     sections.append(f"- **backtest_id**: `{args.backtest_id}`")
     sections.append(f"- **model_id**: `{model_info.get('model_id', 'N/A')}`")
+    model_metrics = json.loads(model_info.get("metrics_json") or "{}")
+    _orientation = model_metrics.get("score_orientation", "identity")
+    _orient_label = "原样（identity）" if _orientation == "identity" else "反向（reverse_probability: score = 1 - raw_prob）"
+    sections.append(f"- **score 方向**: {_orient_label}")
     sections.append(f"- **生成时间**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
     sections.append(f"- **评估主基准**: {ASSESSMENT_BENCHMARK['name']} `{ASSESSMENT_BENCHMARK['sec_code']}`")
     sections.append(f"- **展示对比基准**: {DISPLAY_BENCHMARK['name']} `{DISPLAY_BENCHMARK['sec_code']}`")
@@ -1355,6 +1359,7 @@ def render_html(summary: dict, model_info: dict, evidence: dict,
                 assessment_bench: pd.DataFrame, display_bench: pd.DataFrame,
                 top_loss_stocks: list[dict], args) -> str:
     m = json.loads(summary.get("metrics_json") or "{}")
+    model_metrics = json.loads(model_info.get("metrics_json") or "{}")
     ps = evidence.get("performance_summary", {})
     strat = ps.get("strategy", {})
     ab = ps.get("assessment_benchmark", {})
@@ -1435,7 +1440,8 @@ pre{{background:#f6f6f6;padding:12px;overflow:auto;font-size:0.85em}}
 <div class="summary-box">
 <p><b>策略</b>: {html.escape(args.strategy_id)} | <b>run_id</b>: <code>{html.escape(args.run_id)}</code> | <b>backtest_id</b>: <code>{html.escape(args.backtest_id)}</code></p>
 <p><b>评估主基准</b>: {ASSESSMENT_BENCHMARK['name']} ({ASSESSMENT_BENCHMARK['sec_code']}) |
-   <b>展示基准</b>: {DISPLAY_BENCHMARK['name']} ({DISPLAY_BENCHMARK['sec_code']})</p>
+   <b>展示基准</b>: {DISPLAY_BENCHMARK['name']} ({DISPLAY_BENCHMARK['sec_code']}) |
+   <b>score 方向</b>: {html.escape(model_metrics.get('score_orientation', 'identity'))}</p>
 <p><b>一句话结论</b>: {html.escape(_one_line_verdict(summary, bench_ret, db_.get('total_return', 0) or 0))}</p>
 </div>
 <h2>绩效总览</h2><table>{perf_rows}</table>

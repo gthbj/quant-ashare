@@ -1,8 +1,9 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
 -- 03: 全部候选在 valid 上预测+评估 → RankIC/AUC/log_loss/分层/TopN/按年 → 选最优 → 更新 registry。
 -- 用 FOR + EXECUTE IMMEDIATE 动态引用 run-scoped 模型，不留持久临时表（04 自行重跑 selected 预测）。
+-- Score orientation: 对每个候选同时评估 raw 和 reversed score 的 RankIC，自动选择更优方向。
 
-DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_20260602_01';
+DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
@@ -11,6 +12,7 @@ DECLARE p_topn INT64 DEFAULT 5;  -- TopN 收益统计用，对齐组合持股数
 DECLARE p_run_safe STRING;
 DECLARE p_feat_sql STRING;
 DECLARE p_selected_cand STRING;
+DECLARE p_selected_orientation STRING;
 
 SET p_run_safe = REGEXP_REPLACE(p_run_id, r'[^A-Za-z0-9_]', '_');
 SET p_feat_sql = """
@@ -81,14 +83,21 @@ END FOR;
 
 -- ── 预测 + 实际收益对齐，预算 rank ──
 -- 事后评价：必须在 label-available subset 上计算（PRD-20260602-05 FR-LIVE-3）
+-- 同时计算 raw 和 reversed score 的 rank，用于 orientation 决策。
 CREATE TEMP TABLE ranked_preds AS
 SELECT
-  cp.cand_id, cp.trade_date, cp.sec_code, cp.score,
+  cp.cand_id, cp.trade_date, cp.sec_code, cp.score AS raw_score,
+  1.0 - cp.score AS reversed_score,
   s.fwd_ret_5d,
-  RANK() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY cp.score) AS score_rank,
+  -- raw score ranks
+  RANK() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY cp.score) AS raw_score_rank,
   RANK() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY s.fwd_ret_5d) AS ret_rank,
-  ROW_NUMBER() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY cp.score DESC, cp.sec_code) AS score_desc_rank,
-  NTILE(5) OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY cp.score) AS quintile
+  ROW_NUMBER() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY cp.score DESC, cp.sec_code) AS raw_score_desc_rank,
+  NTILE(5) OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY cp.score) AS raw_quintile,
+  -- reversed score ranks
+  RANK() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY (1.0 - cp.score)) AS rev_score_rank,
+  ROW_NUMBER() OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY (1.0 - cp.score) DESC, cp.sec_code) AS rev_score_desc_rank,
+  NTILE(5) OVER (PARTITION BY cp.cand_id, cp.trade_date ORDER BY (1.0 - cp.score)) AS rev_quintile
 FROM candidate_preds AS cp
 JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
   ON cp.sec_code = s.sec_code AND cp.trade_date = s.trade_date
@@ -97,26 +106,78 @@ JOIN `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
 WHERE s.label_valid_5d
   AND s.fwd_xs_ret_5d IS NOT NULL;
 
--- 日频 RankIC
-CREATE TEMP TABLE daily_rank_ic AS
-SELECT cand_id, trade_date, CORR(score_rank, ret_rank) AS rank_ic
+-- 日频 RankIC — raw
+CREATE TEMP TABLE daily_rank_ic_raw AS
+SELECT cand_id, trade_date, CORR(raw_score_rank, ret_rank) AS rank_ic
 FROM ranked_preds GROUP BY cand_id, trade_date;
+
+-- 日频 RankIC — reversed
+CREATE TEMP TABLE daily_rank_ic_rev AS
+SELECT cand_id, trade_date, CORR(rev_score_rank, ret_rank) AS rank_ic
+FROM ranked_preds GROUP BY cand_id, trade_date;
+
+-- ── Score orientation 决策：每个候选选择最优方向 ──
+CREATE TEMP TABLE candidate_orientation AS
+SELECT
+  r.cand_id,
+  AVG(r.rank_ic) AS raw_rank_ic_mean,
+  v.rev_rank_ic_mean,
+  CASE
+    -- raw IC 明显为负且 reversed 更好 → reverse
+    WHEN AVG(r.rank_ic) < -0.03 AND v.rev_rank_ic_mean > AVG(r.rank_ic) THEN 'reverse_probability'
+    -- reversed IC 明显为负且 raw 更好 → identity（不太可能但作为守卫）
+    WHEN v.rev_rank_ic_mean < -0.03 AND AVG(r.rank_ic) > v.rev_rank_ic_mean THEN 'identity'
+    -- 两者都接近零或 raw 更好 → identity
+    WHEN AVG(r.rank_ic) >= v.rev_rank_ic_mean THEN 'identity'
+    -- reversed 更好但 raw 不是明显为负 → reverse（但记录为 marginal）
+    ELSE 'reverse_probability'
+  END AS score_orientation,
+  CASE
+    WHEN AVG(r.rank_ic) < -0.03 AND v.rev_rank_ic_mean > AVG(r.rank_ic) THEN 'raw_rank_ic < -0.03 and reversed is better'
+    WHEN v.rev_rank_ic_mean < -0.03 AND AVG(r.rank_ic) > v.rev_rank_ic_mean THEN 'reversed_rank_ic < -0.03 and raw is better'
+    WHEN AVG(r.rank_ic) >= v.rev_rank_ic_mean THEN 'raw_rank_ic >= reversed_rank_ic'
+    ELSE 'reversed is marginally better'
+  END AS orientation_decision_reason
+FROM daily_rank_ic_raw AS r
+JOIN (
+  SELECT cand_id, AVG(rank_ic) AS rev_rank_ic_mean
+  FROM daily_rank_ic_rev GROUP BY cand_id
+) AS v ON r.cand_id = v.cand_id
+GROUP BY r.cand_id, v.rev_rank_ic_mean;
+
+-- ── 使用 oriented score 重新计算评估指标 ──
+-- 先为每个候选确定 oriented_score（如果反向则用 1-raw）
+CREATE TEMP TABLE oriented_ranked_preds AS
+SELECT
+  rp.*,
+  co.score_orientation,
+  IF(co.score_orientation = 'reverse_probability', rp.reversed_score, rp.raw_score) AS oriented_score,
+  IF(co.score_orientation = 'reverse_probability', rp.rev_score_rank, rp.raw_score_rank) AS oriented_score_rank,
+  IF(co.score_orientation = 'reverse_probability', rp.rev_score_desc_rank, rp.raw_score_desc_rank) AS oriented_score_desc_rank,
+  IF(co.score_orientation = 'reverse_probability', rp.rev_quintile, rp.raw_quintile) AS oriented_quintile
+FROM ranked_preds AS rp
+JOIN candidate_orientation AS co ON rp.cand_id = co.cand_id;
+
+-- 日频 oriented RankIC
+CREATE TEMP TABLE daily_rank_ic AS
+SELECT cand_id, trade_date, CORR(oriented_score_rank, ret_rank) AS rank_ic
+FROM oriented_ranked_preds GROUP BY cand_id, trade_date;
 
 -- 按年 RankIC
 CREATE TEMP TABLE yearly_rank_ic AS
 SELECT cand_id, EXTRACT(YEAR FROM trade_date) AS yr, AVG(rank_ic) AS rank_ic_year
 FROM daily_rank_ic GROUP BY cand_id, yr;
 
--- 分层收益（quintile 平均）
+-- 分层收益（quintile 平均）— 使用 oriented quintile
 CREATE TEMP TABLE layer_spread AS
 SELECT cand_id,
-  AVG(IF(quintile = 5, fwd_ret_5d, NULL)) - AVG(IF(quintile = 1, fwd_ret_5d, NULL)) AS top_minus_bottom
-FROM ranked_preds GROUP BY cand_id;
+  AVG(IF(oriented_quintile = 5, fwd_ret_5d, NULL)) - AVG(IF(oriented_quintile = 1, fwd_ret_5d, NULL)) AS top_minus_bottom
+FROM oriented_ranked_preds GROUP BY cand_id;
 
--- TopN 未来收益（每日 score 前 N 的 fwd_ret_5d 均值）
+-- TopN 未来收益（每日 oriented score 前 N 的 fwd_ret_5d 均值）
 CREATE TEMP TABLE topn_ret AS
 SELECT cand_id, AVG(fwd_ret_5d) AS topn_fwd_ret_mean
-FROM ranked_preds WHERE score_desc_rank <= p_topn
+FROM oriented_ranked_preds WHERE oriented_score_desc_rank <= p_topn
 GROUP BY cand_id;
 
 -- 样本量/缺失计数 + 预测池覆盖统计（PRD-20260602-05 FR-LIVE-3）
@@ -150,7 +211,7 @@ FROM yearly_rank_ic GROUP BY cand_id;
 CREATE TEMP TABLE candidate_metrics AS
 SELECT
   ic.cand_id,
-  AVG(ic.rank_ic) AS rank_ic_mean,
+  AVG(ic.rank_ic) AS rank_ic_mean,  -- oriented RankIC
   STDDEV_SAMP(ic.rank_ic) AS rank_ic_std,
   SAFE_DIVIDE(AVG(ic.rank_ic), NULLIF(STDDEV_SAMP(ic.rank_ic), 0)) AS rank_icir,
   COUNT(*) AS n_days,
@@ -160,20 +221,29 @@ SELECT
   ANY_VALUE(tn.topn_fwd_ret_mean) AS topn_fwd_ret_mean,
   ANY_VALUE(sc.n_samples) AS n_samples,
   ANY_VALUE(sc.n_missing) AS n_missing,
-  ANY_VALUE(yj.rank_ic_by_year_json) AS rank_ic_by_year_json
+  ANY_VALUE(yj.rank_ic_by_year_json) AS rank_ic_by_year_json,
+  ANY_VALUE(co.score_orientation) AS score_orientation,
+  ANY_VALUE(co.raw_rank_ic_mean) AS raw_valid_rank_ic_mean,
+  ANY_VALUE(co.rev_rank_ic_mean) AS rev_valid_rank_ic_mean,
+  ANY_VALUE(co.orientation_decision_reason) AS orientation_decision_reason
 FROM daily_rank_ic AS ic
 LEFT JOIN candidate_eval AS ev ON ic.cand_id = ev.cand_id
 LEFT JOIN layer_spread AS ls ON ic.cand_id = ls.cand_id
 LEFT JOIN topn_ret AS tn ON ic.cand_id = tn.cand_id
 LEFT JOIN sample_counts AS sc ON ic.cand_id = sc.cand_id
 LEFT JOIN yearly_rank_ic_json AS yj ON ic.cand_id = yj.cand_id
+LEFT JOIN candidate_orientation AS co ON ic.cand_id = co.cand_id
 GROUP BY ic.cand_id;
 
--- ── 选优：rank_ic_mean → layer_spread → log_loss ──
+-- ── 选优：oriented rank_ic_mean → layer_spread → log_loss ──
 SET p_selected_cand = (
   SELECT cand_id FROM candidate_metrics
   ORDER BY rank_ic_mean DESC, layer_spread DESC, log_loss ASC
   LIMIT 1
+);
+
+SET p_selected_orientation = (
+  SELECT score_orientation FROM candidate_metrics WHERE cand_id = p_selected_cand
 );
 
 -- ── 更新 registry：selected ──
@@ -195,7 +265,15 @@ SET reg.status = 'selected',
           WHEN SAFE_DIVIDE(sc.valid_eval_rows, NULLIF(sc.valid_prediction_rows, 0)) >= 0.30 THEN 'warning'
           ELSE 'critical'
         END AS valid_eval_coverage_status,
-        'selected: highest valid rank_ic_mean (tie-break layer_spread, log_loss)' AS select_reason))
+        -- Score orientation calibration
+        'positive_class_probability' AS score_source,
+        m.score_orientation,
+        m.raw_valid_rank_ic_mean,
+        m.rev_valid_rank_ic_mean AS reversed_valid_rank_ic_mean,
+        m.rank_ic_mean AS oriented_valid_rank_ic_mean,
+        m.orientation_decision_reason,
+        CONCAT('selected: highest oriented valid rank_ic_mean (orientation=',
+               m.score_orientation, ', tie-break layer_spread, log_loss)') AS select_reason))
       FROM candidate_metrics AS m
       LEFT JOIN sample_counts AS sc ON sc.cand_id = m.cand_id
       WHERE m.cand_id = p_selected_cand)
@@ -214,7 +292,13 @@ SET reg.status = 'candidate_rejected',
         m.rank_ic_by_year_json AS rank_ic_by_year,
         sc.valid_prediction_rows,
         sc.valid_eval_rows,
-        SAFE_DIVIDE(sc.valid_eval_rows, NULLIF(sc.valid_prediction_rows, 0)) AS valid_eval_coverage))
+        SAFE_DIVIDE(sc.valid_eval_rows, NULLIF(sc.valid_prediction_rows, 0)) AS valid_eval_coverage,
+        'positive_class_probability' AS score_source,
+        m.score_orientation,
+        m.raw_valid_rank_ic_mean,
+        m.rev_valid_rank_ic_mean AS reversed_valid_rank_ic_mean,
+        m.rank_ic_mean AS oriented_valid_rank_ic_mean,
+        m.orientation_decision_reason))
       FROM candidate_metrics AS m
       LEFT JOIN sample_counts AS sc ON sc.cand_id = m.cand_id
       WHERE m.cand_id = REPLACE(reg.model_id, CONCAT(p_run_safe, '__'), ''))

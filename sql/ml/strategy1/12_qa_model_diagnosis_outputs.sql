@@ -205,3 +205,12 @@ ASSERT (
   WHERE tp.run_id = p_run_id AND tp.split_tag IN ('valid', 'test')
     AND tp.trade_date BETWEEN p_valid_start AND p_test_end
 ) AS 'QA-POOL-6: valid/test panel must contain live-only rows (live-available mask is active)';
+
+-- ── Score orientation 一致性 ──
+ASSERT (
+  SELECT JSON_VALUE(reg.metrics_json, '$.score_orientation') IN ('identity', 'reverse_probability')
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.strategy_id = p_strategy_id AND reg.status = 'selected'
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
+  LIMIT 1
+) AS 'QA-ORIENT-DIAG-1: selected model must have valid score_orientation in registry';
