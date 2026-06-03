@@ -155,7 +155,7 @@ Run ID: `s1_bqml_oq010_oq010_a0_n5_w20_20260603_01`
 
 - 配置本机 BigQuery Storage API 客户端：`data-aquarium` 已启用 `bigquerystorage.googleapis.com`；本机 conda Python 与默认 `python3` 均已安装 `google-cloud-bigquery-storage==2.38.0`。
 - 修复 `scripts/strategy1/diagnose_model_quality.py` 的本地大 DataFrame 拉取不稳定问题：
-  - `bq_query()` 显式使用 `BigQueryReadClient`，缺依赖时保留 REST fallback。
+  - `bq_query()` 显式使用 `BigQueryReadClient`，优先 ADC，ADC 不可用时复用 `gcloud auth print-access-token` fallback；缺依赖或无可用凭据时保留 REST fallback。
   - valid/test 预测标签改为一次拉取 2024-2025 后按 `split_tag` 分片，减少重复查询和本地对象复制。
   - feature exposure 改为 BigQuery 侧聚合，只回传聚合统计行，不再把预测池全部特征拉回本地。
 - 更新 `scripts/strategy1/requirements.txt`，新增 `google-cloud-bigquery-storage>=2.0`。
@@ -179,7 +179,7 @@ Run ID: `s1_bqml_oq010_oq010_a0_n5_w20_20260603_01`
 ### 测试 / 验证
 
 - `/Users/luna/miniconda3/bin/python -m py_compile scripts/strategy1/diagnose_model_quality.py scripts/strategy1/render_report.py scripts/strategy1/compare_oq010_experiments.py`
-- 仓库 `bq_query()` helper 验证：`rest_endpoint_warning=False`
+- 仓库 `bq_query()` helper 验证：`rest_endpoint_warning=False`，`BigQueryReadClient` fallback 路径可导入和编译
 - 受控预测标签拉取：1,055,737 行，DataFrame 约 195.8 MB，BigQuery Storage 生效
 - `fetch_feature_exposure()` 聚合验证：返回 90 行
 - A0 `diagnose_model_quality.py`：`diagnose_rc=0`

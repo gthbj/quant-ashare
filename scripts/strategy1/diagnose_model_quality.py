@@ -121,7 +121,16 @@ def make_bqstorage_client(project: str):
     if bigquery_storage is None:
         return None
     if project not in _BQSTORAGE_CLIENTS:
-        _BQSTORAGE_CLIENTS[project] = bigquery_storage.BigQueryReadClient()
+        try:
+            _BQSTORAGE_CLIENTS[project] = bigquery_storage.BigQueryReadClient()
+        except Exception:
+            creds = _gcloud_token_credentials()
+            if creds is None:
+                return None
+            try:
+                _BQSTORAGE_CLIENTS[project] = bigquery_storage.BigQueryReadClient(credentials=creds)
+            except Exception:
+                return None
     return _BQSTORAGE_CLIENTS[project]
 
 
