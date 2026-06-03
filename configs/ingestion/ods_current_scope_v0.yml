@@ -116,11 +116,19 @@ endpoints:
     business_date_field: _logical_date
     partition_date_semantics: snapshot_date
     unit_contract_required: false
+    request_variants:
+      - variant: stock_basic_listed
+        params: { list_status: "L" }
+        partition_endpoint: stock_basic_listed
+        notes: dim_stock 读取 endpoint IN ('stock_basic_listed', 'stock_basic_delisted')
+      - variant: stock_basic_delisted
+        params: { list_status: "D" }
+        partition_endpoint: stock_basic_delisted
     current_consumer:
       - dim_stock
     qa_required:
       - p0_smoke
-    notes: 股票基本信息（上市/退市），含 listed + delisted 两个子表
+    notes: 股票基本信息（上市/退市）。采集时按 list_status 拆分为 stock_basic_listed 和 stock_basic_delisted 两个分区写入 ODS，dim_stock 按 partition endpoint 消费。
 
   - endpoint: trade_cal
     ods_table: ashare_ods.ods_tushare_trade_cal

@@ -3,72 +3,124 @@
 
 -- ── 采集运行记录 ──
 CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_meta.ingestion_run` (
-  ingestion_run_id    STRING      NOT NULL  COMMENT '采集运行唯一 ID（Cloud Run execution id 或自定义）',
-  endpoint            STRING      NOT NULL  COMMENT 'ODS API endpoint',
-  source_system       STRING      NOT NULL  COMMENT '数据源（tushare / tinyshare）',
-  business_date_start STRING                COMMENT '业务日期起（inclusive）',
-  business_date_end   STRING                COMMENT '业务日期止（inclusive）',
-  partition_date      STRING                COMMENT '本次写入的 ODS 分区日期',
-  request_params_hash STRING                COMMENT '请求参数 SHA256（去重用）',
-  row_count           INT64                 COMMENT '写入 GCS 行数',
-  schema_version      STRING                COMMENT 'Parquet schema contract 版本',
-  gcs_uri             STRING                COMMENT '发布路径（gs://...）',
-  status              STRING      NOT NULL  COMMENT 'success / failed / skipped / empty_return / pending',
-  error_summary       STRING                COMMENT '脱敏错误摘要',
-  started_at          TIMESTAMP   NOT NULL  COMMENT '开始时间',
-  finished_at         TIMESTAMP             COMMENT '结束时间',
-  created_at          TIMESTAMP   NOT NULL  COMMENT '记录创建时间'
+  ingestion_run_id    STRING      NOT NULL,
+  endpoint            STRING      NOT NULL,
+  source_system       STRING      NOT NULL,
+  business_date_start STRING,
+  business_date_end   STRING,
+  partition_date      STRING,
+  request_params_hash STRING,
+  row_count           INT64,
+  schema_version      STRING,
+  gcs_uri             STRING,
+  status              STRING      NOT NULL,
+  error_summary       STRING,
+  started_at          TIMESTAMP   NOT NULL,
+  finished_at         TIMESTAMP,
+  created_at          TIMESTAMP   NOT NULL
 )
 OPTIONS(
   description = '采集运行记录：每次 Cloud Run Job 执行写入一行'
 );
 
+ALTER TABLE `data-aquarium.ashare_meta.ingestion_run`
+ALTER COLUMN ingestion_run_id SET OPTIONS (description='采集运行唯一 ID（Cloud Run execution id 或自定义）'),
+ALTER COLUMN endpoint SET OPTIONS (description='ODS API endpoint'),
+ALTER COLUMN source_system SET OPTIONS (description='数据源（tushare / tinyshare）'),
+ALTER COLUMN business_date_start SET OPTIONS (description='业务日期起（inclusive）'),
+ALTER COLUMN business_date_end SET OPTIONS (description='业务日期止（inclusive）'),
+ALTER COLUMN partition_date SET OPTIONS (description='本次写入的 ODS 分区日期'),
+ALTER COLUMN request_params_hash SET OPTIONS (description='请求参数 SHA256（去重用）'),
+ALTER COLUMN row_count SET OPTIONS (description='写入 GCS 行数'),
+ALTER COLUMN schema_version SET OPTIONS (description='Parquet schema contract 版本'),
+ALTER COLUMN gcs_uri SET OPTIONS (description='发布路径（gs://...）'),
+ALTER COLUMN status SET OPTIONS (description='success / failed / skipped / empty_return / pending'),
+ALTER COLUMN error_summary SET OPTIONS (description='脱敏错误摘要'),
+ALTER COLUMN started_at SET OPTIONS (description='开始时间'),
+ALTER COLUMN finished_at SET OPTIONS (description='结束时间'),
+ALTER COLUMN created_at SET OPTIONS (description='记录创建时间');
+
 -- ── 分区采集状态 ──
 CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_meta.ingestion_partition_status` (
-  endpoint            STRING      NOT NULL  COMMENT 'ODS API endpoint',
-  partition_date      STRING      NOT NULL  COMMENT 'ODS 分区日期',
-  status              STRING      NOT NULL  COMMENT 'success / failed / empty_return / pending',
-  row_count           INT64                 COMMENT '该分区最新行数',
-  ingestion_run_id    STRING                COMMENT '最近一次写入的 run id',
-  gcs_uri             STRING                COMMENT '发布路径',
-  schema_version      STRING                COMMENT 'Parquet schema contract 版本',
-  updated_at          TIMESTAMP   NOT NULL  COMMENT '最近更新时间'
+  endpoint            STRING      NOT NULL,
+  partition_date      STRING      NOT NULL,
+  status              STRING      NOT NULL,
+  row_count           INT64,
+  ingestion_run_id    STRING,
+  gcs_uri             STRING,
+  schema_version      STRING,
+  updated_at          TIMESTAMP   NOT NULL
 )
 OPTIONS(
   description = '分区采集状态：每个 endpoint + partition_date 一行，记录最新采集状态'
 );
 
+ALTER TABLE `data-aquarium.ashare_meta.ingestion_partition_status`
+ALTER COLUMN endpoint SET OPTIONS (description='ODS API endpoint'),
+ALTER COLUMN partition_date SET OPTIONS (description='ODS 分区日期'),
+ALTER COLUMN status SET OPTIONS (description='success / failed / empty_return / pending'),
+ALTER COLUMN row_count SET OPTIONS (description='该分区最新行数'),
+ALTER COLUMN ingestion_run_id SET OPTIONS (description='最近一次写入的 run id'),
+ALTER COLUMN gcs_uri SET OPTIONS (description='发布路径'),
+ALTER COLUMN schema_version SET OPTIONS (description='Parquet schema contract 版本'),
+ALTER COLUMN updated_at SET OPTIONS (description='最近更新时间');
+
 -- ── 流水线运行记录 ──
 CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_meta.pipeline_run` (
-  pipeline_run_id     STRING      NOT NULL  COMMENT 'Composer DAG run id',
-  dag_id              STRING      NOT NULL  COMMENT 'DAG 名称',
-  business_date       STRING                COMMENT '业务日期',
-  status              STRING      NOT NULL  COMMENT 'running / success / failed / partial',
-  started_at          TIMESTAMP   NOT NULL  COMMENT '开始时间',
-  finished_at         TIMESTAMP             COMMENT '结束时间',
-  error_summary       STRING                COMMENT '脱敏错误摘要',
-  created_at          TIMESTAMP   NOT NULL  COMMENT '记录创建时间'
+  pipeline_run_id     STRING      NOT NULL,
+  dag_id              STRING      NOT NULL,
+  business_date       STRING,
+  status              STRING      NOT NULL,
+  started_at          TIMESTAMP   NOT NULL,
+  finished_at         TIMESTAMP,
+  error_summary       STRING,
+  created_at          TIMESTAMP   NOT NULL
 )
 OPTIONS(
   description = '流水线运行记录：每次 Composer DAG 执行写入一行'
 );
 
+ALTER TABLE `data-aquarium.ashare_meta.pipeline_run`
+ALTER COLUMN pipeline_run_id SET OPTIONS (description='Composer DAG run id'),
+ALTER COLUMN dag_id SET OPTIONS (description='DAG 名称'),
+ALTER COLUMN business_date SET OPTIONS (description='业务日期'),
+ALTER COLUMN status SET OPTIONS (description='running / success / failed / partial'),
+ALTER COLUMN started_at SET OPTIONS (description='开始时间'),
+ALTER COLUMN finished_at SET OPTIONS (description='结束时间'),
+ALTER COLUMN error_summary SET OPTIONS (description='脱敏错误摘要'),
+ALTER COLUMN created_at SET OPTIONS (description='记录创建时间');
+
 -- ── 流水线任务状态 ──
 CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_meta.pipeline_task_status` (
-  pipeline_run_id     STRING      NOT NULL  COMMENT 'Composer DAG run id',
-  task_id             STRING      NOT NULL  COMMENT 'Airflow task id',
-  task_type           STRING                COMMENT 'ingestion / dataform / qa / runner / report',
-  endpoint            STRING                COMMENT '采集 endpoint（采集任务时）',
-  bigquery_job_id     STRING                COMMENT 'BigQuery job id',
-  dataform_invocation_id STRING             COMMENT 'Dataform workflow invocation id',
-  cloud_run_execution_id STRING              COMMENT 'Cloud Run execution id',
-  status              STRING      NOT NULL  COMMENT 'success / failed / skipped / running',
-  row_count           INT64                 COMMENT '影响行数',
-  error_summary       STRING                COMMENT '脱敏错误摘要',
-  started_at          TIMESTAMP             COMMENT '开始时间',
-  finished_at         TIMESTAMP             COMMENT '结束时间',
-  created_at          TIMESTAMP   NOT NULL  COMMENT '记录创建时间'
+  pipeline_run_id     STRING      NOT NULL,
+  task_id             STRING      NOT NULL,
+  task_type           STRING,
+  endpoint            STRING,
+  bigquery_job_id     STRING,
+  dataform_invocation_id STRING,
+  cloud_run_execution_id STRING,
+  status              STRING      NOT NULL,
+  row_count           INT64,
+  error_summary       STRING,
+  started_at          TIMESTAMP,
+  finished_at         TIMESTAMP,
+  created_at          TIMESTAMP   NOT NULL
 )
 OPTIONS(
   description = '流水线任务状态：每个 Composer task 写入一行'
 );
+
+ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
+ALTER COLUMN pipeline_run_id SET OPTIONS (description='Composer DAG run id'),
+ALTER COLUMN task_id SET OPTIONS (description='Airflow task id'),
+ALTER COLUMN task_type SET OPTIONS (description='ingestion / dataform / qa / runner / report'),
+ALTER COLUMN endpoint SET OPTIONS (description='采集 endpoint（采集任务时）'),
+ALTER COLUMN bigquery_job_id SET OPTIONS (description='BigQuery job id'),
+ALTER COLUMN dataform_invocation_id SET OPTIONS (description='Dataform workflow invocation id'),
+ALTER COLUMN cloud_run_execution_id SET OPTIONS (description='Cloud Run execution id'),
+ALTER COLUMN status SET OPTIONS (description='success / failed / skipped / running'),
+ALTER COLUMN row_count SET OPTIONS (description='影响行数'),
+ALTER COLUMN error_summary SET OPTIONS (description='脱敏错误摘要'),
+ALTER COLUMN started_at SET OPTIONS (description='开始时间'),
+ALTER COLUMN finished_at SET OPTIONS (description='结束时间'),
+ALTER COLUMN created_at SET OPTIONS (description='记录创建时间');
