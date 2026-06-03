@@ -2182,3 +2182,68 @@ Run ID: s1_bqml_livepool_oriented_20260603_01 / s1_bqml_livepool_revscore_202606
 - `AGENT_HANDOFF.md`
 
 ---
+
+---
+
+## 交接条目
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: OQ-010 / 策略 1 首轮质量迭代实验 PRD
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`。
+- PRD 将 OQ-010 剩余项拆为四阶段实验：组合集中度（持股数 / 单票权重）、调仓频率、标签 horizon、财务特征。
+- PRD 固定当前 oriented run 为比较基线，并要求后续实现产出实验 manifest、独立 run/backtest、中文对比报告、10/12 QA 和诊断 artifact。
+- 更新 `TODO.md`，把 OQ-010 下一步从“owner 决策”收敛为“按 PRD review 结果实现实验参数化与第一轮实验”。
+- 更新 `OPEN_QUESTIONS.md`，记录首轮质量迭代 PRD 已新增、仍待 owner review。
+- 更新 `MEMORY_INDEX.md`、`PROJECT_CONTEXT.md`、`IMPLEMENTATION_STATUS.md` 与当前交接摘要，清理旧的“诊断 QA 未通过 / 预测池待实现”表述。
+
+### 重要上下文
+
+- 本次只写 PRD 和记忆/TODO，未修改 runner SQL 或 Python。
+- PRD 推荐第一轮继续使用 BigQuery ML `LOGISTIC_REG`，不切换模型族；股票池仍为沪深主板。
+- PRD 推荐财务特征第一轮只加入比率、可用性和新鲜度字段，不加入原始金额字段，避免缺失和规模暴露直接污染预测池。
+
+### 改动文件
+
+- `docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`
+- `TODO.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+- 文档 / 记忆更新，未执行 SQL。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- owner review 首轮实验矩阵。
+- 根据 review 结果实现实验参数化、manifest 和对比报告。
+- 按阶段执行 OQ-010 第一轮实验，并用 10/12 QA 与诊断 artifact 验收。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `MEMORY_INDEX.md`
+- `PROJECT_CONTEXT.md`
+- `OPEN_QUESTIONS.md`
+- `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+
+---
+
+---
