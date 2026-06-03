@@ -116,34 +116,56 @@ CREATE TEMP TABLE daily_rank_ic_rev AS
 SELECT cand_id, trade_date, CORR(rev_score_rank, ret_rank) AS rank_ic
 FROM ranked_preds GROUP BY cand_id, trade_date;
 
--- ── Score orientation 决策：每个候选选择最优方向 ──
+-- 分层收益 — raw quintile（用于 orientation 决策）
+CREATE TEMP TABLE raw_layer_spread AS
+SELECT cand_id,
+  AVG(IF(raw_quintile = 5, fwd_ret_5d, NULL)) - AVG(IF(raw_quintile = 1, fwd_ret_5d, NULL)) AS raw_top_minus_bottom
+FROM ranked_preds GROUP BY cand_id;
+
+-- 分层收益 — reversed quintile（用于 orientation 决策）
+CREATE TEMP TABLE rev_layer_spread AS
+SELECT cand_id,
+  AVG(IF(rev_quintile = 5, fwd_ret_5d, NULL)) - AVG(IF(rev_quintile = 1, fwd_ret_5d, NULL)) AS rev_top_minus_bottom
+FROM ranked_preds GROUP BY cand_id;
+
+-- ── Score orientation 决策：PRD §6.2 保守三条件规则 ──
+-- raw_rank_ic <= -0.03 AND reverse_rank_ic >= 0.03 AND reverse bucket lift > raw bucket lift
+-- 否则默认 identity。
 CREATE TEMP TABLE candidate_orientation AS
 SELECT
   r.cand_id,
   AVG(r.rank_ic) AS raw_rank_ic_mean,
   v.rev_rank_ic_mean,
+  rls.raw_top_minus_bottom,
+  vls.rev_top_minus_bottom,
   CASE
-    -- raw IC 明显为负且 reversed 更好 → reverse
-    WHEN AVG(r.rank_ic) < -0.03 AND v.rev_rank_ic_mean > AVG(r.rank_ic) THEN 'reverse_probability'
-    -- reversed IC 明显为负且 raw 更好 → identity（不太可能但作为守卫）
-    WHEN v.rev_rank_ic_mean < -0.03 AND AVG(r.rank_ic) > v.rev_rank_ic_mean THEN 'identity'
-    -- 两者都接近零或 raw 更好 → identity
-    WHEN AVG(r.rank_ic) >= v.rev_rank_ic_mean THEN 'identity'
-    -- reversed 更好但 raw 不是明显为负 → reverse（但记录为 marginal）
-    ELSE 'reverse_probability'
+    WHEN AVG(r.rank_ic) <= -0.03
+      AND v.rev_rank_ic_mean >= 0.03
+      AND COALESCE(vls.rev_top_minus_bottom, 0) > COALESCE(rls.raw_top_minus_bottom, 0)
+    THEN 'reverse_probability'
+    ELSE 'identity'
   END AS score_orientation,
   CASE
-    WHEN AVG(r.rank_ic) < -0.03 AND v.rev_rank_ic_mean > AVG(r.rank_ic) THEN 'raw_rank_ic < -0.03 and reversed is better'
-    WHEN v.rev_rank_ic_mean < -0.03 AND AVG(r.rank_ic) > v.rev_rank_ic_mean THEN 'reversed_rank_ic < -0.03 and raw is better'
-    WHEN AVG(r.rank_ic) >= v.rev_rank_ic_mean THEN 'raw_rank_ic >= reversed_rank_ic'
-    ELSE 'reversed is marginally better'
+    WHEN AVG(r.rank_ic) <= -0.03
+      AND v.rev_rank_ic_mean >= 0.03
+      AND COALESCE(vls.rev_top_minus_bottom, 0) > COALESCE(rls.raw_top_minus_bottom, 0)
+    THEN 'raw_rank_ic <= -0.03 AND reversed >= 0.03 AND reversed bucket lift better'
+    WHEN AVG(r.rank_ic) <= -0.03 AND v.rev_rank_ic_mean >= 0.03
+    THEN 'raw_rank_ic <= -0.03 AND reversed >= 0.03 BUT bucket lift not better — kept identity'
+    WHEN AVG(r.rank_ic) <= -0.03
+    THEN 'raw_rank_ic <= -0.03 BUT reversed not >= 0.03 — kept identity'
+    WHEN ABS(AVG(r.rank_ic)) < 0.03 AND ABS(v.rev_rank_ic_mean) < 0.03
+    THEN 'both RankIC near zero — weak signal, kept identity'
+    ELSE 'raw_rank_ic non-negative — kept identity'
   END AS orientation_decision_reason
 FROM daily_rank_ic_raw AS r
 JOIN (
   SELECT cand_id, AVG(rank_ic) AS rev_rank_ic_mean
   FROM daily_rank_ic_rev GROUP BY cand_id
 ) AS v ON r.cand_id = v.cand_id
-GROUP BY r.cand_id, v.rev_rank_ic_mean;
+LEFT JOIN raw_layer_spread AS rls ON r.cand_id = rls.cand_id
+LEFT JOIN rev_layer_spread AS vls ON r.cand_id = vls.cand_id
+GROUP BY r.cand_id, v.rev_rank_ic_mean, rls.raw_top_minus_bottom, vls.rev_top_minus_bottom;
 
 -- ── 使用 oriented score 重新计算评估指标 ──
 -- 先为每个候选确定 oriented_score（如果反向则用 1-raw）
@@ -225,6 +247,8 @@ SELECT
   ANY_VALUE(co.score_orientation) AS score_orientation,
   ANY_VALUE(co.raw_rank_ic_mean) AS raw_valid_rank_ic_mean,
   ANY_VALUE(co.rev_rank_ic_mean) AS rev_valid_rank_ic_mean,
+  ANY_VALUE(co.raw_top_minus_bottom) AS raw_valid_top_minus_bottom,
+  ANY_VALUE(co.rev_top_minus_bottom) AS rev_valid_top_minus_bottom,
   ANY_VALUE(co.orientation_decision_reason) AS orientation_decision_reason
 FROM daily_rank_ic AS ic
 LEFT JOIN candidate_eval AS ev ON ic.cand_id = ev.cand_id
@@ -235,10 +259,10 @@ LEFT JOIN yearly_rank_ic_json AS yj ON ic.cand_id = yj.cand_id
 LEFT JOIN candidate_orientation AS co ON ic.cand_id = co.cand_id
 GROUP BY ic.cand_id;
 
--- ── 选优：oriented rank_ic_mean → layer_spread → log_loss ──
+-- ── 选优：PRD §6.3 oriented rank_ic_mean → topn_fwd_ret_mean → roc_auc ──
 SET p_selected_cand = (
   SELECT cand_id FROM candidate_metrics
-  ORDER BY rank_ic_mean DESC, layer_spread DESC, log_loss ASC
+  ORDER BY rank_ic_mean DESC, topn_fwd_ret_mean DESC, roc_auc DESC
   LIMIT 1
 );
 
@@ -273,7 +297,7 @@ SET reg.status = 'selected',
         m.rank_ic_mean AS oriented_valid_rank_ic_mean,
         m.orientation_decision_reason,
         CONCAT('selected: highest oriented valid rank_ic_mean (orientation=',
-               m.score_orientation, ', tie-break layer_spread, log_loss)') AS select_reason))
+               m.score_orientation, ', tie-break topn_fwd_ret_mean, roc_auc)') AS select_reason))
       FROM candidate_metrics AS m
       LEFT JOIN sample_counts AS sc ON sc.cand_id = m.cand_id
       WHERE m.cand_id = p_selected_cand)
