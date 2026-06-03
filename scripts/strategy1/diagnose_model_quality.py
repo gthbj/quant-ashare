@@ -13,7 +13,8 @@ Usage:
         --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
         --local-mirror-root reports/strategy1
 
-Requirements: google-cloud-bigquery, google-cloud-storage, pandas, db-dtypes, scipy
+Requirements: google-cloud-bigquery, google-cloud-bigquery-storage,
+google-cloud-storage, pandas, db-dtypes, scipy
 """
 
 from __future__ import annotations
@@ -33,10 +34,15 @@ try:
     import pandas as pd
     import numpy as np
     from google.cloud import bigquery, storage
+    try:
+        from google.cloud import bigquery_storage
+    except ImportError:
+        bigquery_storage = None
     from scipy import stats
 except ImportError as e:
     print(f"Missing dependency: {e}.", file=sys.stderr)
-    print("Install: pip install google-cloud-bigquery google-cloud-storage pandas db-dtypes scipy",
+    print("Install: pip install google-cloud-bigquery google-cloud-bigquery-storage "
+          "google-cloud-storage pandas db-dtypes scipy",
           file=sys.stderr)
     sys.exit(1)
 
@@ -108,9 +114,23 @@ def make_storage_client(project: str) -> storage.Client:
 
 
 # ── BigQuery helpers ──────────────────────────────────────────────────────────
+_BQSTORAGE_CLIENTS: dict[str, Any] = {}
+
+
+def make_bqstorage_client(project: str):
+    if bigquery_storage is None:
+        return None
+    if project not in _BQSTORAGE_CLIENTS:
+        _BQSTORAGE_CLIENTS[project] = bigquery_storage.BigQueryReadClient()
+    return _BQSTORAGE_CLIENTS[project]
+
+
 def bq_query(client: bigquery.Client, sql: str, params: list | None = None) -> pd.DataFrame:
     cfg = bigquery.QueryJobConfig(query_parameters=params or [])
-    return client.query(sql, job_config=cfg).to_dataframe()
+    bqstorage_client = make_bqstorage_client(client.project)
+    if bqstorage_client is None:
+        return client.query(sql, job_config=cfg).to_dataframe()
+    return client.query(sql, job_config=cfg).to_dataframe(bqstorage_client=bqstorage_client)
 
 
 def bq_query_scalar(client: bigquery.Client, sql: str, params: list | None = None) -> Any:
@@ -581,39 +601,79 @@ def fetch_feature_exposure(client: bigquery.Client, project: str,
                            strategy_id: str,
                            backtest_id: str,
                            start_date: str, end_date: str) -> pd.DataFrame:
-    # Pull features for predictions, candidates, positions, and loss contributors
+    # Aggregate feature exposure in BigQuery. Pulling the full prediction pool
+    # locally is large enough to make repeated OQ-010 diagnostics unstable.
     sql = f"""
+    WITH base AS (
+      SELECT
+        pred.predict_date AS trade_date,
+        pred.sec_code,
+        pred.rank_pct,
+        cand.is_selected_candidate,
+        pos.weight AS position_weight,
+        f.ret_1d, f.ret_5d, f.ret_20d, f.ret_60d,
+        f.mom_20_5, f.mom_60_20,
+        f.vol_20d, f.drawdown_20d,
+        f.amount_ma20_cny, f.amount_zscore_20d,
+        f.turnover_rate, f.volume_ratio,
+        f.pe_ttm, f.pb, f.ep_ttm, f.bp,
+        f.log_total_mv, f.log_circ_mv
+      FROM `{project}.ashare_ads.ads_model_prediction_daily` AS pred
+      LEFT JOIN `{project}.ashare_ads.ads_stock_candidate_daily` AS cand
+        ON cand.sec_code = pred.sec_code
+       AND cand.rebalance_date = pred.predict_date
+       AND cand.strategy_id = @sid
+       AND cand.run_id = @cand_rid
+      LEFT JOIN `{project}.ashare_ads.ads_backtest_position_daily` AS pos
+        ON pos.sec_code = pred.sec_code
+       AND pos.trade_date = pred.predict_date
+       AND pos.backtest_id = @bid
+      LEFT JOIN `{project}.ashare_dws.dws_stock_feature_daily_v0` AS f
+        ON f.sec_code = pred.sec_code
+       AND f.trade_date = pred.predict_date
+       AND f.trade_date BETWEEN @sd AND @ed
+      WHERE pred.run_id = @pred_rid
+        AND pred.predict_date BETWEEN @sd AND @ed
+    ),
+    grouped AS (
+      SELECT 'all_predictions' AS group_name, * FROM base
+      UNION ALL
+      SELECT 'top_30pct' AS group_name, * FROM base WHERE rank_pct >= 0.7
+      UNION ALL
+      SELECT 'bottom_30pct' AS group_name, * FROM base WHERE rank_pct <= 0.3
+      UNION ALL
+      SELECT 'selected_candidate' AS group_name, * FROM base WHERE is_selected_candidate IS TRUE
+      UNION ALL
+      SELECT 'held_position' AS group_name, * FROM base WHERE position_weight > 0
+    ),
+    unpivoted AS (
+      SELECT group_name, feature, value
+      FROM grouped
+      UNPIVOT (
+        value FOR feature IN (
+          ret_1d, ret_5d, ret_20d, ret_60d,
+          mom_20_5, mom_60_20,
+          vol_20d, drawdown_20d,
+          amount_ma20_cny, amount_zscore_20d,
+          turnover_rate, volume_ratio,
+          pe_ttm, pb, ep_ttm, bp,
+          log_total_mv, log_circ_mv
+        )
+      )
+    )
     SELECT
-      pred.predict_date AS trade_date,
-      pred.sec_code,
-      pred.score,
-      pred.rank_pct,
-      cand.is_selected_candidate,
-      pos.market_value_cny,
-      pos.weight AS position_weight,
-      f.ret_1d, f.ret_5d, f.ret_20d, f.ret_60d,
-      f.mom_20_5, f.mom_60_20,
-      f.vol_20d, f.drawdown_20d,
-      f.amount_ma20_cny, f.amount_zscore_20d,
-      f.turnover_rate, f.volume_ratio,
-      f.pe_ttm, f.pb, f.ep_ttm, f.bp,
-      f.log_total_mv, f.log_circ_mv
-    FROM `{project}.ashare_ads.ads_model_prediction_daily` AS pred
-    LEFT JOIN `{project}.ashare_ads.ads_stock_candidate_daily` AS cand
-      ON cand.sec_code = pred.sec_code
-     AND cand.rebalance_date = pred.predict_date
-     AND cand.strategy_id = @sid
-     AND cand.run_id = @cand_rid
-    LEFT JOIN `{project}.ashare_ads.ads_backtest_position_daily` AS pos
-      ON pos.sec_code = pred.sec_code
-     AND pos.trade_date = pred.predict_date
-     AND pos.backtest_id = @bid
-    LEFT JOIN `{project}.ashare_dws.dws_stock_feature_daily_v0` AS f
-      ON f.sec_code = pred.sec_code
-     AND f.trade_date = pred.predict_date
-     AND f.trade_date BETWEEN @sd AND @ed
-    WHERE pred.run_id = @pred_rid
-      AND pred.predict_date BETWEEN @sd AND @ed
+      group_name AS `group`,
+      feature,
+      COUNT(value) AS n,
+      ROUND(AVG(value), 6) AS mean,
+      ROUND(STDDEV_SAMP(value), 6) AS std,
+      ROUND(APPROX_QUANTILES(value, 100)[SAFE_OFFSET(50)], 6) AS median,
+      ROUND(APPROX_QUANTILES(value, 100)[SAFE_OFFSET(10)], 6) AS p10,
+      ROUND(APPROX_QUANTILES(value, 100)[SAFE_OFFSET(90)], 6) AS p90
+    FROM unpivoted
+    GROUP BY group_name, feature
+    HAVING n > 0
+    ORDER BY group_name, feature
     """
     return bq_query(client, sql, [
         bigquery.ScalarQueryParameter("pred_rid", "STRING", prediction_run_id),
@@ -628,6 +688,9 @@ def fetch_feature_exposure(client: bigquery.Client, project: str,
 def compute_feature_exposure_by_group(feat_df: pd.DataFrame) -> pd.DataFrame:
     if feat_df.empty:
         return pd.DataFrame()
+    agg_cols = {"group", "feature", "n", "mean", "std", "median", "p10", "p90"}
+    if agg_cols.issubset(set(feat_df.columns)):
+        return feat_df
     groups = {
         "all_predictions": feat_df,
         "top_30pct": feat_df[feat_df["rank_pct"] >= 0.7],
@@ -1111,11 +1174,15 @@ def main():
 
     # FR-DIAG-2: predictions + labels
     print("拉取预测与标签...")
-    pred_valid = fetch_predictions_with_labels(
-        bq, args.project, args.prediction_run_id, valid_start, valid_end, args.p_label_horizon)
-    pred_test = fetch_predictions_with_labels(
-        bq, args.project, args.prediction_run_id, test_start, test_end, args.p_label_horizon)
-    pred_all = pd.concat([pred_valid, pred_test], ignore_index=True)
+    pred_all = fetch_predictions_with_labels(
+        bq, args.project, args.prediction_run_id, valid_start, test_end, args.p_label_horizon)
+    pred_valid = pred_all[pred_all["split_tag"] == "valid"].copy()
+    pred_test = pred_all[pred_all["split_tag"] == "test"].copy()
+    print(
+        "预测与标签行数: "
+        f"all={len(pred_all)}, valid={len(pred_valid)}, test={len(pred_test)}, "
+        f"memory_mb={pred_all.memory_usage(deep=True).sum() / 1024 / 1024:.1f}"
+    )
 
     print("计算 RankIC...")
     ic_valid = compute_rank_ic(pred_valid)
