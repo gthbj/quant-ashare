@@ -230,9 +230,12 @@ class GcsLock:
         return self._client
 
     def acquire(self) -> bool:
-        """尝试获取锁。返回 True 表示获取成功。"""
-        acquired_at = _now_rfc3339()
+        """尝试获取锁。返回 True 表示获取成功。
+
+        流程: ifGenerationMatch=0 原子创建 → 失败时检查 stale → stale 则删除并重试一次。
+        """
         from datetime import timedelta
+        acquired_at = _now_rfc3339()
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=self.ttl_minutes)).isoformat()
         if self.dry_run:
             logger.info("[DRY-RUN] acquire lock: %s", self._lock_path)
@@ -243,36 +246,71 @@ class GcsLock:
             return False
 
         bucket = client.bucket(self.bucket)
-        blob = bucket.blob(self._lock_path)
 
-        lock_content = {
-            "lock_key": self.lock_key,
-            "experiment_id": self.experiment.get("experiment_id"),
-            "run_id": self.experiment.get("run_id"),
-            "prediction_run_id": self.experiment.get("prediction_run_id"),
-            "backtest_id": self.experiment.get("backtest_id"),
-            "stage_id": self.experiment.get("stage_id"),
-            "step_id": self.step_id,
-            "lock_owner": self.scheduler_instance_id,
-            "acquired_at": acquired_at,
-            "lease_expires_at": expires_at,
-        }
+        for attempt in range(2):
+            blob = bucket.blob(self._lock_path)
+            lock_content = {
+                "lock_key": self.lock_key,
+                "experiment_id": self.experiment.get("experiment_id"),
+                "run_id": self.experiment.get("run_id"),
+                "prediction_run_id": self.experiment.get("prediction_run_id"),
+                "backtest_id": self.experiment.get("backtest_id"),
+                "stage_id": self.experiment.get("stage_id"),
+                "step_id": self.step_id,
+                "lock_owner": self.scheduler_instance_id,
+                "acquired_at": acquired_at,
+                "lease_expires_at": expires_at,
+            }
 
+            try:
+                blob.upload_from_string(
+                    json.dumps(lock_content, ensure_ascii=False),
+                    content_type="application/json",
+                    if_generation_match=0,
+                )
+                self._blob = blob
+                logger.info("lock acquired: %s (owner=%s)", self._lock_path, self.scheduler_instance_id)
+                return True
+            except Exception as e:
+                err_msg = str(e)
+                if "conditionNotMet" in err_msg or "PreconditionFailed" in err_msg or "GenerationDoesNotMatch" in err_msg:
+                    if attempt == 0:
+                        # Lock held — check if stale
+                        if self._reclaim_if_stale(bucket, blob):
+                            logger.info("stale lock reclaimed, retrying: %s", self._lock_path)
+                            continue
+                        else:
+                            logger.info("lock held and not stale: %s", self._lock_path)
+                            return False
+                    else:
+                        logger.info("lock still held after reclaim attempt: %s", self._lock_path)
+                        return False
+                else:
+                    logger.warning("lock acquire error: %s: %s", self._lock_path, err_msg)
+                    return False
+        return False
+
+    def _reclaim_if_stale(self, bucket, blob) -> bool:
+        """检查锁是否过期，过期则删除并返回 True（允许重试）。"""
         try:
-            blob.upload_from_string(
-                json.dumps(lock_content, ensure_ascii=False),
-                content_type="application/json",
-                if_generation_match=0,
-            )
-            self._blob = blob
-            logger.info("lock acquired: %s (owner=%s)", self._lock_path, self.scheduler_instance_id)
-            return True
-        except Exception as e:
-            err_msg = str(e)
-            if "conditionNotMet" in err_msg or "PreconditionFailed" in err_msg or "GenerationDoesNotMatch" in err_msg:
-                logger.info("lock already held: %s", self._lock_path)
+            if not blob.exists():
                 return False
-            logger.warning("lock acquire error (non-fatal): %s: %s", self._lock_path, err_msg)
+            content = json.loads(blob.download_as_string())
+            expires_at = content.get("lease_expires_at", "")
+            if not expires_at:
+                return False
+            expires = datetime.fromisoformat(expires_at)
+            if datetime.now(timezone.utc) > expires:
+                old_owner = content.get("lock_owner", "unknown")
+                logger.warning(
+                    "stale lock detected: %s (old_owner=%s, expired=%s), reclaiming",
+                    self._lock_path, old_owner, expires_at,
+                )
+                blob.delete()
+                return True
+            return False
+        except Exception as e:
+            logger.warning("stale check failed: %s: %s", self._lock_path, e)
             return False
 
     def heartbeat(self):
@@ -495,8 +533,10 @@ class BqStatusTable:
         )
         try:
             client.query(sql, job_config=job_config).result()
+            return True
         except Exception as e:
-            logger.warning("status table upsert failed: %s", e)
+            logger.error("status table upsert failed: %s", e)
+            return False
 
     def get_step_status(self, experiment_id: str, step_id: str) -> Optional[str]:
         """查询 step 状态。"""
@@ -781,8 +821,8 @@ class ExperimentExecutor:
                     logger.warning("[%s] step %s lock busy, cancelled", self.experiment_id, step_id)
                     return result
 
-                # 记录 running 状态
-                self.bq_status.upsert_step_status(
+                # 记录 running 状态（失败则释放锁并取消）
+                if not self.bq_status.upsert_step_status(
                     self.experiment, step_id, "running",
                     lock_key=lock_key,
                     lock_owner=self.scheduler_instance_id,
@@ -793,7 +833,13 @@ class ExperimentExecutor:
                     scheduler_instance_id=self.scheduler_instance_id,
                     log_dir=log_dir,
                     force_replace=self.force_replace,
-                )
+                ):
+                    logger.error("[%s] step %s status write failed, releasing lock", self.experiment_id, step_id)
+                    gcs_lock.release()
+                    result["status"] = "cancelled"
+                    result["failed_step"] = step_id
+                    result["error"] = f"status table write failed: {step_id}"
+                    return result
 
                 # 执行 step
                 import threading
