@@ -1,19 +1,13 @@
 # TODO
 
-本文件只保留“下一步可执行事项”。整体状态和历史完成记录见 `.agent/memory/IMPLEMENTATION_STATUS.md` / `.agent/memory/AGENT_HANDOFF.md`；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源。
+本文件只保留"下一步可执行事项"。整体状态和历史完成记录见 `.agent/memory/IMPLEMENTATION_STATUS.md` / `.agent/memory/AGENT_HANDOFF.md`；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源。
 
 维护规则见 `AGENTS.md` 的「TODO 维护协议」。
 
 ## P0 — 当前优先
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
-- [x] 实现 OQ-010 交易成本 profile：按 `PRD_20260602_02_OQ010交易成本口径.md` 将 runner 从单一 `p_cost_bps=30` 升级为佣金万一免五、卖出印花税 5 bps、买/卖滑点各 5 bps，并同步 08/09/10/report/README
-- [x] 实现策略 1 中文报告与归因分析：按 `PRD_20260602_03_策略1中文报告归因分析.md` 保持中证1000 `000852.SH` 为评估主基准、并列展示沪深300 `000300.SH`，报告中文化，输出交易/持仓/NAV 附件、亏损归因证据包和 AI 诊断；render_report.py v2 已重写、09 metrics_json 已补 report_version/diagnosis_triggered、10 已补 QA-REPORT 1-6 断言、README 已同步
-- [ ] 修复诊断 QA：`sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 的 `split_tag` 歧义导致当前已上传诊断结果无法完成 QA 验收
-- [ ] 实现策略 1 valid/test live-available 预测池口径修正（按 `docs/prd/PRD_20260602_05_策略1预测池口径修正.md`）：train 继续用 trainable labeled sample，valid/test 预测池改为 t 日 live-available feature universe，标签有效性仅用于事后评价
-- [ ] 实现策略 1 模型质量诊断后续修订（按 `docs/prd/PRD_20260602_04_策略1模型质量诊断.md` + PRD 05）：补 prediction/eval coverage 证据，修正后重跑 local smoke → uploaded → `12_qa_model_diagnosis_outputs.sql`
-- [ ] 实现策略 1 score orientation 校准（按 `docs/prd/PRD_20260603_01_策略1分数方向校准.md`）：保留 `raw_score`，将最终 `score` 定义为方向校准后的排序分，03 选型登记 `score_orientation`，04 预测阶段应用方向并扩展 QA/report/diagnosis
-- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基于诊断结论再做特征 / 标签 / 选股口径、调仓频率、持股数 / 单票权重上限实验
+- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：由 owner 决策调仓频率、持股数/单票权重上限，以及特征/标签/选股口径实验
 
 ## P1 — 数据 / 特征扩展
 
@@ -29,11 +23,15 @@
 
 - [ ] OQ-005 物化选型：dbt（persist_docs）还是纯 `bq` SQL + 自建调度
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算 / 调度配置
-- [ ] 写“从 ODS 继承字段描述”脚本（`bq show` -> 映射 -> `bq update`）
+- [ ] 写"从 ODS 继承字段描述"脚本（`bq show` -> 映射 -> `bq update`）
 - [ ] 增量调度（dbt 或 Airflow + SQL）与数据质量断言
 
 ## 近期完成
 
+- [x] 修复诊断 QA：`sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 的 `split_tag` 歧义已修复（PR #27/28），已可正常完成 QA 验收
+- [x] 实现策略 1 valid/test live-available 预测池口径修正（按 `docs/prd/PRD_20260602_05_策略1预测池口径修正.md`）：train 继续用 trainable labeled sample，valid/test 预测池改为 t 日 live-available feature universe，标签有效性仅用于事后评价（PR #29/30 已合并）
+- [x] 实现策略 1 模型质量诊断后续修订（按 `docs/prd/PRD_20260602_04_策略1模型质量诊断.md` + PRD 05）：补 prediction/eval coverage 证据，修正后重跑 local smoke → uploaded → `12_qa_model_diagnosis_outputs.sql`
+- [x] 实现策略 1 score orientation 校准（按 `docs/prd/PRD_20260603_01_策略1分数方向校准.md`）：保留 `raw_score`，将最终 `score` 定义为方向校准后的排序分，03 选型登记 `score_orientation`，04 预测阶段应用方向并扩展 QA/report/diagnosis（PR #32 已合并）
 - [x] 新增策略 1 分数方向校准 PRD：`docs/prd/PRD_20260603_01_策略1分数方向校准.md`，基于 livepool reverse-score shadow run，将 `raw_score` / oriented `score` / `score_orientation` 固化为待实现契约
 - [x] 新增策略 1 valid/test live-available 预测池口径修正 PRD：`docs/prd/PRD_20260602_05_策略1预测池口径修正.md`，明确 sample_filter_risk high 后先修预测池口径，不与信号反向或组合参数实验混做
 - [x] 新增策略 1 模型质量诊断 PRD：`docs/prd/PRD_20260602_04_策略1模型质量诊断.md`，明确先诊断 signal/label/sample/universe/portfolio/cost/style，再进入 OQ-010 参数和模型实验
