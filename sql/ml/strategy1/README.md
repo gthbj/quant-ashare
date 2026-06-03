@@ -207,24 +207,36 @@ valid/test 预测、候选池、组合和回测从 live-available prediction poo
 | `--skip-gcs-upload` | 跳过 GCS 上传 |
 | `--p-target-holdings` | 当前目标持股数（默认 5） |
 
-## Score orientation 校准
+## Score orientation 校准（PRD-20260603-01）
 
-`03` 在 valid 期对每个候选模型同时评估 raw score（label='1' 正类概率）和 reversed score（`1.0 - raw_score`）的 RankIC。如果 raw RankIC 明显为负（< -0.03）且 reversed 更好，该候选的 `score_orientation` 记为 `reverse_probability`；否则记为 `identity`。
+`03` 在 valid 期对每个候选模型同时评估 raw score（label='1' 正类概率）和 reversed score（`1.0 - raw_score`）的 RankIC 与 bucket lift。按 PRD §6.2 的保守三条件规则决定方向：
 
-选模型时使用 oriented score 口径的 RankIC / layer_spread / TopN。selected model 的 registry `metrics_json` 持久记录：
+```text
+IF raw_valid_rank_ic_mean <= -0.03
+   AND reverse_valid_rank_ic_mean >= 0.03
+   AND reverse_valid_top_minus_bottom > raw_valid_top_minus_bottom
+THEN score_orientation = 'reverse_probability'
+ELSE score_orientation = 'identity'
+```
+
+弱信号（两者绝对值都 < 0.03）默认 `identity`，不自动反转。
+
+选模型时使用 oriented score 口径的 `rank_ic_mean → topn_fwd_ret_mean → roc_auc`。selected model 的 registry `metrics_json` 持久记录：
 
 - `score_source`: 始终为 `positive_class_probability`
 - `score_orientation`: `identity` 或 `reverse_probability`
 - `raw_valid_rank_ic_mean` / `oriented_valid_rank_ic_mean`
+- `raw_valid_top_minus_bottom` / `rev_valid_top_minus_bottom`
 - `orientation_decision_reason`
+- `orientation_decision_split`: 始终为 `valid`（test 不参与方向决策）
 
-`04` 从 registry 读取 `score_orientation`，ML.PREDICT 仍取 label='1' 概率作为 `raw_score`；写入 `ads_model_prediction_daily` 时：
+`04` 从 registry 读取 `score_orientation`。如果 registry 缺少 `score_orientation`，04 会 RAISE 失败（不会静默 fallback 到 identity）。ML.PREDICT 仍取 label='1' 概率作为 `raw_score`；写入 `ads_model_prediction_daily` 时：
 - `score` = oriented score（identity 保留原始，reverse 用 `1.0 - raw_score`）
 - `raw_score` = 原始 label='1' 概率（可追溯）
 - `score_orientation` = 来自 registry
 - `rank_raw` / `rank_pct` 按 oriented `score DESC` 计算
 
-QA 断言（`10`）验证 registry 有 `score_orientation`、prediction 表的 `score_orientation` 与 registry 一致、`score` 与 `raw_score` 的关系和 orientation 一致。
+QA 断言（`10` QA-ORIENT-1..4）验证 registry 有 `score_orientation`、prediction 表的 `score_orientation` 与 registry 一致、`score` 与 `raw_score` 的关系和 orientation 一致。
 
 ## 关键设计
 

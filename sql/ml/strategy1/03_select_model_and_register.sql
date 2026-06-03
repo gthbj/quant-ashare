@@ -296,6 +296,7 @@ SET reg.status = 'selected',
         m.rev_valid_rank_ic_mean AS reversed_valid_rank_ic_mean,
         m.rank_ic_mean AS oriented_valid_rank_ic_mean,
         m.orientation_decision_reason,
+        'valid' AS orientation_decision_split,
         CONCAT('selected: highest oriented valid rank_ic_mean (orientation=',
                m.score_orientation, ', tie-break topn_fwd_ret_mean, roc_auc)') AS select_reason))
       FROM candidate_metrics AS m
@@ -322,7 +323,8 @@ SET reg.status = 'candidate_rejected',
         m.raw_valid_rank_ic_mean,
         m.rev_valid_rank_ic_mean AS reversed_valid_rank_ic_mean,
         m.rank_ic_mean AS oriented_valid_rank_ic_mean,
-        m.orientation_decision_reason))
+        m.orientation_decision_reason,
+        'valid' AS orientation_decision_split))
       FROM candidate_metrics AS m
       LEFT JOIN sample_counts AS sc ON sc.cand_id = m.cand_id
       WHERE m.cand_id = REPLACE(reg.model_id, CONCAT(p_run_safe, '__'), ''))

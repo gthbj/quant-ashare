@@ -30,9 +30,10 @@ IF p_selected_model_id IS NULL THEN
   RAISE USING MESSAGE = 'No selected model for this run_id. Run 03 first.';
 END IF;
 
--- Read score_orientation from registry metrics_json (set by 03)
+-- Read score_orientation from registry metrics_json (set by 03).
+-- PRD requires failure if orientation is missing — no COALESCE fallback.
 SET p_score_orientation = (
-  SELECT COALESCE(JSON_VALUE(reg.metrics_json, '$.score_orientation'), 'identity')
+  SELECT JSON_VALUE(reg.metrics_json, '$.score_orientation')
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.model_id = p_selected_model_id
     AND reg.strategy_id = p_strategy_id
@@ -40,9 +41,9 @@ SET p_score_orientation = (
   LIMIT 1
 );
 
-IF p_score_orientation NOT IN ('identity', 'reverse_probability') THEN
-  RAISE USING MESSAGE = CONCAT('Invalid score_orientation: ', COALESCE(p_score_orientation, 'NULL'),
-                                '. Must be identity or reverse_probability.');
+IF p_score_orientation IS NULL OR p_score_orientation NOT IN ('identity', 'reverse_probability') THEN
+  RAISE USING MESSAGE = CONCAT('score_orientation missing or invalid: ', COALESCE(p_score_orientation, 'NULL'),
+                                '. Run 03 must set score_orientation in registry metrics_json.');
 END IF;
 
 -- 幂等
