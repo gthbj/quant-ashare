@@ -30,6 +30,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from google.cloud import bigquery
+
 # ---------------------------------------------------------------------------
 # 常量
 # ---------------------------------------------------------------------------
@@ -708,8 +710,8 @@ def get_experiment_steps(exp: Dict[str, Any], max_parallel_backtest: int) -> Lis
             "07_build_order_plan",
             "08_run_backtest",
             "09_build_metrics_and_report_inputs",
-            "10_qa_runner_outputs",
             "10_render_report",
+            "10_qa_runner_outputs",
             "11_model_quality_diagnostics",
             "11_diagnose_python",
             "12_qa_model_diagnosis_outputs",
@@ -721,8 +723,8 @@ def get_experiment_steps(exp: Dict[str, Any], max_parallel_backtest: int) -> Lis
             "07_build_order_plan",
             "08_run_backtest",
             "09_build_metrics_and_report_inputs",
-            "10_qa_runner_outputs",
             "10_render_report",
+            "10_qa_runner_outputs",
             "11_model_quality_diagnostics",
             "11_diagnose_python",
             "12_qa_model_diagnosis_outputs",
