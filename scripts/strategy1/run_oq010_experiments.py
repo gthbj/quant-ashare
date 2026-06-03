@@ -25,7 +25,7 @@ import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -222,6 +222,9 @@ class GcsLock:
         self._blob = None
         self._client = None
         self._lock_path = _build_gcs_lock_path(lock_key)
+        self.acquired_at: Optional[datetime] = None
+        self.lease_expires_at: Optional[datetime] = None
+        self._lock_generation: Optional[int] = None
 
     def _get_client(self):
         if self._client is None and not self.dry_run:
@@ -234,9 +237,10 @@ class GcsLock:
 
         流程: ifGenerationMatch=0 原子创建 → 失败时检查 stale → stale 则删除并重试一次。
         """
-        from datetime import timedelta
-        acquired_at = _now_rfc3339()
-        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=self.ttl_minutes)).isoformat()
+        acquired_at_dt = datetime.now(timezone.utc)
+        expires_at_dt = acquired_at_dt + timedelta(minutes=self.ttl_minutes)
+        acquired_at = acquired_at_dt.isoformat()
+        expires_at = expires_at_dt.isoformat()
         if self.dry_run:
             logger.info("[DRY-RUN] acquire lock: %s", self._lock_path)
             return True
@@ -268,7 +272,12 @@ class GcsLock:
                     content_type="application/json",
                     if_generation_match=0,
                 )
+                if blob.generation is None:
+                    blob.reload()
                 self._blob = blob
+                self.acquired_at = acquired_at_dt
+                self.lease_expires_at = expires_at_dt
+                self._lock_generation = blob.generation
                 logger.info("lock acquired: %s (owner=%s)", self._lock_path, self.scheduler_instance_id)
                 return True
             except Exception as e:
@@ -291,11 +300,21 @@ class GcsLock:
         return False
 
     def _reclaim_if_stale(self, bucket, blob) -> bool:
-        """检查锁是否过期，过期则删除并返回 True（允许重试）。"""
+        """检查锁是否过期，过期则按同一 generation 条件删除。"""
         try:
-            if not blob.exists():
+            try:
+                blob.reload()
+            except Exception as e:
+                err_msg = str(e)
+                if "NotFound" in err_msg or "404" in err_msg:
+                    return False
+                raise
+
+            generation = blob.generation
+            if generation is None:
                 return False
-            content = json.loads(blob.download_as_string())
+
+            content = json.loads(blob.download_as_bytes(if_generation_match=generation))
             expires_at = content.get("lease_expires_at", "")
             if not expires_at:
                 return False
@@ -306,7 +325,7 @@ class GcsLock:
                     "stale lock detected: %s (old_owner=%s, expired=%s), reclaiming",
                     self._lock_path, old_owner, expires_at,
                 )
-                blob.delete()
+                blob.delete(if_generation_match=generation)
                 return True
             return False
         except Exception as e:
@@ -317,20 +336,29 @@ class GcsLock:
         """刷新锁 lease。"""
         if self.dry_run or self._blob is None:
             return
-        from datetime import timedelta
+        if self._lock_generation is None:
+            logger.warning("lock heartbeat skipped without generation: %s", self._lock_path)
+            return None
         try:
             blob = self._blob.bucket.blob(self._blob.name)
-            existing = blob.download_as_string()
+            existing = blob.download_as_bytes(if_generation_match=self._lock_generation)
             data = json.loads(existing)
+            lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=self.ttl_minutes)
             data["last_heartbeat_at"] = _now_rfc3339()
-            data["lease_expires_at"] = (datetime.now(timezone.utc) + timedelta(minutes=self.ttl_minutes)).isoformat()
+            data["lease_expires_at"] = lease_expires_at.isoformat()
             blob.upload_from_string(
                 json.dumps(data, ensure_ascii=False),
                 content_type="application/json",
-                if_generation_match=blob.generation,
+                if_generation_match=self._lock_generation,
             )
+            blob.reload()
+            self._blob = blob
+            self.lease_expires_at = lease_expires_at
+            self._lock_generation = blob.generation
+            return lease_expires_at
         except Exception as e:
             logger.warning("lock heartbeat failed: %s: %s", self._lock_path, e)
+            return None
 
     def release(self):
         """释放锁（删除 lock object）。"""
@@ -340,7 +368,10 @@ class GcsLock:
         if self._blob is None:
             return
         try:
-            self._blob.delete()
+            if self._lock_generation is not None:
+                self._blob.delete(if_generation_match=self._lock_generation)
+            else:
+                self._blob.delete()
             logger.info("lock released: %s", self._lock_path)
         except Exception as e:
             logger.warning("lock release error: %s: %s", self._lock_path, e)
@@ -403,15 +434,18 @@ class BqStatusTable:
         scheduler_instance_id: Optional[str] = None,
         log_dir: Optional[str] = None,
         force_replace: bool = False,
-    ):
+        lock_acquired_at: Optional[datetime] = None,
+        lock_expires_at: Optional[datetime] = None,
+        last_heartbeat_at: Optional[datetime] = None,
+    ) -> bool:
         """插入或更新 step 状态行。"""
         if self.dry_run:
             logger.info("[DRY-RUN] upsert status: %s/%s -> %s", experiment.get("experiment_id"), step_id, status)
-            return
+            return True
 
         client = self._get_client()
         if client is None:
-            return
+            return False
 
         now_ts = _now_ts()
         run_id = experiment.get("run_id", "")
@@ -454,9 +488,9 @@ class BqStatusTable:
             attempt = IFNULL(@attempt, T.attempt),
             lock_key = IFNULL(@lock_key, T.lock_key),
             lock_owner = IFNULL(@lock_owner, T.lock_owner),
-            lock_acquired_at = IF(status = 'running', @updated_at, T.lock_acquired_at),
-            lock_expires_at = IF(status = 'running', @lock_expires_at, T.lock_expires_at),
-            last_heartbeat_at = IF(status = 'running', @updated_at, T.last_heartbeat_at),
+            lock_acquired_at = IF(@status = 'running', IFNULL(@lock_acquired_at, T.lock_acquired_at), T.lock_acquired_at),
+            lock_expires_at = IF(@status = 'running', IFNULL(@lock_expires_at, T.lock_expires_at), T.lock_expires_at),
+            last_heartbeat_at = IF(@status = 'running', IFNULL(@last_heartbeat_at, T.last_heartbeat_at), T.last_heartbeat_at),
             artifact_uri = @artifact_uri,
             report_uri = @report_uri,
             diagnosis_uri = @diagnosis_uri,
@@ -486,9 +520,13 @@ class BqStatusTable:
           )
         """
 
-        lock_expires_at = None
+        lock_acquired_at_param = None
+        lock_expires_at_param = None
+        last_heartbeat_at_param = None
         if status == "running":
-            lock_expires_at = datetime.now(timezone.utc).isoformat()
+            lock_acquired_at_param = lock_acquired_at or now_ts
+            lock_expires_at_param = lock_expires_at
+            last_heartbeat_at_param = last_heartbeat_at or now_ts
 
         step_display_name = STEP_DEFS.get(step_id, {}).get("display_name", step_id)
 
@@ -514,9 +552,9 @@ class BqStatusTable:
                 bigquery.ScalarQueryParameter("force_replace", "BOOL", force_replace),
                 bigquery.ScalarQueryParameter("lock_key", "STRING", lock_key or ""),
                 bigquery.ScalarQueryParameter("lock_owner", "STRING", lock_owner or ""),
-                bigquery.ScalarQueryParameter("lock_acquired_at", "TIMESTAMP", None),
-                bigquery.ScalarQueryParameter("lock_expires_at", "TIMESTAMP", lock_expires_at),
-                bigquery.ScalarQueryParameter("last_heartbeat_at", "TIMESTAMP", None),
+                bigquery.ScalarQueryParameter("lock_acquired_at", "TIMESTAMP", lock_acquired_at_param),
+                bigquery.ScalarQueryParameter("lock_expires_at", "TIMESTAMP", lock_expires_at_param),
+                bigquery.ScalarQueryParameter("last_heartbeat_at", "TIMESTAMP", last_heartbeat_at_param),
                 bigquery.ScalarQueryParameter("artifact_uri", "STRING", ""),
                 bigquery.ScalarQueryParameter("report_uri", "STRING", ""),
                 bigquery.ScalarQueryParameter("diagnosis_uri", "STRING", ""),
@@ -833,6 +871,8 @@ class ExperimentExecutor:
                     scheduler_instance_id=self.scheduler_instance_id,
                     log_dir=log_dir,
                     force_replace=self.force_replace,
+                    lock_acquired_at=gcs_lock.acquired_at,
+                    lock_expires_at=gcs_lock.lease_expires_at,
                 ):
                     logger.error("[%s] step %s status write failed, releasing lock", self.experiment_id, step_id)
                     gcs_lock.release()
@@ -846,7 +886,7 @@ class ExperimentExecutor:
                 heartbeat_stop = threading.Event()
                 heartbeat_thread = threading.Thread(
                     target=self._heartbeat_loop,
-                    args=(gcs_lock, heartbeat_stop),
+                    args=(gcs_lock, heartbeat_stop, step_id, lock_key, log_dir),
                     daemon=True,
                 )
                 heartbeat_thread.start()
@@ -915,13 +955,29 @@ class ExperimentExecutor:
             logger.warning("[%s] no executor for step: %s", self.experiment_id, step_id)
             return False
 
-    def _heartbeat_loop(self, lock: GcsLock, stop_event):
+    def _heartbeat_loop(self, lock: GcsLock, stop_event, step_id: str, lock_key: str, log_dir: str):
         """后台心跳线程：每 HEARTBEAT_INTERVAL_SECONDS 刷新锁 lease。"""
         while not stop_event.is_set():
             stop_event.wait(timeout=HEARTBEAT_INTERVAL_SECONDS)
             if not stop_event.is_set():
                 try:
-                    lock.heartbeat()
+                    lease_expires_at = lock.heartbeat()
+                    if lease_expires_at is not None:
+                        self.bq_status.upsert_step_status(
+                            self.experiment, step_id, "running",
+                            lock_key=lock_key,
+                            lock_owner=self.scheduler_instance_id,
+                            attempt=1,
+                            params_json=self._params_json,
+                            manifest_path=self.manifest_path,
+                            manifest_hash=self.manifest_hash,
+                            scheduler_instance_id=self.scheduler_instance_id,
+                            log_dir=log_dir,
+                            force_replace=self.force_replace,
+                            lock_acquired_at=lock.acquired_at,
+                            lock_expires_at=lease_expires_at,
+                            last_heartbeat_at=datetime.now(timezone.utc),
+                        )
                 except Exception as e:
                     logger.warning("[%s] heartbeat error: %s", self.experiment_id, e)
 

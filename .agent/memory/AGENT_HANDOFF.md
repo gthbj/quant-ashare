@@ -22,6 +22,8 @@
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
 
+**PR #45 最新修复（2026-06-03）**：OQ-010 并发调度 Phase 1 review follow-up 已修复：`run_oq010_experiments.py` 的 stale lock reclaim、heartbeat 和 release 均使用 GCS object generation 条件操作，避免并发调度器误删新锁；状态表 `lock_expires_at` / `last_heartbeat_at` 与 GCS lock lease 对齐。验证已通过 Python `py_compile`、`git diff --check`、Stage A dry-run、单实验 dry-run 和 fake GCS generation guard 测试；未执行 BigQuery。
+
 **分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 和 `codex/implement-oq004-index` 已在本地和远端删除。
 
 > 历史交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md` 和 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动只需阅读本文件的当前摘要和最近交接；归档仅用于审计追溯。
@@ -256,6 +258,64 @@ Run ID: —
 - `ARCHITECTURE_MEMORY.md`
 - `OPEN_QUESTIONS.md`
 - `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-03
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #45 / OQ-010 实验并发调度 Phase 1
+
+### 已完成工作
+
+- 跟进 PR #45 最新 review comment，修复 OQ-010 并发调度器的 GCS lock 安全问题。
+- `scripts/strategy1/run_oq010_experiments.py` 的 GCS lock acquire 记录 `acquired_at`、`lease_expires_at` 和 object generation。
+- stale lock reclaim 改为读取并删除同一 generation：只删除刚检查过且已过期的 lock object，避免多个调度器竞争时误删对方刚创建的新锁。
+- heartbeat 和 release 也改为 generation 条件操作，旧进程不会刷新或删除新 generation 的 lock object。
+- 状态表 upsert 支持写入真实 `lock_acquired_at`、`lock_expires_at` 和 `last_heartbeat_at`；running 状态写入失败仍会释放 GCS lock 并取消 step。
+- heartbeat loop 同步刷新 BigQuery 状态表中的 `last_heartbeat_at` 和 `lock_expires_at`，让审计字段与 GCS lease 对齐。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`KNOWN_CONSTRAINTS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 本次未执行 BigQuery，不触碰正在运行的 A3 实验，不删除或覆盖 `reports/strategy1` 下已有产物。
+- 该修复只收口 PR #45 Phase 1 锁安全与审计字段；Phase 2-4 仍待后续实现和端到端验收。
+
+### 改动文件
+
+- `scripts/strategy1/run_oq010_experiments.py`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1/run_oq010_experiments.py`
+- `git diff --check origin/main..HEAD`
+- `git diff --check`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run --stage-id stage_a`
+- `python3 scripts/strategy1/run_oq010_experiments.py --dry-run --experiment-id oq010_a1_n10_w10`
+- fake GCS blob 测试：stale reclaim 使用被检查到的 generation 条件删除，非过期锁不删除。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- Review PR #45 最新提交后合并。
+- 合并后先继续 dry-run / 单实验执行验证，再按 Phase 2-4 推进 portfolio-only 并发、08 ledger 并发和 retrain 混合队列。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `IMPLEMENTATION_STATUS.md`
+- `KNOWN_CONSTRAINTS.md`
 - `AGENT_HANDOFF.md`
 
 ---
