@@ -32,7 +32,7 @@
 ## 近期完成
 
 - [x] 工作记忆轻清理：`AGENT_HANDOFF.md` 缩到当前摘要 + 最近 3 条交接，19 条旧交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- [x] 新增策略 1 Ledger v1 交易执行语义 PRD 与月度滚动重训 PRD：`docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`、`docs/prd/PRD_20260604_02_策略1月度滚动重训.md`
+- [x] 新增策略 1 Ledger v1 交易执行语义 PRD 与月度滚动重训 PRD：`docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`、`docs/prd/PRD_20260604_02_策略1月度滚动重训.md`；PR #49 review 的 T+1 卖出锁定、oriented RankIC、月度模式 test split 口径澄清已补入正文
 - [x] OQ-005 Phase 0 实现分支已整合 review 修复：PR #44 已合入 #42 分支，#46 的 GCS 路径、API 行数上限、Parquet cast、日志脱敏修复已手动合入，并追加修复 `partition_endpoint` 路径契约与参数化日志脱敏泄露问题
 - [x] OQ-010 并发调度后续修复已合并（PR #48）：修复同 stage dependency batching 与诊断状态/上传状态语义拆分，支持正式基线和后续实验调度复用
 - [x] OQ-010 正式基线 run 已完成：`s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`，参数为 `pv_fin_quality + 30/5% + biweekly + 5d`，01-12 全部成功，`10`/`12` QA 通过，中文报告和模型诊断均 uploaded 到 GCS

@@ -49,6 +49,7 @@ Run ID: —
 - 清理工作记忆：`AGENT_HANDOFF.md` 缩到当前摘要 + 最近 3 条交接，19 条旧交接归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。
 - 新增 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`。
 - 新增 `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`。
+- 跟进 PR #49 review comment，补充 Ledger PRD 的 T+1 卖出锁定非目标、月度重训 PRD 的 oriented RankIC 通过标准和 test split 事后评价口径。
 - 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md` 和当前交接摘要。
 
 ### 重要上下文

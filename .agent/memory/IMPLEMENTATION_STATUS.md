@@ -69,8 +69,8 @@ Last updated: 2026-06-04
 - OQ-010 并发调度后续修复已由 PR #48 合并进入 `main`：同 stage dependency batching 现在尊重 `depends_on_experiment_id`，诊断完成状态与 GCS 上传状态已拆分。
 - OQ-010 正式基线 run 已完成：`run_id=s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / `backtest_id=bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`，参数为 `pv_fin_quality + 30/5% + biweekly + 5d`，回测区间 `2024-01-02` 至 `2025-12-31`，benchmark=`000852.SH`，total_return=41.10%、excess_return=12.09%、Sharpe=1.043、max_drawdown=-14.48%、turnover_annual=19.38、cost_bps=17.0；report_uri 和 model_diagnosis_uri 均位于 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01/backtest_id=bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`；诊断结论 `usable_signal`、confidence=`low`，valid/test RankIC 均为正但 test topN 5d 平均收益为负，后续仍需稳健性检查。
 - 工作记忆轻清理完成：`AGENT_HANDOFF.md` 按协议缩到当前摘要 + 最近 3 条交接，19 条旧交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。
-- 新增策略 1 Ledger v1 交易执行语义 PRD：`docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`，固化 t-1 信号 / t 开盘执行、pending sell 每日继续卖、实际持仓 netting、现金缩放、订单状态和每日 mark-to-market NAV；明确不改变模型训练/预测来源，并要求用正式 baseline 参数做 A/B。
-- 新增策略 1 月度滚动重训 PRD：`docs/prd/PRD_20260604_02_策略1月度滚动重训.md`，定义月度重训 cadence、rolling 5 年训练窗口、12 个月 valid 窗口、月内固定模型、失败回退和 PIT-safe prediction stream；明确必须在 Ledger v1 A/B 后单独实现。
+- 新增策略 1 Ledger v1 交易执行语义 PRD：`docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`，固化 t-1 信号 / t 开盘执行、pending sell 每日继续卖、实际持仓 netting、现金缩放、订单状态和每日 mark-to-market NAV；明确不改变模型训练/预测来源，并要求用正式 baseline 参数做 A/B；PR #49 review 后已补 T+1 卖出锁定非目标。
+- 新增策略 1 月度滚动重训 PRD：`docs/prd/PRD_20260604_02_策略1月度滚动重训.md`，定义月度重训 cadence、rolling 5 年训练窗口、12 个月 valid 窗口、月内固定模型、失败回退和 PIT-safe prediction stream；明确必须在 Ledger v1 A/B 后单独实现；PR #49 review 后已补 oriented RankIC 通过标准和 test split 事后评价口径。
 - 新增 OQ-010 策略 1 实验并发调度与隔离 PRD：`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`。PRD 定义同阶段 portfolio-only / retrain 实验安全并发所需的状态表、GCS 原子锁、lease/heartbeat、调度器、runner 参数化和写隔离、08 ledger 并发边界、单实验 QA 和并发串号 QA。本次只写 PRD，未改 SQL runner、未跑 BigQuery、未触碰正在运行的 A3 实验。
 
 ## 进行中 / 部分（In Progress）
