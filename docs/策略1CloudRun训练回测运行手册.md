@@ -79,6 +79,16 @@ gcloud builds submit \
   --config cloudbuild.strategy1-cloudrun.yaml
 ```
 
+如需把当前 Git commit 写入镜像 tag，可显式传入：
+
+```bash
+gcloud builds submit \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config cloudbuild.strategy1-cloudrun.yaml \
+  --substitutions=_TAG="$(git rev-parse --short HEAD)"
+```
+
 默认镜像：
 
 ```text
@@ -94,6 +104,22 @@ gcloud artifacts repositories create quant-ashare \
   --repository-format docker
 ```
 
+Cloud Run runtime service account 必须具备以下权限：
+
+| 范围 | 权限 | 用途 |
+|---|---|---|
+| project 或源数据集 | `roles/bigquery.dataViewer` | 读取 DWD / DWS / ADS 输入表 |
+| project | `roles/bigquery.jobUser` | 提交 BigQuery query / load job |
+| `ashare_ads` dataset | `WRITER` / `roles/bigquery.dataEditor` | 删除并写入 prediction、candidate、portfolio、order、NAV、summary 等 ADS 输出 |
+| `gs://ashare-artifacts` | `roles/storage.objectAdmin` | 上传模型、报告、诊断 artifact，并读写 orchestrator lock |
+| Cloud Logging | `roles/logging.logWriter` | 写 Cloud Run job 日志 |
+
+当前默认 Compute Engine service account 形如：
+
+```text
+<project-number>-compute@developer.gserviceaccount.com
+```
+
 ## 5. 部署 Cloud Run Jobs
 
 训练 / 预测 job：
@@ -104,10 +130,11 @@ gcloud run jobs deploy strategy1-train-predict-job \
   --region asia-east2 \
   --image asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:latest \
   --command python \
-  --args -m,scripts.strategy1_cloudrun.train_predict \
-  --memory 8Gi \
+  --args="-m,scripts.strategy1_cloudrun.train_predict" \
+  --memory 16Gi \
   --cpu 4 \
-  --task-timeout 3600
+  --task-timeout 3600 \
+  --max-retries 0
 ```
 
 回测 / 报告 job：
@@ -118,10 +145,11 @@ gcloud run jobs deploy strategy1-backtest-report-job \
   --region asia-east2 \
   --image asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:latest \
   --command python \
-  --args -m,scripts.strategy1_cloudrun.backtest_report \
-  --memory 8Gi \
+  --args="-m,scripts.strategy1_cloudrun.backtest_report" \
+  --memory 16Gi \
   --cpu 4 \
-  --task-timeout 7200
+  --task-timeout 7200 \
+  --max-retries 0
 ```
 
 ## 6. 单实验 smoke
@@ -151,7 +179,8 @@ python -m scripts.strategy1_cloudrun.backtest_report \
 若只做 ledger 对照，可在 `backtest_report` 加 `--use-bq-ledger` 走原 `08` SQL fallback。
 该 fallback 会把 summary 标记为 `execution_backend='cloud_run_sklearn_bq_sql_ledger_v1'`、`ledger_executor='bigquery_sql'`；默认 Python ledger 路径为 `execution_backend='cloud_run_sklearn_ledger_v1'`、`ledger_executor='cloud_run_python'`。
 
-`train_predict` 会把 sklearn selected model 与配置中的 BQML reference run 做模型质量对等检查；`model_quality_parity_status != 'passed'` 时直接 fail-fast，不写 selected registry 和 prediction。
+`train_predict` 会把 sklearn selected model 与配置中的 BQML reference run 做模型质量对等检查；若 `model_quality_parity_status != 'passed'`，仍会写 selected registry、prediction、model artifact 和 parity 证据，但 `metrics_json.model_quality_status` 必须标记为 `model_quality_not_equivalent`，不得声明 sklearn backend 已等价替代 BQML baseline。
+正式 baseline 验收继续要求 `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql` 默认通过；只做 smoke / 证据留存时，可以显式把 `p_require_model_quality_parity_passed` 设为 `FALSE`，此时 QA 只要求 parity 证据完整。
 
 ## 7. Cloud Run orchestrator
 

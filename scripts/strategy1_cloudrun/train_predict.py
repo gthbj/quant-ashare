@@ -137,6 +137,7 @@ def run_train_predict(
     feature_frame, feature_columns = feature_frame_from_panel(panel)
     panel = panel.reset_index(drop=True)
     feature_frame = feature_frame.reset_index(drop=True)
+    panel = panel.drop(columns=["feature_values_json", "feature_column_list"])
 
     train_mask = panel["split_tag"].eq("train") & panel["target_label"].notna()
     valid_mask = panel["split_tag"].eq("valid")
@@ -172,11 +173,12 @@ def run_train_predict(
 
     parity = compute_model_quality_parity(client, config, selected)
     selected.metrics.update(parity)
-    if parity["model_quality_parity_status"] != "passed":
-        raise RuntimeError(
-            "sklearn vs BQML model-quality parity gate failed: "
-            + json.dumps(parity, ensure_ascii=False, default=str)
-        )
+    if parity["model_quality_parity_status"] == "passed":
+        selected.metrics["model_quality_status"] = "model_quality_equivalent"
+        selected.metrics["model_quality_status_reason"] = "sklearn_vs_bqml_parity_passed"
+    else:
+        selected.metrics["model_quality_status"] = "model_quality_not_equivalent"
+        selected.metrics["model_quality_status_reason"] = "sklearn_vs_bqml_parity_failed"
 
     model_id = f"s1_sklearn_{run_safe(experiment.run_id)}__{selected.candidate_id}"
     artifact_local_dir = artifact_dir(config, experiment, model_id)
@@ -205,6 +207,7 @@ def run_train_predict(
         "uploaded_artifacts": uploaded,
         "prediction_rows": int(predict_mask.sum()),
         "model_quality_parity_status": selected.metrics.get("model_quality_parity_status"),
+        "model_quality_status": selected.metrics.get("model_quality_status"),
     }
 
 

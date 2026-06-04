@@ -81,24 +81,37 @@ def feature_frame_from_panel(panel: pd.DataFrame) -> tuple[pd.DataFrame, list[st
     if panel.empty:
         raise ValueError("training panel is empty")
     feature_columns = _first_feature_columns(panel["feature_column_list"])
-    records = []
-    for payload in panel["feature_values_json"]:
+    matrix = np.full((len(panel), len(feature_columns)), np.nan, dtype=np.float32)
+    column_index = {col: idx for idx, col in enumerate(feature_columns)}
+    for row_idx, payload in enumerate(panel["feature_values_json"]):
         parsed = json.loads(payload or "{}")
-        records.append({col: parsed.get(col) for col in feature_columns})
-    return pd.DataFrame.from_records(records, columns=feature_columns), feature_columns
+        for col, value in parsed.items():
+            idx = column_index.get(col)
+            if idx is None or value is None:
+                continue
+            try:
+                matrix[row_idx, idx] = float(value)
+            except (TypeError, ValueError):
+                continue
+    return pd.DataFrame(matrix, columns=feature_columns), feature_columns
 
 
 def _first_feature_columns(values: Iterable[object]) -> list[str]:
     for value in values:
-        if isinstance(value, list):
-            return [str(v) for v in value]
-        if isinstance(value, tuple):
-            return [str(v) for v in value]
+        if hasattr(value, "tolist") and not isinstance(value, str):
+            value = value.tolist()
+        if isinstance(value, (list, tuple)):
+            columns = [str(v) for v in value if v is not None and str(v) != ""]
+            if columns:
+                return columns
+            continue
         if isinstance(value, str):
             try:
                 parsed = json.loads(value)
                 if isinstance(parsed, list):
-                    return [str(v) for v in parsed]
+                    columns = [str(v) for v in parsed if v is not None and str(v) != ""]
+                    if columns:
+                        return columns
             except json.JSONDecodeError:
                 continue
     raise ValueError("feature_column_list is empty or unparseable")

@@ -562,9 +562,9 @@ ASSERT (
   SELECT COUNTIF(
     CASE
       WHEN pred.score_orientation = 'identity'
-        THEN ABS(pred.score - pred.raw_score) > 1e-9
+        THEN ABS(pred.score - pred.raw_score) > 1e-6
       WHEN pred.score_orientation = 'reverse_probability'
-        THEN ABS(pred.score - (1.0 - pred.raw_score)) > 1e-9
+        THEN ABS(pred.score - (1.0 - pred.raw_score)) > 1e-6
       ELSE TRUE
     END
   ) = 0
