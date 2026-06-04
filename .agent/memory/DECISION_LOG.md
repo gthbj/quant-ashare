@@ -1140,3 +1140,39 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`, `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`, `TODO.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260604-02: OQ-010 因子贡献度分析不做消融实验
+
+日期: 2026-06-04
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+正式 baseline 已完成，owner 希望分析各个因子的贡献度，用于解释当前策略收益与后续 Ledger / 月度重训结果。消融实验能给出更强的边际贡献证据，但需要大量重训 / 重预测 / 回测，会显著增加运行成本和解释复杂度。
+
+### 决策
+
+1. 新增 `PRD_20260604_03_策略1因子贡献度分析.md`。
+2. 因子贡献度分析不做消融实验，不做 drop-one-factor 或 drop-one-factor-group 重训。
+3. P0 只基于已训练 selected model、已有 prediction、已有 backtest 和已有 feature 数据做只读分析。
+4. 输出模型分数贡献、单因子 RankIC / bucket lift、组合因子暴露和组合因子归因 proxy。
+5. 实施顺序建议放在 Ledger v1 P0 前，但这只是顺序安排，不代表优先级高于 Ledger v1 或月度滚动重训。
+
+### 理由
+
+当前首要需要的是解释现有 baseline 的因子来源，而不是重新评估每个因子的移除效果。只读型因子贡献度分析成本低、对现有 runner 风险小，且不会改变交易执行语义或模型生命周期，适合作为 Ledger v1 A/B 前的解释基准。
+
+### 影响
+
+后续实现应新增独立 factor attribution artifact 和 QA，禁止引入 `ablation_run_id`、`drop_feature_run_id` 等消融实验路径。若未来 owner 需要消融实验，应另写 PRD 并单独审批计算成本和运行矩阵。
+
+### 备选方案
+
+直接做消融实验；放弃，因为本轮 owner 明确不考虑消融实验，且成本/运行时间较高。把因子贡献度塞进既有模型质量诊断 PRD；放弃，因为现有诊断 PRD 已实现，新增独立 PRD 更容易限定非消融边界和 artifact 契约。
+
+### 相关文件
+
+`docs/prd/PRD_20260604_03_策略1因子贡献度分析.md`, `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`, `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`, `TODO.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
