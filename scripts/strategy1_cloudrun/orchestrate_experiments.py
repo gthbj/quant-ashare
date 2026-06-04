@@ -25,6 +25,7 @@ from scripts.strategy1_cloudrun.config import (
     manifest_hash,
     resolve_parallel_count,
 )
+from scripts.strategy1_cloudrun.bq_io import join_gs_uri
 from scripts.strategy1_cloudrun.state import (
     GcsLeaseLock,
     LockConfig,
@@ -38,6 +39,7 @@ from scripts.strategy1_cloudrun.state import (
     extract_cloud_run_execution_id,
     scheduler_instance_id,
 )
+from scripts.strategy1_cloudrun.task_fanout import default_matrix_id, matrix_artifact_uri
 
 
 LOGGER = logging.getLogger("strategy1_cloudrun.orchestrator")
@@ -185,7 +187,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-bq-ledger", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true", help="Run remaining queued experiments after a failure")
     parser.add_argument("--resume", action="store_true", help="Skip Cloud Run steps already marked succeeded in status table")
-    parser.add_argument("--resume-from-step", choices=["cloudrun_train_predict", "cloudrun_backtest_report"], default=None)
+    parser.add_argument("--resume-from-step", default=None)
+    parser.add_argument("--train-mode", choices=["train_predict", "task_fanout"], default="train_predict")
+    parser.add_argument("--candidate-parallelism", type=int, default=0)
     parser.add_argument("--scheduler-instance-id", default=None)
     parser.add_argument("--lock-bucket", default=None)
     parser.add_argument("--lock-prefix", default=None)
@@ -208,19 +212,22 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
     if args.skip_gcs_upload:
         common_flags.append("--skip-gcs-upload")
     if exp.requires_retrain:
-        steps.append(StepStateSpec(
-            step_id="cloudrun_train_predict",
-            display_name="Cloud Run sklearn train/predict",
-            lock_key=build_lock_key(exp, "cloudrun_train_predict"),
-            job_name=config.train_predict_job,
-            command=gcloud_execute_command(
-                config.project,
-                config.region,
-                config.train_predict_job,
-                "scripts.strategy1_cloudrun.train_predict",
-                common_flags,
-            ),
-        ))
+        if args.train_mode == "task_fanout":
+            steps.extend(build_task_fanout_steps(config, exp, args, common_flags))
+        else:
+            steps.append(StepStateSpec(
+                step_id="cloudrun_train_predict",
+                display_name="Cloud Run sklearn train/predict",
+                lock_key=build_lock_key(exp, "cloudrun_train_predict"),
+                job_name=config.train_predict_job,
+                command=gcloud_execute_command(
+                    config.project,
+                    config.region,
+                    config.train_predict_job,
+                    "scripts.strategy1_cloudrun.train_predict",
+                    common_flags,
+                ),
+            ))
     backtest_flags = list(common_flags)
     backtest_flags.extend([f"--run-id={exp.run_id}", f"--prediction-run-id={exp.prediction_run_id}", f"--backtest-id={exp.backtest_id}"])
     if args.skip_diagnosis:
@@ -245,21 +252,115 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
     return steps
 
 
+def build_task_fanout_steps(config, exp, args, common_flags: list[str]) -> list[StepStateSpec]:
+    matrix_id = default_matrix_id(config, exp)
+    matrix_uri = matrix_artifact_uri(config, exp, matrix_id)
+    work_units_uri = join_gs_uri(matrix_uri, "work_units.json")
+    work_unit_count = len(config.candidate_grid)
+    candidate_parallelism = resolve_candidate_parallel_count(work_unit_count, args.candidate_parallelism)
+    prepare_flags = [
+        *common_flags,
+        f"--matrix-id={matrix_id}",
+        f"--matrix-uri={matrix_uri}",
+        f"--candidate-parallelism={args.candidate_parallelism}",
+    ]
+    steps = [
+        StepStateSpec(
+            step_id="cloudrun_prepare_matrix",
+            display_name="Cloud Run prepare frozen matrix",
+            lock_key=build_lock_key(exp, "cloudrun_prepare_matrix"),
+            job_name=config.prepare_matrix_job,
+            command=gcloud_execute_command(
+                config.project,
+                config.region,
+                config.prepare_matrix_job,
+                "scripts.strategy1_cloudrun.prepare_matrix",
+                prepare_flags,
+            ),
+        )
+    ]
+    for batch_index, batch_start in enumerate(range(0, work_unit_count, max(1, candidate_parallelism))):
+        batch_size = min(candidate_parallelism, work_unit_count - batch_start)
+        step_id = "cloudrun_train_candidate_fanout" if work_unit_count == batch_size else f"cloudrun_train_candidate_fanout_batch_{batch_index:03d}"
+        steps.append(StepStateSpec(
+            step_id=step_id,
+            display_name=f"Cloud Run candidate fan-out batch {batch_index}",
+            lock_key=build_lock_key(exp, step_id),
+            job_name=config.train_candidate_fanout_job,
+            command=gcloud_execute_command(
+                config.project,
+                config.region,
+                config.train_candidate_fanout_job,
+                "scripts.strategy1_cloudrun.train_candidate_task",
+                [
+                    f"--project={config.project}",
+                    f"--region={config.region}",
+                    f"--matrix-uri={matrix_uri}",
+                    f"--task-index-offset={batch_start}",
+                ],
+                tasks=batch_size,
+                env_vars={
+                    "MATRIX_ID": matrix_id,
+                    "MATRIX_URI": matrix_uri,
+                    "WORK_UNITS_URI": work_units_uri,
+                    "TASK_INDEX_OFFSET": str(batch_start),
+                },
+            ),
+        ))
+    select_flags = [
+        *common_flags,
+        f"--matrix-uri={matrix_uri}",
+    ]
+    steps.append(StepStateSpec(
+        step_id="cloudrun_select_register_predict",
+        display_name="Cloud Run select/register/predict",
+        lock_key=build_lock_key(exp, "cloudrun_select_register_predict"),
+        job_name=config.select_register_predict_job,
+        command=gcloud_execute_command(
+            config.project,
+            config.region,
+            config.select_register_predict_job,
+            "scripts.strategy1_cloudrun.select_register_predict",
+            select_flags,
+        ),
+    ))
+    return steps
+
+
+def resolve_candidate_parallel_count(work_unit_count: int, candidate_parallelism: int | None) -> int:
+    if work_unit_count <= 0:
+        raise ValueError("candidate grid is empty")
+    if candidate_parallelism is None or candidate_parallelism == 0:
+        return work_unit_count
+    if candidate_parallelism < 0:
+        raise ValueError("--candidate-parallelism must be >= 0")
+    return min(candidate_parallelism, work_unit_count)
+
+
 def gcloud_execute_command(
     project: str,
     region: str,
     job_name: str,
     module: str,
     job_args: list[str],
+    *,
+    tasks: int | None = None,
+    env_vars: dict[str, str] | None = None,
 ) -> list[str]:
     execution_args = ["-m", module, *job_args]
-    return [
+    command = [
         "gcloud", "run", "jobs", "execute", job_name,
         f"--project={project}",
         f"--region={region}",
         "--format=json",
         "--args=" + ",".join(execution_args),
     ]
+    if tasks is not None:
+        command.append(f"--tasks={tasks}")
+    if env_vars:
+        encoded = ",".join(f"{key}={value}" for key, value in sorted(env_vars.items()))
+        command.append("--update-env-vars=" + encoded)
+    return command
 
 
 def run_chain(

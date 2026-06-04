@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+"""Prepare a frozen Strategy 1 training matrix for Cloud Run task fan-out."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import joblib
+import pandas as pd
+from google.cloud import bigquery
+
+from scripts.strategy1_cloudrun import __version__
+from scripts.strategy1_cloudrun.bq_io import (
+    ADS,
+    env_container_image,
+    get_git_commit,
+    job_audit_dict,
+    join_gs_uri,
+    make_client,
+    query_dataframe_with_job,
+    upload_directory_to_gcs,
+    write_json,
+)
+from scripts.strategy1_cloudrun.config import (
+    Experiment,
+    add_common_args,
+    apply_cli_overrides,
+    experiment_from_b64,
+    filter_experiments,
+    load_manifest,
+    load_runner_config,
+)
+from scripts.strategy1_cloudrun.preprocess import MedianWinsorZScorePreprocessor, feature_frame_from_panel
+from scripts.strategy1_cloudrun.task_fanout import (
+    MATRIX_MANIFEST_VERSION,
+    build_work_units,
+    candidate_grid_hash,
+    default_matrix_id,
+    file_sha256,
+    matrix_artifact_uri,
+    matrix_local_dir,
+    sha256_json,
+    stamp_work_units,
+    write_manifest,
+    write_parquet,
+)
+
+
+def main() -> int:
+    args = parse_args()
+    config = apply_cli_overrides(load_runner_config(args.config), args)
+    experiment = resolve_experiment(args)
+    matrix_id = args.matrix_id or default_matrix_id(config, experiment)
+    matrix_uri = args.matrix_uri or matrix_artifact_uri(config, experiment, matrix_id)
+    local_dir = Path(args.matrix_local_dir) if args.matrix_local_dir else matrix_local_dir(config, experiment, matrix_id)
+    candidate_parallelism_resolved = resolve_candidate_parallelism(len(config.candidate_grid), args.candidate_parallelism)
+    plan = {
+        "entrypoint": "prepare_matrix",
+        "runner_version": __version__,
+        "project": config.project,
+        "region": config.region,
+        "experiment": experiment.to_params(),
+        "matrix_id": matrix_id,
+        "matrix_uri": matrix_uri,
+        "matrix_local_dir": str(local_dir),
+        "work_unit_count": len(config.candidate_grid),
+        "candidate_parallelism_resolved": candidate_parallelism_resolved,
+        "candidate_grid_hash": candidate_grid_hash(config),
+        "skip_gcs_upload": args.skip_gcs_upload,
+    }
+    if args.dry_run:
+        print(json.dumps(plan, ensure_ascii=False, indent=2, default=str))
+        return 0
+    result = prepare_matrix(
+        config=config,
+        experiment=experiment,
+        matrix_id=matrix_id,
+        matrix_uri=matrix_uri,
+        local_dir=local_dir,
+        skip_gcs_upload=args.skip_gcs_upload,
+        candidate_parallelism_resolved=candidate_parallelism_resolved,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Prepare Strategy 1 frozen matrix for Cloud Run task fan-out")
+    add_common_args(parser)
+    parser.add_argument("--experiment-id", required=True)
+    parser.add_argument("--experiment-json", default=None, help="Base64 encoded resolved experiment payload")
+    parser.add_argument("--matrix-id", default=None)
+    parser.add_argument("--matrix-uri", default=None)
+    parser.add_argument("--matrix-local-dir", default=None)
+    parser.add_argument("--candidate-parallelism", type=int, default=0)
+    parser.add_argument("--skip-gcs-upload", action="store_true")
+    return parser.parse_args()
+
+
+def resolve_experiment(args: argparse.Namespace) -> Experiment:
+    if args.experiment_json:
+        exp = experiment_from_b64(args.experiment_json)
+    else:
+        _, experiments = load_manifest(args.manifest)
+        matches = filter_experiments(experiments, experiment_id=args.experiment_id, include_blocked=True)
+        if not matches:
+            raise ValueError(f"experiment_id {args.experiment_id} not found in {args.manifest}")
+        exp = matches[0]
+    if not exp.requires_retrain:
+        raise ValueError(f"{exp.experiment_id} is portfolio-only and does not require prepare_matrix")
+    if not exp.is_executable:
+        raise ValueError(f"{exp.experiment_id} contains unresolved placeholders or blocked status")
+    return exp
+
+
+def prepare_matrix(
+    *,
+    config,
+    experiment: Experiment,
+    matrix_id: str,
+    matrix_uri: str,
+    local_dir: Path,
+    skip_gcs_upload: bool,
+    candidate_parallelism_resolved: int,
+) -> dict[str, Any]:
+    client = make_client(config.project, config.region)
+    labels = {
+        "pipeline_component": "strategy1_cloudrun",
+        "pipeline_step": "prepare_matrix",
+        "run_id": experiment.run_id,
+        "matrix_id": matrix_id,
+    }
+    panel, job = load_training_panel_with_job(client, experiment, labels)
+    if panel.empty:
+        raise RuntimeError(f"ads_ml_training_panel_daily has no rows for run_id={experiment.run_id}")
+
+    feature_frame, feature_columns = feature_frame_from_panel(panel)
+    panel = panel.reset_index(drop=True)
+    feature_frame = feature_frame.reset_index(drop=True)
+    feature_schema = {
+        "feature_columns": feature_columns,
+        "feature_count": len(feature_columns),
+        "feature_set_id": experiment.feature_set_id,
+        "feature_version": experiment.feature_version,
+        "feature_order_sha256": sha256_json(feature_columns),
+    }
+    train_mask = panel["split_tag"].eq("train") & panel["target_label"].notna()
+    valid_mask = panel["split_tag"].eq("valid")
+    predict_mask = panel["split_tag"].isin(["valid", "test"])
+    if int(train_mask.sum()) == 0:
+        raise RuntimeError("train split has no labeled samples")
+    if int(valid_mask.sum()) == 0:
+        raise RuntimeError("valid split has no prediction samples")
+    if int(predict_mask.sum()) == 0:
+        raise RuntimeError("valid/test predict split has no samples")
+
+    preprocessor = MedianWinsorZScorePreprocessor(
+        feature_columns=feature_columns,
+        winsor_lower=config.winsor_lower,
+        winsor_upper=config.winsor_upper,
+    ).fit(feature_frame.loc[train_mask])
+    preprocess_stats = preprocessor.to_json_dict()
+    preprocess_stats["preprocess_stats_sha256"] = sha256_json(preprocess_stats)
+
+    local_dir.mkdir(parents=True, exist_ok=True)
+    x_train = pd.DataFrame(preprocessor.transform(feature_frame.loc[train_mask]), columns=feature_columns)
+    x_valid = pd.DataFrame(preprocessor.transform(feature_frame.loc[valid_mask]), columns=feature_columns)
+    x_predict = pd.DataFrame(preprocessor.transform(feature_frame.loc[predict_mask]), columns=feature_columns)
+    train_labels = label_frame(panel.loc[train_mask])
+    valid_labels = label_frame(panel.loc[valid_mask])
+    predict_index = predict_index_frame(panel.loc[predict_mask])
+
+    write_parquet(x_train, local_dir / "train_features.parquet")
+    write_parquet(train_labels, local_dir / "train_labels.parquet")
+    write_parquet(x_valid, local_dir / "valid_features.parquet")
+    write_parquet(valid_labels, local_dir / "valid_labels.parquet")
+    write_parquet(x_predict, local_dir / "predict_features.parquet")
+    write_parquet(predict_index, local_dir / "predict_index.parquet")
+    write_json(local_dir / "feature_schema.json", feature_schema)
+    write_json(local_dir / "preprocess_stats.json", preprocess_stats)
+    joblib.dump(preprocessor, local_dir / "preprocess.joblib")
+
+    work_units = stamp_work_units(build_work_units(config, experiment, matrix_uri), matrix_id, matrix_uri)
+    work_units["candidate_parallelism_resolved"] = candidate_parallelism_resolved
+    work_units["work_units_sha256"] = sha256_json({k: v for k, v in work_units.items() if k != "work_units_sha256"})
+    write_json(local_dir / "work_units.json", work_units)
+    bq_audit = {
+        "jobs": [job_audit_dict(job)],
+        "forbidden_candidate_query_count": 0,
+        "audit_rule": "candidate tasks do not query BigQuery in P0; prepare_matrix is the only full-panel reader",
+    }
+    write_json(local_dir / "bq_audit.json", bq_audit)
+
+    manifest = {
+        "manifest_version": MATRIX_MANIFEST_VERSION,
+        "run_id": experiment.run_id,
+        "prediction_run_id": experiment.prediction_run_id,
+        "experiment_id": experiment.experiment_id,
+        "matrix_id": matrix_id,
+        "matrix_uri": matrix_uri,
+        "source_table": f"{ADS}.ads_ml_training_panel_daily",
+        "source_run_id": experiment.run_id,
+        "source_row_count": int(len(panel)),
+        "train_row_count": int(train_mask.sum()),
+        "valid_row_count": int(valid_mask.sum()),
+        "predict_row_count": int(predict_mask.sum()),
+        "feature_order_sha256": feature_schema["feature_order_sha256"],
+        "preprocess_stats_sha256": preprocess_stats["preprocess_stats_sha256"],
+        "work_units_sha256": work_units["work_units_sha256"],
+        "candidate_grid_hash": candidate_grid_hash(config),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by_job": "prepare_matrix",
+        "container_image": env_container_image(),
+        "git_commit": get_git_commit(),
+        "runner_version": __version__,
+        "files_sha256": {
+            "train_features.parquet": file_sha256(local_dir / "train_features.parquet"),
+            "train_labels.parquet": file_sha256(local_dir / "train_labels.parquet"),
+            "valid_features.parquet": file_sha256(local_dir / "valid_features.parquet"),
+            "valid_labels.parquet": file_sha256(local_dir / "valid_labels.parquet"),
+            "predict_features.parquet": file_sha256(local_dir / "predict_features.parquet"),
+            "predict_index.parquet": file_sha256(local_dir / "predict_index.parquet"),
+            "feature_schema.json": file_sha256(local_dir / "feature_schema.json"),
+            "preprocess_stats.json": file_sha256(local_dir / "preprocess_stats.json"),
+            "work_units.json": file_sha256(local_dir / "work_units.json"),
+            "bq_audit.json": file_sha256(local_dir / "bq_audit.json"),
+        },
+    }
+    write_manifest(local_dir / "matrix_manifest.json", manifest)
+
+    uploaded = [] if skip_gcs_upload else upload_directory_to_gcs(config.project, local_dir, matrix_uri)
+    return {
+        "status": "succeeded",
+        "run_id": experiment.run_id,
+        "matrix_id": matrix_id,
+        "matrix_uri": matrix_uri,
+        "matrix_local_dir": str(local_dir),
+        "source_row_count": manifest["source_row_count"],
+        "train_row_count": manifest["train_row_count"],
+        "valid_row_count": manifest["valid_row_count"],
+        "predict_row_count": manifest["predict_row_count"],
+        "work_unit_count": work_units["work_unit_count"],
+        "candidate_parallelism_resolved": candidate_parallelism_resolved,
+        "uploaded_artifacts": uploaded,
+    }
+
+
+def resolve_candidate_parallelism(work_unit_count: int, candidate_parallelism: int | None) -> int:
+    if work_unit_count < 0:
+        raise ValueError("work_unit_count must be non-negative")
+    if candidate_parallelism is None or candidate_parallelism == 0:
+        return work_unit_count
+    if candidate_parallelism < 0:
+        raise ValueError("--candidate-parallelism must be >= 0")
+    return min(candidate_parallelism, work_unit_count)
+
+
+def load_training_panel_with_job(
+    client: bigquery.Client,
+    experiment: Experiment,
+    labels: dict[str, str],
+) -> tuple[pd.DataFrame, bigquery.QueryJob]:
+    sql = f"""
+    SELECT
+      run_id, strategy_id, trade_date, sec_code, horizon, split_tag,
+      sample_weight, target_label, target_return, feature_values_json,
+      feature_column_list, feature_version, label_version, preprocess_version
+    FROM `{ADS}.ads_ml_training_panel_daily`
+    WHERE run_id = @run_id
+      AND trade_date BETWEEN @train_start AND @test_end
+    ORDER BY trade_date, sec_code
+    """
+    return query_dataframe_with_job(
+        client,
+        sql,
+        [
+            bigquery.ScalarQueryParameter("run_id", "STRING", experiment.run_id),
+            bigquery.ScalarQueryParameter("train_start", "DATE", experiment.train_start),
+            bigquery.ScalarQueryParameter("test_end", "DATE", experiment.test_end),
+        ],
+        labels=labels,
+    )
+
+
+def label_frame(panel: pd.DataFrame) -> pd.DataFrame:
+    out = panel[[
+        "trade_date", "sec_code", "horizon", "split_tag", "sample_weight",
+        "target_label", "target_return", "feature_version", "label_version", "preprocess_version",
+    ]].copy()
+    out["trade_date"] = pd.to_datetime(out["trade_date"]).dt.date
+    return out
+
+
+def predict_index_frame(panel: pd.DataFrame) -> pd.DataFrame:
+    out = panel[[
+        "trade_date", "sec_code", "horizon", "split_tag", "feature_version", "label_version",
+    ]].copy()
+    out["trade_date"] = pd.to_datetime(out["trade_date"]).dt.date
+    return out
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

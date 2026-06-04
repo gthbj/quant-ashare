@@ -13,6 +13,7 @@ DECLARE p_expected_ledger_executor STRING DEFAULT 'cloud_run_python';
 DECLARE p_expected_executable_experiment_count INT64 DEFAULT NULL;
 DECLARE p_resolved_max_parallel_experiments INT64 DEFAULT NULL;
 DECLARE p_require_model_quality_parity_passed BOOL DEFAULT TRUE;
+DECLARE p_require_task_fanout BOOL DEFAULT FALSE;
 
 SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
 
@@ -98,3 +99,34 @@ ASSERT (
     OR p_resolved_max_parallel_experiments IS NULL
     OR p_expected_executable_experiment_count = p_resolved_max_parallel_experiments
 ) AS 'QA-CR-7: unresolved max_parallel must resolve to executable experiment count';
+
+-- QA-CR-8: task fan-out registry metrics are complete when the task fan-out path is required.
+ASSERT (
+  SELECT
+    NOT p_require_task_fanout
+    OR (
+      COUNT(*) = 1
+      AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.task_fanout_mode') = 'task_fanout')
+      AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.matrix_id') IS NOT NULL)
+      AND LOGICAL_AND(STARTS_WITH(JSON_VALUE(reg.metrics_json, '$.matrix_uri'), 'gs://'))
+      AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.feature_order_sha256') IS NOT NULL)
+      AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.preprocess_stats_sha256') IS NOT NULL)
+      AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.work_units_sha256') IS NOT NULL)
+      AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.work_unit_count') AS INT64) > 0)
+      AND LOGICAL_AND(
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.succeeded_task_count') AS INT64)
+        = SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.work_unit_count') AS INT64)
+      )
+      AND LOGICAL_AND(
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_parallelism_resolved') AS INT64)
+        BETWEEN 1 AND SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.work_unit_count') AS INT64)
+      )
+      AND LOGICAL_AND(
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_task_bq_forbidden_table_query_count') AS INT64) = 0
+      )
+    )
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.strategy_id = p_strategy_id
+    AND reg.status = 'selected'
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
+) AS 'QA-CR-8: task fan-out selected model must record complete matrix/work-unit audit metrics';

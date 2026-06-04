@@ -255,6 +255,29 @@ def train_candidate(
     feature_frame: pd.DataFrame,
     preprocessor: MedianWinsorZScorePreprocessor,
 ) -> CandidateResult:
+    valid_mask = panel["split_tag"].eq("valid")
+    x_valid = preprocessor.transform(feature_frame.loc[valid_mask])
+    valid_panel = panel.loc[valid_mask, ["trade_date", "sec_code", "target_label", "target_return"]].copy()
+    return train_candidate_from_matrices(
+        config,
+        candidate_cfg,
+        x_train,
+        y_train,
+        sample_weight,
+        valid_panel,
+        x_valid,
+    )
+
+
+def train_candidate_from_matrices(
+    config: RunnerConfig,
+    candidate_cfg: dict[str, Any],
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    sample_weight: np.ndarray,
+    valid_panel: pd.DataFrame,
+    x_valid: np.ndarray,
+) -> CandidateResult:
     from sklearn.linear_model import LogisticRegression
 
     params = {
@@ -271,10 +294,7 @@ def train_candidate(
     model = LogisticRegression(**params)
     model.fit(x_train, y_train, sample_weight=sample_weight)
 
-    valid_mask = panel["split_tag"].eq("valid")
-    x_valid = preprocessor.transform(feature_frame.loc[valid_mask])
     raw_score = model.predict_proba(x_valid)[:, 1]
-    valid_panel = panel.loc[valid_mask, ["trade_date", "sec_code", "target_label", "target_return"]].copy()
 
     raw_metrics = evaluate_scores(valid_panel, raw_score)
     rev_metrics = evaluate_scores(valid_panel, 1.0 - raw_score)
@@ -298,9 +318,9 @@ def train_candidate(
         "valid_topn_fwd_ret_mean": oriented_metrics["topn_fwd_ret_mean"],
         "roc_auc": class_metrics["roc_auc"],
         "log_loss": class_metrics["log_loss"],
-        "valid_prediction_rows": int(valid_mask.sum()),
+        "valid_prediction_rows": int(len(valid_panel)),
         "valid_eval_rows": int(valid_panel["target_return"].notna().sum()),
-        "valid_eval_coverage": safe_divide(valid_panel["target_return"].notna().sum(), valid_mask.sum()),
+        "valid_eval_coverage": safe_divide(valid_panel["target_return"].notna().sum(), len(valid_panel)),
     }
     return CandidateResult(
         candidate_id=candidate_cfg["candidate_id"],
@@ -568,6 +588,18 @@ def write_predictions(
     model_id: str,
 ) -> None:
     x_pred = preprocessor.transform(predict_feature_frame)
+    write_predictions_from_preprocessed(client, config, experiment, predict_panel, x_pred, selected, model_id)
+
+
+def write_predictions_from_preprocessed(
+    client: bigquery.Client,
+    config: RunnerConfig,
+    experiment: Experiment,
+    predict_panel: pd.DataFrame,
+    x_pred: np.ndarray,
+    selected: CandidateResult,
+    model_id: str,
+) -> None:
     raw_score = selected.model.predict_proba(x_pred)[:, 1]
     oriented = 1.0 - raw_score if selected.score_orientation == "reverse_probability" else raw_score
     out = predict_panel[["trade_date", "sec_code"]].copy()

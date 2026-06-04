@@ -39,6 +39,9 @@ class RunnerConfig:
     local_mirror_root: str = DEFAULT_LOCAL_MIRROR_ROOT
     execution_backend: str = DEFAULT_EXECUTION_BACKEND
     train_predict_job: str = "strategy1-train-predict-job"
+    prepare_matrix_job: str = "strategy1-prepare-matrix-job"
+    train_candidate_fanout_job: str = "strategy1-train-candidate-fanout-job"
+    select_register_predict_job: str = "strategy1-select-register-predict-job"
     backtest_report_job: str = "strategy1-backtest-report-job"
     lock_bucket: str = DEFAULT_LOCK_BUCKET
     lock_prefix: str = DEFAULT_LOCK_PREFIX
