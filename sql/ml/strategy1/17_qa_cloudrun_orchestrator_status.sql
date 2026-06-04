@@ -58,19 +58,22 @@ ASSERT (
     AND step_id = 'cloudrun_backtest_report'
 ) AS 'QA-CRO-3: backtest/report status row must be succeeded with lock metadata';
 
--- QA-CRO-4: no active duplicate Cloud Run status rows for the same run/step.
+-- QA-CRO-4: started Cloud Run steps must record execution id.
 ASSERT (
   SELECT COUNT(*) = 0
   FROM (
-    SELECT step_id
-    FROM `data-aquarium.ashare_meta.strategy1_experiment_run_status`
-    WHERE run_id = p_run_id
-      AND step_id IN ('cloudrun_train_predict', 'cloudrun_backtest_report')
-      AND status = 'running'
-    GROUP BY step_id
-    HAVING COUNT(*) > 1
-  )
-) AS 'QA-CRO-4: no duplicate running Cloud Run status rows for same run/step';
+    SELECT 'cloudrun_train_predict' AS step_id, p_require_train_step AS is_required
+    UNION ALL
+    SELECT 'cloudrun_backtest_report' AS step_id, p_require_backtest_step AS is_required
+  ) AS required
+  LEFT JOIN `data-aquarium.ashare_meta.strategy1_experiment_run_status` AS status
+    ON status.experiment_id = p_experiment_id
+   AND status.run_id = p_run_id
+   AND status.step_id = required.step_id
+   AND status.status = 'succeeded'
+  WHERE required.is_required
+    AND (status.job_id IS NULL OR status.job_id = '')
+) AS 'QA-CRO-4: succeeded Cloud Run orchestrator steps must record execution id';
 
 -- QA-CRO-5: succeeded Cloud Run rows must preserve manifest/runner audit metadata.
 ASSERT (

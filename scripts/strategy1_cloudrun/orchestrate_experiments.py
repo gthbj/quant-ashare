@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import logging
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 from scripts.strategy1_cloudrun import __version__
@@ -29,10 +31,16 @@ from scripts.strategy1_cloudrun.state import (
     OrchestratorStatusTable,
     StepStateSpec,
     build_lock_key,
+    cancel_cloud_run_execution,
+    cloud_run_execution_state,
+    describe_cloud_run_execution,
     experiment_params_json,
     extract_cloud_run_execution_id,
     scheduler_instance_id,
 )
+
+
+LOGGER = logging.getLogger("strategy1_cloudrun.orchestrator")
 
 
 def main() -> int:
@@ -94,6 +102,7 @@ def main() -> int:
     max_workers = max(1, resolved_parallel)
     lock_config = LockConfig(
         project=config.project,
+        region=config.region,
         bucket=args.lock_bucket or config.lock_bucket,
         prefix=args.lock_prefix or config.lock_prefix,
         ttl_minutes=args.lock_ttl_minutes or config.lock_ttl_minutes,
@@ -203,6 +212,7 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
             step_id="cloudrun_train_predict",
             display_name="Cloud Run sklearn train/predict",
             lock_key=build_lock_key(exp, "cloudrun_train_predict"),
+            job_name=config.train_predict_job,
             command=gcloud_execute_command(config.project, config.region, config.train_predict_job, common_flags),
         ))
     backtest_flags = list(common_flags)
@@ -217,6 +227,7 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
         step_id="cloudrun_backtest_report",
         display_name="Cloud Run backtest/report",
         lock_key=build_lock_key(exp, "cloudrun_backtest_report"),
+        job_name=config.backtest_report_job,
         command=gcloud_execute_command(config.project, config.region, config.backtest_report_job, backtest_flags),
     ))
     return steps
@@ -227,7 +238,6 @@ def gcloud_execute_command(project: str, region: str, job_name: str, job_args: l
         "gcloud", "run", "jobs", "execute", job_name,
         f"--project={project}",
         f"--region={region}",
-        "--wait",
         "--format=json",
         "--args=" + ",".join(job_args),
     ]
@@ -291,11 +301,24 @@ def run_locked_step(
         )
         raise RuntimeError(f"{exp.experiment_id}/{step.step_id}: lock busy or acquire failed")
     heartbeat_stop = threading.Event()
+    heartbeat_abort = threading.Event()
     heartbeat_thread = threading.Thread(
         target=_heartbeat_loop,
-        args=(lock, status_table, exp, step, scheduler_id, manifest_hash_value, params_json, args, heartbeat_stop),
+        args=(
+            lock,
+            status_table,
+            exp,
+            step,
+            scheduler_id,
+            manifest_hash_value,
+            params_json,
+            args,
+            heartbeat_stop,
+            heartbeat_abort,
+        ),
         daemon=True,
     )
+    terminal_status_written = False
     try:
         status_table.upsert(
             exp, step, status="running", scheduler_id=scheduler_id,
@@ -304,24 +327,67 @@ def run_locked_step(
             lock=lock,
         )
         heartbeat_thread.start()
-        proc = subprocess.run(step.command, text=True, capture_output=True)
-        execution_id = extract_cloud_run_execution_id(proc.stdout, proc.stderr)
+        start_proc = subprocess.run(step.command, text=True, capture_output=True)
+        execution_id = extract_cloud_run_execution_id(start_proc.stdout, start_proc.stderr)
+        start_result = {
+            "step_id": step.step_id,
+            "lock_key": step.lock_key,
+            "command": step.command,
+            "start_returncode": start_proc.returncode,
+            "cloud_run_execution_id": execution_id,
+            "stdout_tail": start_proc.stdout[-4000:],
+            "stderr_tail": start_proc.stderr[-4000:],
+        }
+        if start_proc.returncode != 0 or not execution_id:
+            status_table.upsert(
+                exp, step, status="failed", scheduler_id=scheduler_id,
+                manifest_path=args.manifest, manifest_hash=manifest_hash_value,
+                params_json=params_json, force_replace=args.force_replace,
+                lock=lock, job_id=execution_id, error_message=json.dumps(start_result, ensure_ascii=False)[-8000:],
+            )
+            terminal_status_written = True
+            raise RuntimeError(json.dumps(start_result, ensure_ascii=False))
+        if not lock.record_execution(execution_id=execution_id, job_name=step.job_name):
+            cancel_cloud_run_execution(config.project, config.region, execution_id)
+            status_table.upsert(
+                exp, step, status="failed", scheduler_id=scheduler_id,
+                manifest_path=args.manifest, manifest_hash=manifest_hash_value,
+                params_json=params_json, force_replace=args.force_replace,
+                lock=lock, job_id=execution_id, error_message="failed to record execution id in GCS lock",
+            )
+            terminal_status_written = True
+            raise RuntimeError(f"{exp.experiment_id}/{step.step_id}: failed to record execution id in GCS lock")
+        status_table.upsert(
+            exp, step, status="running", scheduler_id=scheduler_id,
+            manifest_path=args.manifest, manifest_hash=manifest_hash_value,
+            params_json=params_json, force_replace=args.force_replace,
+            lock=lock, job_id=execution_id,
+        )
+        execution_payload = wait_for_cloud_run_execution(
+            project=config.project,
+            region=config.region,
+            execution_id=execution_id,
+            poll_seconds=max(5, min(30, int(args.heartbeat_interval_seconds or 60))),
+            abort_event=heartbeat_abort,
+        )
+        execution_state = cloud_run_execution_state(execution_payload)
         result = {
             "step_id": step.step_id,
             "lock_key": step.lock_key,
             "command": step.command,
-            "returncode": proc.returncode,
             "cloud_run_execution_id": execution_id,
-            "stdout_tail": proc.stdout[-4000:],
-            "stderr_tail": proc.stderr[-4000:],
+            "cloud_run_execution_state": execution_state,
+            "start_stdout_tail": start_proc.stdout[-4000:],
+            "start_stderr_tail": start_proc.stderr[-4000:],
         }
-        if proc.returncode != 0:
+        if execution_state != "succeeded":
             status_table.upsert(
                 exp, step, status="failed", scheduler_id=scheduler_id,
                 manifest_path=args.manifest, manifest_hash=manifest_hash_value,
                 params_json=params_json, force_replace=args.force_replace,
                 lock=lock, job_id=execution_id, error_message=json.dumps(result, ensure_ascii=False)[-8000:],
             )
+            terminal_status_written = True
             raise RuntimeError(json.dumps(result, ensure_ascii=False))
         status_table.upsert(
             exp, step, status="succeeded", scheduler_id=scheduler_id,
@@ -329,10 +395,11 @@ def run_locked_step(
             params_json=params_json, force_replace=args.force_replace,
             lock=lock, job_id=execution_id,
         )
+        terminal_status_written = True
         result["status"] = "succeeded"
         return result
     except Exception as exc:
-        if "returncode" not in str(exc):
+        if not terminal_status_written:
             status_table.upsert(
                 exp, step, status="failed", scheduler_id=scheduler_id,
                 manifest_path=args.manifest, manifest_hash=manifest_hash_value,
@@ -357,18 +424,53 @@ def _heartbeat_loop(
     params_json: str,
     args,
     stop_event: threading.Event,
+    abort_event: threading.Event,
 ) -> None:
     interval = max(5, int(args.heartbeat_interval_seconds or 60))
     while not stop_event.wait(interval):
-        lease_expires_at = lock.heartbeat()
-        if lease_expires_at is None:
+        try:
+            lease_expires_at = lock.heartbeat()
+        except Exception as exc:
+            LOGGER.warning("heartbeat loop GCS update failed: %s/%s: %s", exp.experiment_id, step.step_id, exc)
             continue
-        status_table.upsert(
-            exp, step, status="running", scheduler_id=scheduler_id,
-            manifest_path=args.manifest, manifest_hash=manifest_hash_value,
-            params_json=params_json, force_replace=args.force_replace,
-            lock=lock,
-        )
+        if lease_expires_at is None:
+            abort_event.set()
+            return
+        try:
+            status_table.upsert(
+                exp, step, status="running", scheduler_id=scheduler_id,
+                manifest_path=args.manifest, manifest_hash=manifest_hash_value,
+                params_json=params_json, force_replace=args.force_replace,
+                lock=lock,
+            )
+        except Exception as exc:
+            LOGGER.warning("heartbeat loop status upsert failed: %s/%s: %s", exp.experiment_id, step.step_id, exc)
+
+
+def wait_for_cloud_run_execution(
+    *,
+    project: str,
+    region: str,
+    execution_id: str,
+    poll_seconds: int,
+    abort_event: threading.Event,
+) -> dict[str, object] | None:
+    unknown_count = 0
+    while True:
+        if abort_event.is_set():
+            cancel_cloud_run_execution(project, region, execution_id)
+            raise RuntimeError(f"{execution_id}: lost GCS lock ownership; cancelled execution")
+        payload = describe_cloud_run_execution(project, region, execution_id)
+        state = cloud_run_execution_state(payload)
+        if state == "unknown":
+            unknown_count += 1
+            if unknown_count >= 5:
+                raise RuntimeError(f"{execution_id}: unable to describe Cloud Run execution state")
+        else:
+            unknown_count = 0
+        if state in {"succeeded", "failed", "cancelled"}:
+            return payload
+        time.sleep(poll_seconds)
 
 
 def _step_plan(step: StepStateSpec) -> dict[str, object]:
@@ -376,6 +478,7 @@ def _step_plan(step: StepStateSpec) -> dict[str, object]:
         "step_id": step.step_id,
         "display_name": step.display_name,
         "lock_key": step.lock_key,
+        "job_name": step.job_name,
         "command": step.command,
     }
 

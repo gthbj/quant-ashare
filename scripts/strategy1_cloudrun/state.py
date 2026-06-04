@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -31,12 +32,14 @@ class StepStateSpec:
     step_id: str
     display_name: str
     lock_key: str
+    job_name: str
     command: list[str]
 
 
 @dataclass(frozen=True)
 class LockConfig:
     project: str
+    region: str
     bucket: str = DEFAULT_LOCK_BUCKET
     prefix: str = DEFAULT_LOCK_PREFIX
     ttl_minutes: int = DEFAULT_LOCK_TTL_MINUTES
@@ -151,8 +154,37 @@ class GcsLeaseLock:
             self.lease_expires_at = lease_expires_at
             return lease_expires_at
         except Exception as exc:
+            if _is_precondition_error(exc) or _is_not_found_error(exc):
+                LOGGER.warning("lock heartbeat lost ownership: %s: %s", self.blob_name, exc)
+                return None
             LOGGER.warning("lock heartbeat failed: %s: %s", self.blob_name, exc)
-            return None
+            return self.lease_expires_at
+
+    def record_execution(self, *, execution_id: str, job_name: str) -> bool:
+        if self.config.dry_run:
+            return True
+        if self._blob is None or self._generation is None:
+            return False
+        try:
+            blob = self._blob.bucket.blob(self._blob.name)
+            existing = blob.download_as_bytes(if_generation_match=self._generation)
+            payload = json.loads(existing)
+            payload["cloud_run_job_name"] = job_name
+            payload["cloud_run_execution_id"] = execution_id
+            payload["job_id"] = execution_id
+            payload["execution_recorded_at"] = utc_now().isoformat()
+            blob.upload_from_string(
+                json.dumps(payload, ensure_ascii=False),
+                content_type="application/json",
+                if_generation_match=self._generation,
+            )
+            blob.reload()
+            self._blob = blob
+            self._generation = int(blob.generation)
+            return True
+        except Exception as exc:
+            LOGGER.warning("lock execution record failed: %s: %s", self.blob_name, exc)
+            return False
 
     def release(self) -> None:
         if self.config.dry_run or self._blob is None:
@@ -175,6 +207,10 @@ class GcsLeaseLock:
                 return False
             expires_at = datetime.fromisoformat(expires_raw)
             if utc_now() <= expires_at:
+                return False
+            execution_id = payload.get("cloud_run_execution_id") or payload.get("job_id")
+            if execution_id and not is_cloud_run_execution_terminal(self.config.project, self.config.region, execution_id):
+                LOGGER.warning("stale lock not reclaimed because execution is not terminal: %s", execution_id)
                 return False
             blob.delete(if_generation_match=generation)
             return True
@@ -364,6 +400,73 @@ def extract_cloud_run_execution_id(stdout: str, stderr: str) -> str | None:
     return None
 
 
+def describe_cloud_run_execution(project: str, region: str, execution_id: str) -> dict[str, Any] | None:
+    proc = subprocess.run(
+        [
+            "gcloud", "run", "jobs", "executions", "describe", execution_id,
+            f"--project={project}",
+            f"--region={region}",
+            "--format=json",
+        ],
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        LOGGER.warning("Cloud Run execution describe failed: %s: %s", execution_id, proc.stderr[-1000:])
+        return None
+    try:
+        return json.loads(proc.stdout)
+    except Exception as exc:
+        LOGGER.warning("Cloud Run execution describe JSON parse failed: %s: %s", execution_id, exc)
+        return None
+
+
+def cancel_cloud_run_execution(project: str, region: str, execution_id: str) -> None:
+    proc = subprocess.run(
+        [
+            "gcloud", "run", "jobs", "executions", "cancel", execution_id,
+            f"--project={project}",
+            f"--region={region}",
+            "--quiet",
+        ],
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        LOGGER.warning("Cloud Run execution cancel failed: %s: %s", execution_id, proc.stderr[-1000:])
+
+
+def cloud_run_execution_state(payload: dict[str, Any] | None) -> str:
+    if not payload:
+        return "unknown"
+    status = payload.get("status") or {}
+    conditions = status.get("conditions") or []
+    for condition in conditions:
+        condition_type = str(condition.get("type") or "").lower()
+        if condition_type not in {"completed", "complete", "succeeded"}:
+            continue
+        value = str(condition.get("state") or condition.get("status") or "").lower()
+        reason = str(condition.get("reason") or "").lower()
+        if value in {"true", "condition_succeeded", "succeeded"}:
+            return "succeeded"
+        if value in {"false", "condition_failed", "failed"}:
+            if "cancel" in reason:
+                return "cancelled"
+            return "failed"
+    if status.get("completionTime") or status.get("completion_time"):
+        if _int_value(status.get("cancelledCount") or status.get("cancelled_count")) > 0:
+            return "cancelled"
+        if _int_value(status.get("failedCount") or status.get("failed_count")) > 0:
+            return "failed"
+        return "succeeded"
+    return "running"
+
+
+def is_cloud_run_execution_terminal(project: str, region: str, execution_id: str) -> bool:
+    state = cloud_run_execution_state(describe_cloud_run_execution(project, region, execution_id))
+    return state in {"succeeded", "failed", "cancelled"}
+
+
 def _find_execution_id(value: Any) -> str | None:
     if isinstance(value, dict):
         for key in ("name", "execution", "latestCreatedExecution"):
@@ -371,6 +474,8 @@ def _find_execution_id(value: Any) -> str | None:
             if isinstance(raw, str):
                 if "/executions/" in raw:
                     return raw.rsplit("/executions/", 1)[-1]
+                if key == "name":
+                    return raw.rsplit("/", 1)[-1]
                 if "execution" in key.lower():
                     return raw.rsplit("/", 1)[-1]
         for nested in value.values():
@@ -388,3 +493,15 @@ def _find_execution_id(value: Any) -> str | None:
 def _is_precondition_error(exc: Exception) -> bool:
     text = str(exc)
     return any(token in text for token in ("conditionNotMet", "PreconditionFailed", "GenerationDoesNotMatch", "412"))
+
+
+def _is_not_found_error(exc: Exception) -> bool:
+    text = str(exc)
+    return any(token in text for token in ("NotFound", "404", "No such object"))
+
+
+def _int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0

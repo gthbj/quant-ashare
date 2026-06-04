@@ -188,10 +188,12 @@ python -m scripts.strategy1_cloudrun.orchestrate_experiments \
 2. `N > 0`：同一时刻最多 N 条实验链。
 3. 每个子 job 使用状态表 step：`cloudrun_train_predict` / `cloudrun_backtest_report`。
 4. 每个子 job 先获取 GCS lock：`gs://ashare-artifacts/locks/strategy1/cloudrun/<lock_key>.lock`，锁创建、heartbeat、release 均使用 object generation 条件操作。
-5. 默认遇到实验失败时停止提交新的排队实验，但已提交到 Cloud Run 的 job 会继续由 Cloud Run 执行；所有已完成 / 失败 / 跳过结果都会在最终 JSON 中列出。
-6. 如需继续执行剩余排队实验，加 `--continue-on-error`；最终仍会按失败数量返回非零退出码。
-7. 如需从状态表恢复，使用 `--resume` 跳过已 `succeeded` 的 step；或用 `--resume-from-step cloudrun_backtest_report` 从指定 step 重跑。
-8. 如果 GCP quota 不足，失败实验必须以 Cloud Run execution 和日志追踪，不允许 runner 静默降到内部默认 2 或 1。
+5. 获取锁后启动 Cloud Run execution，立即把 execution id 写入 GCS lock 和状态表，然后由 orchestrator 轮询 execution terminal 状态。
+6. stale lock 回收前会先检查原 Cloud Run execution；execution 仍在运行时不得抢占。当前执行失锁时会 cancel 对应 execution，避免两个 writer 写同一 run/backtest。
+7. 默认遇到实验失败时停止提交新的排队实验；所有已完成 / 失败 / 跳过结果都会在最终 JSON 中列出。
+8. 如需继续执行剩余排队实验，加 `--continue-on-error`；最终仍会按失败数量返回非零退出码。
+9. 如需从状态表恢复，使用 `--resume` 跳过已 `succeeded` 的 step；或用 `--resume-from-step cloudrun_backtest_report` 从指定 step 重跑。
+10. 如果 GCP quota 不足，失败实验必须以 Cloud Run execution 和日志追踪，不允许 runner 静默降到内部默认 2 或 1。
 
 ## 8. QA
 
