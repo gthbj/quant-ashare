@@ -55,6 +55,19 @@ python scripts/strategy1/diagnose_model_quality.py \
     --skip-gcs-upload
 
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql
+
+# 13-14: 因子贡献度分析（在 01-12 和模型诊断成功后执行）
+# attribute_factor_contribution.py 只读 selected model / prediction / backtest / feature panel，
+# 不重新训练、不做消融实验；生成 factor_attribution/ artifact，并回写 summary.metrics_json。
+python scripts/strategy1/attribute_factor_contribution.py \
+    --project data-aquarium \
+    --run-id s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01 \
+    --backtest-id bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01 \
+    --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
+    --local-mirror-root reports/strategy1 \
+    --skip-gcs-upload
+
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/14_qa_factor_attribution_outputs.sql
 ```
 
 ## 参数说明
@@ -216,6 +229,45 @@ valid/test 预测、候选池、组合和回测从 live-available prediction poo
 | `--skip-gcs-upload` | 跳过 GCS 上传 |
 | `--p-target-holdings` | 当前目标持股数（默认 5） |
 | `--p-label-horizon` | 当前目标标签周期；默认从 registry `model_params_json.label_horizon` 读取，缺失时为 5 |
+
+## 因子贡献度产物（PRD-20260604-03）
+
+因子贡献度输出到 `reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/factor_attribution/`：
+
+| 文件 | 说明 |
+|---|---|
+| `factor_attribution.md` | 中文因子贡献度摘要（人读） |
+| `factor_attribution_summary.json` | 结构化摘要、top 因子 / 因子组、路径和 manifest |
+| `factor_model_weights.csv` | selected BQML 模型系数、训练期统计、orientation 后系数 |
+| `factor_rank_ic_daily.csv` | valid/test 单因子日频 RankIC |
+| `factor_rank_ic_summary.csv` | valid/test 单因子 RankIC 汇总 |
+| `factor_bucket_lift_summary.csv` | 单因子 5 bucket top-minus-bottom 汇总 |
+| `factor_score_contribution_summary.csv` | all/top/bottom/candidate/holding 的模型分数贡献汇总 |
+| `portfolio_factor_exposure_daily.csv` | 实际持仓和候选池因子暴露日频 |
+| `portfolio_factor_attribution_proxy.csv` | 持仓暴露 × 单因子日截面收益斜率的归因 proxy |
+| `factor_group_summary.csv` | 因子组层面的模型贡献、RankIC、暴露和共线性摘要 |
+| `factor_correlation_summary.csv` | 高相关因子对和因子组共线性摘要 |
+| `artifact_manifest.json` | 文件 hash / 行数 / 本地路径 / GCS URI |
+
+该步骤不做消融实验、不重新训练、不改变交易输出。`render_report.py` 在检测到 `metrics_json.factor_attribution_status='completed'` 后，会在主报告中展示因子贡献度摘要和 artifact 路径。
+
+### attribute_factor_contribution.py 参数
+
+| 参数 | 说明 |
+|---|---|
+| `--project` | GCP project id |
+| `--run-id` | 当前 run_id；组合实验可与 prediction source 不同 |
+| `--prediction-run-id` | 模型/预测来源 run_id；默认等于 `--run-id` |
+| `--backtest-id` | 回测 ID |
+| `--strategy-id` | 策略 ID（默认 `ml_pv_clf_v0`） |
+| `--artifact-base-uri` | GCS 基础路径 |
+| `--local-mirror-root` | 本地镜像根目录 |
+| `--skip-gcs-upload` | 跳过 GCS 上传，仅写本地（不写 `factor_attribution_uri`） |
+| `--p-label-horizon` | 标签周期；默认从 summary / registry 推断 |
+| `--start-date` / `--end-date` | 分析窗口；默认用 backtest summary 的起止日期 |
+| `--min-daily-factor-samples` | 计算日频单因子 RankIC / bucket lift 的最小日截面样本数，默认 100 |
+| `--correlation-sample-rate` | 因子相关性抽样比例，默认 0.05 |
+| `--max-correlation-rows` | 相关性计算最多拉取行数，默认 100000 |
 
 ## OQ-010 首轮实验执行
 
