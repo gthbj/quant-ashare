@@ -22,6 +22,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.ingestion.common.api_client import TushareClient
 from scripts.ingestion.common.manifest import load_manifest
+from scripts.ingestion.common.status_writer import IngestionStatusWriter, utc_now
 
 
 ENDPOINT_GROUPS: dict[str, dict[str, Any]] = {
@@ -175,6 +176,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-gcs-write", action="store_true", help="Required for live GCS writes.")
     parser.add_argument("--output-json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument("--base-url", default=os.environ.get("TUSHARE_HTTP_URL", "https://api.tushare.pro"))
+    parser.add_argument("--project", default=os.environ.get("GOOGLE_CLOUD_PROJECT", "data-aquarium"))
+    parser.add_argument("--bq-location", default=os.environ.get("BQ_LOCATION", "asia-east2"))
     parser.add_argument("--row-limit", type=int, default=int(os.environ.get("TUSHARE_ROW_LIMIT", "5000")))
     parser.add_argument("--throttle-seconds", type=float, default=float(os.environ.get("TUSHARE_THROTTLE_SECONDS", "0.3")))
     return parser.parse_args()
@@ -223,29 +226,41 @@ def main() -> int:
     if not args.skip_gcs_write and not args.allow_gcs_write:
         raise RuntimeError("Live GCS writes require --allow-gcs-write.")
 
-    token = _require_token()
-    client = TushareClient(
-        token=token,
-        base_url=args.base_url,
-        throttle=args.throttle_seconds,
-        row_limit=args.row_limit,
-    )
+    status_writer = None
+    if not args.skip_gcs_write:
+        status_writer = IngestionStatusWriter(project=args.project, location=args.bq_location)
+    started_at = utc_now()
     results: list[dict[str, Any]] = []
-    business_date = date.fromisoformat(args.business_date)
-    for endpoint_group in endpoint_groups:
-        group_plan = [item for item in plan if item["endpoint_group"] == endpoint_group]
-        if not group_plan:
-            continue
-        module = importlib.import_module(ENDPOINT_GROUPS[endpoint_group]["module"])
-        group_results = module.ingest(
-            client=client,
-            manifest=manifest,
-            business_date=business_date,
-            ingestion_run_id=group_plan[0]["ingestion_run_id"],
-            plan=group_plan,
-            skip_gcs_write=args.skip_gcs_write,
+    try:
+        token = _require_token()
+        client = TushareClient(
+            token=token,
+            base_url=args.base_url,
+            throttle=args.throttle_seconds,
+            row_limit=args.row_limit,
         )
-        results.extend(group_results)
+        business_date = date.fromisoformat(args.business_date)
+        for endpoint_group in endpoint_groups:
+            group_plan = [item for item in plan if item["endpoint_group"] == endpoint_group]
+            if not group_plan:
+                continue
+            module = importlib.import_module(ENDPOINT_GROUPS[endpoint_group]["module"])
+            group_results = module.ingest(
+                client=client,
+                manifest=manifest,
+                business_date=business_date,
+                ingestion_run_id=group_plan[0]["ingestion_run_id"],
+                plan=group_plan,
+                skip_gcs_write=args.skip_gcs_write,
+            )
+            results.extend(group_results)
+    except Exception as exc:
+        if status_writer is not None:
+            status_writer.write_failure(plan, started_at=started_at, finished_at=utc_now(), error=exc)
+        raise
+
+    if status_writer is not None:
+        status_writer.write_results(results, started_at=started_at, finished_at=utc_now())
     print(json.dumps({"status": "completed", "results": results}, ensure_ascii=False, indent=2))
     return 0
 

@@ -64,6 +64,28 @@ worker 在非 dry-run 且非 `--skip-gcs-write` 模式下，必须显式传入 `
 
 Cloud Run Job 模板默认 `--max-retries=0`。接口错误、schema cast 错误或写入错误由外层调度器记录并人工/显式 resume，避免 Cloud Run task 自动重试在短时间内重复请求 Tushare 兼容 API 并触发 token/IP 限制。
 
+live GCS 写入会持久化运行审计：
+
+- `ashare_meta.ingestion_run`：每个 endpoint/partition 结果一行，记录 run id、行数、状态、GCS URI、schema version 和脱敏错误摘要。
+- `ashare_meta.ingestion_partition_status`：每个 `partition_endpoint + partition_date` 一行，记录最新采集状态。这里的 `endpoint` 字段存 ODS partition endpoint，而不是仅存 Tushare API 名，避免指数 variant 等同一 API + 同一日期互相覆盖。
+
+dry-run 和 `--skip-gcs-write` 只读 API smoke 不写生产 meta 表。
+
+## GCS Hive 路径口径
+
+raw Parquet canonical 路径固定为：
+
+```text
+gs://data-aquarium/a-share/tushare/raw_data/api=<api>/endpoint=<partition_endpoint>/partition_date=<YYYYMMDD>/data.parquet
+```
+
+- `api=` 使用实际 Tushare API 名；财务三表和财务指标使用 `income_vip` / `balancesheet_vip` / `cashflow_vip` / `fina_indicator_vip`。
+- `endpoint=` 使用 ODS 外部表读取的 partition endpoint / variant，例如 `index_daily_000852_SH`、`stock_basic_listed`。
+- 不使用 `api=tushare`。
+- 2026-06-04 已用 BigQuery `ashare_ods.INFORMATION_SCHEMA.TABLE_OPTIONS` 复核当前 14 张 ODS 与 10 张 schema repair 表的 external `source_uris`，均为 `api=<api>/endpoint=<partition_endpoint>/partition_date=*/data.parquet` 口径。
+
+publish 流程会先写 staging object、读回校验 schema，再覆盖正式 `data.parquet`。采集重跑以 API 当前返回为准，正式 object 覆盖不做 write-once backup；如历史回填需要可回滚，应另加 backup 开关或单独回填流程。
+
 ## 固定出口 IP
 
 Cloud Run Jobs 使用 Direct VPC egress 走 Cloud NAT 固定出口：

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import defaultdict
 from datetime import date, datetime, timezone
@@ -44,6 +45,8 @@ def ingest_plan(
 
     for item in plan:
         contract = read_schema_contract(Path(item["schema_contract"]))
+        item["schema_version"] = contract.get("version")
+        item["request_params_hash"] = _request_params_hash(item, logical_date)
         schema = _schema_with_lineage(contract)
         fields = ",".join(field["name"] for field in contract["fields"])
         request_groups = _build_request_groups(item, logical_date)
@@ -196,13 +199,30 @@ def _result(
 ) -> dict[str, Any]:
     return {
         "ingestion_run_id": item["ingestion_run_id"],
+        "source_system": item["source_system"],
         "endpoint_group": item["endpoint_group"],
         "endpoint": item["endpoint"],
         "api": item["api"],
         "variant": item["variant"],
         "partition_endpoint": item["partition_endpoint"],
         "partition_date": partition_date or item["partition_date"],
+        "logical_date": item["partition_date"],
+        "request_params_hash": item.get("request_params_hash"),
+        "schema_version": item.get("schema_version"),
         "row_count": row_count,
         "status": status,
         "gcs_uri": gcs_uri,
     }
+
+
+def _request_params_hash(item: dict[str, Any], logical_date: str) -> str:
+    payload = {
+        "api": item["api"],
+        "endpoint": item["endpoint"],
+        "variant": item["variant"],
+        "partition_endpoint": item["partition_endpoint"],
+        "logical_date": logical_date,
+        "request_params": item["request_params"],
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]

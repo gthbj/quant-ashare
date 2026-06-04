@@ -45,3 +45,7 @@
 # - 财务表调用 `*_vip` API，按返回的 `end_date` 写报告期分区；正式写入时会读取
 #   既有 `data.parquet` 并按业务主键 merge，避免公告日增量覆盖整个报告期历史。
 # - 空返回只返回 `empty_return` 状态，不写伪空 Parquet。
+# - live 写入会写 `ashare_meta.ingestion_run` 和
+#   `ashare_meta.ingestion_partition_status`；dry-run / API 只读 smoke 不写 meta。
+# - GCS canonical 路径为 `api=<api>/endpoint=<partition_endpoint>/partition_date=...`，
+#   不使用 `api=tushare`。

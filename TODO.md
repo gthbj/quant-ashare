@@ -33,6 +33,7 @@
 
 ## 近期完成
 
+- [x] PR #58 review follow-up 已处理：live ingestion 现在写入 `ashare_meta.ingestion_run` 与 `ingestion_partition_status`，dry-run/API 只读 smoke 不写 meta；已把 raw GCS canonical 路径固定为 `api=<api>/endpoint=<partition_endpoint>/partition_date=...` 并用 BigQuery `INFORMATION_SCHEMA.TABLE_OPTIONS` 复核当前 14 张 ODS 与 10 张 schema repair 表 source URI；GCS overwrite 无 write-once backup 明确为采集重跑口径，历史可回滚回填留后续独立开关/流程
 - [x] OQ-005 Phase 1.7 生产采集首跑已完成：Cloud Run Jobs 已切到 Direct VPC egress + Cloud NAT + 静态出口 IP，生产入口改为 `ashare-ingest-current-scope` 单 execution 顺序执行当前 14 个 ODS endpoint，Composer DAG 使用 default Celery queue 解决 scheduler 派发卡在 queued 的问题；纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 成功；`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填全部成功并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`；`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness，Airflow 变量当前为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`
 - [x] 新增策略 1 Cloud Run 训练回测执行器 PRD：`docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`，定义 Cloud Run Jobs + sklearn logistic + Python ledger_exec_v1 + GCS model/report artifact + 默认全实验并发 / owner 显式限流的目标执行路径；已明确 scikit-learn 只替代 BQML 模型训练/预测，不替代 BigQuery DWS/ADS、GCS artifact、报告诊断和 QA
 - [x] Ledger v1 P0 交易执行语义已进入 main（commit `602baea`）：`08_run_backtest.sql` 已升级为 `ledger_exec_v1` 日级账户 ledger，固化 t-1 信号 / t 开盘执行、pending sell 每日继续卖、实际持仓 netting、现金缩放、订单状态和每日 mark-to-market NAV；短区间 BigQuery smoke（`bt_ledger_v1_p0_smoke_20260604_01`）和 `10` QA 已通过

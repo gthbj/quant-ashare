@@ -1,4 +1,4 @@
-"""Tushare/Tinyshare API 客户端。Phase 0 stub，Phase 1 实现。"""
+"""Tushare-compatible API client with pagination and fail-closed guards."""
 
 from __future__ import annotations
 
