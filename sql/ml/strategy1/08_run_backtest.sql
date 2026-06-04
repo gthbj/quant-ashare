@@ -778,12 +778,26 @@ WITH day_cost AS (
 ),
 nav_norm AS (
   SELECT
-    n.trade_date, n.cash_cny, n.mv_sum, n.nav_value,
+    n.trade_date, n.cash_cny, n.mv_sum, n.nav_value, n.is_anchor,
     n.nav_value / p_initial_capital AS nav,
     n.nav_value / NULLIF(LAG(n.nav_value) OVER (ORDER BY n.trade_date), 0) - 1.0 AS daily_return,
     COALESCE(dc.turnover_cny, 0) AS turnover_cny,
     COALESCE(dc.cost_cny, 0) AS cost_cny
-  FROM nav_daily AS n
+  FROM (
+    SELECT trade_date, cash_cny, mv_sum, nav_value, FALSE AS is_anchor
+    FROM nav_daily
+    UNION ALL
+    SELECT
+      nav.trade_date,
+      nav.cash_cny,
+      nav.net_value_cny - nav.cash_cny AS mv_sum,
+      nav.net_value_cny AS nav_value,
+      TRUE AS is_anchor
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    WHERE p_initial_state_mode = 'resume_from_backtest'
+      AND nav.backtest_id = p_parent_backtest_id
+      AND nav.trade_date = p_state_as_of_date
+  ) AS n
   LEFT JOIN day_cost AS dc ON dc.trade_date = n.trade_date
 )
 SELECT
@@ -796,4 +810,5 @@ SELECT
 FROM nav_norm AS nn
 LEFT JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS idx
   ON idx.sec_code = p_benchmark AND idx.trade_date = nn.trade_date
-  AND idx.trade_date BETWEEN p_predict_start AND p_calendar_end;
+  AND idx.trade_date BETWEEN p_predict_start AND p_calendar_end
+WHERE NOT nn.is_anchor;

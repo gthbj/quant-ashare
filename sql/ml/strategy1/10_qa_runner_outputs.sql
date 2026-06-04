@@ -18,8 +18,10 @@ DECLARE p_parent_backtest_id STRING DEFAULT NULL;
 DECLARE p_state_as_of_date DATE DEFAULT NULL;
 DECLARE p_resume_policy_id STRING DEFAULT 'ledger_exec_v1_resume_v20260604';
 DECLARE p_calendar_end DATE;
+DECLARE v_rebalance_anchor_explicit BOOL;
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
 SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
+SET v_rebalance_anchor_explicit = p_rebalance_anchor_start IS NOT NULL;
 SET p_rebalance_anchor_start = COALESCE(p_rebalance_anchor_start, p_predict_start);
 
 IF p_rebalance_frequency NOT IN ('weekly', 'biweekly', 'monthly') THEN
@@ -37,6 +39,9 @@ END IF;
 IF p_initial_state_mode = 'resume_from_backtest' THEN
   IF p_parent_backtest_id IS NULL OR p_state_as_of_date IS NULL THEN
     RAISE USING MESSAGE = 'resume QA requires p_parent_backtest_id and p_state_as_of_date';
+  END IF;
+  IF p_rebalance_frequency = 'biweekly' AND NOT v_rebalance_anchor_explicit THEN
+    RAISE USING MESSAGE = 'biweekly resume QA requires explicit p_rebalance_anchor_start equal to the original full-window experiment start';
   END IF;
   IF p_resume_policy_id IS NULL OR p_resume_policy_id != 'ledger_exec_v1_resume_v20260604' THEN
     RAISE USING MESSAGE = CONCAT('unsupported p_resume_policy_id: ', COALESCE(p_resume_policy_id, 'NULL'));
@@ -359,6 +364,14 @@ IF p_initial_state_mode = 'resume_from_backtest' THEN
     FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
     WHERE bs.backtest_id = p_backtest_id
   ) AS 'QA-RESUME-5: resumed summary must record parent backtest, state date and is_resumed_backtest=true';
+
+  ASSERT (
+    SELECT COUNT(*) = 1
+      AND LOGICAL_AND(nav.daily_return IS NOT NULL)
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    WHERE nav.backtest_id = p_backtest_id
+      AND nav.trade_date = p_predict_start
+  ) AS 'QA-RESUME-6: first resumed NAV day must have daily_return anchored to parent state NAV';
 END IF;
 
 ASSERT (

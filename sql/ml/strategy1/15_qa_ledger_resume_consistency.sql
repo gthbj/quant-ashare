@@ -85,6 +85,8 @@ ASSERT (
       ABS(COALESCE(f.cash_cny, 0) - COALESCE(r.cash_cny, 0)) AS cash_diff,
       ABS(COALESCE(f.net_value_cny, 0) - COALESCE(r.net_value_cny, 0)) AS value_diff,
       ABS(COALESCE(f.nav, 0) - COALESCE(r.nav, 0)) AS nav_diff,
+      (f.daily_return IS NULL) != (r.daily_return IS NULL) AS daily_return_null_mismatch,
+      ABS(COALESCE(f.daily_return, 0) - COALESCE(r.daily_return, 0)) AS daily_return_diff,
       ABS(COALESCE(f.gross_exposure, 0) - COALESCE(r.gross_exposure, 0)) AS exposure_diff,
       ABS(COALESCE(f.turnover_cny, 0) - COALESCE(r.turnover_cny, 0)) AS turnover_diff,
       ABS(COALESCE(f.cost_cny, 0) - COALESCE(r.cost_cny, 0)) AS cost_diff
@@ -95,10 +97,12 @@ ASSERT (
   WHERE cash_diff > p_cash_tolerance_cny
      OR value_diff > p_value_tolerance_cny
      OR nav_diff > 1e-6
+     OR daily_return_null_mismatch
+     OR daily_return_diff > 1e-9
      OR exposure_diff > 1e-6
      OR turnover_diff > p_value_tolerance_cny
      OR cost_diff > p_value_tolerance_cny
-) AS 'QA-RESUME-CONSIST-4: full and resume NAV/cash/value/turnover/cost must match in compare window';
+) AS 'QA-RESUME-CONSIST-4: full and resume NAV/cash/value/daily_return/turnover/cost must match in compare window';
 
 ASSERT (
   SELECT COUNT(*) = 0

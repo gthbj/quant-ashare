@@ -90,7 +90,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/15_qa_l
 | `p_train_start` | 训练起点（默认 2019-04-03，避开 60 日窗口不完整期） |
 | `p_label_horizon` | 训练标签周期，支持 5 / 10 / 20；`01/03/11/12` 会按该值选择目标标签和收益列 |
 | `p_rebalance_frequency` | 调仓频率，支持 `weekly` / `biweekly` / `monthly` |
-| `p_rebalance_anchor_start` | `10` QA 使用；分段 resume 校验调仓日时可设为原实验起点，默认等于 `p_predict_start` |
+| `p_rebalance_anchor_start` | `10` QA 使用；biweekly resume 校验调仓日时必须设为原实验起点，默认等于 `p_predict_start` |
 | `p_target_holdings` | 持股数（OQ-010 待确认，示例值 5） |
 | `p_max_single_weight` | 单票权重上限（OQ-010 待确认，示例值 0.20） |
 | `p_feature_set_id` | 特征集合 ID；基础为 `strategy1_pv_v0_20260601`，财务扩展为 `strategy1_pv_fin_quality_v0_20260603` |
@@ -372,6 +372,7 @@ resume 模式 fail-fast：
 
 - `p_parent_backtest_id`、`p_state_as_of_date` 必填。
 - `p_resume_policy_id` 必须为 `ledger_exec_v1_resume_v20260604`。
+- biweekly resume 跑 `10_qa_runner_outputs.sql` 时必须显式设置 `p_rebalance_anchor_start` 为原实验起点，避免按 resume 窗口起点重算双周奇偶。
 - 父回测 summary 必须存在且 `metrics_json.ledger_version='ledger_exec_v1'`。
 - 父回测在 `p_state_as_of_date` 必须有唯一 NAV 状态，且 cash + position market value 必须能对上 net value。
 - `p_predict_start` 必须等于 `p_state_as_of_date` 后的下一开市日，禁止有缺口或重叠。
@@ -380,7 +381,8 @@ resume 模式 fail-fast：
 pending sell 恢复不新增 ADS 状态表，而是从父回测 `ads_backtest_trade_daily` 的最新 SELL 状态推导：最新状态为
 `SELL_SKIPPED_UNTRADABLE` 或 `PENDING_SELL_CARRY` 且状态日仍有持仓时，恢复为 pending sell；后续仍按日级 ledger 继续卖出或被 netting 取消。
 
-P2 验收时执行 `15_qa_ledger_resume_consistency.sql`，比较 full fresh-start backtest 与 resume segment backtest 在比较窗口内的 NAV、现金、持仓和成交事实是否一致。首个 resume 日的 `daily_return` 不作为一致性硬比较项，因为 resume segment 没有父状态日前一日的本段 LAG。
+resume 首日 `daily_return` 使用父回测 `p_state_as_of_date` 的 NAV 作为 LAG 锚点，保证拼接后的日收益序列不断点。
+P2 验收时执行 `15_qa_ledger_resume_consistency.sql`，比较 full fresh-start backtest 与 resume segment backtest 在比较窗口内的 NAV、现金、`daily_return`、持仓和成交事实是否一致。
 
 `ads_backtest_trade_daily.fill_status` 当前可能值：
 
