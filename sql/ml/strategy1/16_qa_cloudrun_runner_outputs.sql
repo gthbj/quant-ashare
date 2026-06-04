@@ -16,8 +16,17 @@ DECLARE p_require_model_quality_parity_passed BOOL DEFAULT TRUE;
 DECLARE p_require_task_fanout BOOL DEFAULT FALSE;
 DECLARE p_candidate_task_bq_audit_window_days INT64 DEFAULT 14;
 DECLARE p_candidate_task_max_bq_bytes INT64 DEFAULT 0;
+DECLARE p_prediction_run_id_label STRING DEFAULT NULL;
 
 SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
+SET p_prediction_run_id_label = COALESCE(NULLIF(
+  REGEXP_REPLACE(
+    SUBSTR(REGEXP_REPLACE(LOWER(p_prediction_run_id), r'[^a-z0-9_-]', '_'), 1, 63),
+    r'^[_-]+|[_-]+$',
+    ''
+  ),
+  ''
+), 'none');
 
 -- QA-CR-1: selected sklearn model registry exists and is explicitly tagged as Cloud Run backend.
 ASSERT (
@@ -157,7 +166,7 @@ ASSERT (
       SELECT 1
       FROM UNNEST(labels) AS label
       WHERE label.key = 'run_id'
-        AND label.value = SUBSTR(REGEXP_REPLACE(LOWER(p_prediction_run_id), r'[^a-z0-9_-]', '_'), 1, 63)
+        AND label.value = p_prediction_run_id_label
     )
     AND (
       IFNULL(total_bytes_processed, 0) > p_candidate_task_max_bq_bytes
