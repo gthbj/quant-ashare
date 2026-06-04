@@ -14,12 +14,16 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
+from google.cloud import bigquery
 
 from scripts.strategy1_cloudrun import __version__
 from scripts.strategy1_cloudrun.bq_io import (
+    ADS,
+    bq_label_value,
     get_git_commit,
     join_gs_uri,
     make_client,
+    query_dataframe,
     run_safe,
     upload_directory_to_gcs,
     write_json,
@@ -132,7 +136,6 @@ def select_register_predict(
     work_units = read_json(matrix_local / "work_units.json")
     feature_schema = read_json(matrix_local / "feature_schema.json")
     preprocess_stats = read_json(matrix_local / "preprocess_stats.json")
-    bq_audit = read_json(matrix_local / "bq_audit.json") if (matrix_local / "bq_audit.json").exists() else {}
     candidates = load_candidates(matrix_local, manifest, work_units, require_all_candidates=require_all_candidates)
     selected = sorted(
         candidates,
@@ -145,6 +148,7 @@ def select_register_predict(
     )[0]
     client = make_client(config.project, config.region)
     parity = compute_model_quality_parity(client, config, selected)
+    candidate_task_bq_audit = audit_candidate_task_bigquery_usage(client, config, experiment)
     selected.metrics.update(parity)
     if parity["model_quality_parity_status"] == "passed":
         selected.metrics["model_quality_status"] = "model_quality_equivalent"
@@ -162,7 +166,13 @@ def select_register_predict(
         "feature_order_sha256": manifest["feature_order_sha256"],
         "preprocess_stats_sha256": manifest["preprocess_stats_sha256"],
         "work_units_sha256": manifest["work_units_sha256"],
-        "candidate_task_bq_forbidden_table_query_count": int(bq_audit.get("forbidden_candidate_query_count", 0)),
+        "candidate_task_bq_forbidden_table_query_count": int(
+            candidate_task_bq_audit["candidate_task_bq_forbidden_table_query_count"]
+        ),
+        "candidate_task_bq_job_count": int(candidate_task_bq_audit["candidate_task_bq_job_count"]),
+        "candidate_task_bq_audit_window_days": int(candidate_task_bq_audit["candidate_task_bq_audit_window_days"]),
+        "candidate_task_bq_max_bytes_threshold": int(candidate_task_bq_audit["candidate_task_bq_max_bytes_threshold"]),
+        "candidate_task_bq_forbidden_tables": candidate_task_bq_audit["candidate_task_bq_forbidden_tables"],
     })
 
     model_id = f"s1_sklearn_{run_safe(experiment.run_id)}__{selected.candidate_id}"
@@ -214,6 +224,83 @@ def select_register_predict(
         "prediction_rows": int(len(predict_panel)),
         "model_quality_parity_status": selected.metrics.get("model_quality_parity_status"),
         "model_quality_status": selected.metrics.get("model_quality_status"),
+    }
+
+
+def audit_candidate_task_bigquery_usage(client, config, experiment: Experiment) -> dict[str, Any]:
+    forbidden_tables = [
+        f"{ADS}.ads_ml_training_panel_daily",
+        "data-aquarium.ashare_dws.dws_stock_sample_daily",
+    ]
+    audit_window_days = 14
+    max_bytes_threshold = 0
+    jobs_table = f"`{config.project}.region-{config.region}.INFORMATION_SCHEMA.JOBS_BY_PROJECT`"
+    sql = f"""
+    WITH candidate_jobs AS (
+      SELECT
+        job_id,
+        total_bytes_processed,
+        referenced_tables
+      FROM {jobs_table}
+      WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @audit_window_days DAY)
+        AND EXISTS (
+          SELECT 1
+          FROM UNNEST(labels) AS label
+          WHERE label.key = 'pipeline_component'
+            AND label.value = 'strategy1_cloudrun'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM UNNEST(labels) AS label
+          WHERE label.key = 'pipeline_step'
+            AND label.value = 'train_candidate_task'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM UNNEST(labels) AS label
+          WHERE label.key = 'run_id'
+            AND label.value = @run_id_label
+        )
+    )
+    SELECT
+      COUNT(*) AS candidate_task_bq_job_count,
+      COUNTIF(
+        IFNULL(total_bytes_processed, 0) > @max_bytes_threshold
+        OR EXISTS (
+          SELECT 1
+          FROM UNNEST(IFNULL(
+            referenced_tables,
+            ARRAY<STRUCT<project_id STRING, dataset_id STRING, table_id STRING>>[]
+          )) AS ref
+          WHERE FORMAT('%s.%s.%s', ref.project_id, ref.dataset_id, ref.table_id) IN UNNEST(@forbidden_tables)
+        )
+      ) AS candidate_task_bq_forbidden_table_query_count
+    FROM candidate_jobs
+    """
+    frame = query_dataframe(
+        client,
+        sql,
+        [
+            bigquery.ScalarQueryParameter("audit_window_days", "INT64", audit_window_days),
+            bigquery.ScalarQueryParameter("max_bytes_threshold", "INT64", max_bytes_threshold),
+            bigquery.ScalarQueryParameter("run_id_label", "STRING", bq_label_value(experiment.run_id)),
+            bigquery.ArrayQueryParameter("forbidden_tables", "STRING", forbidden_tables),
+        ],
+        labels={
+            "pipeline_component": "strategy1_cloudrun",
+            "pipeline_step": "select_register_predict_audit",
+            "run_id": experiment.run_id,
+        },
+    )
+    row = frame.iloc[0].to_dict()
+    return {
+        "candidate_task_bq_job_count": int(row.get("candidate_task_bq_job_count") or 0),
+        "candidate_task_bq_forbidden_table_query_count": int(
+            row.get("candidate_task_bq_forbidden_table_query_count") or 0
+        ),
+        "candidate_task_bq_audit_window_days": audit_window_days,
+        "candidate_task_bq_max_bytes_threshold": max_bytes_threshold,
+        "candidate_task_bq_forbidden_tables": forbidden_tables,
     }
 
 

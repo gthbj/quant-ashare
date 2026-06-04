@@ -306,7 +306,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/17_qa_c
 ```
 
 `16` 需要按实际 `p_run_id` / `p_prediction_run_id` / `p_backtest_id` 修改脚本顶部参数，或由后续调度器注入参数。
-task fan-out 路径还需把 `16` 的 `p_require_task_fanout` 设为 `TRUE`，断言 selected registry 已写入 matrix/work-unit 审计字段、所有 candidate task 成功、candidate task 未读取 BigQuery 训练面板。
+task fan-out 路径还需把 `16` 的 `p_require_task_fanout` 设为 `TRUE`。`16` 会同时断言 selected registry 已写入 matrix/work-unit 审计字段、所有 candidate task 成功、reducer 写入的 `candidate_task_bq_*` 审计计数为 0，并直接查询 `JOBS_BY_PROJECT` 兜底确认 candidate task 未读取 BigQuery 训练面板。
 `17` 需要按实际 `p_experiment_id` / `p_run_id` / `p_backtest_id` 修改脚本顶部参数；task fan-out 路径需把 `p_require_train_step=FALSE`、`p_require_task_fanout=TRUE`。如果单独直接运行 train/backtest job、没有经过 orchestrator，则不运行 `17`。
 
 ## 9. 安全

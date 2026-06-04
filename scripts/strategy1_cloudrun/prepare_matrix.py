@@ -190,8 +190,10 @@ def prepare_matrix(
     write_json(local_dir / "work_units.json", work_units)
     bq_audit = {
         "jobs": [job_audit_dict(job)],
-        "forbidden_candidate_query_count": 0,
-        "audit_rule": "candidate tasks do not query BigQuery in P0; prepare_matrix is the only full-panel reader",
+        "audit_rule": (
+            "prepare_matrix is the only full-panel reader; candidate task BigQuery usage is "
+            "audited by select_register_predict via INFORMATION_SCHEMA.JOBS_BY_PROJECT"
+        ),
     }
     write_json(local_dir / "bq_audit.json", bq_audit)
 
