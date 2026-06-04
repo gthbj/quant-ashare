@@ -1,0 +1,17 @@
+{
+  "endpoint": "trade_cal",
+  "version": "v0",
+  "description": "交易日历",
+  "business_fields": {
+    "primary_key": ["exchange", "cal_date"],
+    "date_fields": ["cal_date", "pretrade_date"],
+    "numeric_fields": ["is_open"],
+    "string_fields": ["exchange"]
+  },
+  "fields": [
+    {"name": "exchange", "type": "STRING", "nullable": false, "description": "交易所代码（SSE/SZSE/CFFEX/SHFE/CZCE/DCE/INE）"},
+    {"name": "cal_date", "type": "STRING", "nullable": false, "description": "日历日期 YYYYMMDD"},
+    {"name": "is_open", "type": "INTEGER", "nullable": true, "description": "是否开市（0休市 1开市）"},
+    {"name": "pretrade_date", "type": "STRING", "nullable": true, "description": "上一交易日 YYYYMMDD"}
+  ]
+}

@@ -7,8 +7,13 @@
 ## P0 — 当前优先
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
-- [~] 修复 ODS 外部表 Parquet schema mismatch：PR 实现已提交（schema contract YAML × 10 endpoint + 修复/验证脚本 + QA SQL + README），已按 PR #43 review 修正 QA 参数格式、INT->FLOAT64 fail-closed、null count 阻断、BQ staging 行数/列可读验证和 staging 清理；P0 `stk_limit` 待在 BigQuery 实际执行修复并验证，再分批修其余 9 张 P1/P2/P3 表；默认从 GCS 原 Parquet 按 schema contract 重写，不从 API 重拉覆盖历史 raw
-- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：PR #37 已合并，实验参数化、manifest、对比报告脚本、horizon-aware 诊断/QA 和 portfolio-only `prediction_run_id` 复用预测源路径已进入 `main`；A0（`oq010_a0_n5_w20`）已跑通 01-12，诊断稳定性修复 PR 待合并后继续 A1-A3。阶段 A/B/C 基础路径为 `4 + 3 + 3 = 10`，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 全量笛卡尔积；必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核；`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md` 已定义同阶段实验并发调度与隔离方案，后续实现状态表、GCS 原子锁、调度器和并发 QA 后才允许安全并发
+- [~] 修复 ODS 外部表 Parquet schema mismatch：PR #43 已实现 schema contract YAML × 10 endpoint、修复/验证脚本、QA SQL 和执行 README，并按 review 补齐 QA 参数格式、INT->FLOAT64 fail-closed、null count 阻断、BQ staging 行数/列可读验证和 staging 清理；P0 `stk_limit` 待在 BigQuery 实际执行修复并验证，再分批修其余 9 张 P1/P2/P3 表；默认从 GCS 原 Parquet 按 schema contract 重写，不从 API 重拉覆盖历史 raw
+- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基础 A/B/C 与 3*2*2*2 全因子 24 组合已跑完并全部通过 `12_qa_model_diagnosis_outputs`；当前最优组合为 `pv_fin_quality + 30/5% + biweekly + 5d`，并已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，total_return 41.10%、excess_return 12.09% vs `000852.SH`、Sharpe 1.043、max_drawdown -14.48%，报告和诊断均已上传 GCS）。下一步需 owner 确认是否采纳为默认参数；实现顺序建议先做因子贡献度分析，再按 Ledger v1 PRD P1 补跑 2026 YTD fixed-model 扩展验证 / 做稳健性检查
+- [ ] 策略 1 因子贡献度分析：按 `docs/prd/PRD_20260604_03_策略1因子贡献度分析.md` 实现非消融因子分析，输出 BQML 模型系数/标准化系数、单因子 RankIC/bucket lift、score contribution、组合因子暴露、归因 proxy 和因子相关性/共线性摘要；该项只读当前 baseline，不重训、不改交易语义，实施顺序建议放在 Ledger v1 P0 前
+- [ ] Ledger v1 P0：按 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md` 实现策略 1 `ledger_exec_v1` 交易执行语义，固化 t-1 信号 / t 开盘执行、pending sell 每日继续卖、实际持仓 netting、现金缩放、订单状态和每日 mark-to-market NAV；实现后用正式 baseline 参数做同区间 A/B
+- [ ] Ledger v1 P1：不重新训练，复用正式 baseline 模型/参数/score orientation，从 `2024-01-02` fresh-start 重跑至 `2026-04-30`，产出 fixed-model extended baseline，并在报告中单独拆出 `2026-01-02` 至 `2026-04-30` 表现
+- [ ] Ledger v1 P2：实现 ledger state resume，支持从 `parent_backtest_id + state_as_of_date` 恢复现金、持仓、pending sell；验收 `2024-2026.04` 一次性全段回测与 `2024-2025 + resume 2026` 拼接路径一致或差异可解释
+- [ ] 按 `docs/prd/PRD_20260604_02_策略1月度滚动重训.md` 实现月度滚动重训 prediction stream；该项必须在 Ledger v1 P0/P1/P2 完成后再做，避免模型生命周期变化和交易执行语义变化混在一起
 
 ## P1 — 数据 / 特征扩展
 
@@ -22,19 +27,27 @@
 
 ## 工程 / 调度
 
-- [ ] OQ-005 GCP 数据流水线落地：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md` 已定义 Cloud Run Jobs 采集、Dataform / BigQuery Studio pipeline 做 ODS→ADS、Cloud Composer 编排，且已按 owner 要求收敛为只描述最终实现方式的陈述性方案；PR #39 review 两条低优先级建议已补入财务 empty-return 口径和 Phase 1 触发入口；下一步实现首批 14 张当前消费 ODS 的采集 manifest、Cloud Run Jobs、Dataform P0 转换和 Composer DAG
+- [ ] OQ-005 GCP 数据流水线落地：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md` 已定义 Cloud Run Jobs 采集、Dataform / BigQuery Studio pipeline 做 ODS→ADS、Cloud Composer 编排，且已按 owner 要求收敛为只描述最终实现方式的陈述性方案；PR #42 分支已实现 Phase 0 采集 manifest、14 张 schema contract、meta 表 DDL 与采集脚本 stub，并已合入 #44/#46 review 修复；下一步实现 Cloud Run Jobs、Dataform P0 转换和 Composer DAG
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算 / 调度配置
 - [ ] 写"从 ODS 继承字段描述"脚本（`bq show` -> 映射 -> `bq update`）
 - [ ] 增量调度（dbt 或 Airflow + SQL）与数据质量断言
 
 ## 近期完成
 
+- [x] 工作记忆轻清理：`AGENT_HANDOFF.md` 缩到当前摘要 + 最近 3 条交接，19 条旧交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- [x] 新增策略 1 因子贡献度分析 PRD：`docs/prd/PRD_20260604_03_策略1因子贡献度分析.md`，定义不做消融实验的模型系数、单因子 RankIC/bucket lift、score contribution、组合因子暴露、归因 proxy 和因子相关性/共线性摘要；PR #51 review 后已补充单因子系数排名受共线性影响、组级解读优先、proxy 不可加总等限制说明；实施顺序建议放在 Ledger v1 P0 前，但不代表优先级高于 Ledger / 月度重训
+- [x] 新增策略 1 Ledger v1 交易执行语义 PRD 与月度滚动重训 PRD：`docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`、`docs/prd/PRD_20260604_02_策略1月度滚动重训.md`；PR #49 review 的 T+1 卖出锁定、oriented RankIC、月度模式 test split 口径澄清已补入正文；2026-06-04 已进一步改造为 Ledger P0/P1/P2（交易语义、2024-2026.04 fixed-model 连续扩展回测、ledger state resume）再月度重训的实现顺序
+- [x] OQ-005 Phase 0 实现分支已整合 review 修复：PR #44 已合入 #42 分支，#46 的 GCS 路径、API 行数上限、Parquet cast、日志脱敏修复已手动合入，并追加修复 `partition_endpoint` 路径契约与参数化日志脱敏泄露问题
+- [x] OQ-010 并发调度后续修复已合并（PR #48）：修复同 stage dependency batching 与诊断状态/上传状态语义拆分，支持正式基线和后续实验调度复用
+- [x] OQ-010 正式基线 run 已完成：`s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`，参数为 `pv_fin_quality + 30/5% + biweekly + 5d`，01-12 全部成功，`10`/`12` QA 通过，中文报告和模型诊断均 uploaded 到 GCS
+- [x] 实现 OQ-010 策略 1 实验并发调度与隔离 Phase 1：新增 `sql/meta/02_strategy1_experiment_run_status.sql` 状态表 DDL（`CREATE TABLE IF NOT EXISTS` 保留 audit/resume 历史）、`scripts/strategy1/run_oq010_experiments.py` 调度器（支持 --dry-run 展开完整计划、SQL 参数注入强校验、GCS ifGenerationMatch=0 原子锁、generation-guarded stale reclaim/release、lease/heartbeat、锁 finally 释放、heartbeat 终态保护、resume、max-parallel、max-parallel-backtest、fail-fast 等全部 PRD 定义参数）、`sql/qa/07_strategy1_experiment_concurrency_checks.sql` 并发 QA（QA-CONC-1~12），以及 `docs/策略1实验并发调度器运行手册.md`；已通过 Python 静态检查、stage_a dry-run、单实验 dry-run、全 manifest dry-run、直接参数注入断言；已更新 TODO/memory；尚未执行 BigQuery、不碰正在运行的 A3 实验、不删 reports/strategy1 已有产物
 - [x] 新增 OQ-010 策略 1 实验并发调度与隔离 PRD：`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`，定义同阶段 portfolio-only / retrain 实验安全并发的状态表、GCS 原子锁、lease/heartbeat、调度器、runner 改造要求、08 ledger 并发边界和 QA；本次只写 PRD，未改 runner、未跑 BigQuery
 - [x] 新增 OQ-005 GCP 数据流水线 PRD：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`，固化 Cloud Run Jobs + Dataform / BigQuery Studio pipeline + Cloud Composer 架构，限定每日生产采集只覆盖当前实际消费的 14 张 ODS，并已收敛为陈述性目标实现方案；PR #39 review 两条低优先级建议已补入正文
 - [x] 新增 ODS 外部表 Parquet schema 修复 PRD：`docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`，定义 10 张 schema mismatch 外部表的 GCS 原文件 schema-preserving rewrite、staging/backup/发布、QA 门禁和 ingestion 显式 cast 防复发方案；PR #40 review 建议已补入 backup write-once、临时表显式 schema 和 INT→FLOAT64 精度复核
 - [x] 新增 ODS/GCS 数据审查目录与提示词：`data_audit/ODS_GCS_DATA_AUDIT_PROMPT.md`、`data_audit/reports/`；审查范围限定 2019-01-01 及之后，提示词要求只审查不补数据、审查脚本由执行 Agent 自行编写并在请求/限速/并发等问题上自修正；已补官方文档链接、API 返回上限命中风险和按 endpoint/主题拆脚本规则
 - [x] 实现 OQ-010 首轮实验 runner 参数化（PR #37 已合并）：新增 `configs/strategy1/oq010_experiments_v0.json`、`scripts/strategy1/compare_oq010_experiments.py`；`sql/ml/strategy1/01-06/09-12` 支持 `experiment_id`、调仓频率、持股数/权重、`p_label_horizon`、`feature_set_id`；诊断脚本和 QA 已改为 horizon-aware，并支持 portfolio-only 实验用 `p_prediction_run_id` 复用模型/预测。已通过 Python/JSON/`git diff --check` 与 BigQuery dry-run，尚未端到端实跑实验
 - [x] 配置本机 BigQuery Storage API 客户端并修复 OQ-010 诊断稳定性：`data-aquarium` 已启用 `bigquerystorage.googleapis.com`，本机 conda 与默认 `python3` 均已安装 `google-cloud-bigquery-storage`；诊断脚本改为一次性拉取 valid/test 预测标签并将 feature exposure 改为 BigQuery 侧聚合，A0 诊断与 `12_qa_model_diagnosis_outputs.sql` 已通过
+- [x] OQ-010 3*2*2*2 全因子 24 组合已补齐并跑完：补跑 19 个缺失组合，全部实验最终状态为 `12_qa_model_diagnosis_outputs=succeeded`；本轮超额收益口径 benchmark 均为 `000852.SH`
 - [x] 合并 OQ-010 策略 1 首轮质量迭代实验 PRD（PR #35）：`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`，定义持股数/权重、调仓频率、标签 horizon、财务特征的第一轮分阶段实验矩阵；已按 review 修订 canonical baseline id、parent experiment 关系和阶段 B/C 调仓频率口径
 - [x] 修订 OQ-010 首轮实验执行口径：阶段 A/B/C 不做 `4 * 3 * 3` 笛卡尔积，基础执行为 `4 + 3 + 3 = 10` 个实验，包含阶段 D 为 12 个实验；如阶段间暴露明显交互风险，再补最多 `2 * 2` A/B、A/C、B/C pairwise 复核，必要时补最多 `2 * 2 * 2` 最终保底复核
 - [x] 修复诊断 QA：`sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 的 `split_tag` 歧义已修复（PR #27/28），已可正常完成 QA 验收

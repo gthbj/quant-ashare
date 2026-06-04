@@ -1,0 +1,30 @@
+{
+  "endpoint": "stock_basic",
+  "version": "v0",
+  "description": "股票基本信息",
+  "business_fields": {
+    "primary_key": ["ts_code"],
+    "date_fields": ["list_date", "delist_date"],
+    "numeric_fields": [],
+    "string_fields": ["ts_code", "symbol", "name", "area", "industry", "fullname", "enname", "cnspell", "market", "exchange", "curr_type", "list_status", "is_hs", "act_name", "act_ent_type"]
+  },
+  "fields": [
+    {"name": "ts_code", "type": "STRING", "nullable": false, "description": "TS股票代码"},
+    {"name": "symbol", "type": "STRING", "nullable": true, "description": "股票代码"},
+    {"name": "name", "type": "STRING", "nullable": true, "description": "股票名称"},
+    {"name": "area", "type": "STRING", "nullable": true, "description": "地域"},
+    {"name": "industry", "type": "STRING", "nullable": true, "description": "所属行业"},
+    {"name": "fullname", "type": "STRING", "nullable": true, "description": "股票全称"},
+    {"name": "enname", "type": "STRING", "nullable": true, "description": "英文全称"},
+    {"name": "cnspell", "type": "STRING", "nullable": true, "description": "拼音缩写"},
+    {"name": "market", "type": "STRING", "nullable": true, "description": "市场类型（主板/创业板/科创板/北交所）"},
+    {"name": "exchange", "type": "STRING", "nullable": true, "description": "交易所代码（SSE/SZSE/BSE）"},
+    {"name": "curr_type", "type": "STRING", "nullable": true, "description": "交易货币"},
+    {"name": "list_status", "type": "STRING", "nullable": true, "description": "上市状态（L上市/D退市/P暂停上市）"},
+    {"name": "list_date", "type": "STRING", "nullable": true, "description": "上市日期 YYYYMMDD"},
+    {"name": "delist_date", "type": "STRING", "nullable": true, "description": "退市日期 YYYYMMDD"},
+    {"name": "is_hs", "type": "STRING", "nullable": true, "description": "是否沪深港通标的（N否/H沪股通/S深股通）"},
+    {"name": "act_name", "type": "STRING", "nullable": true, "description": "实控人名称"},
+    {"name": "act_ent_type", "type": "STRING", "nullable": true, "description": "实控人企业性质"}
+  ]
+}

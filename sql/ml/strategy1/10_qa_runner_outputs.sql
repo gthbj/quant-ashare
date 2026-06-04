@@ -86,6 +86,17 @@ ASSERT (
 ASSERT (
   SELECT COUNT(*) = 0
   FROM (
+    SELECT pred.predict_date, pred.sec_code, COUNT(*) AS n
+    FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
+    WHERE pred.run_id = p_prediction_run_id
+      AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
+    GROUP BY pred.predict_date, pred.sec_code HAVING n > 1
+  )
+) AS 'prediction rows must be unique per predict_date/sec_code';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
     SELECT pred.predict_date, COUNT(*) AS n
     FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
     WHERE pred.run_id = p_prediction_run_id AND pred.rank_raw = 1

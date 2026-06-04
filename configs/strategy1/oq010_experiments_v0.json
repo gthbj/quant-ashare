@@ -27,6 +27,7 @@
   "experiments": [
     {
       "experiment_id": "oq010_a0_n5_w20",
+      "stage_id": "stage_a",
       "experiment_group": "portfolio_concentration",
       "run_id": "s1_bqml_oq010_oq010_a0_n5_w20_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_a0_n5_w20_20260603_01",
@@ -46,6 +47,7 @@
     },
     {
       "experiment_id": "oq010_a1_n10_w10",
+      "stage_id": "stage_a",
       "experiment_group": "portfolio_concentration",
       "run_id": "s1_bqml_oq010_oq010_a1_n10_w10_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_a1_n10_w10_20260603_01",
@@ -65,6 +67,7 @@
     },
     {
       "experiment_id": "oq010_a2_n20_w05",
+      "stage_id": "stage_a",
       "experiment_group": "portfolio_concentration",
       "run_id": "s1_bqml_oq010_oq010_a2_n20_w05_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_a2_n20_w05_20260603_01",
@@ -84,6 +87,7 @@
     },
     {
       "experiment_id": "oq010_a3_n30_w05",
+      "stage_id": "stage_a",
       "experiment_group": "portfolio_concentration",
       "run_id": "s1_bqml_oq010_oq010_a3_n30_w05_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_a3_n30_w05_20260603_01",
@@ -103,6 +107,7 @@
     },
     {
       "experiment_id": "oq010_b0_weekly",
+      "stage_id": "stage_b",
       "experiment_group": "rebalance_frequency",
       "run_id": "s1_bqml_oq010_oq010_b0_weekly_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_b0_weekly_20260603_01",
@@ -122,6 +127,7 @@
     },
     {
       "experiment_id": "oq010_b1_biweekly",
+      "stage_id": "stage_b",
       "experiment_group": "rebalance_frequency",
       "run_id": "s1_bqml_oq010_oq010_b1_biweekly_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_b1_biweekly_20260603_01",
@@ -141,6 +147,7 @@
     },
     {
       "experiment_id": "oq010_b2_monthly",
+      "stage_id": "stage_b",
       "experiment_group": "rebalance_frequency",
       "run_id": "s1_bqml_oq010_oq010_b2_monthly_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_b2_monthly_20260603_01",
@@ -160,6 +167,7 @@
     },
     {
       "experiment_id": "oq010_c0_h5",
+      "stage_id": "stage_c",
       "experiment_group": "label_horizon",
       "run_id": "s1_bqml_oq010_oq010_c0_h5_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_c0_h5_20260603_01",
@@ -179,6 +187,7 @@
     },
     {
       "experiment_id": "oq010_c1_h10",
+      "stage_id": "stage_c",
       "experiment_group": "label_horizon",
       "run_id": "s1_bqml_oq010_oq010_c1_h10_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_c1_h10_20260603_01",
@@ -198,6 +207,7 @@
     },
     {
       "experiment_id": "oq010_c2_h20",
+      "stage_id": "stage_c",
       "experiment_group": "label_horizon",
       "run_id": "s1_bqml_oq010_oq010_c2_h20_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_c2_h20_20260603_01",
@@ -217,6 +227,7 @@
     },
     {
       "experiment_id": "oq010_d0_pv",
+      "stage_id": "stage_d",
       "experiment_group": "feature_set",
       "run_id": "s1_bqml_oq010_oq010_d0_pv_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_d0_pv_20260603_01",
@@ -236,6 +247,7 @@
     },
     {
       "experiment_id": "oq010_d1_pv_fin_quality",
+      "stage_id": "stage_d",
       "experiment_group": "feature_set",
       "run_id": "s1_bqml_oq010_oq010_d1_pv_fin_quality_20260603_01",
       "backtest_id": "bt_s1_bqml_oq010_oq010_d1_pv_fin_quality_20260603_01",

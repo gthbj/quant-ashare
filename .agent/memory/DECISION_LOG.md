@@ -1026,3 +1026,153 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`
+
+## DECISION-20260603-04: OQ-010 实验并发调度与隔离采用 GCS 原子锁 + BigQuery 状态表
+
+日期: 2026-06-03
+状态: active
+负责人: owner
+Agent ID: DeepSeek V4
+模型: DeepSeek V4
+
+### 背景
+
+OQ-010 同阶段实验串行执行耗时过长，但直接本地多进程并发跑 SQL 存在互相污染风险。PRD 已定义并发方案（`docs/prd/PRD_20260603_05`），需要实现状态表、锁机制和调度器。
+
+### 决策
+
+1. 锁原语采用 GCS object `ifGenerationMatch=0` create-if-not-exists，放在 `gs://ashare-artifacts/locks/strategy1/oq010/<lock_key>.lock`。不依赖 BigQuery 状态表做低延迟锁管理。
+2. BigQuery `ashare_meta.strategy1_experiment_run_status` 只用于审计追踪和 resume 输入，不承担锁管理职责。
+3. 调度器 `scripts/strategy1/run_oq010_experiments.py` 支持全部 PRD 定义参数：`--manifest`、`--stage-id`、`--experiment-id`、`--max-parallel`、`--max-parallel-backtest`、`--dry-run`、`--force-replace`、`--resume`、`--resume-from-step`、`--fail-fast`、`--allow-cross-stage`、`--log-dir`、`--scheduler-instance-id`、`--lock-ttl-minutes`。
+4. 锁 key 分 6 类：`train`、`predict`、`portfolio`、`backtest`、`summary`、`diagnosis`，按 `prediction_run_id` / `run_id` / `backtest_id` 粒度隔离。
+5. 默认 `max_parallel_backtest=1`，08 ledger 并发需 owner 验收后手动提高。
+6. Phase 1 只实现状态表 DDL、调度器 dry-run、GCS 锁原语和并发 QA SQL，不实际在 BigQuery 端到端执行并发实验。Phase 2-4 后续再实现。
+
+### 理由
+
+GCS object 条件创建是 BigQuery 项目中最简单、最廉价的原子锁机制，无额外服务依赖、无需 Firestore/Cloud Tasks。状态表用 MERGE 做 upsert，只保证最终一致性，不解决「查-写」竞态。锁 lease/heartbeat 防止调度器崩溃后锁永久残留。
+
+### 影响
+
+新增文件：`sql/meta/02_strategy1_experiment_run_status.sql`、`scripts/strategy1/run_oq010_experiments.py`、`sql/qa/07_strategy1_experiment_concurrency_checks.sql`、`docs/策略1实验并发调度器运行手册.md`。`KNOWN_CONSTRAINTS.md` 更新并发约束。Phase 1 不改变现有 runner 执行方式；启用并发前需实现 Phase 2+。
+
+### 备选方案
+
+- 用 BigQuery 事务 + 状态表 CAS 做锁：不可行，BigQuery 无行级锁或 SELECT FOR UPDATE。
+- 用 Firestore 事务做锁：增加服务依赖和权限管理，P0 不必要。
+- 仅依赖 BigQuery 状态表「查无 running 写 running」做锁：竞态不可靠，PRD 已明确禁止。
+
+### 相关文件
+
+`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`, `sql/meta/02_strategy1_experiment_run_status.sql`, `scripts/strategy1/run_oq010_experiments.py`, `sql/qa/07_strategy1_experiment_concurrency_checks.sql`, `docs/策略1实验并发调度器运行手册.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`
+
+## DECISION-20260603-05: OQ-010 调度器参数注入和状态表历史必须硬门禁
+
+日期: 2026-06-03
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+PR #45 review 指出并发调度器的 SQL 参数注入存在静默失败风险：当 `DECLARE p_* DEFAULT` 格式未匹配时，runner 会继续使用 SQL 文件内默认 `run_id` / `backtest_id`，可能把并发实验写入错误输出范围。状态表 DDL 原先使用 `CREATE OR REPLACE TABLE`，会清空 audit/resume 历史。
+
+### 决策
+
+1. `scripts/strategy1/run_oq010_experiments.py` 执行 BigQuery step 前必须扫描所有 `DECLARE p_* DEFAULT` 参数，并为每个参数注入 manifest/default 值。
+2. 参数缺失、声明格式不支持、类型不匹配或必需隔离参数未声明时，step 必须失败；禁止静默沿用 SQL 默认值。
+3. dry-run 必须对可执行实验做 SQL 参数注入预检；blocked placeholder 实验只展开计划，不做类型预检。
+4. `ashare_meta.strategy1_experiment_run_status` DDL 必须使用 `CREATE TABLE IF NOT EXISTS`，保留历史 audit/resume 记录。
+5. terminal status 写入前必须停止 heartbeat，避免 `running` 覆盖 `succeeded` / `failed`；获取 GCS lock 后释放必须在 `finally` 中完成。
+
+### 理由
+
+OQ-010 并发的核心安全边界是 experiment/run/backtest 隔离。参数注入静默失败会绕过隔离，且 dry-run 若不预检无法提前发现。状态表承载失败恢复和审计，重建清空会破坏 resume 与问题追溯。
+
+### 影响
+
+PR #45 中 `run_oq010_experiments.py` 已实现强校验参数注入、dry-run 预检、heartbeat terminal status 保护和锁 finally 释放；状态表 DDL 改为 `sql/meta/02_strategy1_experiment_run_status.sql` 且使用 `CREATE TABLE IF NOT EXISTS`；并发 QA 改名为 `sql/qa/07_strategy1_experiment_concurrency_checks.sql`，避开 PR #43 的 `06_ods_parquet_schema_checks.sql`。
+
+### 备选方案
+
+继续用 `_inject_parameter()` 找不到声明就返回原 SQL；放弃，因为会让默认 SQL 参数在并发实验中静默生效。只在真实执行时检查、不在 dry-run 预检；放弃，因为 dry-run 是 owner 启动前识别 manifest/SQL 参数问题的主要入口。继续 `CREATE OR REPLACE TABLE` 重建状态表；放弃，因为会破坏 audit/resume 历史。
+
+### 相关文件
+
+`scripts/strategy1/run_oq010_experiments.py`, `sql/meta/02_strategy1_experiment_run_status.sql`, `sql/qa/07_strategy1_experiment_concurrency_checks.sql`, `docs/策略1实验并发调度器运行手册.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260604-01: OQ-010 先 Ledger P0/P1/P2 再月度滚动重训
+
+日期: 2026-06-04
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+策略 1 当前最优参数已固化为正式 fixed-model baseline。owner 后续希望同时处理 Ledger v1 交易执行语义、2026 扩展回测、ledger state resume 和月度滚动重训。若把这些变化放在同一实现或同一评估里，收益差异无法归因到交易执行、回测区间、状态恢复或模型生命周期中的哪一项。
+
+### 决策
+
+1. 不新增第三篇 PRD；继续维护两篇 PRD。
+2. `PRD_20260604_01_策略1LedgerV1交易执行语义.md` 承接三个阶段：
+   - P0: Ledger v1 交易执行语义。
+   - P1: fixed-model 连续扩展回测，区间 `2024-01-02` 至 `2026-04-30`。
+   - P2: ledger state resume。
+3. `PRD_20260604_02_策略1月度滚动重训.md` 只定义模型生命周期、月度模型选择、失败回退和 PIT-safe prediction stream。
+4. 实现顺序固定为 Ledger v1 P0 → Ledger v1 P1 → Ledger v1 P2 → 月度滚动重训。
+5. 月度滚动重训正式效果归因必须以 Ledger P1/P2 产出的 fixed-model extended baseline 为对照。
+
+### 理由
+
+2026 扩展回测和 resume 都是回测执行 / 状态管理能力，应该在 Ledger 语义稳定后先解决。月度滚动重训是模型生命周期变化，应在 fixed-model extended baseline 和 resume 等价性验收后再做，避免把模型变化与交易执行变化混在一起。
+
+### 影响
+
+`TODO.md`、`OPEN_QUESTIONS.md`、`IMPLEMENTATION_STATUS.md` 和交接摘要均改为同一实现顺序。后续 agent 不应直接跳到月度重训，也不应用只跑 2026 片段再简单拼接的方式替代 Ledger P1/P2 验收。
+
+### 备选方案
+
+新增第三篇 PRD 专门描述 2026 扩展与 resume；放弃，因为这两个能力本质上属于 Ledger 回测执行语义，拆成第三篇会增加跨文档依赖和口径漂移。先实现月度滚动重训；放弃，因为模型生命周期变化会污染 Ledger A/B 和 2026 fixed-model baseline 的归因。
+
+### 相关文件
+
+`docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`, `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`, `TODO.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260604-02: OQ-010 因子贡献度分析不做消融实验
+
+日期: 2026-06-04
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+正式 baseline 已完成，owner 希望分析各个因子的贡献度，用于解释当前策略收益与后续 Ledger / 月度重训结果。消融实验能给出更强的边际贡献证据，但需要大量重训 / 重预测 / 回测，会显著增加运行成本和解释复杂度。
+
+### 决策
+
+1. 新增 `PRD_20260604_03_策略1因子贡献度分析.md`。
+2. 因子贡献度分析不做消融实验，不做 drop-one-factor 或 drop-one-factor-group 重训。
+3. P0 只基于已训练 selected model、已有 prediction、已有 backtest 和已有 feature 数据做只读分析。
+4. 输出模型分数贡献、单因子 RankIC / bucket lift、组合因子暴露和组合因子归因 proxy。
+5. 实施顺序建议放在 Ledger v1 P0 前，但这只是顺序安排，不代表优先级高于 Ledger v1 或月度滚动重训。
+
+### 理由
+
+当前首要需要的是解释现有 baseline 的因子来源，而不是重新评估每个因子的移除效果。只读型因子贡献度分析成本低、对现有 runner 风险小，且不会改变交易执行语义或模型生命周期，适合作为 Ledger v1 A/B 前的解释基准。
+
+### 影响
+
+后续实现应新增独立 factor attribution artifact 和 QA，禁止引入 `ablation_run_id`、`drop_feature_run_id` 等消融实验路径。若未来 owner 需要消融实验，应另写 PRD 并单独审批计算成本和运行矩阵。
+
+### 备选方案
+
+直接做消融实验；放弃，因为本轮 owner 明确不考虑消融实验，且成本/运行时间较高。把因子贡献度塞进既有模型质量诊断 PRD；放弃，因为现有诊断 PRD 已实现，新增独立 PRD 更容易限定非消融边界和 artifact 契约。
+
+### 相关文件
+
+`docs/prd/PRD_20260604_03_策略1因子贡献度分析.md`, `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`, `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`, `TODO.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`

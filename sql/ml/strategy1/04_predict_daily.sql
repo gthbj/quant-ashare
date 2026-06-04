@@ -58,14 +58,14 @@ END IF;
 -- 幂等
 IF p_force_replace THEN
   DELETE FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-  WHERE pred.model_id = p_selected_model_id AND pred.run_id = p_run_id
+  WHERE pred.run_id = p_run_id
     AND pred.predict_date BETWEEN p_valid_start AND p_test_end;
 ELSE
   IF (SELECT COUNT(*) > 0
       FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
-      WHERE pred.model_id = p_selected_model_id AND pred.run_id = p_run_id
+      WHERE pred.run_id = p_run_id
         AND pred.predict_date BETWEEN p_valid_start AND p_test_end) THEN
-    RAISE USING MESSAGE = CONCAT('Predictions exist for model_id=', p_selected_model_id);
+    RAISE USING MESSAGE = CONCAT('Predictions exist for run_id=', p_run_id);
   END IF;
 END IF;
 
