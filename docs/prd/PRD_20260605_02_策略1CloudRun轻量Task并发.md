@@ -194,15 +194,24 @@ predict_features/part-00000.parquet
 
 ### 6.2 必备内容
 
+P0 明确采用 `prepare_matrix` 一次性预处理方案：
+
+1. `prepare_matrix` 是唯一允许 fit / 计算 / 应用训练集预处理统计量的步骤。
+2. `train_features.parquet`、`valid_features.parquet`、`predict_features.parquet` 均为已按 train-only 统计量处理后的 float32 frozen matrix。
+3. candidate task 只读取已预处理的 train / valid 矩阵，不重新 winsor、zscore、impute 或 fit 任何预处理器。
+4. `preprocess_stats.json` 作为审计、复现、hash 校验和后续新增 predict 分片转换依据保留，不作为 candidate task 每次重新应用预处理的入口。
+
 | 文件 | 内容 |
 |---|---|
 | `matrix_manifest.json` | run_id、matrix_id、source table、source row counts、schema hash、created_at、container image |
 | `work_units.json` | task index 到 candidate / experiment 的映射 |
 | `feature_schema.json` | 特征列顺序、类型、feature_set_id、feature_version |
 | `preprocess_stats.json` | train-only median / winsor / mean / std 或对应 preprocess 版本统计 |
-| `*_features.parquet` | float32 特征矩阵 |
+| `*_features.parquet` | 已预处理的 float32 特征矩阵 |
 | `*_labels.parquet` | label、target_return、split_tag、trade_date、sec_code |
 | `predict_index.parquet` | 预测写回所需 `(trade_date, sec_code, horizon)` |
+
+candidate task 的读取范围必须只覆盖 `train_features`、`train_labels`、`valid_features`、`valid_labels` 和 manifest / schema / stats 小文件；`predict_features` 和 `predict_index` 仅由 reducer / predict step 读取。
 
 ### 6.3 Hash 与可追溯
 
@@ -246,6 +255,18 @@ P0 推荐从小规格开始：
 
 违反该规则时 QA 必须 fail。
 
+执行机制：
+
+1. 所有 Cloud Run runner 发起的 BigQuery job 必须带 job labels，至少包含：
+   - `pipeline_component=strategy1_cloudrun`
+   - `pipeline_step=prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report`
+   - `run_id=<run_id>`
+   - `matrix_id=<matrix_id>`（适用时）
+2. `prepare_matrix` 是唯一允许读取 `ashare_ads.ads_ml_training_panel_daily` 全量训练面板的 step。
+3. `train_candidate_task` 代码层必须使用受控 BigQuery wrapper；该 wrapper 默认禁止查询 `ashare_ads.ads_ml_training_panel_daily`、`ashare_dws.dws_stock_sample_daily` 等全量训练源表，只允许读取小 metadata 或不查 BigQuery。
+4. QA-TASK-8 通过 `INFORMATION_SCHEMA.JOBS_BY_PROJECT`（region=`asia-east2`）或等价审计表检查 job labels / referenced tables：任一 `pipeline_step='train_candidate_task'` 的 job 引用全量训练面板或扫描字节超过 task metadata 阈值时 fail。
+5. 若 BigQuery `INFORMATION_SCHEMA` 无法稳定暴露所需 referenced table 字段，则 runner 必须把每个 BigQuery job 的 `job_id`、labels、referenced tables、total bytes processed 写入 `strategy1_experiment_run_status` 或独立 audit artifact，再由 QA 读取该审计结果。
+
 ### 7.3 并发与预算
 
 默认单批全并发是为了满足“能并发就并发”的要求；成本保护通过以下方式实现：
@@ -262,12 +283,13 @@ P0 推荐从小规格开始：
 
 1. 读取 `work_units.json`。
 2. 用 `CLOUD_RUN_TASK_INDEX` 找到唯一 work unit。
-3. 读取 GCS frozen train / valid 矩阵。
-4. 加载 `preprocess_stats.json` 或已预处理矩阵，不重新 fit 预处理。
-5. 训练自己的模型。
-6. 在 valid split 上计算 raw / reversed / oriented metrics。
-7. 写自己的 artifact。
-8. 写自己的 task status。
+3. 只读取 GCS frozen train / valid 已预处理矩阵，以及 labels / manifest / schema / stats 小文件。
+4. 不读取 `predict_features` / `predict_index`。
+5. 不重新 fit 或应用 winsor、zscore、impute 等预处理；`preprocess_stats.json` 仅用于 hash 校验和审计。
+6. 训练自己的模型。
+7. 在 valid split 上计算 raw / reversed / oriented metrics。
+8. 写自己的 artifact。
+9. 写自己的 task status。
 
 输出路径：
 
