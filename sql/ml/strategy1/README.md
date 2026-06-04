@@ -335,18 +335,34 @@ QA 断言（`10` QA-ORIENT-1..4）验证 registry 有 `score_orientation`、pred
 
 - **run 隔离**：模型对象名嵌入 `p_run_id`，registry 用 `JSON_VALUE(model_params_json, '$.run_id')` 过滤。
 - **04 动态模型引用**：用 `EXECUTE IMMEDIATE FORMAT(...)` 自动引用 03 选出的 selected model URI，无需手动替换。
-- **回测交易与卖出口径（v1 ledger）**：08 只在每个调仓 period 的 `t+1 exec_date` 按当日开盘价交易；不可交易腿本期跳过、记为 `BUY_SKIPPED_UNTRADABLE` / `SELL_SKIPPED_UNTRADABLE` 意图行，持仓 carry 到下一个调仓执行日再尝试。
+- **回测交易与卖出口径（ledger_exec_v1）**：`rebalance_date` 是信号日，08 推导下一开市日为 `execution_date` 并按开盘价交易；卖出先于买入，按实际持仓与目标持仓净差额 netting；买不进不候补，卖不出进入 `pending_sell` 并在后续每个开市日继续尝试卖出；现金不足的买单按比例缩放并记为 `FILLED_SCALED_CASH`。
 - **基准窗口校验**：08 执行前校验 `p_benchmark` 是 `dim_index` 中的可用收益基准，并且 `dwd_index_eod` 对 NAV 窗口每个开市日有且只有一条有效价格记录。
 - **评估主基准**：`08` 和 `09` 的 `p_benchmark` 默认值为 `000852.SH`（中证 1000），ADS 主字段写入此基准。展示对比基准（沪深 300）和辅助基准（中证 500）由 `render_report.py` 从 `dwd_index_eod` 读取并固化到 `benchmark_nav.csv`。
 - **报告渲染**：`render_report.py` 生成中文 Markdown + HTML + PNG + CSV 附件 + 证据包 + AI 诊断。默认上传 GCS 并写回 `metrics_json`；`--skip-gcs-upload` 仅写本地镜像。
 - **AI 诊断**：`auto` 模式在无凭据或 LLM 失败时自动退化为 `evidence_only`，保证报告始终可生成。AI 只能引用证据包中的事实，不得编造外部原因。
 - **OQ-010 参数**使用示例值，非业务定稿。
 
-## 回测口径：v1 账户级有状态 ledger
+## 回测口径：ledger_exec_v1 日级账户 ledger
 
-`08_run_backtest.sql` 自 PR #12 为账户级有状态 ledger（BigQuery scripting `WHILE` 循环逐调仓 period）：
-每个 `t+1 exec_date` 先按当前持仓估值得 NAV（停牌用 ffill 收盘）→ 目标仓位 = 目标权重 × 当前 NAV
-（资金复利/回收）→ 卖出先于买入 → 买入受可用现金约束（超出按比例缩放）→ 对实际持仓 netting → 循环后按交易日展开每日持仓/NAV。
+`08_run_backtest.sql` 实现 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md` 的 P0 交易执行语义：
+`rebalance_date` 继续表示 `signal_date`，成交日为下一开市日 `execution_date`。脚本按开市日逐日循环：
+执行日前最近可用收盘价估算 NAV → 若当天是 execution_date 则更新目标组合 → 按实际持仓和目标持仓净差额 netting → 卖出先于买入 → 买入受可用现金约束（超出按比例缩放）→ 卖不出进入 pending sell 并在后续每个开市日继续尝试 → 每日收盘 mark-to-market 写 NAV。
 `10_qa_runner_outputs.sql` 的 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一、
-NAV 覆盖全开市日由 ledger 构造保证。**v1 简化**：不可交易腿本期跳过 + carry（无 60 日 next-sellable 顺延）、未复权口径、持有期除权简化。
-背景见 `.agent/memory/DECISION_LOG.md` DECISION-20260601-07（升级触发）与 DECISION-20260602-01（落地）。
+NAV 覆盖全开市日由 ledger 构造保证；同时校验新状态枚举、pending sell 次日重试、同股同日不同时成交买卖、非成交状态不影响现金。
+
+`ads_backtest_trade_daily.fill_status` 当前可能值：
+
+| 状态 | 含义 |
+|---|---|
+| `FILLED` | 全部成交 |
+| `FILLED_SCALED_CASH` | 因现金不足按比例缩放后成交 |
+| `BUY_SKIPPED_UNTRADABLE` | 买入不可交易，未成交且不候补 |
+| `SELL_SKIPPED_UNTRADABLE` | rebalance execution_date 卖出不可交易，进入/维持 pending sell |
+| `PENDING_SELL_CARRY` | 非 rebalance 日继续尝试 pending sell 但仍不可卖 |
+| `CANCELLED_BY_NETTING` | pending sell 因目标提高/重新入选被 netting 取消 |
+| `SKIPPED_CASH_INSUFFICIENT` | 现金缩放后仍无法成交 |
+| `SKIPPED_MIN_NOTIONAL` | 低于最小成交金额，当前 P0 默认不触发 |
+| `NOOP_ALREADY_TARGET` | pending 持仓已达到目标，无需继续卖 |
+
+P0 仍保持未复权现金成交口径、FLOAT shares、未显式建模 A 股 T+1 锁仓和持有期除权影响。
+背景见 `.agent/memory/DECISION_LOG.md` DECISION-20260601-07（升级触发）与 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`。

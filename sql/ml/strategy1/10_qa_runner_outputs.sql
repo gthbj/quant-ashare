@@ -289,6 +289,146 @@ ASSERT (
   )
 ) AS 'position rows must be unique per (trade_date, sec_code) — overlapping episodes would duplicate';
 
+-- ── Ledger v1 P0: execution semantics and order-status QA ──
+ASSERT (
+  SELECT COUNT(*) > 0 AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.ledger_version') != 'ledger_exec_v1') = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-LEDGER-1: summary metrics_json.ledger_version must be ledger_exec_v1';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+  WHERE bt.backtest_id = p_backtest_id
+    AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+    AND bt.fill_status NOT IN (
+      'FILLED',
+      'FILLED_SCALED_CASH',
+      'BUY_SKIPPED_UNTRADABLE',
+      'SELL_SKIPPED_UNTRADABLE',
+      'PENDING_SELL_CARRY',
+      'CANCELLED_BY_NETTING',
+      'SKIPPED_CASH_INSUFFICIENT',
+      'SKIPPED_MIN_NOTIONAL',
+      'NOOP_ALREADY_TARGET'
+    )
+) AS 'QA-LEDGER-2: trade fill_status must be in ledger_exec_v1 allowed status set';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+  WHERE bt.backtest_id = p_backtest_id
+    AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+    AND bt.fill_status IN (
+      'BUY_SKIPPED_UNTRADABLE',
+      'SELL_SKIPPED_UNTRADABLE',
+      'PENDING_SELL_CARRY',
+      'CANCELLED_BY_NETTING',
+      'SKIPPED_CASH_INSUFFICIENT',
+      'SKIPPED_MIN_NOTIONAL',
+      'NOOP_ALREADY_TARGET'
+    )
+    AND (
+      ABS(COALESCE(bt.filled_shares, 0)) > 1e-9
+      OR ABS(COALESCE(bt.turnover_cny, 0)) > 1e-6
+      OR ABS(COALESCE(bt.fee_cny, 0)) > 1e-6
+      OR ABS(COALESCE(bt.tax_cny, 0)) > 1e-6
+      OR ABS(COALESCE(bt.slippage_cny, 0)) > 1e-6
+      OR ABS(COALESCE(bt.cash_effect_cny, 0)) > 1e-6
+    )
+) AS 'QA-LEDGER-3: skipped/cancel/noop statuses must have zero fill, turnover, fee, tax, slippage and cash effect';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT bt.trade_date, bt.sec_code, COUNT(DISTINCT bt.side) AS filled_sides
+    FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+    WHERE bt.backtest_id = p_backtest_id
+      AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+      AND bt.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
+    GROUP BY bt.trade_date, bt.sec_code
+    HAVING filled_sides > 1
+  )
+) AS 'QA-LEDGER-4: same stock cannot have both filled BUY and filled SELL on one execution_date after netting';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+  LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+    ON pos.backtest_id = bt.backtest_id
+   AND pos.trade_date = bt.trade_date
+   AND pos.sec_code = bt.sec_code
+   AND pos.trade_date BETWEEN p_predict_start AND p_predict_end
+  WHERE bt.backtest_id = p_backtest_id
+    AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+    AND bt.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY')
+    AND COALESCE(pos.shares, 0) <= 0
+) AS 'QA-LEDGER-5: skipped/carry SELL must not reduce the position on that date';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    WITH signal_exec AS (
+      SELECT nxt.cal_date AS exec_date
+      FROM (
+        SELECT DISTINCT pt.rebalance_date
+        FROM `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
+        WHERE pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
+          AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
+      ) AS rd
+      JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS c
+        ON c.exchange = 'SSE' AND c.is_open = 1 AND c.cal_date = rd.rebalance_date
+      JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS nxt
+        ON nxt.exchange = 'SSE' AND nxt.is_open = 1 AND nxt.trade_date_seq = c.trade_date_seq + 1
+      WHERE nxt.cal_date BETWEEN p_predict_start AND p_predict_end
+    )
+    SELECT bt.trade_date, bt.sec_code
+    FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+    JOIN signal_exec AS se ON se.exec_date = bt.trade_date
+    WHERE bt.backtest_id = p_backtest_id
+      AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+      AND bt.fill_status = 'PENDING_SELL_CARRY'
+  )
+) AS 'QA-LEDGER-6: PENDING_SELL_CARRY must only be emitted on non-rebalance retry days';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    WITH open_days AS (
+      SELECT
+        c.cal_date AS trade_date,
+        LEAD(c.cal_date) OVER (ORDER BY c.cal_date) AS next_trade_date
+      FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS c
+      WHERE c.exchange = 'SSE' AND c.is_open = 1
+        AND c.cal_date BETWEEN p_predict_start AND p_predict_end
+    ),
+    skipped AS (
+      SELECT bt.trade_date, bt.sec_code, od.next_trade_date
+      FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+      JOIN open_days AS od ON od.trade_date = bt.trade_date
+      JOIN `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+        ON pos.backtest_id = bt.backtest_id
+       AND pos.trade_date = bt.trade_date
+       AND pos.sec_code = bt.sec_code
+       AND pos.trade_date BETWEEN p_predict_start AND p_predict_end
+      WHERE bt.backtest_id = p_backtest_id
+        AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+        AND bt.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY')
+        AND od.next_trade_date IS NOT NULL
+        AND pos.shares > 0
+    )
+    SELECT s.trade_date, s.sec_code, s.next_trade_date
+    FROM skipped AS s
+    LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS nt
+      ON nt.backtest_id = p_backtest_id
+     AND nt.trade_date = s.next_trade_date
+     AND nt.sec_code = s.sec_code
+     AND nt.trade_date BETWEEN p_predict_start AND p_predict_end
+     AND nt.fill_status IN ('FILLED', 'SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY', 'CANCELLED_BY_NETTING', 'NOOP_ALREADY_TARGET')
+    WHERE nt.sec_code IS NULL
+  )
+) AS 'QA-LEDGER-7: pending sell must be retried, filled, cancelled or marked noop on the next open day';
+
 -- ── selected model 唯一（run-scoped）──
 ASSERT (
   SELECT COUNT(*) = 1
@@ -443,7 +583,7 @@ ASSERT (
     JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
       ON px.sec_code = bt.sec_code AND px.trade_date = bt.trade_date
     WHERE bt.backtest_id = p_backtest_id
-      AND bt.fill_status = 'FILLED'
+      AND bt.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
       AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
   )
 ) AS 'QA-COST-6: fill_price must match exec_open * (1 +/- slippage/10000) exactly (BUY +5bps, SELL -5bps) and join must be non-empty';
@@ -454,13 +594,13 @@ ASSERT (
   FROM (
     SELECT
       (SELECT COUNT(*) FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily`
-       WHERE backtest_id = p_backtest_id AND fill_status = 'FILLED'
+       WHERE backtest_id = p_backtest_id AND fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
          AND trade_date BETWEEN p_predict_start AND p_predict_end) AS trade_cnt,
       (SELECT COUNT(*)
        FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
        JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
          ON px.sec_code = bt.sec_code AND px.trade_date = bt.trade_date
-       WHERE bt.backtest_id = p_backtest_id AND bt.fill_status = 'FILLED'
+       WHERE bt.backtest_id = p_backtest_id AND bt.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
          AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
          AND px.open IS NOT NULL) AS joined_cnt
   )
@@ -471,14 +611,14 @@ ASSERT (
 ASSERT (
   SELECT COUNTIF(ABS(SAFE_DIVIDE(fee_cny, turnover_cny) - 1.0/10000.0) > 1e-6) = 0
   FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily`
-  WHERE backtest_id = p_backtest_id AND side = 'BUY' AND fill_status = 'FILLED'
+  WHERE backtest_id = p_backtest_id AND side = 'BUY' AND fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
     AND turnover_cny > 1.0 AND trade_date BETWEEN p_predict_start AND p_predict_end
 ) AS 'QA-COST-7a: BUY fee_cny/turnover must ~ 1 bps (commission only, no slippage in fee)';
 
 ASSERT (
   SELECT COUNTIF(ABS(SAFE_DIVIDE(fee_cny, turnover_cny) - 6.0/10000.0) > 1e-6) = 0
   FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily`
-  WHERE backtest_id = p_backtest_id AND side = 'SELL' AND fill_status = 'FILLED'
+  WHERE backtest_id = p_backtest_id AND side = 'SELL' AND fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
     AND turnover_cny > 1.0 AND trade_date BETWEEN p_predict_start AND p_predict_end
 ) AS 'QA-COST-7b: SELL fee_cny/turnover must ~ 6 bps (commission + stamp_tax, no slippage in fee)';
 
@@ -489,7 +629,7 @@ ASSERT (
   FROM (
     SELECT ABS(bt.cash_effect_cny + bt.turnover_cny + bt.fee_cny) > 1e-3 AS mismatch
     FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
-    WHERE bt.backtest_id = p_backtest_id AND bt.side = 'BUY' AND bt.fill_status = 'FILLED'
+    WHERE bt.backtest_id = p_backtest_id AND bt.side = 'BUY' AND bt.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
       AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
   )
 ) AS 'QA-COST-8a: BUY cash_effect_cny must equal -(turnover_cny + fee_cny)';
@@ -499,7 +639,7 @@ ASSERT (
   FROM (
     SELECT ABS(bt.cash_effect_cny - bt.turnover_cny + bt.fee_cny) > 1e-3 AS mismatch
     FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
-    WHERE bt.backtest_id = p_backtest_id AND bt.side = 'SELL' AND bt.fill_status = 'FILLED'
+    WHERE bt.backtest_id = p_backtest_id AND bt.side = 'SELL' AND bt.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
       AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
   )
 ) AS 'QA-COST-8b: SELL cash_effect_cny must equal turnover_cny - fee_cny';
@@ -516,7 +656,7 @@ ASSERT (
         ELSE FALSE
       END AS mismatch
     FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily`
-    WHERE backtest_id = p_backtest_id AND fill_status = 'FILLED'
+    WHERE backtest_id = p_backtest_id AND fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
       AND trade_date BETWEEN p_predict_start AND p_predict_end
   )
 ) AS 'QA-COST-8c: slippage_cny must match turnover * slippage / (10000 +/- slippage)';

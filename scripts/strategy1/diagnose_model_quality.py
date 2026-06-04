@@ -502,7 +502,7 @@ def fetch_trade_funnel(client: bigquery.Client, project: str,
     sql = f"""
     SELECT
       t.trade_date,
-      COUNTIF(t.side = 'BUY' AND t.fill_status = 'FILLED') AS buy_filled,
+      COUNTIF(t.side = 'BUY' AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')) AS buy_filled,
       COUNTIF(t.side = 'SELL' AND t.fill_status = 'FILLED') AS sell_filled
     FROM `{project}.ashare_ads.ads_backtest_trade_daily` AS t
     WHERE t.backtest_id = @bid
