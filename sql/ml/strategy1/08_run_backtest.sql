@@ -13,6 +13,12 @@
 --
 -- 不变量由 10_qa_runner_outputs.sql 校验：现金不为负、无杠杆、持仓唯一、NAV 覆盖全开市日、
 -- 成交价匹配分项滑点、pending sell 日级重试。
+--
+-- Resume 语义：
+--   * p_initial_state_mode='fresh'：从 p_initial_capital + 空仓开始。
+--   * p_initial_state_mode='resume_from_backtest'：从父 backtest 的 p_state_as_of_date 恢复现金、持仓、
+--     最新 active target 和 pending sell；p_predict_start 必须等于 state_as_of_date 后的下一开市日。
+--   * resume 校验 fail-fast；缺父状态、状态重复、ledger 版本不兼容或日期不连续时禁止静默回退 fresh。
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
@@ -31,6 +37,10 @@ DECLARE p_slippage_sell_bps FLOAT64 DEFAULT 5.0;
 DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;        -- 兼容字段，不再作为默认撮合成本来源
 DECLARE p_benchmark STRING DEFAULT '000852.SH';  -- OQ-010 示例值
 DECLARE p_force_replace BOOL DEFAULT FALSE;
+DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_backtest
+DECLARE p_parent_backtest_id STRING DEFAULT NULL;
+DECLARE p_state_as_of_date DATE DEFAULT NULL;
+DECLARE p_resume_policy_id STRING DEFAULT 'ledger_exec_v1_resume_v20260604';
 DECLARE p_calendar_end DATE;
 DECLARE p_price_start DATE;
 DECLARE p_max_day INT64;
@@ -42,9 +52,101 @@ DECLARE v_is_rebalance BOOL;
 DECLARE v_cash FLOAT64;
 DECLARE v_nav FLOAT64;
 DECLARE v_scale FLOAT64;
+DECLARE v_resume_expected_start DATE;
+DECLARE v_parent_run_id STRING;
 
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
 SET p_price_start = DATE_SUB(p_predict_start, INTERVAL 10 DAY);
+
+IF p_initial_state_mode NOT IN ('fresh', 'resume_from_backtest') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_initial_state_mode: ', p_initial_state_mode);
+END IF;
+
+IF p_initial_state_mode = 'resume_from_backtest' THEN
+  IF p_parent_backtest_id IS NULL THEN
+    RAISE USING MESSAGE = 'p_parent_backtest_id is required when p_initial_state_mode=resume_from_backtest';
+  END IF;
+  IF p_state_as_of_date IS NULL THEN
+    RAISE USING MESSAGE = 'p_state_as_of_date is required when p_initial_state_mode=resume_from_backtest';
+  END IF;
+  IF p_resume_policy_id IS NULL OR p_resume_policy_id != 'ledger_exec_v1_resume_v20260604' THEN
+    RAISE USING MESSAGE = CONCAT('unsupported p_resume_policy_id: ', COALESCE(p_resume_policy_id, 'NULL'));
+  END IF;
+
+  SET v_resume_expected_start = (
+    SELECT MIN(cal.cal_date)
+    FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS cal
+    WHERE cal.exchange = 'SSE'
+      AND cal.is_open = 1
+      AND cal.cal_date > p_state_as_of_date
+  );
+
+  IF v_resume_expected_start IS NULL OR v_resume_expected_start != p_predict_start THEN
+    RAISE USING MESSAGE = CONCAT(
+      'resume p_predict_start must be the next SSE open date after p_state_as_of_date. expected=',
+      COALESCE(CAST(v_resume_expected_start AS STRING), 'NULL'),
+      ', actual=',
+      CAST(p_predict_start AS STRING)
+    );
+  END IF;
+
+  ASSERT (
+    SELECT COUNT(*) = 1
+      AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.ledger_version') = 'ledger_exec_v1')
+    FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+    WHERE bs.backtest_id = p_parent_backtest_id
+  ) AS 'resume parent backtest summary must exist exactly once and use ledger_exec_v1';
+
+  ASSERT (
+    SELECT COUNT(*) = 1
+      AND LOGICAL_AND(nav.cash_cny IS NOT NULL)
+      AND LOGICAL_AND(nav.net_value_cny IS NOT NULL AND nav.net_value_cny > 0)
+      AND LOGICAL_AND(nav.run_id IS NOT NULL)
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    WHERE nav.backtest_id = p_parent_backtest_id
+      AND nav.trade_date = p_state_as_of_date
+  ) AS 'resume parent NAV state must exist exactly once with cash/net value/run_id';
+
+  ASSERT (
+    SELECT COUNT(*) = 0
+    FROM (
+      SELECT pos.sec_code, COUNT(*) AS n
+      FROM `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+      WHERE pos.backtest_id = p_parent_backtest_id
+        AND pos.trade_date = p_state_as_of_date
+      GROUP BY pos.sec_code
+      HAVING n > 1
+    )
+  ) AS 'resume parent positions must be unique by sec_code on state_as_of_date';
+
+  ASSERT (
+    SELECT COUNT(*) = 0
+    FROM `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+    WHERE pos.backtest_id = p_parent_backtest_id
+      AND pos.trade_date = p_state_as_of_date
+      AND (pos.shares IS NULL OR pos.shares < -0.000001 OR pos.market_value_cny IS NULL)
+  ) AS 'resume parent positions must have non-negative shares and market value';
+
+  ASSERT (
+    SELECT ABS(ANY_VALUE(nav.net_value_cny) - ANY_VALUE(nav.cash_cny) - COALESCE(SUM(pos.market_value_cny), 0)) <= 1.0
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+      ON pos.backtest_id = nav.backtest_id
+     AND pos.trade_date = nav.trade_date
+     AND pos.trade_date = p_state_as_of_date
+    WHERE nav.backtest_id = p_parent_backtest_id
+      AND nav.trade_date = p_state_as_of_date
+  ) AS 'resume parent NAV net_value must reconcile to cash plus position market value';
+
+  SET v_parent_run_id = (
+    SELECT ANY_VALUE(nav.run_id)
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    WHERE nav.backtest_id = p_parent_backtest_id
+      AND nav.trade_date = p_state_as_of_date
+  );
+ELSE
+  SET v_parent_run_id = NULL;
+END IF;
 
 -- ── OQ-004 benchmark 前置校验：必须是 dim_index 中的可用收益基准，并完整覆盖 NAV 窗口 ──
 ASSERT (
@@ -181,6 +283,112 @@ JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
  AND pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
 WHERE pt.rebalance_date BETWEEN p_predict_start AND p_predict_end;
 
+-- ── resume 初始状态：fresh 模式为空；resume 模式从父回测恢复 ──
+CREATE TEMP TABLE initial_hold AS
+SELECT CAST(NULL AS STRING) AS sec_code, CAST(NULL AS FLOAT64) AS shares
+FROM (SELECT 1)
+WHERE FALSE;
+
+CREATE TEMP TABLE initial_target AS
+SELECT CAST(NULL AS STRING) AS sec_code, CAST(NULL AS FLOAT64) AS w
+FROM (SELECT 1)
+WHERE FALSE;
+
+CREATE TEMP TABLE initial_pending_sell AS
+SELECT CAST(NULL AS STRING) AS sec_code
+FROM (SELECT 1)
+WHERE FALSE;
+
+IF p_initial_state_mode = 'resume_from_backtest' THEN
+  CREATE OR REPLACE TEMP TABLE initial_hold AS
+  SELECT pos.sec_code, pos.shares
+  FROM `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+  WHERE pos.backtest_id = p_parent_backtest_id
+    AND pos.trade_date = p_state_as_of_date
+    AND pos.shares > 0.000001;
+
+  CREATE OR REPLACE TEMP TABLE initial_target AS
+  WITH candidate_signal AS (
+    SELECT
+      pt.rebalance_date AS signal_date,
+      nxt.cal_date AS exec_date
+    FROM (
+      SELECT DISTINCT rebalance_date
+      FROM `data-aquarium.ashare_ads.ads_portfolio_target_daily`
+      WHERE strategy_id = p_strategy_id
+        AND run_id = v_parent_run_id
+        AND rebalance_date BETWEEN DATE_SUB(p_state_as_of_date, INTERVAL 400 DAY) AND p_state_as_of_date
+    ) AS pt
+    JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS c
+      ON c.exchange = 'SSE'
+     AND c.is_open = 1
+     AND c.cal_date = pt.rebalance_date
+    JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS nxt
+      ON nxt.exchange = 'SSE'
+     AND nxt.is_open = 1
+     AND nxt.trade_date_seq = c.trade_date_seq + 1
+    WHERE nxt.cal_date <= p_state_as_of_date
+  ),
+  active_signal AS (
+    SELECT signal_date
+    FROM candidate_signal
+    QUALIFY ROW_NUMBER() OVER (ORDER BY exec_date DESC, signal_date DESC) = 1
+  )
+  SELECT target.sec_code, target.target_weight AS w
+  FROM active_signal AS a
+  JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS target
+    ON target.rebalance_date = a.signal_date
+   AND target.strategy_id = p_strategy_id
+   AND target.run_id = v_parent_run_id
+  WHERE target.rebalance_date BETWEEN DATE_SUB(p_state_as_of_date, INTERVAL 400 DAY) AND p_state_as_of_date;
+
+  ASSERT (
+    SELECT COUNT(*) = 0
+    FROM (
+      SELECT sec_code, COUNT(*) AS n
+      FROM initial_target
+      GROUP BY sec_code
+      HAVING n > 1
+    )
+  ) AS 'resume active target must be unique by sec_code';
+
+  ASSERT (
+    SELECT COUNT(*) = 0 OR (SELECT COUNT(*) FROM initial_target) > 0
+    FROM initial_hold
+  ) AS 'resume active target must exist when parent has positions';
+
+  CREATE OR REPLACE TEMP TABLE initial_pending_sell AS
+  WITH latest_sell_status AS (
+    SELECT sec_code, fill_status
+    FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily`
+    WHERE backtest_id = p_parent_backtest_id
+      AND side = 'SELL'
+      AND trade_date BETWEEN DATE_SUB(p_state_as_of_date, INTERVAL 400 DAY) AND p_state_as_of_date
+      AND fill_status IN (
+        'FILLED',
+        'SELL_SKIPPED_UNTRADABLE',
+        'PENDING_SELL_CARRY',
+        'CANCELLED_BY_NETTING',
+        'NOOP_ALREADY_TARGET'
+      )
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY sec_code ORDER BY trade_date DESC, created_at DESC) = 1
+  )
+  SELECT ls.sec_code
+  FROM latest_sell_status AS ls
+  JOIN initial_hold AS h USING (sec_code)
+  WHERE ls.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY');
+
+  ASSERT (
+    SELECT COUNT(*) = 0
+    FROM (
+      SELECT sec_code, COUNT(*) AS n
+      FROM initial_pending_sell
+      GROUP BY sec_code
+      HAVING n > 1
+    )
+  ) AS 'resume pending sell state must be unique by sec_code';
+END IF;
+
 -- ── 价格底表：目标池涉及股票，额外读取 10 天用于执行前收盘估值 ──
 CREATE TEMP TABLE px_all AS
 SELECT
@@ -190,7 +398,15 @@ SELECT
   COALESCE(px.can_sell_open, FALSE) AS can_sell_open
 FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
 WHERE px.trade_date BETWEEN p_price_start AND p_calendar_end
-  AND px.sec_code IN (SELECT DISTINCT sec_code FROM presence);
+  AND px.sec_code IN (
+    SELECT DISTINCT sec_code FROM presence
+    UNION DISTINCT
+    SELECT DISTINCT sec_code FROM initial_hold
+    UNION DISTINCT
+    SELECT DISTINCT sec_code FROM initial_target
+    UNION DISTINCT
+    SELECT DISTINCT sec_code FROM initial_pending_sell
+  );
 
 -- ── 收盘价前向填充：NAV 用当日 close_ffill，执行前 NAV 用 prev_close_ffill ──
 CREATE TEMP TABLE px_ffill AS
@@ -204,10 +420,22 @@ SELECT
     ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_close_ffill
 FROM px_all;
 
+ASSERT (
+  SELECT p_initial_state_mode != 'resume_from_backtest' OR COUNT(*) = 0
+  FROM initial_hold AS h
+  LEFT JOIN px_ffill AS pf
+    ON pf.sec_code = h.sec_code
+   AND pf.trade_date = p_predict_start
+  LEFT JOIN px_all AS pa
+    ON pa.sec_code = h.sec_code
+   AND pa.trade_date = p_predict_start
+  WHERE COALESCE(pf.close_ffill, pa.open) IS NULL
+) AS 'resume initial holdings must have a valuation price on p_predict_start';
+
 -- ── ledger 状态表 ──
-CREATE TEMP TABLE hold (sec_code STRING, shares FLOAT64);             -- 当前实际持仓（日级变更）
-CREATE TEMP TABLE target (sec_code STRING, w FLOAT64);                -- 最新目标组合权重，仅在 execution_date 更新
-CREATE TEMP TABLE pending_sell (sec_code STRING);                     -- 未卖出的退出/降仓意图，日级重试
+CREATE TEMP TABLE hold AS SELECT sec_code, shares FROM initial_hold;  -- 当前实际持仓（日级变更）
+CREATE TEMP TABLE target AS SELECT sec_code, w FROM initial_target;   -- 最新目标组合权重，仅在 execution_date 更新
+CREATE TEMP TABLE pending_sell AS SELECT sec_code FROM initial_pending_sell;  -- 未卖出的退出/降仓意图，日级重试
 CREATE TEMP TABLE snap (trade_date DATE, sec_code STRING, shares FLOAT64);  -- 每日收盘后持仓快照
 CREATE TEMP TABLE cash_hist (trade_date DATE, cash_after FLOAT64);          -- 每日收盘后现金
 CREATE TEMP TABLE ledger_trades (
@@ -215,7 +443,16 @@ CREATE TEMP TABLE ledger_trades (
   planned_shares FLOAT64, filled_shares FLOAT64, fill_price FLOAT64, turnover_cny FLOAT64,
   fee_cny FLOAT64, cash_effect_cny FLOAT64, fill_status STRING);
 
-SET v_cash = p_initial_capital;
+SET v_cash = IF(
+  p_initial_state_mode = 'resume_from_backtest',
+  (
+    SELECT ANY_VALUE(nav.cash_cny)
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    WHERE nav.backtest_id = p_parent_backtest_id
+      AND nav.trade_date = p_state_as_of_date
+  ),
+  p_initial_capital
+);
 SET v_d = 1;
 
 WHILE v_d <= p_max_day DO

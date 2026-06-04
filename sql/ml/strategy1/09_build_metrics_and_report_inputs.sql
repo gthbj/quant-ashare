@@ -29,6 +29,10 @@ DECLARE p_slippage_buy_bps FLOAT64 DEFAULT 5.0;
 DECLARE p_slippage_sell_bps FLOAT64 DEFAULT 5.0;
 DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;  -- 兼容字段
 DECLARE p_benchmark STRING DEFAULT '000852.SH';
+DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_backtest
+DECLARE p_parent_backtest_id STRING DEFAULT NULL;
+DECLARE p_state_as_of_date DATE DEFAULT NULL;
+DECLARE p_resume_policy_id STRING DEFAULT 'ledger_exec_v1_resume_v20260604';
 DECLARE p_calendar_end DATE;
 DECLARE p_selected_model_id STRING;
 DECLARE p_force_replace BOOL DEFAULT FALSE;
@@ -189,6 +193,11 @@ SELECT
     -- ledger_exec_v1 成交口径（与 ads_backtest_trade_daily 1:1 可对账）
     'ledger_exec_v1' AS ledger_version,
     'signal_date_next_open_execution' AS execution_semantics,
+    p_initial_state_mode AS initial_state_mode,
+    p_parent_backtest_id AS parent_backtest_id,
+    p_state_as_of_date AS state_as_of_date,
+    p_resume_policy_id AS resume_policy_id,
+    p_initial_state_mode = 'resume_from_backtest' AS is_resumed_backtest,
     TRUE AS pending_sell_daily_retry,
     TRUE AS buy_no_fallback,
     ss.buy_attempt_count, ss.buy_filled_count, ss.buy_skipped_count,

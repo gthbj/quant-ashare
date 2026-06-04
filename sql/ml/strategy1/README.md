@@ -1,4 +1,4 @@
-> 文档维护：GPT-5（最近更新 2026-06-03）
+> 文档维护：GPT-5（最近更新 2026-06-04）
 
 # Strategy 1 BigQuery ML Runner
 
@@ -68,6 +68,10 @@ python scripts/strategy1/attribute_factor_contribution.py \
     --skip-gcs-upload
 
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/14_qa_factor_attribution_outputs.sql
+
+# 15: Ledger resume consistency QA（仅 P2 验收时执行）
+# 用于比较 full fresh-start backtest 与 resume segment backtest 在 2026 段的 NAV/持仓/成交一致性。
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/15_qa_ledger_resume_consistency.sql
 ```
 
 ## 参数说明
@@ -86,6 +90,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/14_qa_f
 | `p_train_start` | 训练起点（默认 2019-04-03，避开 60 日窗口不完整期） |
 | `p_label_horizon` | 训练标签周期，支持 5 / 10 / 20；`01/03/11/12` 会按该值选择目标标签和收益列 |
 | `p_rebalance_frequency` | 调仓频率，支持 `weekly` / `biweekly` / `monthly` |
+| `p_rebalance_anchor_start` | `10` QA 使用；分段 resume 校验调仓日时可设为原实验起点，默认等于 `p_predict_start` |
 | `p_target_holdings` | 持股数（OQ-010 待确认，示例值 5） |
 | `p_max_single_weight` | 单票权重上限（OQ-010 待确认，示例值 0.20） |
 | `p_feature_set_id` | 特征集合 ID；基础为 `strategy1_pv_v0_20260601`，财务扩展为 `strategy1_pv_fin_quality_v0_20260603` |
@@ -100,6 +105,10 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/14_qa_f
 | `p_cost_bps` | 兼容字段，旧一揽子成本 30 bps；已由分项成本取代，不再作为默认撮合成本来源 |
 | `p_benchmark` | **评估主基准** canonical 代码，默认 `000852.SH`（中证 1000）；执行前必须存在于 `dim_index` 且完整覆盖回测 NAV 窗口 |
 | `p_force_replace` | 是否覆盖同 run_id 结果（默认 FALSE） |
+| `p_initial_state_mode` | `08/09/10` 使用；`fresh` 从现金+空仓开始，`resume_from_backtest` 从父回测恢复状态 |
+| `p_parent_backtest_id` | resume 父回测 ID；仅 `p_initial_state_mode='resume_from_backtest'` 时必填 |
+| `p_state_as_of_date` | resume 状态读取日；`p_predict_start` 必须等于该日后的下一开市日 |
+| `p_resume_policy_id` | resume 状态兼容策略版本，当前为 `ledger_exec_v1_resume_v20260604` |
 
 ### render_report.py 参数
 
@@ -349,6 +358,29 @@ QA 断言（`10` QA-ORIENT-1..4）验证 registry 有 `score_orientation`、pred
 执行日前最近可用收盘价估算 NAV → 若当天是 execution_date 则更新目标组合 → 按实际持仓和目标持仓净差额 netting → 卖出先于买入 → 买入受可用现金约束（超出按比例缩放）→ 卖不出进入 pending sell 并在后续每个开市日继续尝试 → 每日收盘 mark-to-market 写 NAV。
 `10_qa_runner_outputs.sql` 的 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一、
 NAV 覆盖全开市日由 ledger 构造保证；同时校验新状态枚举、pending sell 次日重试、同股同日不同时成交买卖、非成交状态不影响现金。
+
+### Ledger state resume
+
+`08_run_backtest.sql` 支持两种初始状态：
+
+| `p_initial_state_mode` | 行为 |
+|---|---|
+| `fresh` | 从 `p_initial_capital` 和空仓开始 |
+| `resume_from_backtest` | 从 `p_parent_backtest_id + p_state_as_of_date` 恢复现金、实际持仓、最新 active target 和 pending sell |
+
+resume 模式 fail-fast：
+
+- `p_parent_backtest_id`、`p_state_as_of_date` 必填。
+- `p_resume_policy_id` 必须为 `ledger_exec_v1_resume_v20260604`。
+- 父回测 summary 必须存在且 `metrics_json.ledger_version='ledger_exec_v1'`。
+- 父回测在 `p_state_as_of_date` 必须有唯一 NAV 状态，且 cash + position market value 必须能对上 net value。
+- `p_predict_start` 必须等于 `p_state_as_of_date` 后的下一开市日，禁止有缺口或重叠。
+- 父回测持仓必须唯一、非负、可在 resume 首日估值；状态异常时不允许静默 fallback 到 fresh。
+
+pending sell 恢复不新增 ADS 状态表，而是从父回测 `ads_backtest_trade_daily` 的最新 SELL 状态推导：最新状态为
+`SELL_SKIPPED_UNTRADABLE` 或 `PENDING_SELL_CARRY` 且状态日仍有持仓时，恢复为 pending sell；后续仍按日级 ledger 继续卖出或被 netting 取消。
+
+P2 验收时执行 `15_qa_ledger_resume_consistency.sql`，比较 full fresh-start backtest 与 resume segment backtest 在比较窗口内的 NAV、现金、持仓和成交事实是否一致。首个 resume 日的 `daily_return` 不作为一致性硬比较项，因为 resume segment 没有父状态日前一日的本段 LAG。
 
 `ads_backtest_trade_daily.fill_status` 当前可能值：
 
