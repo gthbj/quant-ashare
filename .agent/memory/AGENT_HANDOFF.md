@@ -48,13 +48,15 @@ Run ID: —
 
 - 新增 `docs/prd/PRD_20260604_03_策略1因子贡献度分析.md`。
 - 明确本轮因子贡献度分析不做消融实验，不重训、不 drop factor，只读当前 baseline。
-- 因子贡献度 PRD 定义模型系数/标准化系数、单因子 RankIC/bucket lift、score contribution、组合因子暴露和归因 proxy。
+- 因子贡献度 PRD 定义模型系数/标准化系数、单因子 RankIC/bucket lift、score contribution、组合因子暴露、归因 proxy 和因子相关性/共线性摘要。
 - 更新 Ledger PRD 和月度重训 PRD 的推荐实施顺序：因子贡献度分析 → Ledger v1 P0/P1/P2 → 月度滚动重训。
+- 跟进 PR #51 comment，补充多重共线性解释边界：单因子系数排名不稳定、组级解读优先、单因子 RankIC 与多变量系数可能不一致、proxy 贡献不可跨相关因子加总。
 - 新增 `DECISION-20260604-02` 并同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md` 和当前交接摘要。
 
 ### 重要上下文
 
 - 因子贡献度分析只是实施顺序上的前置解释基准，不代表优先级高于 Ledger 或月度重训。
+- 当前 PRD 已把高相关因子问题写成解释约束；实现时必须输出 `factor_correlation_summary.csv` 并在中文摘要提示共线性限制。
 - P0 推荐实现为独立 `scripts/strategy1/attribute_factor_contribution.py`，产出 `factor_attribution/` artifact，再用 `14_qa_factor_attribution_outputs.sql` 验收。
 - 若未来要做消融实验，需要另写 PRD；本 PRD 明确禁止把消融路径混进 P0。
 
