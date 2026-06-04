@@ -12,6 +12,7 @@ DECLARE p_expected_ledger_version STRING DEFAULT 'ledger_exec_v1';
 DECLARE p_expected_ledger_executor STRING DEFAULT 'cloud_run_python';
 DECLARE p_expected_executable_experiment_count INT64 DEFAULT NULL;
 DECLARE p_resolved_max_parallel_experiments INT64 DEFAULT NULL;
+DECLARE p_require_model_quality_parity_passed BOOL DEFAULT TRUE;
 
 SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
 
@@ -44,8 +45,8 @@ ASSERT (
     AND COUNTIF(raw_score IS NULL OR score IS NULL OR score_orientation IS NULL) = 0
     AND COUNTIF(
       CASE
-        WHEN score_orientation = 'identity' THEN ABS(score - raw_score) > 1e-9
-        WHEN score_orientation = 'reverse_probability' THEN ABS(score - (1.0 - raw_score)) > 1e-9
+        WHEN score_orientation = 'identity' THEN ABS(score - raw_score) > 1e-6
+        WHEN score_orientation = 'reverse_probability' THEN ABS(score - (1.0 - raw_score)) > 1e-6
         ELSE TRUE
       END
     ) = 0
@@ -54,17 +55,22 @@ ASSERT (
     AND predict_date BETWEEN p_predict_start AND p_predict_end
 ) AS 'QA-CR-3: prediction raw_score/score/score_orientation must be complete and consistent';
 
--- QA-CR-4: model-quality parity gate is present and passed.
+-- QA-CR-4: model-quality parity evidence is present and passed when required.
 ASSERT (
   SELECT COUNT(*) = 1
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') = 'passed')
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') IN ('passed', 'warning', 'failed'))
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_quality_status') IN ('model_quality_equivalent', 'model_quality_not_equivalent'))
     AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.bqml_reference_run_id') IS NOT NULL)
     AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.sklearn_oriented_valid_rank_ic_mean') IS NOT NULL)
+    AND LOGICAL_AND(
+      NOT p_require_model_quality_parity_passed
+      OR JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') = 'passed'
+    )
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
     AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
- ) AS 'QA-CR-4: selected model must pass sklearn vs BQML model-quality parity gate';
+ ) AS 'QA-CR-4: selected model must record sklearn vs BQML model-quality parity evidence and pass when required';
 
 -- QA-CR-5: summary records the expected backend and ledger implementation.
 ASSERT (

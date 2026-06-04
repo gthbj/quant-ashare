@@ -213,7 +213,13 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
             display_name="Cloud Run sklearn train/predict",
             lock_key=build_lock_key(exp, "cloudrun_train_predict"),
             job_name=config.train_predict_job,
-            command=gcloud_execute_command(config.project, config.region, config.train_predict_job, common_flags),
+            command=gcloud_execute_command(
+                config.project,
+                config.region,
+                config.train_predict_job,
+                "scripts.strategy1_cloudrun.train_predict",
+                common_flags,
+            ),
         ))
     backtest_flags = list(common_flags)
     backtest_flags.extend([f"--run-id={exp.run_id}", f"--prediction-run-id={exp.prediction_run_id}", f"--backtest-id={exp.backtest_id}"])
@@ -228,18 +234,31 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
         display_name="Cloud Run backtest/report",
         lock_key=build_lock_key(exp, "cloudrun_backtest_report"),
         job_name=config.backtest_report_job,
-        command=gcloud_execute_command(config.project, config.region, config.backtest_report_job, backtest_flags),
+        command=gcloud_execute_command(
+            config.project,
+            config.region,
+            config.backtest_report_job,
+            "scripts.strategy1_cloudrun.backtest_report",
+            backtest_flags,
+        ),
     ))
     return steps
 
 
-def gcloud_execute_command(project: str, region: str, job_name: str, job_args: list[str]) -> list[str]:
+def gcloud_execute_command(
+    project: str,
+    region: str,
+    job_name: str,
+    module: str,
+    job_args: list[str],
+) -> list[str]:
+    execution_args = ["-m", module, *job_args]
     return [
         "gcloud", "run", "jobs", "execute", job_name,
         f"--project={project}",
         f"--region={region}",
         "--format=json",
-        "--args=" + ",".join(job_args),
+        "--args=" + ",".join(execution_args),
     ]
 
 

@@ -48,8 +48,12 @@ except ImportError as e:
 try:
     import matplotlib.font_manager as fm
     _available_fonts = {f.name for f in fm.fontManager.ttflist}
-    for _candidate in ("SimHei", "PingFang SC", "Heiti SC", "Noto Sans CJK SC",
-                        "WenQuanYi Micro Hei", "Microsoft YaHei", "STHeiti"):
+    for _candidate in (
+        "SimHei", "PingFang SC", "Heiti SC", "Noto Sans CJK SC", "Noto Sans CJK JP",
+        "Noto Sans CJK TC", "Noto Sans CJK HK", "Noto Sans CJK KR",
+        "Noto Serif CJK SC", "Noto Serif CJK JP",
+        "WenQuanYi Micro Hei", "Microsoft YaHei", "STHeiti",
+    ):
         if _candidate in _available_fonts:
             matplotlib.rcParams["font.sans-serif"] = [_candidate] + matplotlib.rcParams.get("font.sans-serif", [])
             break

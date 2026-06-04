@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**策略 1 Cloud Run 真实 smoke（2026-06-05）**：Cloud Run runner 与 orchestrator 状态/锁增强已进入 `main` 后，完成真实 Cloud Run/BQ smoke。已部署镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:6564434f9f216aec6c86cae3923bc44450c3ca26ead14a248b05ca77087d8ead` 到 `strategy1-train-predict-job` / `strategy1-backtest-report-job`，job 配置 16Gi/4CPU/`--max-retries=0`；runtime service account 已具备 `ashare_ads` 写权限。smoke `cloudrun_smoke_pvfq_n30_bw_h5` 跑通 `run_id=s1_cloudrun_sklearn_smoke_20260604_02` / `backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`，train/predict execution `strategy1-train-predict-job-s5725`、backtest/report execution `strategy1-backtest-report-job-6fzvr` 均成功，prediction 1,056,716 行，报告 uploaded 到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_sklearn_smoke_20260604_02/backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`，`16_qa_cloudrun_runner_outputs.sql`（smoke 模式 `p_require_model_quality_parity_passed=FALSE`）和 `17_qa_cloudrun_orchestrator_status.sql` 通过。回测指标：total_return 46.29%、Sharpe 1.111、max_drawdown -13.94%、excess_return 17.28% vs `000852.SH`。注意：sklearn vs BQML parity 未通过，当前 `model_quality_status=model_quality_not_equivalent`，只能证明 Cloud Run 链路可运行，不能声明 sklearn 已等价替代 BQML baseline。
+
 **OQ-005 剩余调度 PRD（2026-06-05）**：新增 `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`，专门定义 Phase 1.7 生产采集之后的 ODS→ADS 剩余链路：ODS gate、BigQuery SQL 兼容路径、Dataform definitions、ADS 契约隔离、刷新窗口、metadata、QA、pipeline 状态、告警、补跑、策略 runner/report 可选分支和 OQ-005 关闭标准。PR #59 review follow-up 已澄清 Phase 2.0/2.1 CTAS 全量兼容路径与 Phase 2.2 增量 `daily_current` 的边界、ADS 脚本现状、meta 编号整理要求和字段说明生产来源。本次只写文档并更新 TODO/memory，未实现代码、未部署任务、未执行 BigQuery。当前工作树：`/private/tmp/quant-ashare-oq005-ods-ads-scheduler-prd`，分支 `codex/oq005-ods-ads-scheduler-prd`。
 
 **OQ-005 最新状态（2026-06-04）**：OQ-005 已从 PRD/worker/dry-run 进入生产采集阶段。当前每日生产采集只覆盖 SQL 实际消费的 14 张 ODS；`ashare-ingest-current-scope` 单 execution 入口已部署，Cloud Run Jobs 走 Direct VPC egress + Cloud NAT + 区域静态 IP 固定出口，Composer DAG 使用 default Celery queue；Airflow 变量当前为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`。纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 成功；`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填全部成功并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`；`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness。OQ-005 仍未关闭，因为完整 ODS→ADS 转换、Dataform/BigQuery SQL 生产链路、告警、补跑和运维观测尚未验收。
@@ -32,7 +34,7 @@
 
 **OQ-010 实跑与调度修复（2026-06-04）**：Stage C runner/QA 修复已由 PR #47 合并并完成重跑；3*2*2*2 全因子 24 组合已补齐。并发调度后续修复已由 PR #48 合并，解决同 stage dependency batching 和诊断状态/上传状态语义拆分问题。
 
-**Cloud Run 最新状态（2026-06-04）**：策略 1 Cloud Run runner 首版已由 PR #56 合并到 `main`，远端 `codex/implement-strategy1-cloudrun-runner` 已删除。当前增强分支 `codex/cloudrun-orchestrator-state-lock` 补齐 orchestrator 写入 `ashare_meta.strategy1_experiment_run_status`、GCS generation-guarded lock、heartbeat、`--resume` / `--resume-from-step` 和 `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`；PR #57 review follow-up 已修复 stale lock 回收前未查 Cloud Run execution、心跳失锁不终止、heartbeat BQ upsert 不健壮和 QA-CRO-4 语义虚弱问题；已通过本地 dry-run / py_compile / BigQuery dry-run，尚未执行真实 Cloud Run Job。
+**Cloud Run 最新状态（2026-06-05）**：策略 1 Cloud Run runner 首版已由 PR #56 合并到 `main`，orchestrator 状态/锁增强已由 PR #57 合并到 `main`。真实 Cloud Run Job smoke 已完成并通过链路级 QA；本轮修复将 `gcloud run jobs execute --args` 补上 Python module、降低 Cloud Build 本地 tag 依赖、优化特征矩阵内存、给中文报告容器补 CJK 字体、放宽 Python/BigQuery float round-trip 的 score orientation QA 容差，并把 parity 未通过从 fail-fast 改为记录 `model_quality_not_equivalent`。后续重点不是“能否运行”，而是 sklearn backend 是否能达到 BQML baseline 模型质量等价，以及 Python ledger vs SQL ledger 的正式等价验收。
 
 **分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 和 `codex/implement-oq004-index` 已在本地和远端删除。
 
@@ -230,6 +232,86 @@ Run ID: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `TODO.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: s1_cloudrun_sklearn_smoke_20260604_02 / bt_s1_cloudrun_sklearn_smoke_20260604_02
+相关 issue/PR: OQ-010 / Strategy 1 Cloud Run real smoke
+
+### 已完成工作
+
+- 在独立工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-smoke`、分支 `codex/cloudrun-smoke` 上完成策略 1 Cloud Run 真实 smoke 收尾。
+- 修复 `orchestrate_experiments.py` 的 `gcloud run jobs execute --args`，确保通过 orchestrator 启动 Cloud Run Job 时包含 `python -m scripts.strategy1_cloudrun.train_predict` / `backtest_report` module。
+- 修复 `cloudbuild.strategy1-cloudrun.yaml` 本地 build 时 `$SHORT_SHA` 为空的问题，改为显式 `_TAG` substitution，并同步运行手册 build/deploy 命令。
+- 优化 Cloud Run 训练内存：`feature_column_list` 兼容 BigQuery Storage / pandas array-like `.tolist()`；特征矩阵改为预分配 `float32`；展开特征后丢弃 raw JSON 列。
+- 将 sklearn vs BQML parity 未通过从 fail-fast 改为记录证据：未通过时仍写 selected registry / prediction / artifact，但必须标记 `model_quality_status=model_quality_not_equivalent`，正式 baseline QA 默认仍要求 parity passed。
+- 放宽 score orientation QA 容差到 `1e-6`，覆盖 Python / BigQuery float round-trip 的 `~3e-8` 误差。
+- 给 Cloud Run 容器安装 `fonts-noto-cjk`，并在 `render_report.py` 扩展 Noto CJK 字体候选，消除中文报告图表 glyph missing 警告。
+- 补充运行手册中的 Cloud Run runtime service account IAM、16Gi/4CPU/`--max-retries=0` 和 smoke / 正式 parity QA 区分。
+
+### 重要上下文
+
+- 使用 Artifact Registry repo `quant-ashare` 和镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:6564434f9f216aec6c86cae3923bc44450c3ca26ead14a248b05ca77087d8ead`。
+- Cloud Run Jobs：`strategy1-train-predict-job`、`strategy1-backtest-report-job`，均配置 16Gi/4CPU/`--max-retries=0`。
+- runtime service account：`241358486859-compute@developer.gserviceaccount.com`，已补 `ashare_ads` dataset WRITER 权限。
+- smoke experiment：`cloudrun_smoke_pvfq_n30_bw_h5`，对应正式 BQML reference run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`。
+- train/predict execution：`strategy1-train-predict-job-s5725`，prediction 1,056,716 行，selected candidate `elastic_c_1_l1_0_5`，score orientation `reverse_probability`。
+- backtest/report execution：`strategy1-backtest-report-job-6fzvr`，完成时间约 2m58s，无 ERROR / CJK glyph warning。
+- report URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_sklearn_smoke_20260604_02/backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`。
+- 回测指标：total_return 46.29%、annual_return 21.72%、Sharpe 1.111、max_drawdown -13.94%、excess_return 17.28% vs `000852.SH`。
+- 模型质量 caveat：BQML valid RankIC 0.09676，sklearn valid RankIC 0.06665，rank delta -0.03011 超出 0.02 阈值；`model_quality_parity_status=failed`，`model_quality_status=model_quality_not_equivalent`。
+
+### 改动文件
+
+- `Dockerfile.strategy1-cloudrun`
+- `cloudbuild.strategy1-cloudrun.yaml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `scripts/strategy1/render_report.py`
+- `scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `scripts/strategy1_cloudrun/preprocess.py`
+- `scripts/strategy1_cloudrun/train_predict.py`
+- `sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`
+- `sql/ml/strategy1/README.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1_cloudrun/train_predict.py scripts/strategy1_cloudrun/backtest_report.py scripts/strategy1_cloudrun/orchestrate_experiments.py scripts/strategy1_cloudrun/preprocess.py scripts/strategy1/render_report.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`
+- Cloud Build 成功：build id `52191460-108a-404b-8017-c65eaa8ef259`。
+- Cloud Run orchestrator resume from `cloudrun_backtest_report` 成功，final execution `strategy1-backtest-report-job-6fzvr` succeeded。
+- `16_qa_cloudrun_runner_outputs.sql` 以 smoke 参数 `p_require_model_quality_parity_passed=FALSE` 通过。
+- `17_qa_cloudrun_orchestrator_status.sql` 通过。
+- `gcloud logging read` 未发现 final execution ERROR 或 CJK glyph warning。
+- `git diff --check`。
+
+### 阻塞项
+
+- 无运行链路阻塞。模型质量阻塞仍存在：当前 sklearn backend 未达到 BQML baseline parity，不能作为正式替代。
+
+### 下一步建议
+
+- 提 PR review 本次 Cloud Run smoke 修复。
+- 合并后做 sklearn backend 参数 / 模型族迭代，使 parity gate 通过，或由 owner 明确接受新的 sklearn baseline。
+- 补 Python ledger vs SQL ledger 的完整等价验收；当前真实 smoke 已证明 Cloud Run Python ledger 能跑通，但还不是正式等价证明。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
 
 ---
 
