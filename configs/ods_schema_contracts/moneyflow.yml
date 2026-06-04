@@ -1,0 +1,151 @@
+# ODS Schema Contract: moneyflow (个股资金流向)
+# P1 priority
+# Known mismatch: buy_md_vol, sell_md_vol (INT->FLOAT64)
+source_system: tushare
+endpoint: moneyflow
+ods_table: ods_tushare_moneyflow
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=moneyflow
+partition_field: partition_date
+priority: P1
+consumers: []
+fields:
+  - field_name: ts_code
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: text
+    unit_note: "股票代码"
+    repair_policy: cast_preserve_value
+  - field_name: trade_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: date
+    unit_note: "YYYYMMDD"
+    repair_policy: cast_preserve_value
+  - field_name: buy_sm_vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手"
+    repair_policy: cast_preserve_value
+  - field_name: buy_sm_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value
+  - field_name: sell_sm_vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手"
+    repair_policy: cast_preserve_value
+  - field_name: sell_sm_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value
+  - field_name: buy_md_vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手"
+    repair_policy: cast_preserve_value
+  - field_name: buy_md_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value
+  - field_name: sell_md_vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手"
+    repair_policy: cast_preserve_value
+  - field_name: sell_md_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value
+  - field_name: buy_lg_vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手"
+    repair_policy: cast_preserve_value
+  - field_name: buy_lg_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value
+  - field_name: sell_lg_vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手"
+    repair_policy: cast_preserve_value
+  - field_name: sell_lg_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value
+  - field_name: buy_elg_vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手"
+    repair_policy: cast_preserve_value
+  - field_name: buy_elg_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value
+  - field_name: sell_elg_vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手"
+    repair_policy: cast_preserve_value
+  - field_name: sell_elg_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value
+  - field_name: net_mf_vol
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "手"
+    repair_policy: cast_preserve_value
+  - field_name: net_mf_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value

@@ -1,0 +1,81 @@
+# ODS Schema Contract: margin (融资融券交易汇总)
+# P2 priority
+# Known mismatch: rqyl (INT->FLOAT64)
+source_system: tushare
+endpoint: margin
+ods_table: ods_tushare_margin
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=margin
+partition_field: partition_date
+priority: P2
+consumers: []
+fields:
+  - field_name: trade_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: date
+    unit_note: "YYYYMMDD"
+    repair_policy: cast_preserve_value
+  - field_name: exchange_id
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "交易所代码 SSE/SZSE"
+    repair_policy: cast_preserve_value
+  - field_name: rzye
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 融资余额"
+    repair_policy: cast_preserve_value
+  - field_name: rzmre
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 融资买入额"
+    repair_policy: cast_preserve_value
+  - field_name: rzche
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 融资偿还额"
+    repair_policy: cast_preserve_value
+  - field_name: rqye
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 融券余额"
+    repair_policy: cast_preserve_value
+  - field_name: rqmcl
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "股 融券卖出量"
+    repair_policy: cast_preserve_value
+  - field_name: rqchl
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "股 融券偿还量"
+    repair_policy: cast_preserve_value
+  - field_name: rzrqye
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 融资融券余额"
+    repair_policy: cast_preserve_value
+  - field_name: rqyl
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "股 融券余量"
+    repair_policy: cast_preserve_value

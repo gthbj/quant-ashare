@@ -7,7 +7,7 @@
 ## P0 — 当前优先
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
-- [ ] 修复 ODS 外部表 Parquet schema mismatch：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 先修当前 P0 源表 `ods_tushare_stk_limit`，再分批修其余 9 张 P1/P2/P3 表；默认从 GCS 原 Parquet 按 schema contract 重写，不从 API 重拉覆盖历史 raw
+- [~] 修复 ODS 外部表 Parquet schema mismatch：PR #43 已实现 schema contract YAML × 10 endpoint、修复/验证脚本、QA SQL 和执行 README，并按 review 补齐 QA 参数格式、INT->FLOAT64 fail-closed、null count 阻断、BQ staging 行数/列可读验证和 staging 清理；P0 `stk_limit` 待在 BigQuery 实际执行修复并验证，再分批修其余 9 张 P1/P2/P3 表；默认从 GCS 原 Parquet 按 schema contract 重写，不从 API 重拉覆盖历史 raw
 - [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基础 A/B/C 与 3*2*2*2 全因子 24 组合已跑完并全部通过 `12_qa_model_diagnosis_outputs`；当前最优组合为 `pv_fin_quality + 30/5% + biweekly + 5d`，并已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，total_return 41.10%、excess_return 12.09% vs `000852.SH`、Sharpe 1.043、max_drawdown -14.48%，报告和诊断均已上传 GCS）。下一步需 owner 确认是否采纳为默认参数；实现顺序建议先做因子贡献度分析，再按 Ledger v1 PRD P1 补跑 2026 YTD fixed-model 扩展验证 / 做稳健性检查
 - [ ] 策略 1 因子贡献度分析：按 `docs/prd/PRD_20260604_03_策略1因子贡献度分析.md` 实现非消融因子分析，输出 BQML 模型系数/标准化系数、单因子 RankIC/bucket lift、score contribution、组合因子暴露、归因 proxy 和因子相关性/共线性摘要；该项只读当前 baseline，不重训、不改交易语义，实施顺序建议放在 Ledger v1 P0 前
 - [ ] Ledger v1 P0：按 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md` 实现策略 1 `ledger_exec_v1` 交易执行语义，固化 t-1 信号 / t 开盘执行、pending sell 每日继续卖、实际持仓 netting、现金缩放、订单状态和每日 mark-to-market NAV；实现后用正式 baseline 参数做同区间 A/B

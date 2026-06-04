@@ -1,0 +1,116 @@
+# ODS Schema Contract: dividend (分红送股)
+# P1 priority
+# Known mismatch: stk_bo_rate, stk_co_rate (INT->FLOAT64)
+source_system: tushare
+endpoint: dividend
+ods_table: ods_tushare_dividend
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=dividend
+partition_field: partition_date
+priority: P1
+consumers: []
+fields:
+  - field_name: ts_code
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: text
+    unit_note: "股票代码"
+    repair_policy: cast_preserve_value
+  - field_name: end_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 报告期"
+    repair_policy: cast_preserve_value
+  - field_name: ann_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 公告日"
+    repair_policy: cast_preserve_value
+  - field_name: div_proc
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "实施进度"
+    repair_policy: cast_preserve_value
+  - field_name: stk_div
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: ratio
+    unit_note: "每股送股"
+    repair_policy: cast_preserve_value
+  - field_name: stk_bo_rate
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: ratio
+    unit_note: "每股转增比例"
+    repair_policy: cast_preserve_value
+  - field_name: stk_co_rate
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: ratio
+    unit_note: "每股送股比例"
+    repair_policy: cast_preserve_value
+  - field_name: cash_div
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 每股现金分红税前"
+    repair_policy: cast_preserve_value
+  - field_name: cash_div_tax
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 每股现金分红税后"
+    repair_policy: cast_preserve_value
+  - field_name: record_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 股权登记日"
+    repair_policy: cast_preserve_value
+  - field_name: ex_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 除权除息日"
+    repair_policy: cast_preserve_value
+  - field_name: pay_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 派息日"
+    repair_policy: cast_preserve_value
+  - field_name: imp_ann_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 预披露公告日"
+    repair_policy: cast_preserve_value
+  - field_name: base_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 基准日"
+    repair_policy: cast_preserve_value
+  - field_name: base_share
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: volume
+    unit_note: "股 基准股本"
+    repair_policy: cast_preserve_value

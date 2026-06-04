@@ -1,0 +1,60 @@
+# ODS Schema Contract: fina_audit (财务审计意见)
+# P2 priority
+# Known mismatch: audit_fees (INT->FLOAT64)
+source_system: tushare
+endpoint: fina_audit
+ods_table: ods_tushare_fina_audit
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=fina_audit
+partition_field: partition_date
+priority: P2
+consumers: []
+fields:
+  - field_name: ts_code
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: text
+    unit_note: "股票代码"
+    repair_policy: cast_preserve_value
+  - field_name: ann_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 公告日"
+    repair_policy: cast_preserve_value
+  - field_name: end_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 报告期"
+    repair_policy: cast_preserve_value
+  - field_name: audit_result
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "审计意见"
+    repair_policy: cast_preserve_value
+  - field_name: audit_fees
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 审计费用"
+    repair_policy: cast_preserve_value
+  - field_name: audit_agency
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "审计机构"
+    repair_policy: cast_preserve_value
+  - field_name: audit_sign
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "签字会计师"
+    repair_policy: cast_preserve_value

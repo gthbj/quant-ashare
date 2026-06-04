@@ -1,0 +1,130 @@
+# ODS Schema Contract: limit_list_d (每日涨跌停统计)
+# P1 priority
+# Known mismatch: amount, limit_amount, fd_amount, open_times, limit_times
+source_system: tushare
+endpoint: limit_list_d
+ods_table: ods_tushare_limit_list_d
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=limit_list_d
+partition_field: partition_date
+priority: P1
+consumers: []
+fields:
+  - field_name: ts_code
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: text
+    unit_note: "股票代码"
+    repair_policy: cast_preserve_value
+  - field_name: trade_date
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: false
+    semantic_type: date
+    unit_note: "YYYYMMDD"
+    repair_policy: cast_preserve_value
+  - field_name: name
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "股票名称"
+    repair_policy: cast_preserve_value
+  - field_name: close
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: price
+    unit_note: "元/股"
+    repair_policy: cast_preserve_value
+  - field_name: pct_chg
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: ratio
+    unit_note: "百分比"
+    repair_policy: cast_preserve_value
+  - field_name: amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元"
+    repair_policy: cast_preserve_value
+  - field_name: limit_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元"
+    repair_policy: cast_preserve_value
+  - field_name: float_mv
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value
+  - field_name: total_mv
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "万元"
+    repair_policy: cast_preserve_value
+  - field_name: turnover_ratio
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: ratio
+    unit_note: "百分比"
+    repair_policy: cast_preserve_value
+  - field_name: fd_amount
+    bigquery_type: FLOAT64
+    pyarrow_type: float64
+    nullable: true
+    semantic_type: amount
+    unit_note: "元 封单金额"
+    repair_policy: cast_preserve_value
+  - field_name: first_time
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "首次涨跌停时间"
+    repair_policy: cast_preserve_value
+  - field_name: last_time
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "最后涨跌停时间"
+    repair_policy: cast_preserve_value
+  - field_name: open_times
+    bigquery_type: INT64
+    pyarrow_type: int64
+    nullable: true
+    semantic_type: count
+    unit_note: "打开次数"
+    repair_policy: cast_preserve_value
+  - field_name: up_stat
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "连板统计"
+    repair_policy: cast_preserve_value
+  - field_name: limit_times
+    bigquery_type: INT64
+    pyarrow_type: int64
+    nullable: true
+    semantic_type: count
+    unit_note: "连板数"
+    repair_policy: cast_preserve_value
+  - field_name: limit
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: text
+    unit_note: "U涨停/D跌停/Z炸板"
+    repair_policy: cast_preserve_value

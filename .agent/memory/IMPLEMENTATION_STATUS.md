@@ -83,10 +83,13 @@ Last updated: 2026-06-04
 - OQ-010 策略 1 实验并发调度与隔离已用于 Stage C 与全因子补跑；同 stage dependency batching 和诊断状态语义问题已由 PR #48 合入 `main`。
 - 因子贡献度分析、Ledger v1 与月度滚动重训目前仅完成 PRD；实现顺序建议为因子贡献度分析 → Ledger v1 P0 交易语义 A/B → Ledger v1 P1 fixed-model 连续扩展回测至 `2026-04-30` → Ledger v1 P2 state resume → 月度滚动重训，避免解释基准、交易执行语义、回测区间延伸、resume 能力和模型生命周期变化混在一起。
 
+## 进行中 / 部分（In Progress）
+
+- ODS Parquet schema repair 实现已启动：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 新增 10 个 endpoint 的 schema contract YAML（`configs/ods_schema_contracts/*.yml`）、修复脚本（`scripts/ods_repair/repair_parquet_schema.py`）、验证脚本（`scripts/ods_repair/validate_repair.py`）、QA SQL（`sql/qa/06_ods_parquet_schema_checks.sql`）和执行文档（`scripts/ods_repair/README.md`）。脚本支持幂等（manifest 跟踪）、backup write-once、INT->FLOAT64 `<2^53` fail-closed 精度复核、dry-run 模式；PR #43 review 后已修正 P0/full QA 命令示例格式、null count 变化阻断发布、BQ staging 行数/列可读验证和 staging 清理。P0 `stk_limit` 待在 BigQuery 上实际执行修复并验证。
+
 ## 未开始 / 未来（Not Started / Future）
 
 - `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置。
-- ODS Parquet schema repair 实现：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 新增 schema contract、修复脚本、QA SQL 和修复报告，先修 `ods_tushare_stk_limit`，再分批修其余 9 张表。
 - 「从 ODS 继承字段描述」的脚本（bq show → 映射 → bq update）。
 - 增量调度（dbt 或 Airflow + SQL）、数据质量断言。
 - P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily` 已落地物化（OQ-003 默认合并报表口径）；`dws_market_state_daily` 仍待补。三大报表单季 `q_*` 派生延后 P1。
