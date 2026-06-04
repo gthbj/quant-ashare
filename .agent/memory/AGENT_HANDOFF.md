@@ -16,9 +16,9 @@
 
 **DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 已落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，以及 OQ-003 财务特征 `dws_stock_feature_fin_daily`；市场状态 `dws_market_state_daily` 待补。财务特征口径 PRD 已采纳、关闭并实现 OQ-003（PR #13）：P0 默认消费合并报表 `report_type='1'`，三大报表 DWD（`income/balancesheet/cashflow` + `_latest`）保留 `report_type`/`report_caliber`/`is_default_report_caliber`，`dws_stock_feature_fin_daily` 默认只过滤默认口径（口径契约 + `has_fin_*` 掩码），已物化并通过 `sql/qa/04_finance_caliber_checks.sql`，并按 OQ-006 单位契约补全 `ods_field_unit_map` 财务字段、跑通 `sql/qa/05_oq006_unit_checks.sql`。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md`、runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 和 runner SQL 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。**runner 已于 PR #12 端到端实跑并通过全部 QA**（08 已重写为账户级 ledger，详见本文件末尾 2026-06-02 交接条目与摘要顶部）。
 
-**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main`。2026-06-04 PR #47 合并后 Stage C 已重跑通过；随后补齐 3*2*2*2 全因子网格缺失的 19 个组合，最终 24 个组合均通过 `12_qa_model_diagnosis_outputs`；同 stage dependency batching 与诊断状态语义修复已由 PR #48 合入 `main`。当前最优组合 `pv_fin_quality + 30/5% + biweekly + 5d` 已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，benchmark=`000852.SH`，total_return=41.10%、excess_return=12.09%、Sharpe=1.043、max_drawdown=-14.48%，报告和诊断均 uploaded 到 GCS）。2026-06-04 已新增 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md` 和 `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`；下一步应先实现 Ledger v1 交易执行语义并用正式 baseline 参数 A/B，再实现月度滚动重训 prediction stream。也可补跑 2026 YTD OOS / 做稳健性检查，或补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main`。2026-06-04 PR #47 合并后 Stage C 已重跑通过；随后补齐 3*2*2*2 全因子网格缺失的 19 个组合，最终 24 个组合均通过 `12_qa_model_diagnosis_outputs`；同 stage dependency batching 与诊断状态语义修复已由 PR #48 合入 `main`。当前最优组合 `pv_fin_quality + 30/5% + biweekly + 5d` 已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，benchmark=`000852.SH`，total_return=41.10%、excess_return=12.09%、Sharpe=1.043、max_drawdown=-14.48%，报告和诊断均 uploaded 到 GCS）。2026-06-04 已新增 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md` 和 `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`，并进一步改造为 Ledger PRD 承接 P0 交易语义、P1 fixed-model 连续扩展回测（`2024-01-02` 至 `2026-04-30`）、P2 ledger state resume；月度重训 PRD 只定义模型生命周期和 prediction stream。下一步应先实现 Ledger v1 P0 并用正式 baseline 参数 A/B，再做 Ledger v1 P1 和 P2，最后实现月度滚动重训。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线后续 Cloud Run Jobs / Dataform / Composer 链路待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径、分数方向校准和并发调度 Phase 1 均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；按 OQ-012 PRD 实现 ODS Parquet schema 修复。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
+**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线后续 Cloud Run Jobs / Dataform / Composer 链路待实施；OQ-010 正式基线默认参数是否采纳，以及 Ledger v1 P0/P1/P2 → 月度滚动重训的实现链路；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；按 OQ-012 PRD 实现 ODS Parquet schema 修复。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
 
@@ -35,6 +35,61 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-04
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: OQ-010 / Ledger v1 PRD / monthly retrain PRD
+
+### 已完成工作
+
+- 按 owner 采纳的方案改造两篇 PRD：不新增第三篇 PRD。
+- `PRD_20260604_01_策略1LedgerV1交易执行语义.md` 已扩展为 Ledger P0/P1/P2：P0 交易执行语义、P1 `2024-01-02` 至 `2026-04-30` fixed-model 连续扩展回测、P2 ledger state resume。
+- `PRD_20260604_02_策略1月度滚动重训.md` 已收敛为只定义模型生命周期、失败回退和 PIT-safe prediction stream，并明确依赖 Ledger P0/P1/P2。
+- 新增 `DECISION-20260604-01`，固化实现顺序为 Ledger v1 P0 → Ledger v1 P1 → Ledger v1 P2 → 月度滚动重训。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 2026 扩展回测和 resume 均归入 Ledger/backtest 执行能力，不归入月度重训。
+- P1 扩展回测必须 fixed-model fresh-start 从 `2024-01-02` 连续跑到 `2026-04-30`；不能用只跑 2026 片段再简单拼接替代。
+- 月度重训正式效果归因必须等 Ledger P0/P1/P2 稳定后再做。
+
+### 改动文件
+
+- `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`
+- `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提 PR review 两篇 PRD 改造。
+- PRD 合并后先实现 Ledger v1 P0 交易执行语义并用正式 baseline 参数 A/B。
+- P0 稳定后再做 P1 fixed-model 扩展回测和 P2 resume；最后实现月度滚动重训。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+---
 
 日期: 2026-06-04
 Agent ID: Codex
@@ -146,60 +201,4 @@ Run ID: `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
-- `TODO.md`
-
-
-
----
-
-日期: 2026-06-04
-Agent ID: Codex
-Agent 实例 ID: Codex desktop session
-模型: GPT-5
-运行环境: Codex desktop
-Run ID: `oq010_ff24_fill_20260604_01`
-相关 issue/PR: OQ-010 / 3*2*2*2 full-factor fill
-
-### 已完成工作
-
-- 补齐并运行 OQ-010 3*2*2*2 全因子网格中缺失的 19 个组合。
-- 24 个组合最终均通过 `12_qa_model_diagnosis_outputs`；benchmark 口径均为 `000852.SH`。
-- 本轮最佳组合为 `pv_fin_quality + 30/5% + biweekly + 5d`：total_return=41.10%、excess_return=12.09%、Sharpe=1.043、max_drawdown=-14.48%。
-- 本地修复 `scripts/strategy1/run_oq010_experiments.py` 的同 stage dependency batching 问题，以及 `scripts/strategy1/diagnose_model_quality.py` 的诊断完成状态与 GCS 上传状态混用问题。
-- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md` 和当前交接摘要。
-
-### 重要上下文
-
-- `pv` 组合层实验较快，因为多数复用既有 `prediction_run_id`，只跑 05-12；`pv_fin_quality` 的 source run 需要重训和重预测。
-- 5 个早期 `pv` 补跑点曾因诊断脚本写入 `model_diagnosis_status=skipped` 导致 `12` 失败；已用修复后的诊断脚本重写 ADS，并重新跑 `12` 成功。
-- 本轮代码修复仍在本地 worktree，尚未提 PR。
-
-### 改动文件
-
-- `scripts/strategy1/run_oq010_experiments.py`
-- `scripts/strategy1/diagnose_model_quality.py`
-- `logs/strategy1/oq010_manifests/oq010_ff24_fill_20260604_01.json`
-- `TODO.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-
-### 测试 / 验证
-
-- 19 个补跑实验最终状态：`12_qa_model_diagnosis_outputs=succeeded`
-- 5 个旧失败诊断点手动补诊断并重跑 `12` 成功
-- BigQuery summary 核对：24 条 `benchmark_sec_code=000852.SH`
-
-### 阻塞项
-
-- 无运行阻塞；后续需提 PR 合入本轮 runner/diagnosis 修复。
-
-### 下一步建议
-
-- 提 PR 合入本轮 runner/diagnosis 修复。
-- 由 owner 确认是否采用 `pv_fin_quality + 30/5% + biweekly + 5d` 作为 OQ-010 第一轮默认参数。
-
-### 已更新记忆文件
-
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `TODO.md`

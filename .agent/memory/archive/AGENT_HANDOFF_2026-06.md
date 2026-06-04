@@ -3419,3 +3419,57 @@ Run ID: stage_c resolved manifest `oq010_stage_c_resolved_20260603_01`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `TODO.md`
+
+---
+
+日期: 2026-06-04
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: `oq010_ff24_fill_20260604_01`
+相关 issue/PR: OQ-010 / 3*2*2*2 full-factor fill
+
+### 已完成工作
+
+- 补齐并运行 OQ-010 3*2*2*2 全因子网格中缺失的 19 个组合。
+- 24 个组合最终均通过 `12_qa_model_diagnosis_outputs`；benchmark 口径均为 `000852.SH`。
+- 本轮最佳组合为 `pv_fin_quality + 30/5% + biweekly + 5d`：total_return=41.10%、excess_return=12.09%、Sharpe=1.043、max_drawdown=-14.48%。
+- 本地修复 `scripts/strategy1/run_oq010_experiments.py` 的同 stage dependency batching 问题，以及 `scripts/strategy1/diagnose_model_quality.py` 的诊断完成状态与 GCS 上传状态混用问题。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- `pv` 组合层实验较快，因为多数复用既有 `prediction_run_id`，只跑 05-12；`pv_fin_quality` 的 source run 需要重训和重预测。
+- 5 个早期 `pv` 补跑点曾因诊断脚本写入 `model_diagnosis_status=skipped` 导致 `12` 失败；已用修复后的诊断脚本重写 ADS，并重新跑 `12` 成功。
+- 本轮代码修复仍在本地 worktree，尚未提 PR。
+
+### 改动文件
+
+- `scripts/strategy1/run_oq010_experiments.py`
+- `scripts/strategy1/diagnose_model_quality.py`
+- `logs/strategy1/oq010_manifests/oq010_ff24_fill_20260604_01.json`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+
+### 测试 / 验证
+
+- 19 个补跑实验最终状态：`12_qa_model_diagnosis_outputs=succeeded`
+- 5 个旧失败诊断点手动补诊断并重跑 `12` 成功
+- BigQuery summary 核对：24 条 `benchmark_sec_code=000852.SH`
+
+### 阻塞项
+
+- 无运行阻塞；后续需提 PR 合入本轮 runner/diagnosis 修复。
+
+### 下一步建议
+
+- 提 PR 合入本轮 runner/diagnosis 修复。
+- 由 owner 确认是否采用 `pv_fin_quality + 30/5% + biweekly + 5d` 作为 OQ-010 第一轮默认参数。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
