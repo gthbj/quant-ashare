@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**策略 1 Cloud Run 轻量 Task 并发 PRD（2026-06-05）**：新增 `docs/prd/PRD_20260605_02_策略1CloudRun轻量Task并发.md`，作为 Cloud Run 训练回测执行器的训练侧并发补充方案。PRD 固化 `prepare_matrix -> train_candidate_fanout --tasks=N --candidate-parallelism=M -> select_register_predict -> backtest_report` 链路：`prepare_matrix` 只做一次 BigQuery 训练面板读取并在 GCS 生成 frozen matrix / work units / feature schema / preprocess stats；`strategy1-train-candidate-fanout-job` 使用 Cloud Run Jobs task 原生机制，每个 task 通过 `CLOUD_RUN_TASK_INDEX` 训练一个 candidate / experiment work unit；`select_register_predict` 汇总全部候选、校验 hash、选型并统一写 registry / prediction。默认并发语义为 owner 不设限时单批全并发，35/100 个 work units 就启动 35/100 个并发 task；owner 可通过显式 `--candidate-parallelism` 让 orchestrator 分批限流。候选 task 默认小规格 1 vCPU / 2-4Gi，避免用 4CPU/16Gi 高配 execution 跑单候选造成 CPU 浪费。本次只写 PRD，未实现代码、未部署 Cloud Run Job、未执行 BigQuery。
+
 **策略 1 Cloud Run 真实 smoke（2026-06-05）**：Cloud Run runner 与 orchestrator 状态/锁增强已进入 `main` 后，完成真实 Cloud Run/BQ smoke。已部署镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:6564434f9f216aec6c86cae3923bc44450c3ca26ead14a248b05ca77087d8ead` 到 `strategy1-train-predict-job` / `strategy1-backtest-report-job`，job 配置 16Gi/4CPU/`--max-retries=0`；runtime service account 已具备 `ashare_ads` 写权限。smoke `cloudrun_smoke_pvfq_n30_bw_h5` 跑通 `run_id=s1_cloudrun_sklearn_smoke_20260604_02` / `backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`，train/predict execution `strategy1-train-predict-job-s5725`、backtest/report execution `strategy1-backtest-report-job-6fzvr` 均成功，prediction 1,056,716 行，报告 uploaded 到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_sklearn_smoke_20260604_02/backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`，`16_qa_cloudrun_runner_outputs.sql`（smoke 模式 `p_require_model_quality_parity_passed=FALSE`）和 `17_qa_cloudrun_orchestrator_status.sql` 通过。回测指标：total_return 46.29%、Sharpe 1.111、max_drawdown -13.94%、excess_return 17.28% vs `000852.SH`。注意：sklearn vs BQML parity 未通过，当前 `model_quality_status=model_quality_not_equivalent`，只能证明 Cloud Run 链路可运行，不能声明 sklearn 已等价替代 BQML baseline。
 
 **OQ-005 Phase 2.0 实现分支（2026-06-05）**：工作树 `/private/tmp/quant-ashare-oq005-scheduler-phase2`，分支 `codex/oq005-scheduler-phase2`，PR #61 已创建并跟进 review comment。Phase 2.0 BigQuery SQL 兼容路径已实现：`ashare_daily_pipeline_v0` 新增 `pipeline_run` / `pipeline_task_status` 状态回写、task callback、`warehouse_mode` 分支、legacy `ashare_enable_full_refresh=true` 到 `full_rebuild_compat` 的记录映射、`skip_ingestion` 跳过采集 smoke、`qa_only` 只读 QA、ADS 契约手工初始化隔离；已移除模块顶层 `Variable.get()`，支持单次 DAG run 用 `pipeline_dry_run` / `dry_run` 覆盖 Cloud Run dry/write 分支，`09_ods_daily_partition_readiness.sql` 按运行期 dry-run 参数推导分区门禁；`qa` / `qa_only` 复用 `_build_qa_chain`；冗余 `ods_daily_partition_readiness >> finish` 依赖已删除；`sql/meta/01_create_meta_tables.sql` 扩展 pipeline 状态表与 task/job/execution URL 字段；OQ-006 单位映射脚本已从 `sql/meta/01_ods_field_unit_map.sql` 整理为 `sql/meta/04_ods_field_unit_map.sql` 并同步引用。验证已通过 Python py_compile、meta DDL / 单位映射 / `09` readiness BigQuery dry-run 和 `git diff --check`。尚未部署 Composer、未执行生产 BigQuery 转换、未关闭 OQ-005。
@@ -45,6 +47,58 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: OQ-010 / Strategy 1 Cloud Run lightweight task fan-out PRD
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260605_02_策略1CloudRun轻量Task并发.md`。
+- PRD 定义 `prepare_matrix -> train_candidate_fanout --tasks=N --candidate-parallelism=M -> select_register_predict -> backtest_report` 链路。
+- 固化 GCS frozen matrix 契约、work units manifest、`CLOUD_RUN_TASK_INDEX` 分片映射、小规格 candidate task、owner 显式限流、reducer 选型、QA、状态表与幂等规则。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md` 和本交接文件。
+
+### 重要上下文
+
+- 工作树：`/Users/luna/Desktop/git/quant-ashare-cloudrun-task-fanout-prd`。
+- 分支：`codex/prd-cloudrun-task-fanout`。
+- 本次只写文档；未实现代码、未部署 Cloud Run Job、未执行 BigQuery、未生成或覆盖 GCS / ADS 产物。
+- 该 PRD 是 `docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md` 的训练侧并发补充，不替代 Cloud Run runner / orchestrator 已有 PRD。
+
+### 改动文件
+
+- `docs/prd/PRD_20260605_02_策略1CloudRun轻量Task并发.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- review / merge 本 PRD。
+- 合并后按阶段实现：Phase 1 先做 dry-run / manifest 展开，Phase 2 做 `prepare_matrix` frozen matrix，Phase 3 做 Cloud Run task fan-out，Phase 4 做 reducer / prediction / QA，最后做 35/100 work units smoke。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+---
 
 日期: 2026-06-05
 Agent ID: Codex
