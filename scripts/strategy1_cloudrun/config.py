@@ -25,6 +25,8 @@ DEFAULT_ARTIFACT_BASE_URI = "gs://ashare-artifacts/reports/strategy1"
 DEFAULT_MODEL_ARTIFACT_BASE_URI = "gs://ashare-artifacts/models/strategy1"
 DEFAULT_LOCAL_MIRROR_ROOT = "reports/strategy1_cloudrun"
 DEFAULT_EXECUTION_BACKEND = "cloud_run_sklearn_ledger_v1"
+DEFAULT_LOCK_BUCKET = "ashare-artifacts"
+DEFAULT_LOCK_PREFIX = "locks/strategy1/cloudrun"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -38,6 +40,10 @@ class RunnerConfig:
     execution_backend: str = DEFAULT_EXECUTION_BACKEND
     train_predict_job: str = "strategy1-train-predict-job"
     backtest_report_job: str = "strategy1-backtest-report-job"
+    lock_bucket: str = DEFAULT_LOCK_BUCKET
+    lock_prefix: str = DEFAULT_LOCK_PREFIX
+    lock_ttl_minutes: int = 30
+    heartbeat_interval_seconds: int = 60
     candidate_grid: tuple[dict[str, Any], ...] = (
         {"candidate_id": "l2_c_0_1", "penalty": "l2", "C": 0.1, "l1_ratio": None},
         {"candidate_id": "l2_c_1", "penalty": "l2", "C": 1.0, "l1_ratio": None},

@@ -10,16 +10,16 @@
 
 1. `scripts/strategy1_cloudrun/train_predict.py`：读取既有 `ads_ml_training_panel_daily`，用 scikit-learn logistic regression 训练候选，做 valid 选型、score orientation、sklearn vs BQML parity，写 `ads_model_registry` 与 `ads_model_prediction_daily`。
 2. `scripts/strategy1_cloudrun/backtest_report.py`：复用现有 `05-07` SQL 生成候选 / 组合 / 订单，默认使用 Cloud Run Python `ledger_exec_v1` fresh-start 回测，随后跑 `09`、报告、诊断和 QA。
-3. `scripts/strategy1_cloudrun/orchestrate_experiments.py`：按 manifest 启动 Cloud Run Jobs。未设置 `--max-parallel-experiments` 或传 `0` 时，resolved 并发数等于本次可执行实验数。
+3. `scripts/strategy1_cloudrun/orchestrate_experiments.py`：按 manifest 启动 Cloud Run Jobs，并写 `ashare_meta.strategy1_experiment_run_status`、使用 GCS generation-guarded lock。未设置 `--max-parallel-experiments` 或传 `0` 时，resolved 并发数等于本次可执行实验数。
 4. `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`：校验 Cloud Run backend、sklearn artifact、prediction orientation、model-quality parity 和 resolved 并发契约。
+5. `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`：校验 Cloud Run orchestrator 状态表、锁元数据和审计字段。
 
 当前限制：
 
 1. 训练面板仍由现有 `01_build_training_panel.sql` 生成。
 2. `05-07` 仍使用 BigQuery SQL。
 3. Python ledger P0 先支持 fresh-start；resume 路径 fail-fast，等 fresh-start 与 BigQuery ledger 等价验证通过后再扩展。
-4. Orchestrator P0 采用每实验唯一 `run_id` / `backtest_id` + Cloud Run execution 隔离；尚未写入 `strategy1_experiment_run_status` 或 GCS lock，后续真实多实验 smoke 后再对齐既有并发状态框架。
-5. Cloud Run Jobs、Artifact Registry、IAM 和服务账号需按本文部署，不在代码中保存任何凭据。
+4. Cloud Run Jobs、Artifact Registry、IAM 和服务账号需按本文部署，不在代码中保存任何凭据。
 
 ## 2. 本地 dry-run
 
@@ -155,6 +155,12 @@ python -m scripts.strategy1_cloudrun.backtest_report \
 
 ## 7. Cloud Run orchestrator
 
+首次使用前先确保状态表存在：
+
+```bash
+bq query --use_legacy_sql=false --location=asia-east2 < sql/meta/02_strategy1_experiment_run_status.sql
+```
+
 默认全并发：
 
 ```bash
@@ -180,9 +186,14 @@ python -m scripts.strategy1_cloudrun.orchestrate_experiments \
 
 1. `0` 或未传：resolved 并发数 = 本次可执行实验数。
 2. `N > 0`：同一时刻最多 N 条实验链。
-3. 默认遇到实验失败时停止提交新的排队实验，但已提交到 Cloud Run 的 job 会继续由 Cloud Run 执行；所有已完成 / 失败 / 跳过结果都会在最终 JSON 中列出。
-4. 如需继续执行剩余排队实验，加 `--continue-on-error`；最终仍会按失败数量返回非零退出码。
-5. 如果 GCP quota 不足，失败实验必须以 Cloud Run execution 和日志追踪，不允许 runner 静默降到内部默认 2 或 1。
+3. 每个子 job 使用状态表 step：`cloudrun_train_predict` / `cloudrun_backtest_report`。
+4. 每个子 job 先获取 GCS lock：`gs://ashare-artifacts/locks/strategy1/cloudrun/<lock_key>.lock`，锁创建、heartbeat、release 均使用 object generation 条件操作。
+5. 获取锁后启动 Cloud Run execution，立即把 execution id 写入 GCS lock 和状态表，然后由 orchestrator 轮询 execution terminal 状态。
+6. stale lock 回收前会先检查原 Cloud Run execution；execution 仍在运行时不得抢占。当前执行失锁时会 cancel 对应 execution，避免两个 writer 写同一 run/backtest。
+7. 默认遇到实验失败时停止提交新的排队实验；所有已完成 / 失败 / 跳过结果都会在最终 JSON 中列出。
+8. 如需继续执行剩余排队实验，加 `--continue-on-error`；最终仍会按失败数量返回非零退出码。
+9. 如需从状态表恢复，使用 `--resume` 跳过已 `succeeded` 的 step；或用 `--resume-from-step cloudrun_backtest_report` 从指定 step 重跑。
+10. 如果 GCP quota 不足，失败实验必须以 Cloud Run execution 和日志追踪，不允许 runner 静默降到内部默认 2 或 1。
 
 ## 8. QA
 
@@ -192,9 +203,11 @@ Cloud Run smoke 后执行：
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql
 ```
 
 `16` 需要按实际 `p_run_id` / `p_prediction_run_id` / `p_backtest_id` 修改脚本顶部参数，或由后续调度器注入参数。
+`17` 需要按实际 `p_experiment_id` / `p_run_id` / `p_backtest_id` 修改脚本顶部参数；如果单独直接运行 train/backtest job、没有经过 orchestrator，则不运行 `17`。
 
 ## 9. 安全
 

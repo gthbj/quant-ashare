@@ -26,6 +26,8 @@
 
 **OQ-010 实跑与调度修复（2026-06-04）**：Stage C runner/QA 修复已由 PR #47 合并并完成重跑；3*2*2*2 全因子 24 组合已补齐。并发调度后续修复已由 PR #48 合并，解决同 stage dependency batching 和诊断状态/上传状态语义拆分问题。
 
+**Cloud Run 最新状态（2026-06-04）**：策略 1 Cloud Run runner 首版已由 PR #56 合并到 `main`，远端 `codex/implement-strategy1-cloudrun-runner` 已删除。当前增强分支 `codex/cloudrun-orchestrator-state-lock` 补齐 orchestrator 写入 `ashare_meta.strategy1_experiment_run_status`、GCS generation-guarded lock、heartbeat、`--resume` / `--resume-from-step` 和 `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`；PR #57 review follow-up 已修复 stale lock 回收前未查 Cloud Run execution、心跳失锁不终止、heartbeat BQ upsert 不健壮和 QA-CRO-4 语义虚弱问题；已通过本地 dry-run / py_compile / BigQuery dry-run，尚未执行真实 Cloud Run Job。
+
 **分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 和 `codex/implement-oq004-index` 已在本地和远端删除。
 
 > 历史交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md` 和 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动只需阅读本文件的当前摘要和最近交接；归档仅用于审计追溯。
@@ -164,6 +166,74 @@ Run ID: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+---
+
+日期: 2026-06-04
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: OQ-010 / Cloud Run orchestrator status and lock implementation
+
+### 已完成工作
+
+- 通过 GitHub API 合并 PR #56，并删除远端 `codex/implement-strategy1-cloudrun-runner` 分支。
+- 创建工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-orchestrator-state-lock`，分支 `codex/cloudrun-orchestrator-state-lock`。
+- 新增 `scripts/strategy1_cloudrun/state.py`，封装 `OrchestratorStatusTable`、GCS generation-guarded lease lock、heartbeat/release、experiment params JSON 和 Cloud Run execution id 提取。
+- 改造 `scripts/strategy1_cloudrun/orchestrate_experiments.py`：每个实验链的 `cloudrun_train_predict` / `cloudrun_backtest_report` step 写入 `ashare_meta.strategy1_experiment_run_status`，执行前获取 GCS lock，执行中 heartbeat，支持 `--resume` 跳过已成功 step，支持 `--resume-from-step cloudrun_backtest_report` 从指定 step 继续。
+- 新增 `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`，校验 orchestrator 状态、锁元数据、审计字段和 execution id 记录。
+- 跟进 PR #57 review comment：Cloud Run orchestrator 改为先启动 execution、记录 execution id 到 GCS lock/status table，再轮询 execution terminal 状态；stale lock 回收前会检查原 execution 是否 terminal；失锁时 cancel 当前 execution；heartbeat 的 GCS/BQ 瞬时错误不再杀线程；QA-CRO-4 改为断言 succeeded step 必须记录 execution id。
+- 同步 Cloud Run 默认配置、运行手册、runner README、`TODO.md`、`IMPLEMENTATION_STATUS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 当前分支只做 orchestrator 状态/锁/resume 增强；没有启动真实 Cloud Run Job，没有重建 ADS 表，没有上传真实 sklearn model artifact。
+- 状态表复用既有 `sql/meta/02_strategy1_experiment_run_status.sql`；执行 Cloud Run orchestrator 前必须先确保该表存在。
+- GCS lock 默认路径为 `gs://ashare-artifacts/locks/strategy1/cloudrun/<lock_key>.lock`，lock key 使用 prediction run 或 backtest id 分离 train/predict 与 backtest/report step。
+- `attempt` 只在非 running 状态进入 running 时增加；heartbeat 只刷新 lease 和 running 状态，不反复增加 attempt。
+- `gcloud run jobs execute` 不再加 `--wait`；orchestrator 启动 execution 后用 `gcloud run jobs executions describe` 轮询状态，因此 stale lock payload 中能保留可检查的 execution id。
+
+### 改动文件
+
+- `configs/strategy1/cloudrun_runner_default.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `scripts/strategy1_cloudrun/state.py`
+- `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`
+- `sql/ml/strategy1/README.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+
+### 测试 / 验证
+
+- `python3 -m compileall scripts/strategy1_cloudrun`
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_experiments --experiment-id oq010_a0_n5_w20 --dry-run`
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_experiments --experiment-id oq010_a0_n5_w20 --resume-from-step cloudrun_backtest_report --dry-run`
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_experiments --stage-id stage_a --resume --dry-run`
+- `bq query --use_legacy_sql=false --location=asia-east2 --dry_run < sql/meta/02_strategy1_experiment_run_status.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 --dry_run < sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`
+- 小单元式校验：`extract_cloud_run_execution_id` 可从 `metadata.name` 和完整 `/executions/` resource name 提取 execution id；`cloud_run_execution_state` 可识别 succeeded / failed / completionTime。
+- `git diff --check`
+
+### 阻塞项
+
+- 无代码阻塞。真实验收仍需部署/确认 Cloud Run Jobs 后跑单实验 smoke。
+
+### 下一步建议
+
+- 提 PR review 本次 Cloud Run orchestrator 状态/锁增强。
+- 合并后执行单实验真实 Cloud Run smoke，跑 `16_qa_cloudrun_runner_outputs.sql` 与 `17_qa_cloudrun_orchestrator_status.sql`。
+- 用真实 smoke 结果验证 sklearn vs BQML parity、Python ledger vs SQL ledger 等价性、GCS model/report artifact 和 ADS 回写。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `TODO.md`
 
 ---
