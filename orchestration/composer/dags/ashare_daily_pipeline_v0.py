@@ -21,16 +21,20 @@ from airflow.utils.task_group import TaskGroup
 from airflow.utils.trigger_rule import TriggerRule
 
 
-PROJECT_ID = Variable.get("ashare_project_id", default_var="data-aquarium")
-REGION = Variable.get("ashare_region", default_var="asia-east2")
-BQ_LOCATION = Variable.get("ashare_bq_location", default_var="asia-east2")
-PIPELINE_DRY_RUN = Variable.get("ashare_pipeline_dry_run", default_var="true").lower() == "true"
+DEFAULT_PROJECT_ID = "data-aquarium"
+DEFAULT_REGION = "asia-east2"
+DEFAULT_BQ_LOCATION = "asia-east2"
+PROJECT_ID = "{{ var.value.get('ashare_project_id', 'data-aquarium') }}"
+REGION = "{{ var.value.get('ashare_region', 'asia-east2') }}"
+BQ_LOCATION = "{{ var.value.get('ashare_bq_location', 'asia-east2') }}"
 BUSINESS_DATE = "{{ dag_run.conf.get('business_date', ds) }}"
 DATE_FROM = "{{ dag_run.conf.get('date_from', '') }}"
 DATE_TO = "{{ dag_run.conf.get('date_to', dag_run.conf.get('business_date', ds)) }}"
 RUN_LABEL = "{{ dag_run.conf.get('run_label', var.value.get('ashare_run_label', 'production_daily')) }}"
 WAREHOUSE_MODE = "{{ dag_run.conf.get('warehouse_mode', var.value.get('ashare_warehouse_mode', 'daily_current')) }}"
 TRANSFORM_BACKEND = "{{ dag_run.conf.get('transform_backend', var.value.get('ashare_transform_backend', 'bq_sql')) }}"
+PIPELINE_DRY_RUN = "{{ dag_run.conf.get('pipeline_dry_run', dag_run.conf.get('dry_run', var.value.get('ashare_pipeline_dry_run', 'true'))) }}"
+REQUIRE_BUSINESS_PARTITION = "{{ dag_run.conf.get('require_business_partition', var.value.get('ashare_require_business_partition', '')) }}"
 LEGACY_FULL_REFRESH = "{{ var.value.get('ashare_enable_full_refresh', 'false') }}"
 INGESTION_RUN_ID_PREFIX = "{{ dag_run.run_id }}"
 
@@ -81,16 +85,21 @@ def _bq_sql_task(
     )
 
 
-def _cloud_run_ingestion_task(task_id: str, job_name: str, endpoint_group: str) -> CloudRunExecuteJobOperator:
+def _cloud_run_ingestion_task(
+    task_id: str,
+    job_name: str,
+    endpoint_group: str,
+    dry_run: bool,
+) -> CloudRunExecuteJobOperator:
     args = [
         "--endpoint-group",
         endpoint_group,
         "--business-date",
         BUSINESS_DATE,
         "--ingestion-run-id",
-        f"{INGESTION_RUN_ID_PREFIX}_{endpoint_group}",
+        f"{INGESTION_RUN_ID_PREFIX}_{endpoint_group}_{'dry_run' if dry_run else 'write'}",
     ]
-    if PIPELINE_DRY_RUN:
+    if dry_run:
         args.append("--dry-run")
     else:
         args.append("--allow-gcs-write")
@@ -124,6 +133,18 @@ def _runtime_value(context: dict, conf_key: str, variable_name: str, default: st
     if conf_key in conf and conf[conf_key] is not None:
         return str(conf[conf_key])
     return Variable.get(variable_name, default_var=default)
+
+
+def _project_id() -> str:
+    return Variable.get("ashare_project_id", default_var=DEFAULT_PROJECT_ID)
+
+
+def _region() -> str:
+    return Variable.get("ashare_region", default_var=DEFAULT_REGION)
+
+
+def _bq_location() -> str:
+    return Variable.get("ashare_bq_location", default_var=DEFAULT_BQ_LOCATION)
 
 
 def _business_date_value(context: dict) -> str:
@@ -163,10 +184,23 @@ def _skip_transform(context: dict) -> bool:
     return _truthy(Variable.get("ashare_skip_transform", default_var="false"))
 
 
+def _pipeline_dry_run(context: dict) -> bool:
+    conf = _runtime_conf(context)
+    for key in ("pipeline_dry_run", "dry_run"):
+        if key in conf:
+            return _truthy(conf[key])
+    return _truthy(Variable.get("ashare_pipeline_dry_run", default_var="true"))
+
+
 def _skip_ingestion_branch(**context) -> str | list[str]:
     if _truthy(_runtime_conf(context).get("skip_ingestion", False)):
         return "ods_daily_partition_readiness"
-    return ["ingestion.ingest_current_scope", "ods_daily_partition_readiness"]
+    ingestion_task_id = (
+        "ingestion.ingest_current_scope_dry_run"
+        if _pipeline_dry_run(context)
+        else "ingestion.ingest_current_scope_write"
+    )
+    return [ingestion_task_id, "ods_daily_partition_readiness"]
 
 
 def _transform_enabled(**context) -> bool:
@@ -223,13 +257,13 @@ def _cloud_run_execution_id(context: dict) -> str:
 def _bigquery_job_url(job_id: str) -> str:
     if not job_id:
         return ""
-    return f"https://console.cloud.google.com/bigquery?project={PROJECT_ID}&j=bq:{BQ_LOCATION}:{job_id}&page=queryresults"
+    return f"https://console.cloud.google.com/bigquery?project={_project_id()}&j=bq:{_bq_location()}:{job_id}&page=queryresults"
 
 
 def _cloud_run_execution_url(execution_id: str) -> str:
     if not execution_id:
         return ""
-    return f"https://console.cloud.google.com/run/jobs/executions/details/{REGION}/{execution_id}?project={PROJECT_ID}"
+    return f"https://console.cloud.google.com/run/jobs/executions/details/{_region()}/{execution_id}?project={_project_id()}"
 
 
 def _pipeline_run_parameters(status: str) -> list[dict]:
@@ -433,7 +467,7 @@ WHEN NOT MATCHED THEN INSERT (
   CURRENT_TIMESTAMP()
 );
 """
-        client = bigquery.Client(project=PROJECT_ID, location=BQ_LOCATION)
+        client = bigquery.Client(project=_project_id(), location=_bq_location())
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter("pipeline_run_id", "STRING", dag_run.run_id),
@@ -536,7 +570,7 @@ WHEN NOT MATCHED THEN INSERT (
   CURRENT_TIMESTAMP()
 );
 """
-        client = bigquery.Client(project=PROJECT_ID, location=BQ_LOCATION)
+        client = bigquery.Client(project=_project_id(), location=_bq_location())
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter("pipeline_run_id", "STRING", dag_run.run_id),
@@ -561,6 +595,28 @@ def _task_success_callback(context: dict) -> None:
 
 def _task_failure_callback(context: dict) -> None:
     _write_pipeline_task_status(context, "failed")
+
+
+def _build_qa_chain(group_id: str) -> TaskGroup:
+    with TaskGroup(group_id=group_id) as qa_group:
+        p0_smoke_checks = _bq_sql_task("p0_smoke_checks", "sql/qa/01_p0_smoke_checks.sql")
+        strategy1_dws_ads_checks = _bq_sql_task(
+            "strategy1_dws_ads_checks",
+            "sql/qa/02_strategy1_dws_ads_checks.sql",
+        )
+        oq004_index_checks = _bq_sql_task("oq004_index_checks", "sql/qa/03_oq004_index_checks.sql")
+        finance_caliber_checks = _bq_sql_task(
+            "finance_caliber_checks",
+            "sql/qa/04_finance_caliber_checks.sql",
+        )
+        oq006_unit_checks = _bq_sql_task("oq006_unit_checks", "sql/qa/05_oq006_unit_checks.sql")
+
+        p0_smoke_checks >> strategy1_dws_ads_checks
+        strategy1_dws_ads_checks >> oq004_index_checks
+        oq004_index_checks >> finance_caliber_checks
+        finance_caliber_checks >> oq006_unit_checks
+
+    return qa_group
 
 
 with DAG(
@@ -602,9 +658,16 @@ with DAG(
 
     with TaskGroup(group_id="ingestion") as ingestion:
         _cloud_run_ingestion_task(
-            task_id="ingest_current_scope",
+            task_id="ingest_current_scope_dry_run",
             job_name="ashare-ingest-current-scope",
             endpoint_group="current_scope",
+            dry_run=True,
+        )
+        _cloud_run_ingestion_task(
+            task_id="ingest_current_scope_write",
+            job_name="ashare-ingest-current-scope",
+            endpoint_group="current_scope",
+            dry_run=False,
         )
 
     ods_daily_partition_readiness = _bq_sql_task(
@@ -612,9 +675,10 @@ with DAG(
         "sql/qa/09_ods_daily_partition_readiness.sql",
         query_parameters=[
             _string_query_parameter("business_date", BUSINESS_DATE),
+            _string_query_parameter("pipeline_dry_run", PIPELINE_DRY_RUN),
             _string_query_parameter(
                 "require_business_partition",
-                "false" if PIPELINE_DRY_RUN else "true",
+                REQUIRE_BUSINESS_PARTITION,
             ),
         ],
         trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
@@ -726,46 +790,14 @@ with DAG(
             "sql/metadata/02_finance_table_column_descriptions.sql",
         )
 
-    with TaskGroup(group_id="qa") as qa:
-        p0_smoke_checks = _bq_sql_task("p0_smoke_checks", "sql/qa/01_p0_smoke_checks.sql")
-        strategy1_dws_ads_checks = _bq_sql_task(
-            "strategy1_dws_ads_checks",
-            "sql/qa/02_strategy1_dws_ads_checks.sql",
-        )
-        oq004_index_checks = _bq_sql_task("oq004_index_checks", "sql/qa/03_oq004_index_checks.sql")
-        finance_caliber_checks = _bq_sql_task(
-            "finance_caliber_checks",
-            "sql/qa/04_finance_caliber_checks.sql",
-        )
-        oq006_unit_checks = _bq_sql_task("oq006_unit_checks", "sql/qa/05_oq006_unit_checks.sql")
-
-        p0_smoke_checks >> strategy1_dws_ads_checks
-        strategy1_dws_ads_checks >> oq004_index_checks
-        oq004_index_checks >> finance_caliber_checks
-        finance_caliber_checks >> oq006_unit_checks
+    qa = _build_qa_chain("qa")
 
     qa_only_gate = ShortCircuitOperator(
         task_id="qa_only_gate",
         python_callable=_qa_only_enabled,
         ignore_downstream_trigger_rules=False,
     )
-    with TaskGroup(group_id="qa_only") as qa_only:
-        p0_smoke_checks = _bq_sql_task("p0_smoke_checks", "sql/qa/01_p0_smoke_checks.sql")
-        strategy1_dws_ads_checks = _bq_sql_task(
-            "strategy1_dws_ads_checks",
-            "sql/qa/02_strategy1_dws_ads_checks.sql",
-        )
-        oq004_index_checks = _bq_sql_task("oq004_index_checks", "sql/qa/03_oq004_index_checks.sql")
-        finance_caliber_checks = _bq_sql_task(
-            "finance_caliber_checks",
-            "sql/qa/04_finance_caliber_checks.sql",
-        )
-        oq006_unit_checks = _bq_sql_task("oq006_unit_checks", "sql/qa/05_oq006_unit_checks.sql")
-
-        p0_smoke_checks >> strategy1_dws_ads_checks
-        strategy1_dws_ads_checks >> oq004_index_checks
-        oq004_index_checks >> finance_caliber_checks
-        finance_caliber_checks >> oq006_unit_checks
+    qa_only = _build_qa_chain("qa_only")
 
     ads_contract_gate = ShortCircuitOperator(
         task_id="ads_contract_gate",
@@ -782,7 +814,6 @@ with DAG(
     start >> setup >> pipeline_start_status >> branch_ingestion
     branch_ingestion >> ingestion >> ods_daily_partition_readiness
     branch_ingestion >> ods_daily_partition_readiness
-    ods_daily_partition_readiness >> finish
     ods_daily_partition_readiness >> full_refresh_gate >> ods_parquet_schema_p0
     ods_daily_partition_readiness >> qa_only_gate >> qa_only
     ods_daily_partition_readiness >> ads_contract_gate >> ads_contract_init

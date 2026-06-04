@@ -14,6 +14,7 @@ Composer 负责串联全流程：
 
 - `ashare_pipeline_dry_run=true` 时，Cloud Run Job 只执行采集计划展开，不写 GCS。
 - `ashare_pipeline_dry_run=false` 时，DAG 会向 Cloud Run Job 传入 `--allow-gcs-write`，按业务日期写入当前范围 ODS 分区。
+- 单次手工 DAG run 可用 `pipeline_dry_run` 或 `dry_run` 覆盖 `ashare_pipeline_dry_run`；dry-run 会让 ODS readiness 默认检查近期可读分区，真实写入会默认要求精确业务日/交易日分区。
 - 不直接保存 token。
 - 每日默认主链只执行单个 Cloud Run ingestion（`ashare-ingest-current-scope`）和 `sql/qa/09_ods_daily_partition_readiness.sql`；该检查只读业务日分区或近期小窗口，不扫描 2019+ 全历史。
 - `ashare_warehouse_mode=daily_current` 时，DAG 执行采集、ODS readiness 和状态表回写；Phase 2.2 增量影响窗口完成前不进入 CTAS 转换分支。
@@ -130,6 +131,28 @@ gcloud composer environments run ashare-composer \
 ```
 
 未传入时使用 Airflow `ds`。
+
+单次采集 dry-run：
+
+```json
+{
+  "business_date": "2026-06-04",
+  "pipeline_dry_run": true,
+  "run_label": "manual_ingestion_dry_run"
+}
+```
+
+单次真实采集写入：
+
+```json
+{
+  "business_date": "2026-06-04",
+  "pipeline_dry_run": false,
+  "run_label": "manual_ingestion_write"
+}
+```
+
+`require_business_partition` 可在手工 smoke 中覆盖 readiness 门禁；不传时，dry-run 默认 `false`，真实写入默认 `true`。
 
 只重跑下游 readiness / QA：
 

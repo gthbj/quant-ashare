@@ -13,7 +13,7 @@
 
 - Cloud Run Jobs 使用 `TUSHARE_TOKEN` Secret Manager 注入方式；每日生产入口使用 `ashare-ingest-current-scope` 单 execution 顺序执行当前 14 个 ODS endpoint；Jobs 通过 Direct VPC egress + Cloud NAT + 区域静态 IP 固定出口。
 - Tushare 官方或兼容 API 地址通过 `TUSHARE_HTTP_URL` 环境变量注入。
-- Jobs 模板默认追加 `--dry-run`，不会请求 API，也不会写 GCS；Composer 生产路径在 `ashare_pipeline_dry_run=false` 时显式传入 `--allow-gcs-write`。
+- Jobs 模板默认追加 `--dry-run`，不会请求 API，也不会写 GCS；Composer 生产路径在 `ashare_pipeline_dry_run=false` 时显式传入 `--allow-gcs-write`，手工 DAG run 可用 `pipeline_dry_run` / `dry_run` 单次覆盖。
 - 本地可用 `--skip-gcs-write` 做只读 API smoke，验证 API、分页和 schema cast。
 - worker 真实写入要求显式传 `--allow-gcs-write`，防止误写生产 GCS。
 - 已用小范围 `index_daily_000852_SH / 20260603` 做 GCS 写入 smoke，并通过 ODS 外部表读取验证。

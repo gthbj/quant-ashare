@@ -9,15 +9,25 @@
 --
 -- Parameters:
 --   @business_date: STRING, YYYY-MM-DD or YYYYMMDD
---   @require_business_partition: STRING, 'true' or 'false'
+--   @pipeline_dry_run: STRING, 'true' or 'false'
+--   @require_business_partition: STRING, optional 'true' or 'false'
 --
--- Dry-run Composer smoke passes require_business_partition='false', because
+-- Dry-run Composer smoke defaults require_business_partition to false, because
 -- ingestion dry-run does not write new GCS partitions. Production write runs
--- pass 'true', requiring exact trade-day/snapshot partitions for daily sources.
+-- default to true, requiring exact trade-day/snapshot partitions for daily
+-- sources. The optional require_business_partition parameter can override the
+-- default when a manual smoke needs a stricter or looser gate.
 -- =============================================================================
 
 DECLARE p_business_date_arg STRING DEFAULT @business_date;
-DECLARE p_require_business_partition BOOL DEFAULT LOWER(@require_business_partition) = 'true';
+DECLARE p_pipeline_dry_run_arg STRING DEFAULT LOWER(TRIM(COALESCE(NULLIF(@pipeline_dry_run, ''), 'true')));
+DECLARE p_require_business_partition_arg STRING DEFAULT LOWER(TRIM(COALESCE(@require_business_partition, '')));
+DECLARE p_pipeline_dry_run BOOL DEFAULT p_pipeline_dry_run_arg IN ('1', 'true', 'yes', 'y', 'on');
+DECLARE p_require_business_partition BOOL DEFAULT IF(
+  p_require_business_partition_arg = '',
+  NOT p_pipeline_dry_run,
+  p_require_business_partition_arg IN ('1', 'true', 'yes', 'y', 'on')
+);
 
 DECLARE p_business_date DATE DEFAULT COALESCE(
   SAFE.PARSE_DATE('%Y-%m-%d', p_business_date_arg),
@@ -38,6 +48,12 @@ DECLARE p_trade_partition STRING DEFAULT COALESCE(
   ),
   p_business_partition
 );
+
+ASSERT p_pipeline_dry_run_arg IN ('1', 'true', 'yes', 'y', 'on', '0', 'false', 'no', 'n', 'off')
+  AS 'QA-ODS-DAILY-0A: pipeline_dry_run must be true/false-like';
+
+ASSERT p_require_business_partition_arg IN ('', '1', 'true', 'yes', 'y', 'on', '0', 'false', 'no', 'n', 'off')
+  AS 'QA-ODS-DAILY-0B: require_business_partition must be empty or true/false-like';
 
 ASSERT p_business_date IS NOT NULL AS 'QA-ODS-DAILY-0: business_date must be YYYY-MM-DD or YYYYMMDD';
 
@@ -444,6 +460,7 @@ ASSERT (
 SELECT
   p_business_partition AS business_partition,
   p_trade_partition AS trade_partition,
+  p_pipeline_dry_run AS pipeline_dry_run,
   p_require_business_partition AS require_business_partition,
   endpoint_group,
   endpoint,
