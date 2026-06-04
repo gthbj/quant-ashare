@@ -12,6 +12,10 @@ local_mirror_root: reports/strategy1_cloudrun
 
 train_predict_job: strategy1-train-predict-job
 backtest_report_job: strategy1-backtest-report-job
+lock_bucket: ashare-artifacts
+lock_prefix: locks/strategy1/cloudrun
+lock_ttl_minutes: 30
+heartbeat_interval_seconds: 60
 
 preprocess_version: sklearn_median_winsor_zscore_v1
 winsor_lower: 0.01
