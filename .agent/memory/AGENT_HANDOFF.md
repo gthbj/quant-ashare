@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-005 剩余调度 PRD（2026-06-05）**：新增 `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`，专门定义 Phase 1.7 生产采集之后的 ODS→ADS 剩余链路：ODS gate、BigQuery SQL 兼容路径、Dataform definitions、ADS 契约隔离、刷新窗口、metadata、QA、pipeline 状态、告警、补跑、策略 runner/report 可选分支和 OQ-005 关闭标准。本次只写文档并更新 TODO/memory，未实现代码、未部署任务、未执行 BigQuery。当前工作树：`/private/tmp/quant-ashare-oq005-ods-ads-scheduler-prd`，分支 `codex/oq005-ods-ads-scheduler-prd`。
+**OQ-005 剩余调度 PRD（2026-06-05）**：新增 `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`，专门定义 Phase 1.7 生产采集之后的 ODS→ADS 剩余链路：ODS gate、BigQuery SQL 兼容路径、Dataform definitions、ADS 契约隔离、刷新窗口、metadata、QA、pipeline 状态、告警、补跑、策略 runner/report 可选分支和 OQ-005 关闭标准。PR #59 review follow-up 已澄清 Phase 2.0/2.1 CTAS 全量兼容路径与 Phase 2.2 增量 `daily_current` 的边界、ADS 脚本现状、meta 编号整理要求和字段说明生产来源。本次只写文档并更新 TODO/memory，未实现代码、未部署任务、未执行 BigQuery。当前工作树：`/private/tmp/quant-ashare-oq005-ods-ads-scheduler-prd`，分支 `codex/oq005-ods-ads-scheduler-prd`。
 
 **OQ-005 最新状态（2026-06-04）**：OQ-005 已从 PRD/worker/dry-run 进入生产采集阶段。当前每日生产采集只覆盖 SQL 实际消费的 14 张 ODS；`ashare-ingest-current-scope` 单 execution 入口已部署，Cloud Run Jobs 走 Direct VPC egress + Cloud NAT + 区域静态 IP 固定出口，Composer DAG 使用 default Celery queue；Airflow 变量当前为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`。纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 成功；`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填全部成功并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`；`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness。OQ-005 仍未关闭，因为完整 ODS→ADS 转换、Dataform/BigQuery SQL 生产链路、告警、补跑和运维观测尚未验收。
 
@@ -56,6 +56,7 @@ Run ID: N/A
 
 - 新增 `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`。
 - PRD 聚焦当前 `ashare-ingest-current-scope` 生产采集之后的剩余链路，覆盖 ODS gate、ODS→DIM/DWD/DWS/ADS 转换、ADS 契约隔离、metadata、QA、pipeline 状态、告警、补跑、Dataform / BigQuery SQL 双路径、策略 runner/report 可选分支和 OQ-005 关闭标准。
+- PR #59 review follow-up：澄清 Phase 2.0/2.1 使用现有 CTAS 时是 `full_rebuild_compat` / maintenance 路径，真正默认每日不扫 2019+ 全史从 Phase 2.2 增量化开始；修正 ADS 脚本现状为已使用 `CREATE TABLE IF NOT EXISTS`；补充 `sql/meta/` 编号整理要求；明确字段说明迁移期生产来源为 `sql/metadata/01,02`。
 - 同步 `TODO.md`、`PROJECT_CONTEXT.md`、`OPEN_QUESTIONS.md`、`IMPLEMENTATION_STATUS.md`、`ARCHITECTURE_MEMORY.md` 和当前交接摘要。
 
 ### 重要上下文
