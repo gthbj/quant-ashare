@@ -1,0 +1,197 @@
+> 文档维护：GPT-5（最近更新 2026-06-04）
+
+# 策略 1 Cloud Run 训练回测运行手册
+
+本文对应 `docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md` 的第一版实现。
+
+## 1. 当前边界
+
+当前 Cloud Run runner 已提供：
+
+1. `scripts/strategy1_cloudrun/train_predict.py`：读取既有 `ads_ml_training_panel_daily`，用 scikit-learn logistic regression 训练候选，做 valid 选型、score orientation、sklearn vs BQML parity，写 `ads_model_registry` 与 `ads_model_prediction_daily`。
+2. `scripts/strategy1_cloudrun/backtest_report.py`：复用现有 `05-07` SQL 生成候选 / 组合 / 订单，默认使用 Cloud Run Python `ledger_exec_v1` fresh-start 回测，随后跑 `09`、报告、诊断和 QA。
+3. `scripts/strategy1_cloudrun/orchestrate_experiments.py`：按 manifest 启动 Cloud Run Jobs。未设置 `--max-parallel-experiments` 或传 `0` 时，resolved 并发数等于本次可执行实验数。
+4. `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`：校验 Cloud Run backend、sklearn artifact、prediction orientation、model-quality parity 和 resolved 并发契约。
+
+当前限制：
+
+1. 训练面板仍由现有 `01_build_training_panel.sql` 生成。
+2. `05-07` 仍使用 BigQuery SQL。
+3. Python ledger P0 先支持 fresh-start；resume 路径 fail-fast，等 fresh-start 与 BigQuery ledger 等价验证通过后再扩展。
+4. Cloud Run Jobs、Artifact Registry、IAM 和服务账号需按本文部署，不在代码中保存任何凭据。
+
+## 2. 本地 dry-run
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_experiments \
+  --project data-aquarium \
+  --region asia-east2 \
+  --manifest configs/strategy1/oq010_experiments_v0.json \
+  --config configs/strategy1/cloudrun_runner_default.yml \
+  --experiment-id oq010_a0_n5_w20 \
+  --max-parallel-experiments 0 \
+  --dry-run
+```
+
+期望：
+
+1. 输出 `selected_experiment_count=1`。
+2. 输出 `resolved_max_parallel_experiments=1`。
+3. 输出将执行的 `gcloud run jobs execute strategy1-train-predict-job` 和 `strategy1-backtest-report-job` 命令。
+
+多实验 dry-run：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_experiments \
+  --project data-aquarium \
+  --region asia-east2 \
+  --stage-id stage_a \
+  --dry-run
+```
+
+未显式限流时，`resolved_max_parallel_experiments` 必须等于本次可执行实验数量。
+
+## 3. 本地单入口 dry-run
+
+```bash
+python -m scripts.strategy1_cloudrun.train_predict \
+  --project data-aquarium \
+  --region asia-east2 \
+  --experiment-id oq010_a0_n5_w20 \
+  --dry-run
+
+python -m scripts.strategy1_cloudrun.backtest_report \
+  --project data-aquarium \
+  --region asia-east2 \
+  --experiment-id oq010_a0_n5_w20 \
+  --dry-run
+```
+
+dry-run 只解析 manifest、参数、artifact 路径和执行计划，不写 ADS。
+
+## 4. 构建镜像
+
+```bash
+gcloud builds submit \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config cloudbuild.strategy1-cloudrun.yaml
+```
+
+默认镜像：
+
+```text
+asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:latest
+```
+
+如 Artifact Registry repository 不存在，先创建：
+
+```bash
+gcloud artifacts repositories create quant-ashare \
+  --project data-aquarium \
+  --location asia-east2 \
+  --repository-format docker
+```
+
+## 5. 部署 Cloud Run Jobs
+
+训练 / 预测 job：
+
+```bash
+gcloud run jobs deploy strategy1-train-predict-job \
+  --project data-aquarium \
+  --region asia-east2 \
+  --image asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:latest \
+  --command python \
+  --args -m,scripts.strategy1_cloudrun.train_predict \
+  --memory 8Gi \
+  --cpu 4 \
+  --task-timeout 3600
+```
+
+回测 / 报告 job：
+
+```bash
+gcloud run jobs deploy strategy1-backtest-report-job \
+  --project data-aquarium \
+  --region asia-east2 \
+  --image asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:latest \
+  --command python \
+  --args -m,scripts.strategy1_cloudrun.backtest_report \
+  --memory 8Gi \
+  --cpu 4 \
+  --task-timeout 7200
+```
+
+## 6. 单实验 smoke
+
+前置：先用现有 SQL 生成训练面板，例如修改 `01_build_training_panel.sql` 参数后执行：
+
+```bash
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/01_build_training_panel.sql
+```
+
+然后执行：
+
+```bash
+python -m scripts.strategy1_cloudrun.train_predict \
+  --project data-aquarium \
+  --region asia-east2 \
+  --experiment-id oq010_a0_n5_w20 \
+  --force-replace
+
+python -m scripts.strategy1_cloudrun.backtest_report \
+  --project data-aquarium \
+  --region asia-east2 \
+  --experiment-id oq010_a0_n5_w20 \
+  --force-replace
+```
+
+若只做 ledger 对照，可在 `backtest_report` 加 `--use-bq-ledger` 走原 `08` SQL fallback。
+
+## 7. Cloud Run orchestrator
+
+默认全并发：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_experiments \
+  --project data-aquarium \
+  --region asia-east2 \
+  --manifest configs/strategy1/oq010_experiments_v0.json \
+  --stage-id stage_a \
+  --max-parallel-experiments 0
+```
+
+显式限流：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_experiments \
+  --project data-aquarium \
+  --region asia-east2 \
+  --stage-id stage_a \
+  --max-parallel-experiments 4
+```
+
+规则：
+
+1. `0` 或未传：resolved 并发数 = 本次可执行实验数。
+2. `N > 0`：同一时刻最多 N 条实验链。
+3. 如果 GCP quota 不足，失败实验必须以 Cloud Run execution 和日志追踪，不允许 runner 静默降到内部默认 2 或 1。
+
+## 8. QA
+
+Cloud Run smoke 后执行：
+
+```bash
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql
+```
+
+`16` 需要按实际 `p_run_id` / `p_prediction_run_id` / `p_backtest_id` 修改脚本顶部参数，或由后续调度器注入参数。
+
+## 9. 安全
+
+1. 不提交 service account key、ADC 文件、OAuth token、OpenAI key 或 Tushare token。
+2. Cloud Run 使用 service account 权限访问 BigQuery、GCS 和 Cloud Logging。
+3. 本地 ADC 仅用于开发机 smoke，不写入仓库和日志。

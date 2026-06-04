@@ -16,6 +16,7 @@ DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
 DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_horizon_natural_frequency STRING DEFAULT 'weekly';
 DECLARE p_feature_set_id STRING DEFAULT 'strategy1_pv_v0_20260601';
+DECLARE p_execution_backend STRING DEFAULT 'bqml_sql_ledger_v1';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;
@@ -178,6 +179,7 @@ SELECT
     p_label_horizon AS label_horizon,
     p_horizon_natural_frequency AS horizon_natural_frequency,
     p_feature_set_id AS feature_set_id,
+    p_execution_backend AS execution_backend,
     a.n_days, a.annual_return, a.annual_vol,
     SAFE_DIVIDE(a.annual_return, a.annual_vol) AS sharpe,
     dd.max_dd AS max_drawdown,

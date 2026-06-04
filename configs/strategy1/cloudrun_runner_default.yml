@@ -1,0 +1,47 @@
+# Strategy 1 Cloud Run runner defaults.
+# 文档维护：GPT-5（最近更新 2026-06-04）
+
+project: data-aquarium
+region: asia-east2
+strategy_id: ml_pv_clf_v0
+execution_backend: cloud_run_sklearn_ledger_v1
+
+artifact_base_uri: gs://ashare-artifacts/reports/strategy1
+model_artifact_base_uri: gs://ashare-artifacts/models/strategy1
+local_mirror_root: reports/strategy1_cloudrun
+
+train_predict_job: strategy1-train-predict-job
+backtest_report_job: strategy1-backtest-report-job
+
+preprocess_version: sklearn_median_winsor_zscore_v1
+winsor_lower: 0.01
+winsor_upper: 0.99
+
+logistic_solver: saga
+logistic_max_iter: 200
+logistic_class_weight:
+random_state: 20260604
+
+bqml_reference_run_id: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
+
+candidate_grid:
+  - candidate_id: l2_c_0_1
+    penalty: l2
+    C: 0.1
+    l1_ratio:
+  - candidate_id: l2_c_1
+    penalty: l2
+    C: 1.0
+    l1_ratio:
+  - candidate_id: l2_c_10
+    penalty: l2
+    C: 10.0
+    l1_ratio:
+  - candidate_id: elastic_c_1_l1_0_15
+    penalty: elasticnet
+    C: 1.0
+    l1_ratio: 0.15
+  - candidate_id: elastic_c_1_l1_0_5
+    penalty: elasticnet
+    C: 1.0
+    l1_ratio: 0.5
