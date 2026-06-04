@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-005 剩余调度 PRD（2026-06-05）**：新增 `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`，专门定义 Phase 1.7 生产采集之后的 ODS→ADS 剩余链路：ODS gate、BigQuery SQL 兼容路径、Dataform definitions、ADS 契约隔离、刷新窗口、metadata、QA、pipeline 状态、告警、补跑、策略 runner/report 可选分支和 OQ-005 关闭标准。本次只写文档并更新 TODO/memory，未实现代码、未部署任务、未执行 BigQuery。当前工作树：`/private/tmp/quant-ashare-oq005-ods-ads-scheduler-prd`，分支 `codex/oq005-ods-ads-scheduler-prd`。
+
 **OQ-005 最新状态（2026-06-04）**：OQ-005 已从 PRD/worker/dry-run 进入生产采集阶段。当前每日生产采集只覆盖 SQL 实际消费的 14 张 ODS；`ashare-ingest-current-scope` 单 execution 入口已部署，Cloud Run Jobs 走 Direct VPC egress + Cloud NAT + 区域静态 IP 固定出口，Composer DAG 使用 default Celery queue；Airflow 变量当前为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`。纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 成功；`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填全部成功并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`；`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness。OQ-005 仍未关闭，因为完整 ODS→ADS 转换、Dataform/BigQuery SQL 生产链路、告警、补跑和运维观测尚未验收。
 
 **PR #58 review follow-up**：live ingestion 已补 `ashare_meta.ingestion_run` 与 `ingestion_partition_status` 写入，dry-run/API 只读 smoke 不写 meta；`ingestion_partition_status.endpoint` 存 `partition_endpoint`，避免同 API 多 variant 串状态。raw GCS canonical 路径固定为 `api=<api>/endpoint=<partition_endpoint>/partition_date=...`，不使用 `api=tushare`；2026-06-04 已用 BigQuery `INFORMATION_SCHEMA.TABLE_OPTIONS` 复核当前 14 张 ODS 与 10 张 schema repair 表 source URI。GCS publish 覆盖正式 object 不做 write-once backup，这是采集重跑口径；历史可回滚回填留后续独立开关/流程。
@@ -41,6 +43,62 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: OQ-005 / 剩余 ODS→ADS 调度链路 PRD
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`。
+- PRD 聚焦当前 `ashare-ingest-current-scope` 生产采集之后的剩余链路，覆盖 ODS gate、ODS→DIM/DWD/DWS/ADS 转换、ADS 契约隔离、metadata、QA、pipeline 状态、告警、补跑、Dataform / BigQuery SQL 双路径、策略 runner/report 可选分支和 OQ-005 关闭标准。
+- 同步 `TODO.md`、`PROJECT_CONTEXT.md`、`OPEN_QUESTIONS.md`、`IMPLEMENTATION_STATUS.md`、`ARCHITECTURE_MEMORY.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 工作树：`/private/tmp/quant-ashare-oq005-ods-ads-scheduler-prd`。
+- 分支：`codex/oq005-ods-ads-scheduler-prd`。
+- 本次只写 PRD 和必要状态记录，未实现代码、未部署 Composer/Dataform/Cloud Run、未执行 BigQuery。
+- OQ-005 继续保持 open，下一步按 PRD Phase 2.0/2.1/2.2/2.3 实现 BigQuery SQL 兼容路径闭环、Dataform definitions、增量影响窗口、策略 runner/report 分支和告警/补跑/状态闭环。
+
+### 改动文件
+
+- `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- review/merge 本 PRD。
+- 合并后按 Phase 2.0 先补 `ashare_daily_pipeline_v0` 的 pipeline status、BigQuery SQL 兼容路径和 ADS 契约初始化隔离。
+- Phase 2.1 再接 Dataform definitions 和 workflow invocation。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+
+---
 
 日期: 2026-06-04
 Agent ID: Codex
