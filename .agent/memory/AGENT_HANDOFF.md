@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**策略 1 Cloud Run 轻量 Task 并发实现分支（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-task-fanout-impl`，分支 `codex/cloudrun-task-fanout`。已按 PRD-20260605-02 实现 P0 task fan-out 训练链路：`prepare_matrix.py` 一次性读取 `ads_ml_training_panel_daily` 并输出 GCS frozen matrix / work units / feature schema / preprocess stats / BigQuery job audit；`train_candidate_task.py` 通过 `CLOUD_RUN_TASK_INDEX + TASK_INDEX_OFFSET` 训练单个 candidate 并写 candidate artifact；`select_register_predict.py` 汇总 candidate artifact、校验 hash、选型、写 selected registry / prediction；`orchestrate_experiments.py` 新增 `--train-mode task_fanout` 和 `--candidate-parallelism`，可在 owner 不限流时单批 `--tasks=N` 全并发，显式限流时分批执行。PR #64 review follow-up 已修 QA-TASK-8：`select_register_predict` 通过 `JOBS_BY_PROJECT` 写入真实 `candidate_task_bq_*` 审计计数，`16_qa_cloudrun_runner_outputs.sql` 也直接查 `JOBS_BY_PROJECT` 兜底断言，不再依赖硬编码 0；后续 nit 已补齐 SQL 版 run_id label 归一化，使其与 Python `bq_label_value()` 完全一致。`17_qa_cloudrun_orchestrator_status.sql` 已补 task fan-out 状态 QA，运行手册和 README 已同步。验证：Python py_compile、入口 dry-run、orchestrator `--tasks` 计划 dry-run、`16`/`17` BigQuery dry-run、实际 Python INFORMATION_SCHEMA audit 查询、`git diff --check`、`gcloud run jobs execute --help` 参数核验均通过。未部署新增 Cloud Run Jobs，未跑真实 task fan-out smoke，未写生产 BigQuery/GCS/ADS。
+
 **策略 1 Cloud Run 轻量 Task 并发 PRD（2026-06-05）**：新增 `docs/prd/PRD_20260605_02_策略1CloudRun轻量Task并发.md`，作为 Cloud Run 训练回测执行器的训练侧并发补充方案。PRD 固化 `prepare_matrix -> train_candidate_fanout --tasks=N --candidate-parallelism=M -> select_register_predict -> backtest_report` 链路：`prepare_matrix` 只做一次 BigQuery 训练面板读取并在 GCS 生成 frozen matrix / work units / feature schema / preprocess stats；`strategy1-train-candidate-fanout-job` 使用 Cloud Run Jobs task 原生机制，每个 task 通过 `CLOUD_RUN_TASK_INDEX` 训练一个 candidate / experiment work unit；`select_register_predict` 汇总全部候选、校验 hash、选型并统一写 registry / prediction。默认并发语义为 owner 不设限时单批全并发，35/100 个 work units 就启动 35/100 个并发 task；owner 可通过显式 `--candidate-parallelism` 让 orchestrator 分批限流。PR #63 review follow-up 已采纳：frozen features 明确为 `prepare_matrix` 输出的已预处理矩阵，candidate task 不重新预处理；QA-TASK-8 补 BigQuery job labels / audit 机制；candidate task 只读 train/valid，不读 predict features。候选 task 默认小规格 1 vCPU / 2-4Gi，避免用 4CPU/16Gi 高配 execution 跑单候选造成 CPU 浪费。本次只写 PRD，未实现代码、未部署 Cloud Run Job、未执行 BigQuery。
 
 **策略 1 Cloud Run 真实 smoke（2026-06-05）**：Cloud Run runner 与 orchestrator 状态/锁增强已进入 `main` 后，完成真实 Cloud Run/BQ smoke。已部署镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:6564434f9f216aec6c86cae3923bc44450c3ca26ead14a248b05ca77087d8ead` 到 `strategy1-train-predict-job` / `strategy1-backtest-report-job`，job 配置 16Gi/4CPU/`--max-retries=0`；runtime service account 已具备 `ashare_ads` 写权限。smoke `cloudrun_smoke_pvfq_n30_bw_h5` 跑通 `run_id=s1_cloudrun_sklearn_smoke_20260604_02` / `backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`，train/predict execution `strategy1-train-predict-job-s5725`、backtest/report execution `strategy1-backtest-report-job-6fzvr` 均成功，prediction 1,056,716 行，报告 uploaded 到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_sklearn_smoke_20260604_02/backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`，`16_qa_cloudrun_runner_outputs.sql`（smoke 模式 `p_require_model_quality_parity_passed=FALSE`）和 `17_qa_cloudrun_orchestrator_status.sql` 通过。回测指标：total_return 46.29%、Sharpe 1.111、max_drawdown -13.94%、excess_return 17.28% vs `000852.SH`。注意：sklearn vs BQML parity 未通过，当前 `model_quality_status=model_quality_not_equivalent`，只能证明 Cloud Run 链路可运行，不能声明 sklearn 已等价替代 BQML baseline。
@@ -47,6 +49,81 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: Strategy 1 Cloud Run lightweight task fan-out implementation
+
+### 已完成工作
+
+- 在工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-task-fanout-impl`、分支 `codex/cloudrun-task-fanout` 实现 task fan-out P0。
+- 新增 `prepare_matrix.py`，集中读取 `ads_ml_training_panel_daily`，按 train split fit 预处理器，输出已预处理 train/valid/predict parquet、feature schema、preprocess stats、work units、matrix manifest 和 BigQuery job audit。
+- 新增 `train_candidate_task.py`，按 `CLOUD_RUN_TASK_INDEX + TASK_INDEX_OFFSET` 训练单个 candidate，输出 candidate model、metrics、training log 和 task status。
+- 新增 `select_register_predict.py`，汇总 candidate artifact，校验 matrix/hash，一致通过后选型、写 selected model artifact、registry 和 prediction。
+- `orchestrate_experiments.py` 新增 `--train-mode task_fanout` / `--candidate-parallelism`；owner 不限流时单批 `--tasks=N` 全并发，显式限流时按批次执行。
+- `16_qa_cloudrun_runner_outputs.sql` 与 `17_qa_cloudrun_orchestrator_status.sql` 增加 task fan-out 模式断言；运行手册和 runner README 已同步。
+
+### 重要上下文
+
+- 本次未部署新增 Cloud Run Jobs，未执行真实 task fan-out smoke，未写生产 BigQuery/GCS/ADS。
+- 当前默认 candidate grid 仍是 5 个；未擅自扩到 35 个。扩网格和真实成本实验需要 owner 再确认。
+- `prepare_matrix` 依赖既有 `ads_ml_training_panel_daily`，不会自动执行 `01_build_training_panel.sql`；真实执行前必须先确认对应 `run_id` 的训练面板已存在。
+- 本机默认 Python 3.9 起初缺 `joblib/scikit-learn`；已按 `scripts/strategy1/requirements.txt` 用 `pip install --user` 补齐本地 dry-run 依赖。
+
+### 改动文件
+
+- `configs/strategy1/cloudrun_runner_default.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `scripts/strategy1_cloudrun/bq_io.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `scripts/strategy1_cloudrun/prepare_matrix.py`
+- `scripts/strategy1_cloudrun/select_register_predict.py`
+- `scripts/strategy1_cloudrun/task_fanout.py`
+- `scripts/strategy1_cloudrun/train_candidate_task.py`
+- `scripts/strategy1_cloudrun/train_predict.py`
+- `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`
+- `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`
+- `sql/ml/strategy1/README.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1_cloudrun/*.py`
+- `python3 -m scripts.strategy1_cloudrun.prepare_matrix --project data-aquarium --region asia-east2 --experiment-id oq010_a0_n5_w20 --candidate-parallelism 0 --dry-run`
+- `python3 -m scripts.strategy1_cloudrun.train_candidate_task --project data-aquarium --region asia-east2 --matrix-uri gs://dummy/matrix --matrix-local-dir <tmp> --task-index 0 --dry-run`
+- `python3 -m scripts.strategy1_cloudrun.select_register_predict --project data-aquarium --region asia-east2 --experiment-id oq010_a0_n5_w20 --matrix-uri gs://dummy/matrix --matrix-local-dir <tmp> --dry-run`
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_experiments --project data-aquarium --region asia-east2 --manifest configs/strategy1/oq010_experiments_v0.json --config configs/strategy1/cloudrun_runner_default.yml --experiment-id oq010_a0_n5_w20 --train-mode task_fanout --candidate-parallelism 0 --dry-run`
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_experiments --project data-aquarium --region asia-east2 --manifest configs/strategy1/oq010_experiments_v0.json --config configs/strategy1/cloudrun_runner_default.yml --experiment-id oq010_a0_n5_w20 --train-mode task_fanout --candidate-parallelism 2 --dry-run`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`
+- `gcloud run jobs execute --help | rg -n -- '--tasks|--update-env-vars|--args'`
+- `git diff --check`
+
+### 阻塞项
+
+- 无代码阻塞；真实 task fan-out smoke 前需要 owner 确认是否部署新增 Cloud Run Jobs、是否只跑 5 候选 smoke，还是先扩展到 35 候选。
+
+### 下一步建议
+
+- 提 PR review。
+- PR 合并后部署 `strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`。
+- 先用 5 个默认候选跑低成本 task fan-out smoke，通过 `16`/`17` task fan-out QA 后，再讨论是否扩到 35 候选并做 sklearn parity 实验。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+
+---
 
 日期: 2026-06-05
 Agent ID: Codex

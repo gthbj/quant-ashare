@@ -11,6 +11,9 @@ model_artifact_base_uri: gs://ashare-artifacts/models/strategy1
 local_mirror_root: reports/strategy1_cloudrun
 
 train_predict_job: strategy1-train-predict-job
+prepare_matrix_job: strategy1-prepare-matrix-job
+train_candidate_fanout_job: strategy1-train-candidate-fanout-job
+select_register_predict_job: strategy1-select-register-predict-job
 backtest_report_job: strategy1-backtest-report-job
 lock_bucket: ashare-artifacts
 lock_prefix: locks/strategy1/cloudrun

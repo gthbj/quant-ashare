@@ -6,6 +6,7 @@ DECLARE p_run_id STRING DEFAULT 's1_cloudrun_sklearn_smoke_20260604_01';
 DECLARE p_backtest_id STRING DEFAULT 'bt_s1_cloudrun_sklearn_smoke_20260604_01';
 DECLARE p_require_train_step BOOL DEFAULT TRUE;
 DECLARE p_require_backtest_step BOOL DEFAULT TRUE;
+DECLARE p_require_task_fanout BOOL DEFAULT FALSE;
 DECLARE p_expected_execution_backend STRING DEFAULT 'cloud_run_sklearn_ledger_v1';
 
 -- QA-CRO-1: no failed/cancelled status rows for the experiment/run.
@@ -85,6 +86,43 @@ ASSERT (
   FROM `data-aquarium.ashare_meta.strategy1_experiment_run_status`
   WHERE experiment_id = p_experiment_id
     AND run_id = p_run_id
-    AND step_id IN ('cloudrun_train_predict', 'cloudrun_backtest_report')
+    AND (
+      step_id IN ('cloudrun_train_predict', 'cloudrun_backtest_report')
+      OR (
+        p_require_task_fanout
+        AND (
+          step_id IN ('cloudrun_prepare_matrix', 'cloudrun_select_register_predict')
+          OR STARTS_WITH(step_id, 'cloudrun_train_candidate_fanout')
+        )
+      )
+    )
     AND status = 'succeeded'
 ) AS 'QA-CRO-5: succeeded Cloud Run status rows must preserve audit metadata';
+
+-- QA-CRO-6: task fan-out chain status rows are complete when required.
+ASSERT (
+  SELECT
+    NOT p_require_task_fanout
+    OR (
+      COUNTIF(step_id = 'cloudrun_prepare_matrix' AND status = 'succeeded') = 1
+      AND COUNTIF(STARTS_WITH(step_id, 'cloudrun_train_candidate_fanout') AND status = 'succeeded') >= 1
+      AND COUNTIF(step_id = 'cloudrun_select_register_predict' AND status = 'succeeded') = 1
+      AND COUNTIF(
+        status = 'succeeded'
+        AND (
+          job_id IS NULL OR job_id = ''
+          OR lock_owner IS NULL OR lock_owner = ''
+          OR lock_acquired_at IS NULL
+          OR lock_expires_at IS NULL
+        )
+      ) = 0
+      AND LOGICAL_AND(JSON_VALUE(params_json, '$.execution_backend') = p_expected_execution_backend)
+    )
+  FROM `data-aquarium.ashare_meta.strategy1_experiment_run_status`
+  WHERE experiment_id = p_experiment_id
+    AND run_id = p_run_id
+    AND (
+      step_id IN ('cloudrun_prepare_matrix', 'cloudrun_select_register_predict')
+      OR STARTS_WITH(step_id, 'cloudrun_train_candidate_fanout')
+    )
+) AS 'QA-CRO-6: task fan-out status rows must be succeeded with execution and lock metadata';
