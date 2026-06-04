@@ -11,10 +11,18 @@ DECLARE p_target_holdings INT64 DEFAULT 5;
 DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
+DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;  -- NULL 表示按 p_predict_start 作为调仓周序锚点
 DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
+DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_backtest
+DECLARE p_parent_backtest_id STRING DEFAULT NULL;
+DECLARE p_state_as_of_date DATE DEFAULT NULL;
+DECLARE p_resume_policy_id STRING DEFAULT 'ledger_exec_v1_resume_v20260604';
 DECLARE p_calendar_end DATE;
+DECLARE v_rebalance_anchor_explicit BOOL;
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
 SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
+SET v_rebalance_anchor_explicit = p_rebalance_anchor_start IS NOT NULL;
+SET p_rebalance_anchor_start = COALESCE(p_rebalance_anchor_start, p_predict_start);
 
 IF p_rebalance_frequency NOT IN ('weekly', 'biweekly', 'monthly') THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_rebalance_frequency: ', p_rebalance_frequency);
@@ -22,6 +30,22 @@ END IF;
 
 IF p_label_horizon NOT IN (5, 10, 20) THEN
   RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
+
+IF p_initial_state_mode NOT IN ('fresh', 'resume_from_backtest') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_initial_state_mode: ', p_initial_state_mode);
+END IF;
+
+IF p_initial_state_mode = 'resume_from_backtest' THEN
+  IF p_parent_backtest_id IS NULL OR p_state_as_of_date IS NULL THEN
+    RAISE USING MESSAGE = 'resume QA requires p_parent_backtest_id and p_state_as_of_date';
+  END IF;
+  IF p_rebalance_frequency = 'biweekly' AND NOT v_rebalance_anchor_explicit THEN
+    RAISE USING MESSAGE = 'biweekly resume QA requires explicit p_rebalance_anchor_start equal to the original full-window experiment start';
+  END IF;
+  IF p_resume_policy_id IS NULL OR p_resume_policy_id != 'ledger_exec_v1_resume_v20260604' THEN
+    RAISE USING MESSAGE = CONCAT('unsupported p_resume_policy_id: ', COALESCE(p_resume_policy_id, 'NULL'));
+  END IF;
 END IF;
 
 -- ── 训练面板唯一性 ──
@@ -171,7 +195,7 @@ ASSERT (
       SELECT cal_date
       FROM `data-aquarium.ashare_dim.dim_trade_calendar`
       WHERE exchange = 'SSE' AND is_open = 1
-        AND cal_date BETWEEN p_predict_start AND p_predict_end
+        AND cal_date BETWEEN p_rebalance_anchor_start AND p_predict_end
     ),
     weekly AS (
       SELECT MAX(cal_date) AS rebalance_date
@@ -203,7 +227,8 @@ ASSERT (
     SELECT COALESCE(e.rebalance_date, a.rebalance_date) AS rebalance_date
     FROM expected AS e
     FULL OUTER JOIN actual AS a USING (rebalance_date)
-    WHERE e.rebalance_date IS NULL OR a.rebalance_date IS NULL
+    WHERE COALESCE(e.rebalance_date, a.rebalance_date) BETWEEN p_predict_start AND p_predict_end
+      AND (e.rebalance_date IS NULL OR a.rebalance_date IS NULL)
   )
 ) AS 'QA-EXP-4: rebalance dates must match p_rebalance_frequency definition';
 
@@ -295,6 +320,59 @@ ASSERT (
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
 ) AS 'QA-LEDGER-1: summary metrics_json.ledger_version must be ledger_exec_v1';
+
+ASSERT (
+  SELECT COUNT(*) > 0
+    AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.initial_state_mode') != p_initial_state_mode) = 0
+    AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.resume_policy_id') != p_resume_policy_id) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-RESUME-1: summary metrics_json must record initial_state_mode and resume_policy_id';
+
+IF p_initial_state_mode = 'resume_from_backtest' THEN
+  ASSERT (
+    SELECT COUNT(*) = 1
+      AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.ledger_version') = 'ledger_exec_v1')
+    FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+    WHERE bs.backtest_id = p_parent_backtest_id
+  ) AS 'QA-RESUME-2: parent summary must exist exactly once and use ledger_exec_v1';
+
+  ASSERT (
+    SELECT COUNT(*) = 1
+      AND LOGICAL_AND(nav.cash_cny IS NOT NULL)
+      AND LOGICAL_AND(nav.net_value_cny IS NOT NULL AND nav.net_value_cny > 0)
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    WHERE nav.backtest_id = p_parent_backtest_id
+      AND nav.trade_date = p_state_as_of_date
+  ) AS 'QA-RESUME-3: parent NAV state must exist exactly once on state_as_of_date';
+
+  ASSERT (
+    SELECT MIN(cal.cal_date) = p_predict_start
+    FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS cal
+    WHERE cal.exchange = 'SSE'
+      AND cal.is_open = 1
+      AND cal.cal_date > p_state_as_of_date
+  ) AS 'QA-RESUME-4: resume p_predict_start must be the next open date after state_as_of_date';
+
+  ASSERT (
+    SELECT COUNT(*) > 0
+      AND COUNTIF(
+        JSON_VALUE(bs.metrics_json, '$.parent_backtest_id') != p_parent_backtest_id
+        OR JSON_VALUE(bs.metrics_json, '$.state_as_of_date') != CAST(p_state_as_of_date AS STRING)
+        OR JSON_VALUE(bs.metrics_json, '$.is_resumed_backtest') != 'true'
+      ) = 0
+    FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+    WHERE bs.backtest_id = p_backtest_id
+  ) AS 'QA-RESUME-5: resumed summary must record parent backtest, state date and is_resumed_backtest=true';
+
+  ASSERT (
+    SELECT COUNT(*) = 1
+      AND LOGICAL_AND(nav.daily_return IS NOT NULL)
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    WHERE nav.backtest_id = p_backtest_id
+      AND nav.trade_date = p_predict_start
+  ) AS 'QA-RESUME-6: first resumed NAV day must have daily_return anchored to parent state NAV';
+END IF;
 
 ASSERT (
   SELECT COUNT(*) = 0

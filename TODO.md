@@ -8,10 +8,9 @@
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
 - [~] 修复 ODS 外部表 Parquet schema mismatch：PR #43 已实现 schema contract YAML × 10 endpoint、修复/验证脚本、QA SQL 和执行 README，并按 review 补齐 QA 参数格式、INT->FLOAT64 fail-closed、null count 阻断、BQ staging 行数/列可读验证和 staging 清理；P0 `stk_limit` 待在 BigQuery 实际执行修复并验证，再分批修其余 9 张 P1/P2/P3 表；默认从 GCS 原 Parquet 按 schema contract 重写，不从 API 重拉覆盖历史 raw
-- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基础 A/B/C 与 3*2*2*2 全因子 24 组合已跑完并全部通过 `12_qa_model_diagnosis_outputs`；当前最优组合为 `pv_fin_quality + 30/5% + biweekly + 5d`，并已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，total_return 41.10%、excess_return 12.09% vs `000852.SH`、Sharpe 1.043、max_drawdown -14.48%，报告和诊断均已上传 GCS）。因子贡献度 P0 已实现并通过 `14_qa_factor_attribution_outputs.sql`；下一步需 owner 确认是否采纳为默认参数，并在 Ledger v1 P0 实现合并后做正式 baseline 同区间 A/B、P1 2026 YTD fixed-model 扩展验证、P2 resume
-- [~] Ledger v1 P0：`codex/implement-ledger-v1-p0` 已实现策略 1 `ledger_exec_v1` 交易执行语义，固化 t-1 信号 / t 开盘执行、pending sell 每日继续卖、实际持仓 netting、现金缩放、订单状态和每日 mark-to-market NAV；已通过 SQL dry-run、Python 静态检查、短区间 BigQuery smoke（`bt_ledger_v1_p0_smoke_20260604_01`）和 `10` QA；待 PR review/merge 后用正式 baseline 参数做完整同区间 A/B
+- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基础 A/B/C 与 3*2*2*2 全因子 24 组合已跑完并全部通过 `12_qa_model_diagnosis_outputs`；当前最优组合为 `pv_fin_quality + 30/5% + biweekly + 5d`，并已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，total_return 41.10%、excess_return 12.09% vs `000852.SH`、Sharpe 1.043、max_drawdown -14.48%，报告和诊断均已上传 GCS）。因子贡献度 P0 已实现并通过 `14_qa_factor_attribution_outputs.sql`；Ledger v1 P0 已进 main；P2 resume 已实现分支并通过短区间 smoke/`10` QA。下一步需 owner 确认是否采纳最优组合为默认参数，并补 P1 2026 YTD fixed-model 扩展验证与完整 resume consistency 验收
 - [ ] Ledger v1 P1：不重新训练，复用正式 baseline 模型/参数/score orientation，从 `2024-01-02` fresh-start 重跑至 `2026-04-30`，产出 fixed-model extended baseline，并在报告中单独拆出 `2026-01-02` 至 `2026-04-30` 表现
-- [ ] Ledger v1 P2：实现 ledger state resume，支持从 `parent_backtest_id + state_as_of_date` 恢复现金、持仓、pending sell；验收 `2024-2026.04` 一次性全段回测与 `2024-2025 + resume 2026` 拼接路径一致或差异可解释
+- [~] Ledger v1 P2：`codex/ledger-state-resume` 已实现 ledger state resume，支持从 `parent_backtest_id + state_as_of_date` 恢复现金、持仓、active target 和 pending sell，并新增 resume QA 与一致性 QA；PR #54 review follow-up 已修复 biweekly resume QA 必填原实验 anchor、resume 首日 `daily_return` 父 NAV 锚点和 `15` 一致性 QA 的 daily_return 覆盖；已用 `bt_ledger_resume_smoke_20260604_01` 跑通短区间 `08`/`09`/本地报告/`10` QA。待 PR review/merge 后，结合 P1 extended baseline 做 `2024-2026.04` fresh 全段 vs `2024-2025 + resume 2026` 一致性验收
 - [ ] 按 `docs/prd/PRD_20260604_02_策略1月度滚动重训.md` 实现月度滚动重训 prediction stream；该项必须在 Ledger v1 P0/P1/P2 完成后再做，避免模型生命周期变化和交易执行语义变化混在一起
 
 ## P1 — 数据 / 特征扩展
@@ -33,6 +32,7 @@
 
 ## 近期完成
 
+- [x] Ledger v1 P0 交易执行语义已进入 main（commit `602baea`）：`08_run_backtest.sql` 已升级为 `ledger_exec_v1` 日级账户 ledger，固化 t-1 信号 / t 开盘执行、pending sell 每日继续卖、实际持仓 netting、现金缩放、订单状态和每日 mark-to-market NAV；短区间 BigQuery smoke（`bt_ledger_v1_p0_smoke_20260604_01`）和 `10` QA 已通过
 - [x] 实现策略 1 因子贡献度分析 P0：新增 `scripts/strategy1/attribute_factor_contribution.py`、`sql/ml/strategy1/14_qa_factor_attribution_outputs.sql`，主报告接入因子贡献度摘要，并更新 runner README；正式 baseline local-only 生成 `factor_attribution/` artifact，覆盖 selected model 55 个非截距特征、13 个因子组，`14_qa_factor_attribution_outputs.sql` 全部通过
 - [x] 工作记忆轻清理：`AGENT_HANDOFF.md` 缩到当前摘要 + 最近 3 条交接，19 条旧交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
 - [x] 新增策略 1 因子贡献度分析 PRD：`docs/prd/PRD_20260604_03_策略1因子贡献度分析.md`，定义不做消融实验的模型系数、单因子 RankIC/bucket lift、score contribution、组合因子暴露、归因 proxy 和因子相关性/共线性摘要；PR #51 review 后已补充单因子系数排名受共线性影响、组级解读优先、proxy 不可加总等限制说明；实施顺序建议放在 Ledger v1 P0 前，但不代表优先级高于 Ledger / 月度重训

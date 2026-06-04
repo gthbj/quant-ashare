@@ -16,9 +16,9 @@
 
 **DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 已落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，以及 OQ-003 财务特征 `dws_stock_feature_fin_daily`；市场状态 `dws_market_state_daily` 待补。财务特征口径 PRD 已采纳、关闭并实现 OQ-003（PR #13）：P0 默认消费合并报表 `report_type='1'`，三大报表 DWD（`income/balancesheet/cashflow` + `_latest`）保留 `report_type`/`report_caliber`/`is_default_report_caliber`，`dws_stock_feature_fin_daily` 默认只过滤默认口径（口径契约 + `has_fin_*` 掩码），已物化并通过 `sql/qa/04_finance_caliber_checks.sql`，并按 OQ-006 单位契约补全 `ods_field_unit_map` 财务字段、跑通 `sql/qa/05_oq006_unit_checks.sql`。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md`、runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 和 runner SQL 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。**runner 已于 PR #12 端到端实跑并通过全部 QA**（08 已重写为账户级 ledger，详见本文件末尾 2026-06-02 交接条目与摘要顶部）。
 
-**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main`。2026-06-04 PR #47 合并后 Stage C 已重跑通过；随后补齐 3*2*2*2 全因子网格缺失的 19 个组合，最终 24 个组合均通过 `12_qa_model_diagnosis_outputs`；同 stage dependency batching 与诊断状态语义修复已由 PR #48 合入 `main`。当前最优组合 `pv_fin_quality + 30/5% + biweekly + 5d` 已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，benchmark=`000852.SH`，total_return=41.10%、excess_return=12.09%、Sharpe=1.043、max_drawdown=-14.48%，报告和诊断均 uploaded 到 GCS）。2026-06-04 已新增并改造 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`、`docs/prd/PRD_20260604_02_策略1月度滚动重训.md` 和 `docs/prd/PRD_20260604_03_策略1因子贡献度分析.md`；因子贡献度分析 P0 已实现：新增独立脚本、`14_qa_factor_attribution_outputs.sql`、主报告摘要接入和 README 说明，正式 baseline local-only 生成 `factor_attribution/` artifact，覆盖 55 个非截距特征、13 个因子组，`14` QA 全部通过。Ledger v1 P0 实现分支 `codex/implement-ledger-v1-p0` 已完成并通过短区间 BigQuery smoke 与 `10` QA；后续建议先 review/merge 实现 PR 并做正式 baseline 完整同区间 A/B，再做 Ledger v1 P1/P2 → 月度滚动重训。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main`。2026-06-04 PR #47 合并后 Stage C 已重跑通过；随后补齐 3*2*2*2 全因子网格缺失的 19 个组合，最终 24 个组合均通过 `12_qa_model_diagnosis_outputs`；同 stage dependency batching 与诊断状态语义修复已由 PR #48 合入 `main`。当前最优组合 `pv_fin_quality + 30/5% + biweekly + 5d` 已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，benchmark=`000852.SH`，total_return=41.10%、excess_return=12.09%、Sharpe=1.043、max_drawdown=-14.48%，报告和诊断均 uploaded 到 GCS）。2026-06-04 已新增并改造 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`、`docs/prd/PRD_20260604_02_策略1月度滚动重训.md` 和 `docs/prd/PRD_20260604_03_策略1因子贡献度分析.md`；因子贡献度分析 P0 已实现：新增独立脚本、`14_qa_factor_attribution_outputs.sql`、主报告摘要接入和 README 说明，正式 baseline local-only 生成 `factor_attribution/` artifact，覆盖 55 个非截距特征、13 个因子组，`14` QA 全部通过。Ledger v1 P0 已进入 `main`（commit `602baea`）；Ledger v1 P2 state resume 已在 `codex/ledger-state-resume` 实现，且 PR #54 review follow-up 已修复 biweekly resume QA anchor 强制、resume 首日 `daily_return` 父 NAV 锚点和 `15` 一致性 QA 的 daily_return 覆盖；`bt_ledger_resume_smoke_20260604_01` 已重新跑通短区间 `08`/`09`/本地报告/`10` resume QA。后续建议 review/merge P2 resume PR，再跑 Ledger v1 P1 fixed-model 扩展回测至 `2026-04-30` 并做 full fresh vs resume segment 一致性验收，最后做月度滚动重训。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线后续 Cloud Run Jobs / Dataform / Composer 链路待实施；OQ-010 正式基线默认参数是否采纳，以及 Ledger v1 P0/P1/P2 → 月度滚动重训的实现链路；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；OQ-012 修复脚本与 QA 待合并后实际执行 P0 `stk_limit` 修复并验证。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
+**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线后续 Cloud Run Jobs / Dataform / Composer 链路待实施；OQ-010 正式基线默认参数是否采纳；Ledger v1 P2 resume PR 是否合并，以及后续 P1 2026 fixed-model 扩展回测 / resume consistency 验收 / 月度滚动重训；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；OQ-012 修复脚本与 QA 待合并后实际执行 P0 `stk_limit` 修复并验证。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
 
@@ -35,6 +35,76 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-04
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01 / bt_ledger_resume_smoke_20260604_01
+相关 issue/PR: OQ-010 / Ledger v1 P2 state resume implementation
+
+### 已完成工作
+
+- 实现 Ledger v1 state resume。
+- `08_run_backtest.sql` 新增 `p_initial_state_mode='resume_from_backtest'`、`p_parent_backtest_id`、`p_state_as_of_date` 和 `p_resume_policy_id`，从父回测恢复现金、实际持仓、active target 和 pending sell。
+- resume 前置校验 fail-fast：父 summary 必须存在且 `ledger_version='ledger_exec_v1'`，父 NAV state 必须唯一且含 cash/net value/run_id，父持仓必须唯一且非负，父 NAV 必须能与现金+持仓市值对齐，`p_predict_start` 必须等于 state date 后下一 SSE 开市日。
+- `09_build_metrics_and_report_inputs.sql` 在 summary `metrics_json` 写入 `initial_state_mode`、`parent_backtest_id`、`state_as_of_date`、`resume_policy_id` 和 `is_resumed_backtest`。
+- `10_qa_runner_outputs.sql` 新增 `QA-RESUME-1..6`；biweekly resume 强制显式传 `p_rebalance_anchor_start` 原实验锚点，首个 resume 日 `daily_return` 必须非空。
+- 新增 `sql/ml/strategy1/15_qa_ledger_resume_consistency.sql`，用于后续 full fresh vs resume segment 一致性验收，并比较 `daily_return`。
+- `sql/ml/strategy1/README.md` 已同步 resume 参数、运行顺序和 consistency QA 说明。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md`、`KNOWN_CONSTRAINTS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 当前实现分支：`codex/ledger-state-resume`，工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-resume`。
+- 基于 `origin/main` commit `602baea`，该 commit 已包含 Ledger v1 P0。
+- smoke 父回测：`bt_ledger_v1_p0_smoke_20260604_01`，`state_as_of_date=2024-02-29`。
+- smoke resume 回测：`bt_ledger_resume_smoke_20260604_01`，窗口 `2024-03-01` 至 `2024-03-15`。
+- smoke 首日现金恢复为父状态现金 `135.9692847801162`，首日 `daily_return=-0.0031135`，NAV 11 行无 NULL daily_return，持仓 330 行，成交 36 行；本地报告使用 `--skip-gcs-upload`。
+- 完整 consistency QA 需要先具备 full fresh extended backtest 与 resume segment backtest；本次只新增 QA 脚本并完成 dry-run。
+
+### 改动文件
+
+- `sql/ml/strategy1/08_run_backtest.sql`
+- `sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`
+- `sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `sql/ml/strategy1/15_qa_ledger_resume_consistency.sql`
+- `sql/ml/strategy1/README.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/08_run_backtest.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/15_qa_ledger_resume_consistency.sql`
+- BigQuery smoke：PR #54 review follow-up 后，`08` resume、`09` resume、本地 `render_report.py --skip-gcs-upload`、`10_qa_runner_outputs.sql` 全部通过。
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提 PR review 本次 Ledger v1 P2 resume 实现。
+- 合并后补 Ledger v1 P1 fixed-model extended backtest 至 `2026-04-30`。
+- 有 full fresh extended 与 resume segment 后，执行 `15_qa_ledger_resume_consistency.sql` 做一致性验收。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+---
 
 日期: 2026-06-04
 Agent ID: Codex
