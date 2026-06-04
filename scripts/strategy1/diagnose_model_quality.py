@@ -1053,12 +1053,14 @@ def upload_dir_to_gcs(project: str, local_dir: Path, gcs_uri: str) -> bool:
 
 def write_diagnosis_status_to_ads(client: bigquery.Client, project: str,
                                   backtest_id: str, local_path: str,
-                                  upload_status: str, diagnosis_uri: str | None,
+                                  diagnosis_status: str, upload_status: str,
+                                  diagnosis_uri: str | None,
                                   diagnosis_summary: dict, artifact_manifest: dict):
     base = "PARSE_JSON(COALESCE(bs.metrics_json, '{}'), wide_number_mode => 'round')"
     params = [
         bigquery.ScalarQueryParameter("bid", "STRING", backtest_id),
         bigquery.ScalarQueryParameter("local_path", "STRING", local_path),
+        bigquery.ScalarQueryParameter("diagnosis_status", "STRING", diagnosis_status),
         bigquery.ScalarQueryParameter("upload_status", "STRING", upload_status),
         bigquery.ScalarQueryParameter("ts", "STRING", datetime.now(timezone.utc).isoformat()),
         bigquery.ScalarQueryParameter("ver", "STRING", DIAGNOSIS_VERSION),
@@ -1068,7 +1070,8 @@ def write_diagnosis_status_to_ads(client: bigquery.Client, project: str,
     ]
 
     json_expr = f"""JSON_SET({base},
-      '$.model_diagnosis_status', @upload_status,
+      '$.model_diagnosis_status', @diagnosis_status,
+      '$.model_diagnosis_upload_status', @upload_status,
       '$.model_diagnosis_version', @ver,
       '$.model_diagnosis_generated_utc', @ts,
       '$.local_model_diagnosis_path', @local_path,
@@ -1093,7 +1096,10 @@ def write_diagnosis_status_to_ads(client: bigquery.Client, project: str,
     WHERE bs.backtest_id = @bid
     """
     client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
-    print(f"  Updated summary.metrics_json (diagnosis_status={upload_status})")
+    print(
+        "  Updated summary.metrics_json "
+        f"(diagnosis_status={diagnosis_status}, upload_status={upload_status})"
+    )
 
 
 def render_diagnosis_markdown(identity: dict, valid_ic: dict, test_ic: dict,
@@ -1331,12 +1337,13 @@ def main():
     # GCS upload
     gcs_uri = (f"{args.artifact_base_uri}/ml_pv_clf_v0/"
                f"run_id={args.run_id}/backtest_id={args.backtest_id}/model_diagnosis")
+    diagnosis_status = "completed"
     upload_status, diagnosis_uri = "skipped", None
     if not args.skip_gcs_upload:
         try:
             print(f"上传至 GCS: {gcs_uri}")
             upload_dir_to_gcs(args.project, diag_dir, gcs_uri)
-            upload_status, diagnosis_uri = "completed", gcs_uri
+            upload_status, diagnosis_uri = "uploaded", gcs_uri
         except Exception as e:
             print(f"  ⚠ GCS 上传失败: {e}", file=sys.stderr)
             upload_status = "skipped"
@@ -1345,7 +1352,7 @@ def main():
     print("回写 ADS...")
     write_diagnosis_status_to_ads(
         bq, args.project, args.backtest_id,
-        str(diag_dir), upload_status, diagnosis_uri,
+        str(diag_dir), diagnosis_status, upload_status, diagnosis_uri,
         diagnosis_summary, artifact_manifest)
 
     print(f"完成。本地: {diag_dir}")

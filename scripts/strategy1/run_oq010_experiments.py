@@ -1437,8 +1437,12 @@ class Scheduler:
             # 跨阶段时，按依赖关系分组
             return self._build_dependency_batches(experiments)
         else:
-            # 同 stage 内，按 stage_id 分组
-            return self._build_stage_batches(experiments)
+            # 默认不跨 stage，但每个 stage 内仍按依赖关系分组。
+            stage_batches = self._build_stage_batches(experiments)
+            batches: List[List[Dict[str, Any]]] = []
+            for stage_batch in stage_batches:
+                batches.extend(self._build_dependency_batches(stage_batch))
+            return batches
 
     def _build_stage_batches(self, experiments: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
         """按 stage_id 分组为批次。"""
@@ -1470,14 +1474,15 @@ class Scheduler:
 
         while remaining:
             batch = []
-            for eid in list(remaining):
+            remaining_snapshot = set(remaining)
+            for eid in list(remaining_snapshot):
                 dep = dep_map.get(eid)
-                if dep is None or dep not in remaining:
+                if dep is None or dep not in remaining_snapshot:
                     batch.append(exp_by_id[eid])
-                    remaining.remove(eid)
             if not batch:
                 logger.error("dependency cycle detected: %s", remaining)
                 break
+            remaining.difference_update(exp["experiment_id"] for exp in batch)
             batches.append(batch)
 
         return batches

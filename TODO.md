@@ -8,8 +8,8 @@
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
 - [ ] 修复 ODS 外部表 Parquet schema mismatch：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 先修当前 P0 源表 `ods_tushare_stk_limit`，再分批修其余 9 张 P1/P2/P3 表；默认从 GCS 原 Parquet 按 schema contract 重写，不从 API 重拉覆盖历史 raw
-- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：PR #37 已合并，实验参数化、manifest、对比报告脚本、horizon-aware 诊断/QA 和 portfolio-only `prediction_run_id` 复用预测源路径已进入 `main`；A0（`oq010_a0_n5_w20`）已跑通 01-12。Stage C 三个 retrain 实验已跑到 09，但 10 QA 暴露 runner 顺序和预测表幂等边界问题；修复分支 `codex/fix-oq010-stage-c-runner-qa` 待合并后，应使用 `--force-replace` 重跑 Stage C 并完成 report/10/diagnosis/12。阶段 A/B/C 基础路径为 `4 + 3 + 3 = 10`，包含阶段 D 为 12 个实验，不做 `4 * 3 * 3` 全量笛卡尔积；必要时补最多 `2 * 2` A/B、A/C、B/C pairwise 复核或最多 `2 * 2 * 2` 最终保底复核
-- [ ] OQ-010 并发调度 Phase 2-4：实现 05-12 参数化调度 + portfolio-only 并发（Phase 2）、08 ledger 并发与 resume（Phase 3）、retrain 实验训练/预测锁与混合队列（Phase 4）；当前 Phase 1（状态表、调度器 dry-run、GCS 原子锁、并发 QA）已实现
+- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基础 A/B/C 与 3*2*2*2 全因子 24 组合已跑完并全部通过 `12_qa_model_diagnosis_outputs`；当前最优组合为 `pv_fin_quality + 30/5% + biweekly + 5d`（total_return 41.10%、excess_return 12.09%、Sharpe 1.043、max_drawdown -14.48%，benchmark=`000852.SH`）。下一步需 owner 确认默认参数，并将本轮发现的并发 dependency batching 与诊断状态语义修复提 PR
+- [ ] OQ-010 并发调度后续修复：本轮 19 个补跑实验发现 `run_oq010_experiments.py` 同 stage 依赖分批与 `_build_dependency_batches` 需修复，`diagnose_model_quality.py` 需区分 `model_diagnosis_status=completed` 与 `model_diagnosis_upload_status=uploaded/skipped`；本地已修并验证 24 组合全通过，待提 PR 合入 main
 
 ## P1 — 数据 / 特征扩展
 
@@ -38,6 +38,7 @@
 - [x] 新增 ODS/GCS 数据审查目录与提示词：`data_audit/ODS_GCS_DATA_AUDIT_PROMPT.md`、`data_audit/reports/`；审查范围限定 2019-01-01 及之后，提示词要求只审查不补数据、审查脚本由执行 Agent 自行编写并在请求/限速/并发等问题上自修正；已补官方文档链接、API 返回上限命中风险和按 endpoint/主题拆脚本规则
 - [x] 实现 OQ-010 首轮实验 runner 参数化（PR #37 已合并）：新增 `configs/strategy1/oq010_experiments_v0.json`、`scripts/strategy1/compare_oq010_experiments.py`；`sql/ml/strategy1/01-06/09-12` 支持 `experiment_id`、调仓频率、持股数/权重、`p_label_horizon`、`feature_set_id`；诊断脚本和 QA 已改为 horizon-aware，并支持 portfolio-only 实验用 `p_prediction_run_id` 复用模型/预测。已通过 Python/JSON/`git diff --check` 与 BigQuery dry-run，尚未端到端实跑实验
 - [x] 配置本机 BigQuery Storage API 客户端并修复 OQ-010 诊断稳定性：`data-aquarium` 已启用 `bigquerystorage.googleapis.com`，本机 conda 与默认 `python3` 均已安装 `google-cloud-bigquery-storage`；诊断脚本改为一次性拉取 valid/test 预测标签并将 feature exposure 改为 BigQuery 侧聚合，A0 诊断与 `12_qa_model_diagnosis_outputs.sql` 已通过
+- [x] OQ-010 3*2*2*2 全因子 24 组合已补齐并跑完：补跑 19 个缺失组合，全部实验最终状态为 `12_qa_model_diagnosis_outputs=succeeded`；本轮超额收益口径 benchmark 均为 `000852.SH`
 - [x] 合并 OQ-010 策略 1 首轮质量迭代实验 PRD（PR #35）：`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md`，定义持股数/权重、调仓频率、标签 horizon、财务特征的第一轮分阶段实验矩阵；已按 review 修订 canonical baseline id、parent experiment 关系和阶段 B/C 调仓频率口径
 - [x] 修订 OQ-010 首轮实验执行口径：阶段 A/B/C 不做 `4 * 3 * 3` 笛卡尔积，基础执行为 `4 + 3 + 3 = 10` 个实验，包含阶段 D 为 12 个实验；如阶段间暴露明显交互风险，再补最多 `2 * 2` A/B、A/C、B/C pairwise 复核，必要时补最多 `2 * 2 * 2` 最终保底复核
 - [x] 修复诊断 QA：`sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql` 的 `split_tag` 歧义已修复（PR #27/28），已可正常完成 QA 验收
