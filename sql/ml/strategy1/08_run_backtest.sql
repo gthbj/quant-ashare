@@ -1,17 +1,18 @@
 -- BigQuery Standard SQL · Strategy 1 BQML Runner
--- 08: 回测【v1 = 账户级有状态 ledger 循环】。逐调仓 period 维护现金与持仓：
---   * 每个 period 在 t+1 执行日 (exec_date) 先按当前持仓估值得到 NAV（停牌无价用最近可用收盘前向填充）。
---   * 目标仓位 = 目标权重 × 当前 NAV（按当前 NAV 定档，资金可复利/回收，非固定初始资金额）。
---   * 卖出先于买入：对「持有但目标更低/不在目标」的票按 exec 开盘卖到目标（可卖才卖），所得入现金。
---   * 买入受可用现金约束：对「目标高于现有」的票按 exec 开盘买入，若总买入额超现金则等比例缩放，保证现金不为负。
---   * netting：对实际持仓做增量买卖，滚动持有的票不重复全卖全买。
---   * 不可交易（can_buy_open/can_sell_open=FALSE 或当日无开盘价）的腿本期跳过、持仓 carry 到下一个 period 再试
---     （v1 简化：不做 60 交易日 next-sellable 顺延搜索，文档化）。
--- 循环结束后按交易日展开每日持仓/NAV：每个开市日取「<=该日的最近一次调仓快照」估值（close 前向填充）。
--- 不变量（由构造保证，10 的守卫会校验）：现金 >= 0、gross_exposure = 持仓市值/NAV <= 1、
---   每 (trade_date, sec_code) 持仓唯一、NAV 覆盖 predict 窗口每个开市日。
--- 价格/现金统一未复权口径；持有期内除权属简化（与 v0 一致）。日历额外延伸 90 天用于 t+1 执行查找。
--- 升级背景见 runner 设计 §14.1 / DECISION-20260601-07。
+-- 08: 回测【ledger_exec_v1 = 日级账户 ledger】。
+--
+-- 交易语义：
+--   * ads_portfolio_target_daily.rebalance_date 是 signal_date；本脚本推导 execution_date = 下一开市日。
+--   * execution_date 开盘成交；目标市值用执行日前最近可用收盘价估算的执行前 NAV 定档。
+--   * 卖出先于买入；买入受卖出后现金约束，现金不足时按买入需求等比例缩放。
+--   * 所有订单都基于实际持仓与目标持仓的净差额 netting，旧仓重新入选时不重复全额建仓。
+--   * 卖不出进入 pending_sell，并在后续每个开市日继续尝试卖出，直到成交、被 netting 取消或已达目标。
+--   * 买不进不做候补，不每日追买，只在下一次目标生成或净买入机会重新评估。
+--   * 非目标持仓允许继续存在，作为实际持仓计入 NAV。
+--   * 每个开市日收盘 mark-to-market 生成 NAV；停牌/无收盘价用最近可用收盘价前向填充。
+--
+-- 不变量由 10_qa_runner_outputs.sql 校验：现金不为负、无杠杆、持仓唯一、NAV 覆盖全开市日、
+-- 成交价匹配分项滑点、pending sell 日级重试。
 
 DECLARE p_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
@@ -31,15 +32,19 @@ DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;        -- 兼容字段，不再作为�
 DECLARE p_benchmark STRING DEFAULT '000852.SH';  -- OQ-010 示例值
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 DECLARE p_calendar_end DATE;
-DECLARE p_max_period INT64;
+DECLARE p_price_start DATE;
+DECLARE p_max_day INT64;
 -- ledger 循环状态变量
-DECLARE v_p INT64;
+DECLARE v_d INT64;
 DECLARE v_exec DATE;
+DECLARE v_period_idx INT64;
+DECLARE v_is_rebalance BOOL;
 DECLARE v_cash FLOAT64;
 DECLARE v_nav FLOAT64;
 DECLARE v_scale FLOAT64;
 
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
+SET p_price_start = DATE_SUB(p_predict_start, INTERVAL 10 DAY);
 
 -- ── OQ-004 benchmark 前置校验：必须是 dim_index 中的可用收益基准，并完整覆盖 NAV 窗口 ──
 ASSERT (
@@ -138,7 +143,14 @@ SELECT cal_date AS trade_date, trade_date_seq
 FROM `data-aquarium.ashare_dim.dim_trade_calendar`
 WHERE exchange = 'SSE' AND is_open = 1 AND cal_date BETWEEN p_predict_start AND p_calendar_end;
 
--- ── period：rebalance_date → t+1 exec_date → period_idx ──
+CREATE TEMP TABLE exec_days AS
+SELECT trade_date, ROW_NUMBER() OVER (ORDER BY trade_date) AS day_idx
+FROM cal
+WHERE trade_date BETWEEN p_predict_start AND p_predict_end;
+
+SET p_max_day = (SELECT MAX(day_idx) FROM exec_days);
+
+-- ── period：signal_date(rebalance_date) → execution_date(next open day) ──
 CREATE TEMP TABLE periods AS
 WITH rdates AS (
   SELECT DISTINCT pt.rebalance_date
@@ -147,27 +159,29 @@ WITH rdates AS (
     AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
 ),
 we AS (
-  -- t+1 执行日：用交易日历自连接按 seq+1 取下一交易日（去相关子查询）
-  SELECT r.rebalance_date, nxt.trade_date AS exec_date
+  SELECT r.rebalance_date AS signal_date, nxt.trade_date AS exec_date
   FROM rdates AS r
   JOIN cal AS rc ON rc.trade_date = r.rebalance_date
   LEFT JOIN cal AS nxt ON nxt.trade_date_seq = rc.trade_date_seq + 1
 )
-SELECT rebalance_date, exec_date, ROW_NUMBER() OVER (ORDER BY exec_date) AS period_idx
-FROM we WHERE exec_date IS NOT NULL;
-
-SET p_max_period = (SELECT MAX(period_idx) FROM periods);
+SELECT
+  signal_date,
+  exec_date,
+  ROW_NUMBER() OVER (ORDER BY exec_date, signal_date) AS period_idx
+FROM we
+WHERE exec_date IS NOT NULL
+  AND exec_date BETWEEN p_predict_start AND p_predict_end;
 
 -- ── 选股池在各 period 的目标权重 ──
 CREATE TEMP TABLE presence AS
-SELECT pr.period_idx, pr.exec_date, pt.sec_code, pt.target_weight AS w
+SELECT pr.period_idx, pr.signal_date, pr.exec_date, pt.sec_code, pt.target_weight AS w
 FROM periods AS pr
 JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
-  ON pt.rebalance_date = pr.rebalance_date
+  ON pt.rebalance_date = pr.signal_date
  AND pt.strategy_id = p_strategy_id AND pt.run_id = p_run_id
 WHERE pt.rebalance_date BETWEEN p_predict_start AND p_predict_end;
 
--- ── 价格底表：选股池涉及的所有股票，predict_start..calendar_end ──
+-- ── 价格底表：目标池涉及股票，额外读取 10 天用于执行前收盘估值 ──
 CREATE TEMP TABLE px_all AS
 SELECT
   px.sec_code, px.trade_date,
@@ -175,99 +189,164 @@ SELECT
   COALESCE(px.can_buy_open, FALSE) AS can_buy_open,
   COALESCE(px.can_sell_open, FALSE) AS can_sell_open
 FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
-WHERE px.trade_date BETWEEN p_predict_start AND p_calendar_end
+WHERE px.trade_date BETWEEN p_price_start AND p_calendar_end
   AND px.sec_code IN (SELECT DISTINCT sec_code FROM presence);
 
--- ── 估值用前向填充收盘价（停牌无价日沿用最近可用收盘）──
+-- ── 收盘价前向填充：NAV 用当日 close_ffill，执行前 NAV 用 prev_close_ffill ──
 CREATE TEMP TABLE px_ffill AS
 SELECT
   sec_code, trade_date,
   LAST_VALUE(close IGNORE NULLS) OVER (
     PARTITION BY sec_code ORDER BY trade_date
-    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS close_ffill
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS close_ffill,
+  LAST_VALUE(close IGNORE NULLS) OVER (
+    PARTITION BY sec_code ORDER BY trade_date
+    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_close_ffill
 FROM px_all;
 
 -- ── ledger 状态表 ──
-CREATE TEMP TABLE hold (sec_code STRING, shares FLOAT64);           -- 当前持仓（逐 period 变更）
-CREATE TEMP TABLE snap (period_idx INT64, exec_date DATE, sec_code STRING, shares FLOAT64);  -- 每次调仓后持仓快照
-CREATE TEMP TABLE cash_hist (period_idx INT64, exec_date DATE, cash_after FLOAT64);          -- 每次调仓后现金
+CREATE TEMP TABLE hold (sec_code STRING, shares FLOAT64);             -- 当前实际持仓（日级变更）
+CREATE TEMP TABLE target (sec_code STRING, w FLOAT64);                -- 最新目标组合权重，仅在 execution_date 更新
+CREATE TEMP TABLE pending_sell (sec_code STRING);                     -- 未卖出的退出/降仓意图，日级重试
+CREATE TEMP TABLE snap (trade_date DATE, sec_code STRING, shares FLOAT64);  -- 每日收盘后持仓快照
+CREATE TEMP TABLE cash_hist (trade_date DATE, cash_after FLOAT64);          -- 每日收盘后现金
 CREATE TEMP TABLE ledger_trades (
   trade_date DATE, sec_code STRING, side STRING,
   planned_shares FLOAT64, filled_shares FLOAT64, fill_price FLOAT64, turnover_cny FLOAT64,
   fee_cny FLOAT64, cash_effect_cny FLOAT64, fill_status STRING);
 
 SET v_cash = p_initial_capital;
-SET v_p = 1;
+SET v_d = 1;
 
-WHILE v_p <= p_max_period DO
-  SET v_exec = (SELECT exec_date FROM periods WHERE period_idx = v_p);
+WHILE v_d <= p_max_day DO
+  SET v_exec = (SELECT trade_date FROM exec_days WHERE day_idx = v_d);
+  SET v_period_idx = (SELECT period_idx FROM periods WHERE exec_date = v_exec ORDER BY period_idx LIMIT 1);
+  SET v_is_rebalance = v_period_idx IS NOT NULL;
 
-  -- 当前持仓在 exec 日的估值（开盘价优先，停牌无开盘价用 ffill 收盘）得到 NAV
+  IF v_is_rebalance THEN
+    CREATE OR REPLACE TEMP TABLE target AS
+    SELECT sec_code, w
+    FROM presence
+    WHERE period_idx = v_period_idx;
+  END IF;
+
+  -- 执行前 NAV：现金 + 实际持仓按执行日前最近可用收盘价估值，缺口兜底用当日开盘/ffill 收盘。
   SET v_nav = v_cash + (
-    SELECT COALESCE(SUM(h.shares * COALESCE(pe.open, pf.close_ffill)), 0)
+    SELECT COALESCE(SUM(h.shares * COALESCE(pf.prev_close_ffill, pe.open, pf.close_ffill)), 0)
     FROM hold AS h
-    LEFT JOIN (SELECT sec_code, open FROM px_all WHERE trade_date = v_exec) AS pe ON pe.sec_code = h.sec_code
-    LEFT JOIN (SELECT sec_code, close_ffill FROM px_ffill WHERE trade_date = v_exec) AS pf ON pf.sec_code = h.sec_code
+    LEFT JOIN (SELECT sec_code, open FROM px_all WHERE trade_date = v_exec) AS pe
+      ON pe.sec_code = h.sec_code
+    LEFT JOIN (SELECT sec_code, prev_close_ffill, close_ffill FROM px_ffill WHERE trade_date = v_exec) AS pf
+      ON pf.sec_code = h.sec_code
   );
 
-  -- 本 period 计划：持仓∪目标，计算各票当前价值、目标价值、应卖股数、应买金额
+  -- 本日计划：
+  --   * rebalance execution_date：实际持仓 ∪ 目标 ∪ pending_sell，做完整 netting。
+  --   * 非 rebalance 日：仅 pending_sell/实际持仓参与，禁止每日追买，只重试 pending sell。
   CREATE OR REPLACE TEMP TABLE plan AS
   WITH universe AS (
     SELECT sec_code FROM hold
     UNION DISTINCT
-    SELECT sec_code FROM presence WHERE period_idx = v_p
+    SELECT sec_code FROM target WHERE v_is_rebalance
+    UNION DISTINCT
+    SELECT sec_code FROM pending_sell
   ),
   joined AS (
     SELECT
       u.sec_code,
       COALESCE(h.shares, 0) AS cur_shares,
       pe.open AS exec_open,
+      pe.open * (1 + p_slippage_buy_bps / 10000.0) AS buy_fill_price,
+      pe.open * (1 - p_slippage_sell_bps / 10000.0) AS sell_fill_price,
       COALESCE(pe.can_buy_open, FALSE) AS can_buy,
       COALESCE(pe.can_sell_open, FALSE) AS can_sell,
-      COALESCE(pe.open, pf.close_ffill) AS val_price,
-      COALESCE(t.w, 0) AS w
+      COALESCE(pf.prev_close_ffill, pe.open, pf.close_ffill) AS val_price,
+      COALESCE(t.w, 0) AS w,
+      ps.sec_code IS NOT NULL AS was_pending
     FROM universe AS u
     LEFT JOIN hold AS h ON h.sec_code = u.sec_code
-    LEFT JOIN (SELECT sec_code, w FROM presence WHERE period_idx = v_p) AS t ON t.sec_code = u.sec_code
-    LEFT JOIN (SELECT sec_code, open, can_buy_open, can_sell_open FROM px_all WHERE trade_date = v_exec) AS pe ON pe.sec_code = u.sec_code
-    LEFT JOIN (SELECT sec_code, close_ffill FROM px_ffill WHERE trade_date = v_exec) AS pf ON pf.sec_code = u.sec_code
+    LEFT JOIN target AS t ON t.sec_code = u.sec_code
+    LEFT JOIN pending_sell AS ps ON ps.sec_code = u.sec_code
+    LEFT JOIN (SELECT sec_code, open, can_buy_open, can_sell_open FROM px_all WHERE trade_date = v_exec) AS pe
+      ON pe.sec_code = u.sec_code
+    LEFT JOIN (SELECT sec_code, prev_close_ffill, close_ffill FROM px_ffill WHERE trade_date = v_exec) AS pf
+      ON pf.sec_code = u.sec_code
   ),
   valued AS (
-    SELECT *,
+    SELECT
+      *,
       cur_shares * val_price AS cur_value,
       w * v_nav AS desired_value
     FROM joined
   )
   SELECT
-    sec_code, cur_shares, exec_open, can_buy, can_sell, val_price, w, cur_value, desired_value,
-    -- 应卖股数：目标价值低于现值且可卖且有开盘价
-    IF(cur_shares > 0 AND can_sell AND exec_open IS NOT NULL AND cur_value - desired_value > 0.01,
-       LEAST(cur_shares, SAFE_DIVIDE(cur_value - desired_value, exec_open)), 0.0) AS sell_shares,
-    -- 应买金额：目标价值高于现值且可买且有开盘价
-    IF(can_buy AND exec_open IS NOT NULL AND desired_value - cur_value > 0.01,
-       desired_value - cur_value, 0.0) AS want_value,
-    -- 想卖但本期不可交易（不可卖或无开盘价）→ 记 skip 意图，持仓 carry 到下一 period
-    IF(cur_shares > 0 AND cur_value - desired_value > 0.01 AND NOT (can_sell AND exec_open IS NOT NULL),
-       LEAST(cur_shares, SAFE_DIVIDE(cur_value - desired_value, val_price)), 0.0) AS sell_skip_shares,
-    -- 想买但本期不可交易（不可买或无开盘价）→ 记 skip 意图
-    IF(desired_value - cur_value > 0.01 AND NOT (can_buy AND exec_open IS NOT NULL),
-       desired_value - cur_value, 0.0) AS buy_skip_value
+    sec_code, cur_shares, exec_open, buy_fill_price, sell_fill_price,
+    can_buy, can_sell, val_price, w, was_pending,
+    cur_value, desired_value,
+    -- 卖出：rebalance 日处理净卖出；非 rebalance 日只处理 pending sell。
+    IF(
+      cur_shares > 0
+      AND (v_is_rebalance OR was_pending)
+      AND cur_value - desired_value > 0.01
+      AND can_sell
+      AND exec_open IS NOT NULL,
+      CASE
+        WHEN desired_value <= 0.01 THEN cur_shares
+        ELSE LEAST(cur_shares, SAFE_DIVIDE(cur_value - desired_value, exec_open))
+      END,
+      0.0
+    ) AS sell_shares,
+    -- 买入：只允许 rebalance 日按 netting 补差；此前买不进的缺口不每日追买。
+    IF(
+      v_is_rebalance
+      AND can_buy
+      AND exec_open IS NOT NULL
+      AND desired_value - cur_value > 0.01,
+      desired_value - cur_value,
+      0.0
+    ) AS want_value,
+    -- 卖出失败：rebalance 日写 SELL_SKIPPED_UNTRADABLE；非 rebalance 日写 PENDING_SELL_CARRY。
+    IF(
+      cur_shares > 0
+      AND (v_is_rebalance OR was_pending)
+      AND cur_value - desired_value > 0.01
+      AND NOT (can_sell AND exec_open IS NOT NULL),
+      CASE
+        WHEN desired_value <= 0.01 THEN cur_shares
+        ELSE LEAST(cur_shares, SAFE_DIVIDE(cur_value - desired_value, COALESCE(exec_open, val_price)))
+      END,
+      0.0
+    ) AS sell_skip_shares,
+    -- 买入失败：只在 rebalance 日记录，不候补。
+    IF(
+      v_is_rebalance
+      AND desired_value - cur_value > 0.01
+      AND NOT (can_buy AND exec_open IS NOT NULL),
+      desired_value - cur_value,
+      0.0
+    ) AS buy_skip_value,
+    -- pending 已因目标提高/重新入选或市值变化达到目标，无需继续卖。
+    IF(
+      was_pending
+      AND cur_shares > 0
+      AND NOT (cur_value - desired_value > 0.01),
+      TRUE,
+      FALSE
+    ) AS pending_noop
   FROM valued;
 
-  -- 卖出先入账（现金 += 卖出净额 = gross_turnover - commission - stamp_tax）
+  -- 卖出先入账（现金 += 卖出净额 = gross_turnover - commission - stamp_tax）。
   SET v_cash = v_cash + (
     SELECT COALESCE(SUM(
-      sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0)
-      - GREATEST(
-          sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_commission_bps / 10000.0,
-          p_min_commission_cny
-        )
-      - sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_stamp_tax_sell_bps / 10000.0
+      sell_shares * sell_fill_price
+      - GREATEST(sell_shares * sell_fill_price * p_commission_bps / 10000.0, p_min_commission_cny)
+      - sell_shares * sell_fill_price * p_stamp_tax_sell_bps / 10000.0
     ), 0)
-    FROM plan WHERE sell_shares > 0.000001
+    FROM plan
+    WHERE sell_shares > 0.000001
   );
 
-  -- 买入受现金约束：required_cash = gross_turnover + commission + stamp_tax
+  -- 买入受现金约束：required_cash = gross_turnover + commission + stamp_tax。
   SET v_scale = (
     SELECT COALESCE(LEAST(1.0, SAFE_DIVIDE(v_cash, NULLIF(SUM(
       want_value * (1 + p_slippage_buy_bps / 10000.0)
@@ -277,11 +356,12 @@ WHILE v_p <= p_max_period DO
         )
       + want_value * (1 + p_slippage_buy_bps / 10000.0) * p_stamp_tax_buy_bps / 10000.0
     ), 0))), 1.0)
-    FROM plan WHERE want_value > 0.000001
+    FROM plan
+    WHERE want_value > 0.000001
   );
   SET v_scale = COALESCE(v_scale, 1.0);
 
-  -- 买入扣现金
+  -- 买入扣现金。
   SET v_cash = v_cash - (
     SELECT COALESCE(SUM(
       want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0)
@@ -291,61 +371,102 @@ WHILE v_p <= p_max_period DO
         )
       + want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_stamp_tax_buy_bps / 10000.0
     ), 0)
-    FROM plan WHERE want_value > 0.000001
+    FROM plan
+    WHERE want_value > 0.000001 AND v_scale > 0.000001
   );
 
-  -- 记录成交（卖出 + 买入 + 不可交易 skip 意图，全部入 trade 表，供 09 从 ledger 事实算指标）
+  -- 记录成交、失败、缩放、取消/NOOP 状态。
   INSERT INTO ledger_trades (trade_date, sec_code, side, planned_shares, filled_shares, fill_price, turnover_cny, fee_cny, cash_effect_cny, fill_status)
-  -- SELL: fill_price 向下偏移滑点，fee = commission + stamp_tax
+  -- SELL filled.
   SELECT v_exec, sec_code, 'SELL',
-    sell_shares, sell_shares,
-    exec_open * (1 - p_slippage_sell_bps / 10000.0),
-    sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0),
-    GREATEST(sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_commission_bps / 10000.0, p_min_commission_cny)
-      + sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_stamp_tax_sell_bps / 10000.0,
-    sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0)
-      - GREATEST(sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_commission_bps / 10000.0, p_min_commission_cny)
-      - sell_shares * exec_open * (1 - p_slippage_sell_bps / 10000.0) * p_stamp_tax_sell_bps / 10000.0,
+    sell_shares, sell_shares, sell_fill_price,
+    sell_shares * sell_fill_price,
+    GREATEST(sell_shares * sell_fill_price * p_commission_bps / 10000.0, p_min_commission_cny)
+      + sell_shares * sell_fill_price * p_stamp_tax_sell_bps / 10000.0,
+    sell_shares * sell_fill_price
+      - GREATEST(sell_shares * sell_fill_price * p_commission_bps / 10000.0, p_min_commission_cny)
+      - sell_shares * sell_fill_price * p_stamp_tax_sell_bps / 10000.0,
     'FILLED'
-  FROM plan WHERE sell_shares > 0.000001
+  FROM plan
+  WHERE sell_shares > 0.000001
   UNION ALL
-  -- BUY: fill_price 向上偏移滑点，fee = commission + stamp_tax
+  -- BUY filled, optionally scaled by cash.
   SELECT v_exec, sec_code, 'BUY',
-    SAFE_DIVIDE(want_value * v_scale, exec_open), SAFE_DIVIDE(want_value * v_scale, exec_open),
-    exec_open * (1 + p_slippage_buy_bps / 10000.0),
+    SAFE_DIVIDE(want_value, exec_open),
+    SAFE_DIVIDE(want_value * v_scale, exec_open),
+    buy_fill_price,
     want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0),
     GREATEST(want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_commission_bps / 10000.0, p_min_commission_cny)
       + want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_stamp_tax_buy_bps / 10000.0,
     -(want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0)
       + GREATEST(want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_commission_bps / 10000.0, p_min_commission_cny)
       + want_value * v_scale * (1 + p_slippage_buy_bps / 10000.0) * p_stamp_tax_buy_bps / 10000.0),
-    'FILLED'
-  FROM plan WHERE want_value > 0.000001 AND v_scale > 0
+    IF(v_scale < 0.999999, 'FILLED_SCALED_CASH', 'FILLED')
+  FROM plan
+  WHERE want_value > 0.000001 AND v_scale > 0.000001
   UNION ALL
-  -- 想卖但本期不可交易：记 skip 意图（filled=0，无现金/换手影响），持仓 carry
-  SELECT v_exec, sec_code, 'SELL',
-    sell_skip_shares, 0.0, CAST(NULL AS FLOAT64), 0.0, 0.0, 0.0, 'SELL_SKIPPED_UNTRADABLE'
-  FROM plan WHERE sell_skip_shares > 0.000001
-  UNION ALL
-  -- 想买但本期不可交易：记 skip 意图
+  -- BUY skipped because available cash is effectively zero after scaling.
   SELECT v_exec, sec_code, 'BUY',
-    COALESCE(SAFE_DIVIDE(buy_skip_value, val_price), 0.0), 0.0, CAST(NULL AS FLOAT64), 0.0, 0.0, 0.0, 'BUY_SKIPPED_UNTRADABLE'
-  FROM plan WHERE buy_skip_value > 0.000001;
+    SAFE_DIVIDE(want_value, exec_open), 0.0, CAST(NULL AS FLOAT64), 0.0, 0.0, 0.0,
+    'SKIPPED_CASH_INSUFFICIENT'
+  FROM plan
+  WHERE want_value > 0.000001 AND v_scale <= 0.000001
+  UNION ALL
+  -- SELL skipped/carry: no fill, holding remains.
+  SELECT v_exec, sec_code, 'SELL',
+    sell_skip_shares, 0.0, CAST(NULL AS FLOAT64), 0.0, 0.0, 0.0,
+    IF(v_is_rebalance, 'SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY')
+  FROM plan
+  WHERE sell_skip_shares > 0.000001
+  UNION ALL
+  -- BUY skipped: no fallback candidate.
+  SELECT v_exec, sec_code, 'BUY',
+    COALESCE(SAFE_DIVIDE(buy_skip_value, val_price), 0.0), 0.0, CAST(NULL AS FLOAT64), 0.0, 0.0, 0.0,
+    'BUY_SKIPPED_UNTRADABLE'
+  FROM plan
+  WHERE buy_skip_value > 0.000001
+  UNION ALL
+  -- pending sell cancelled by rebalance netting / target increase.
+  SELECT v_exec, sec_code, 'SELL',
+    0.0, 0.0, CAST(NULL AS FLOAT64), 0.0, 0.0, 0.0,
+    IF(v_is_rebalance, 'CANCELLED_BY_NETTING', 'NOOP_ALREADY_TARGET')
+  FROM plan
+  WHERE pending_noop;
 
-  -- 更新持仓（netting：现有 − 卖出 + 买入），保留正持仓
+  -- 更新实际持仓。
   CREATE OR REPLACE TEMP TABLE hold AS
-  SELECT sec_code, shares FROM (
-    SELECT sec_code,
-      cur_shares - sell_shares + SAFE_DIVIDE(want_value * v_scale, exec_open) AS shares
+  SELECT sec_code, shares
+  FROM (
+    SELECT
+      sec_code,
+      cur_shares - sell_shares
+        + IF(v_scale > 0.000001, SAFE_DIVIDE(want_value * v_scale, exec_open), 0.0) AS shares
     FROM plan
   )
   WHERE shares > 0.000001;
 
-  -- 快照本期持仓与现金
-  INSERT INTO snap SELECT v_p, v_exec, sec_code, shares FROM hold;
-  INSERT INTO cash_hist VALUES (v_p, v_exec, v_cash);
+  -- 更新 pending_sell：仍持有且仍高于目标的卖出意图继续保留。
+  CREATE OR REPLACE TEMP TABLE pending_sell AS
+  SELECT DISTINCT sec_code
+  FROM (
+    SELECT
+      sec_code,
+      cur_shares - sell_shares AS remaining_shares,
+      (cur_shares - sell_shares) * val_price AS remaining_value,
+      desired_value,
+      sell_skip_shares,
+      was_pending
+    FROM plan
+  )
+  WHERE remaining_shares > 0.000001
+    AND remaining_value - desired_value > 0.01
+    AND (sell_skip_shares > 0.000001 OR was_pending OR v_is_rebalance);
 
-  SET v_p = v_p + 1;
+  -- 每日收盘后快照持仓与现金。
+  INSERT INTO snap SELECT v_exec, sec_code, shares FROM hold;
+  INSERT INTO cash_hist VALUES (v_exec, v_cash);
+
+  SET v_d = v_d + 1;
 END WHILE;
 
 -- ── 写成交表 ──
@@ -371,39 +492,26 @@ SELECT
   p_run_id, CURRENT_TIMESTAMP()
 FROM ledger_trades AS lt;
 
--- ── 每个开市日映射到「<=该日的最近一次调仓」──
-CREATE TEMP TABLE day_period AS
-SELECT c.trade_date, MAX(ch.exec_date) AS active_exec
-FROM cal AS c
-LEFT JOIN cash_hist AS ch ON ch.exec_date <= c.trade_date
-WHERE c.trade_date BETWEEN p_predict_start AND p_predict_end
-GROUP BY c.trade_date;
-
--- ── 每日持仓（按最近快照 × 当日 ffill 收盘估值）──
+-- ── 每日持仓（每日快照 × 当日 ffill 收盘估值）──
 CREATE TEMP TABLE pos_daily AS
 SELECT
-  dp.trade_date, s.sec_code, s.shares AS net_shares,
-  pf.close_ffill AS close_raw,
-  s.shares * pf.close_ffill AS market_value
-FROM day_period AS dp
-JOIN snap AS s ON s.exec_date = dp.active_exec
-LEFT JOIN px_ffill AS pf ON pf.sec_code = s.sec_code AND pf.trade_date = dp.trade_date;
-
--- ── 每日现金（取最近一次调仓后的现金；首个调仓前为初始资金）──
-CREATE TEMP TABLE cash_daily AS
-SELECT dp.trade_date, COALESCE(ch.cash_after, p_initial_capital) AS cash_cny
-FROM day_period AS dp
-LEFT JOIN cash_hist AS ch ON ch.exec_date = dp.active_exec;
+  s.trade_date, s.sec_code, s.shares AS net_shares,
+  COALESCE(pf.close_ffill, pa.open) AS close_raw,
+  s.shares * COALESCE(pf.close_ffill, pa.open) AS market_value
+FROM snap AS s
+LEFT JOIN px_ffill AS pf ON pf.sec_code = s.sec_code AND pf.trade_date = s.trade_date
+LEFT JOIN px_all AS pa ON pa.sec_code = s.sec_code AND pa.trade_date = s.trade_date;
 
 -- ── 每日 NAV ──
 CREATE TEMP TABLE nav_daily AS
 SELECT
-  cd.trade_date, cd.cash_cny,
+  ch.trade_date,
+  ch.cash_after AS cash_cny,
   COALESCE(pv.mv_sum, 0) AS mv_sum,
-  cd.cash_cny + COALESCE(pv.mv_sum, 0) AS nav_value
-FROM cash_daily AS cd
+  ch.cash_after + COALESCE(pv.mv_sum, 0) AS nav_value
+FROM cash_hist AS ch
 LEFT JOIN (SELECT trade_date, SUM(market_value) AS mv_sum FROM pos_daily GROUP BY trade_date) AS pv
-  ON pv.trade_date = cd.trade_date;
+  ON pv.trade_date = ch.trade_date;
 
 -- ── 写持仓表 ──
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_position_daily`
@@ -414,7 +522,8 @@ SELECT
   SAFE_DIVIDE(pd.market_value, NULLIF(nav.nav_value, 0)),
   CAST(NULL AS FLOAT64), p_run_id, CURRENT_TIMESTAMP()
 FROM pos_daily AS pd
-JOIN nav_daily AS nav ON nav.trade_date = pd.trade_date;
+JOIN nav_daily AS nav ON nav.trade_date = pd.trade_date
+WHERE pd.market_value IS NOT NULL;
 
 -- ── 写 NAV 表（含 benchmark 与超额收益）──
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_nav_daily`
@@ -422,8 +531,13 @@ INSERT INTO `data-aquarium.ashare_ads.ads_backtest_nav_daily`
  turnover_cny, cost_cny, daily_return, benchmark_sec_code, benchmark_return,
  excess_return, run_id, created_at)
 WITH day_cost AS (
-  SELECT trade_date, SUM(turnover_cny) AS turnover_cny, SUM(fee_cny) AS cost_cny
-  FROM ledger_trades GROUP BY trade_date
+  SELECT
+    trade_date,
+    SUM(turnover_cny) AS turnover_cny,
+    SUM(fee_cny) AS cost_cny
+  FROM ledger_trades
+  WHERE fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
+  GROUP BY trade_date
 ),
 nav_norm AS (
   SELECT

@@ -76,17 +76,21 @@ IF p_force_replace THEN
       AND sm.trade_date BETWEEN p_predict_start AND p_predict_end;
 END IF;
 
--- ── 成交统计（v1 ledger 口径）：直接从实际成交表 ads_backtest_trade_daily 汇总 ──
--- ledger 不做 60 交易日 next-sellable 搜索；不可交易腿本期跳过、记为 *_SKIPPED_UNTRADABLE 意图行、
--- 持仓 carry 到下一个调仓执行日再尝试。这里的 skip 统计与 trade 表 1:1 可对账（去掉旧 episode 口径）。
+-- ── 成交统计（ledger_exec_v1 口径）：直接从实际成交表 ads_backtest_trade_daily 汇总 ──
+-- 卖不出会进入 pending_sell 并在后续每个开市日重试；买不进不候补、不每日追买。
 CREATE TEMP TABLE sell_stats AS
 SELECT
   COUNTIF(t.side = 'BUY')  AS buy_attempt_count,
-  COUNTIF(t.side = 'BUY'  AND t.fill_status = 'FILLED') AS buy_filled_count,
-  COUNTIF(t.side = 'BUY'  AND t.fill_status = 'BUY_SKIPPED_UNTRADABLE') AS buy_skipped_count,
+  COUNTIF(t.side = 'BUY'  AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')) AS buy_filled_count,
+  COUNTIF(t.side = 'BUY'  AND t.fill_status = 'FILLED_SCALED_CASH') AS buy_scaled_cash_count,
+  COUNTIF(t.side = 'BUY'  AND t.fill_status IN ('BUY_SKIPPED_UNTRADABLE', 'SKIPPED_CASH_INSUFFICIENT', 'SKIPPED_MIN_NOTIONAL')) AS buy_skipped_count,
   COUNTIF(t.side = 'SELL') AS sell_attempt_count,
   COUNTIF(t.side = 'SELL' AND t.fill_status = 'FILLED') AS sell_filled_count,
-  COUNTIF(t.side = 'SELL' AND t.fill_status = 'SELL_SKIPPED_UNTRADABLE') AS sell_skipped_count
+  COUNTIF(t.side = 'SELL' AND t.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY')) AS sell_skipped_count,
+  COUNTIF(t.fill_status = 'PENDING_SELL_CARRY') AS pending_sell_carry_count,
+  COUNTIF(t.fill_status = 'CANCELLED_BY_NETTING') AS cancelled_by_netting_count,
+  COUNTIF(t.fill_status = 'NOOP_ALREADY_TARGET') AS noop_already_target_count,
+  COUNTIF(t.fill_status = 'SKIPPED_CASH_INSUFFICIENT') AS cash_insufficient_skip_count
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
 WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end;
 
@@ -99,7 +103,7 @@ SELECT
   SUM(t.fee_cny + t.slippage_cny) AS total_economic_cost_cny
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
 WHERE t.backtest_id = p_backtest_id
-  AND t.fill_status = 'FILLED'
+  AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
   AND t.trade_date BETWEEN p_predict_start AND p_predict_end;
 
 -- 汇总绩效
@@ -182,10 +186,17 @@ SELECT
     ((a.final_nav - 1.0) < (SELECT b.bench_cum_nav FROM bench AS b ORDER BY b.trade_date DESC LIMIT 1) - 1.0
      OR (a.final_nav - 1.0) < 0
      OR dd.max_dd <= -0.15) AS diagnosis_triggered,
-    -- v1 ledger 成交口径（与 ads_backtest_trade_daily 1:1 可对账）
+    -- ledger_exec_v1 成交口径（与 ads_backtest_trade_daily 1:1 可对账）
+    'ledger_exec_v1' AS ledger_version,
+    'signal_date_next_open_execution' AS execution_semantics,
+    TRUE AS pending_sell_daily_retry,
+    TRUE AS buy_no_fallback,
     ss.buy_attempt_count, ss.buy_filled_count, ss.buy_skipped_count,
+    ss.buy_scaled_cash_count,
     SAFE_DIVIDE(CAST(ss.buy_skipped_count AS FLOAT64), NULLIF(ss.buy_attempt_count, 0)) AS buy_skip_rate,
     ss.sell_attempt_count, ss.sell_filled_count, ss.sell_skipped_count,
+    ss.pending_sell_carry_count, ss.cancelled_by_netting_count,
+    ss.noop_already_target_count, ss.cash_insufficient_skip_count,
     SAFE_DIVIDE(CAST(ss.sell_skipped_count AS FLOAT64), NULLIF(ss.sell_attempt_count, 0)) AS sell_skip_rate,
     a.total_turnover, a.total_cost,
     -- OQ-010 成本 profile

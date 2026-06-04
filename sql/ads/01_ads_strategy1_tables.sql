@@ -146,7 +146,7 @@ CREATE OR REPLACE TABLE `data-aquarium.ashare_ads.ads_backtest_trade_daily` (
   tax_cny FLOAT64 OPTIONS(description = '印花税，元'),
   slippage_cny FLOAT64 OPTIONS(description = '滑点成本，元'),
   cash_effect_cny FLOAT64 OPTIONS(description = '现金影响，元'),
-  fill_status STRING OPTIONS(description = '成交状态。v1 ledger 实际产生：FILLED（已成交）、BUY_SKIPPED_UNTRADABLE / SELL_SKIPPED_UNTRADABLE（本期不可交易跳过的意图行，filled_shares=0、无现金/换手影响，持仓 carry 到下一调仓日再试）。PARTIAL/REJECTED 为契约预留，v1 ledger 当前不产生。'),
+  fill_status STRING OPTIONS(description = '成交状态。ledger_exec_v1 支持：FILLED、FILLED_SCALED_CASH、BUY_SKIPPED_UNTRADABLE、SELL_SKIPPED_UNTRADABLE、PENDING_SELL_CARRY、CANCELLED_BY_NETTING、SKIPPED_CASH_INSUFFICIENT、SKIPPED_MIN_NOTIONAL、NOOP_ALREADY_TARGET。非成交状态 filled_shares=0 且无现金/换手影响；卖不出进入 pending sell 并逐开市日重试。'),
   run_id STRING OPTIONS(description = '回测 run id'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )

@@ -223,17 +223,26 @@ def fetch_enriched_buy_trades(client: bigquery.Client, project: str,
                               run_id: str, backtest_id: str,
                               start_date: str, end_date: str) -> pd.DataFrame:
     sql = f"""
-    SELECT t.trade_date, t.sec_code, t.fill_price,
+    SELECT t.trade_date, sig.cal_date AS signal_date, t.sec_code, t.fill_price,
            pred.score, pred.rank_raw
     FROM `{project}.ashare_ads.ads_backtest_trade_daily` AS t
+    JOIN `{project}.ashare_dim.dim_trade_calendar` AS exec_cal
+      ON exec_cal.exchange = 'SSE'
+     AND exec_cal.is_open = 1
+     AND exec_cal.cal_date = t.trade_date
+    JOIN `{project}.ashare_dim.dim_trade_calendar` AS sig
+      ON sig.exchange = 'SSE'
+     AND sig.is_open = 1
+     AND sig.trade_date_seq = exec_cal.trade_date_seq - 1
     JOIN `{project}.ashare_ads.ads_model_prediction_daily` AS pred
       ON pred.sec_code = t.sec_code
-     AND pred.predict_date = t.trade_date
+     AND pred.predict_date = sig.cal_date
      AND pred.run_id = @rid
     WHERE t.backtest_id = @bid
       AND t.side = 'BUY'
-      AND t.fill_status = 'FILLED'
+      AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
       AND t.trade_date BETWEEN @sd AND @ed
+      AND pred.predict_date BETWEEN DATE_SUB(@sd, INTERVAL 10 DAY) AND @ed
     """
     return bq_query(client, sql, [
         bigquery.ScalarQueryParameter("rid", "STRING", run_id),
@@ -476,7 +485,7 @@ def compute_cost_breakdown(client: bigquery.Client, project: str,
       SUM(t.fee_cny + t.slippage_cny) AS total_economic_cost_cny
     FROM `{project}.ashare_ads.ads_backtest_trade_daily` AS t
     WHERE t.backtest_id = @bid
-      AND t.fill_status = 'FILLED'
+      AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
       AND t.trade_date BETWEEN @sd AND @ed
     """
     df = bq_query(client, sql, [
@@ -500,10 +509,14 @@ def compute_execution_diagnostics(client: bigquery.Client, project: str,
                                   backtest_id: str, start_date: str, end_date: str) -> dict:
     sql = f"""
     SELECT
-      COUNTIF(t.side = 'BUY' AND t.fill_status = 'FILLED') AS buy_filled,
-      COUNTIF(t.side = 'BUY' AND t.fill_status = 'BUY_SKIPPED_UNTRADABLE') AS buy_skip,
+      COUNTIF(t.side = 'BUY' AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')) AS buy_filled,
+      COUNTIF(t.side = 'BUY' AND t.fill_status = 'FILLED_SCALED_CASH') AS buy_scaled_cash,
+      COUNTIF(t.side = 'BUY' AND t.fill_status IN ('BUY_SKIPPED_UNTRADABLE', 'SKIPPED_CASH_INSUFFICIENT', 'SKIPPED_MIN_NOTIONAL')) AS buy_skip,
       COUNTIF(t.side = 'SELL' AND t.fill_status = 'FILLED') AS sell_filled,
-      COUNTIF(t.side = 'SELL' AND t.fill_status = 'SELL_SKIPPED_UNTRADABLE') AS sell_skip
+      COUNTIF(t.side = 'SELL' AND t.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY')) AS sell_skip,
+      COUNTIF(t.fill_status = 'PENDING_SELL_CARRY') AS pending_sell_carry,
+      COUNTIF(t.fill_status = 'CANCELLED_BY_NETTING') AS cancelled_by_netting,
+      COUNTIF(t.fill_status = 'NOOP_ALREADY_TARGET') AS noop_already_target
     FROM `{project}.ashare_ads.ads_backtest_trade_daily` AS t
     WHERE t.backtest_id = @bid
       AND t.trade_date BETWEEN @sd AND @ed
@@ -529,9 +542,13 @@ def compute_execution_diagnostics(client: bigquery.Client, project: str,
 
     return {
         "buy_filled_count": int(d.get("buy_filled", 0) or 0),
+        "buy_scaled_cash_count": int(d.get("buy_scaled_cash", 0) or 0),
         "buy_skip_count": int(d.get("buy_skip", 0) or 0),
         "sell_filled_count": int(d.get("sell_filled", 0) or 0),
         "sell_skip_count": int(d.get("sell_skip", 0) or 0),
+        "pending_sell_carry_count": int(d.get("pending_sell_carry", 0) or 0),
+        "cancelled_by_netting_count": int(d.get("cancelled_by_netting", 0) or 0),
+        "noop_already_target_count": int(d.get("noop_already_target", 0) or 0),
         "min_cash_cny": round(float(n.get("min_cash", 0) or 0), 2),
         "max_gross_exposure": round(float(n.get("max_gross", 0) or 0), 6),
     }
@@ -565,7 +582,7 @@ def get_loss_window_trades(client: bigquery.Client, project: str,
            t.turnover_cny, t.cash_effect_cny, t.fill_status
     FROM `{project}.ashare_ads.ads_backtest_trade_daily` AS t
     WHERE t.backtest_id = @bid
-      AND t.fill_status = 'FILLED'
+      AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
       AND t.trade_date BETWEEN @sd AND @ed
     ORDER BY t.trade_date
     LIMIT 50
@@ -882,6 +899,7 @@ def build_trades_csv(trades_df: pd.DataFrame, buy_enriched: pd.DataFrame,
     if not buy_enriched.empty:
         for _, r in buy_enriched.iterrows():
             buy_map[(str(r["trade_date"]), r["sec_code"])] = (
+                str(r.get("signal_date", "")),
                 round(float(r.get("score", 0) or 0), 6),
                 int(r.get("rank_raw", 0) or 0),
             )
@@ -896,7 +914,7 @@ def build_trades_csv(trades_df: pd.DataFrame, buy_enriched: pd.DataFrame,
         for _, r in targets.iterrows():
             tgt_map[(str(r["rebalance_date"]), r["sec_code"])] = round(float(r["target_weight"] or 0), 6)
 
-    header = ["trade_date", "sec_code", "side", "planned_shares", "filled_shares",
+    header = ["trade_date", "signal_date", "execution_date", "sec_code", "side", "planned_shares", "filled_shares",
               "fill_price", "turnover_cny", "fee_cny", "tax_cny", "slippage_cny",
               "cash_effect_cny", "fill_status", "score", "rank_raw",
               "target_weight", "position_weight_after"]
@@ -904,13 +922,14 @@ def build_trades_csv(trades_df: pd.DataFrame, buy_enriched: pd.DataFrame,
     for _, r in trades_df.iterrows():
         key = (str(r["trade_date"]), r["sec_code"])
         side = r["side"]
+        signal_date = ""
         score_val, rank_val = "", ""
         tgt_w, pos_w = "", ""
         if side == "BUY":
             s = buy_map.get(key)
             if s:
-                score_val, rank_val = s[0], s[1]
-            t = tgt_map.get(key)
+                signal_date, score_val, rank_val = s[0], s[1], s[2]
+            t = tgt_map.get((signal_date, r["sec_code"])) if signal_date else None
             if t is not None:
                 tgt_w = t
         elif side == "SELL":
@@ -918,7 +937,7 @@ def build_trades_csv(trades_df: pd.DataFrame, buy_enriched: pd.DataFrame,
             if p is not None:
                 pos_w = p
         rows.append([
-            key[0], r["sec_code"], side,
+            key[0], signal_date, key[0], r["sec_code"], side,
             round(float(r.get("planned_shares", 0) or 0), 2),
             round(float(r.get("filled_shares", 0) or 0), 2),
             round(float(r.get("fill_price", 0) or 0), 4) if pd.notna(r.get("fill_price")) else "",
@@ -1199,9 +1218,13 @@ def render_markdown(summary: dict, model_info: dict, evidence: dict,
     sections.append("")
     sections.append("### 执行诊断\n")
     sections.append(f"- 买入成交: {exec_d.get('buy_filled_count', 0)}，"
-                     f"不可交易跳过: {exec_d.get('buy_skip_count', 0)}")
+                     f"现金缩放成交: {exec_d.get('buy_scaled_cash_count', 0)}，"
+                     f"跳过: {exec_d.get('buy_skip_count', 0)}")
     sections.append(f"- 卖出成交: {exec_d.get('sell_filled_count', 0)}，"
-                     f"不可交易跳过: {exec_d.get('sell_skip_count', 0)}")
+                     f"跳过/延续: {exec_d.get('sell_skip_count', 0)}，"
+                     f"pending sell 延续: {exec_d.get('pending_sell_carry_count', 0)}")
+    sections.append(f"- netting 取消 pending sell: {exec_d.get('cancelled_by_netting_count', 0)}，"
+                     f"已达目标无需继续卖: {exec_d.get('noop_already_target_count', 0)}")
     sections.append(f"- 最低现金: ¥{exec_d.get('min_cash_cny', 0):,.2f}")
     sections.append(f"- 最大总暴露: {exec_d.get('max_gross_exposure', 0):.2%}")
     sections.append("")
@@ -1423,9 +1446,13 @@ def render_html(summary: dict, model_info: dict, evidence: dict,
     ])
     exec_rows = "".join([
         row("买入成交", exec_d.get("buy_filled_count", 0)),
-        row("买入不可交易跳过", exec_d.get("buy_skip_count", 0)),
+        row("买入现金缩放成交", exec_d.get("buy_scaled_cash_count", 0)),
+        row("买入跳过", exec_d.get("buy_skip_count", 0)),
         row("卖出成交", exec_d.get("sell_filled_count", 0)),
-        row("卖出不可交易跳过", exec_d.get("sell_skip_count", 0)),
+        row("卖出跳过/延续", exec_d.get("sell_skip_count", 0)),
+        row("pending sell 延续", exec_d.get("pending_sell_carry_count", 0)),
+        row("netting 取消 pending sell", exec_d.get("cancelled_by_netting_count", 0)),
+        row("已达目标无需继续卖", exec_d.get("noop_already_target_count", 0)),
         row("最低现金", f"¥{exec_d.get('min_cash_cny', 0):,.2f}"),
         row("最大总暴露", f"{exec_d.get('max_gross_exposure', 0):.2%}"),
     ])

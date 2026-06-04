@@ -355,10 +355,10 @@ SELECT
   SUM(t.tax_cny) AS tax_cny,
   SUM(t.slippage_cny) AS slippage_cny,
   SUM(t.fee_cny + t.slippage_cny) AS economic_cost_cny,
-  COUNTIF(t.side = 'BUY' AND t.fill_status = 'FILLED') AS buy_filled,
+  COUNTIF(t.side = 'BUY' AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')) AS buy_filled,
   COUNTIF(t.side = 'BUY' AND t.fill_status = 'BUY_SKIPPED_UNTRADABLE') AS buy_skipped,
   COUNTIF(t.side = 'SELL' AND t.fill_status = 'FILLED') AS sell_filled,
-  COUNTIF(t.side = 'SELL' AND t.fill_status = 'SELL_SKIPPED_UNTRADABLE') AS sell_skipped
+  COUNTIF(t.side = 'SELL' AND t.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY')) AS sell_skipped
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
 WHERE t.backtest_id = p_backtest_id
   AND t.trade_date BETWEEN p_test_start AND p_test_end
