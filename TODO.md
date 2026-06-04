@@ -8,8 +8,7 @@
 
 - [ ] 补 P0 通用 DWS 扩展表：`dws_market_state_daily`、后续策略共用市场状态特征（`dws_stock_feature_fin_daily` 已落地）
 - [ ] 修复 ODS 外部表 Parquet schema mismatch：按 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md` 先修当前 P0 源表 `ods_tushare_stk_limit`，再分批修其余 9 张 P1/P2/P3 表；默认从 GCS 原 Parquet 按 schema contract 重写，不从 API 重拉覆盖历史 raw
-- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基础 A/B/C 与 3*2*2*2 全因子 24 组合已跑完并全部通过 `12_qa_model_diagnosis_outputs`；当前最优组合为 `pv_fin_quality + 30/5% + biweekly + 5d`（total_return 41.10%、excess_return 12.09%、Sharpe 1.043、max_drawdown -14.48%，benchmark=`000852.SH`）。下一步需 owner 确认默认参数，并将本轮发现的并发 dependency batching 与诊断状态语义修复提 PR
-- [ ] OQ-010 并发调度后续修复：本轮 19 个补跑实验发现 `run_oq010_experiments.py` 同 stage 依赖分批与 `_build_dependency_batches` 需修复，`diagnose_model_quality.py` 需区分 `model_diagnosis_status=completed` 与 `model_diagnosis_upload_status=uploaded/skipped`；本地已修并验证 24 组合全通过，待提 PR 合入 main
+- [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基础 A/B/C 与 3*2*2*2 全因子 24 组合已跑完并全部通过 `12_qa_model_diagnosis_outputs`；当前最优组合为 `pv_fin_quality + 30/5% + biweekly + 5d`，并已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，total_return 41.10%、excess_return 12.09% vs `000852.SH`、Sharpe 1.043、max_drawdown -14.48%，报告和诊断均已上传 GCS）。下一步需 owner 确认是否采纳为默认参数，并补跑 2026 YTD OOS / 做稳健性检查
 
 ## P1 — 数据 / 特征扩展
 
@@ -31,6 +30,8 @@
 ## 近期完成
 
 - [x] OQ-005 Phase 0 实现分支已整合 review 修复：PR #44 已合入 #42 分支，#46 的 GCS 路径、API 行数上限、Parquet cast、日志脱敏修复已手动合入，并追加修复 `partition_endpoint` 路径契约与参数化日志脱敏泄露问题
+- [x] OQ-010 并发调度后续修复已合并（PR #48）：修复同 stage dependency batching 与诊断状态/上传状态语义拆分，支持正式基线和后续实验调度复用
+- [x] OQ-010 正式基线 run 已完成：`s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`，参数为 `pv_fin_quality + 30/5% + biweekly + 5d`，01-12 全部成功，`10`/`12` QA 通过，中文报告和模型诊断均 uploaded 到 GCS
 - [x] 实现 OQ-010 策略 1 实验并发调度与隔离 Phase 1：新增 `sql/meta/02_strategy1_experiment_run_status.sql` 状态表 DDL（`CREATE TABLE IF NOT EXISTS` 保留 audit/resume 历史）、`scripts/strategy1/run_oq010_experiments.py` 调度器（支持 --dry-run 展开完整计划、SQL 参数注入强校验、GCS ifGenerationMatch=0 原子锁、generation-guarded stale reclaim/release、lease/heartbeat、锁 finally 释放、heartbeat 终态保护、resume、max-parallel、max-parallel-backtest、fail-fast 等全部 PRD 定义参数）、`sql/qa/07_strategy1_experiment_concurrency_checks.sql` 并发 QA（QA-CONC-1~12），以及 `docs/策略1实验并发调度器运行手册.md`；已通过 Python 静态检查、stage_a dry-run、单实验 dry-run、全 manifest dry-run、直接参数注入断言；已更新 TODO/memory；尚未执行 BigQuery、不碰正在运行的 A3 实验、不删 reports/strategy1 已有产物
 - [x] 新增 OQ-010 策略 1 实验并发调度与隔离 PRD：`docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`，定义同阶段 portfolio-only / retrain 实验安全并发的状态表、GCS 原子锁、lease/heartbeat、调度器、runner 改造要求、08 ledger 并发边界和 QA；本次只写 PRD，未改 runner、未跑 BigQuery
 - [x] 新增 OQ-005 GCP 数据流水线 PRD：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md`，固化 Cloud Run Jobs + Dataform / BigQuery Studio pipeline + Cloud Composer 架构，限定每日生产采集只覆盖当前实际消费的 14 张 ODS，并已收敛为陈述性目标实现方案；PR #39 review 两条低优先级建议已补入正文

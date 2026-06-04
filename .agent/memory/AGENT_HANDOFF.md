@@ -16,7 +16,7 @@
 
 **DWS/ADS 设计与已落地范围**：P0 DWS 设计包含 `dws_stock_universe_daily`、价格/估值/财务特征、`dws_market_state_daily`、`dws_stock_label_daily`、`dws_stock_feature_daily_v0`、`dws_stock_sample_daily`；当前策略 1 已落地 universe、价格/估值特征、open-to-close 标签（rank/xs return 按默认 universe 截面计算）、特征宽表、样本表，以及 OQ-003 财务特征 `dws_stock_feature_fin_daily`；市场状态 `dws_market_state_daily` 待补。财务特征口径 PRD 已采纳、关闭并实现 OQ-003（PR #13）：P0 默认消费合并报表 `report_type='1'`，三大报表 DWD（`income/balancesheet/cashflow` + `_latest`）保留 `report_type`/`report_caliber`/`is_default_report_caliber`，`dws_stock_feature_fin_daily` 默认只过滤默认口径（口径契约 + `has_fin_*` 掩码），已物化并通过 `sql/qa/04_finance_caliber_checks.sql`，并按 OQ-006 单位契约补全 `ods_field_unit_map` 财务字段、跑通 `sql/qa/05_oq006_unit_checks.sql`。PR #4 comment 的 P1/P2 已跟进：`label_valid` 语义说明、去冗余 JOIN、最早可训练样本日 QA、DWD 字段名文档同步。P1 行业路径已可落地：`dim_stock_sw_industry_hist` 使用 `index_member_all`，`dim_stock_ci_industry_hist` 使用 `ci_index_member`，历史 join 用 `in_date/out_date`，`is_new` 仅标当前归属。P0 ADS 表契约已落地。策略 1 PRD 名称为 `ml_pv_clf_v0`；首个基线默认股票池仅沪深主板（`SSE_MAIN` / `SZSE_MAIN`），不含北交所、创业板、科创板；runner 设计 `docs/策略1-ml_pv_clf_v0-runner设计.md`、runner 实现 PRD `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md` 和 runner SQL 已完成，执行路径为 BigQuery ML + SQL：训练面板、BQML model object、预测、候选、组合、订单、回测、监控均写既有 ADS 表。**runner 已于 PR #12 端到端实跑并通过全部 QA**（08 已重写为账户级 ledger，详见本文件末尾 2026-06-02 交接条目与摘要顶部）。
 
-**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main`。2026-06-04 PR #47 合并后 Stage C 已重跑通过；随后补齐 3*2*2*2 全因子网格缺失的 19 个组合，最终 24 个组合均通过 `12_qa_model_diagnosis_outputs`。当前最优组合为 `pv_fin_quality + 30/5% + biweekly + 5d`（benchmark=`000852.SH`，total_return=41.10%、excess_return=12.09%、Sharpe=1.043、max_drawdown=-14.48%）。下一步是 owner 确认 OQ-010 默认参数，并将本轮实跑发现的同 stage dependency batching 与诊断状态语义修复提 PR 合入 `main`。也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
+**下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main`。2026-06-04 PR #47 合并后 Stage C 已重跑通过；随后补齐 3*2*2*2 全因子网格缺失的 19 个组合，最终 24 个组合均通过 `12_qa_model_diagnosis_outputs`；同 stage dependency batching 与诊断状态语义修复已由 PR #48 合入 `main`。当前最优组合 `pv_fin_quality + 30/5% + biweekly + 5d` 已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，benchmark=`000852.SH`，total_return=41.10%、excess_return=12.09%、Sharpe=1.043、max_drawdown=-14.48%，报告和诊断均 uploaded 到 GCS）。下一步是 owner 确认是否采纳为 OQ-010 默认参数，补跑 2026 YTD OOS / 做稳健性检查；也可补 P0 通用 `dws_market_state_daily`。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
 **待 owner 确认 / 执行**：OQ-005 GCP 数据流水线后续 Cloud Run Jobs / Dataform / Composer 链路待实施；P0 策略调仓频率、持股数/单票权重上限、特征/标签/选股口径实验（OQ-010，成本子项、报告实现、诊断、预测池口径、分数方向校准和并发调度 Phase 1 均已完成）；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；按 OQ-012 PRD 实现 ODS Parquet schema 修复。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
@@ -24,7 +24,7 @@
 
 **PR #45 最新修复（2026-06-03）**：OQ-010 并发调度 Phase 1 review follow-up 已修复：`run_oq010_experiments.py` 的 stale lock reclaim、heartbeat 和 release 均使用 GCS object generation 条件操作，避免并发调度器误删新锁；SQL `DECLARE p_* DEFAULT` 参数注入改为强校验，dry-run 会预检可执行实验，禁止静默沿用 SQL 默认 `run_id` / `backtest_id`；锁获取后的释放统一进 `finally`，heartbeat 线程停止后才写 `succeeded` / `failed`；状态表 DDL 改为 `CREATE TABLE IF NOT EXISTS` 保留 audit/resume 历史；状态表 DDL 与并发 QA 文件编号改为 `02` / `07` 避免冲突。验证已通过 Python `py_compile`、`git diff --check`、stage_a dry-run、单实验 dry-run、全 manifest dry-run 和直接参数注入断言；未执行 BigQuery。
 
-**Stage C runner/QA 修复分支（2026-06-04）**：Stage C 三个 retrain 实验已跑到 09，但 10 QA 暴露 runner 顺序和预测表幂等问题。分支 `codex/fix-oq010-stage-c-runner-qa` 已修复：补 `google.cloud.bigquery` import、调度顺序改为 `09 -> render_report -> 10 QA`、`04_predict_daily` 按 `run_id` 清理/阻断既有预测，`10_qa_runner_outputs` 新增预测表 `(predict_date, sec_code)` 唯一性断言。已通过 Python `py_compile`、`git diff --check`、Stage C manifest dry-run 和 `04`/`10` BigQuery dry-run。合并后需用 `--force-replace` 重跑 Stage C。
+**OQ-010 实跑与调度修复（2026-06-04）**：Stage C runner/QA 修复已由 PR #47 合并并完成重跑；3*2*2*2 全因子 24 组合已补齐。并发调度后续修复已由 PR #48 合并，解决同 stage dependency batching 和诊断状态/上传状态语义拆分问题。
 
 **分支卫生**：PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。`codex/implement-strategy1-prd` 和 `codex/implement-oq004-index` 已在本地和远端删除。
 
@@ -35,6 +35,64 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-04
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`
+相关 issue/PR: OQ-010 / official baseline run
+
+### 已完成工作
+
+- 在独立 worktree `/Users/luna/Desktop/git/quant-ashare-oq010-parallel-experiments` 运行 OQ-010 正式基线。
+- 使用参数 `pv_fin_quality + 30/5% + biweekly + 5d` 重新训练并完整执行 01-12。
+- `10_qa_runner_outputs.sql` 和 `12_qa_model_diagnosis_outputs.sql` 均通过。
+- 中文报告和模型诊断均已 uploaded 到 GCS。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- `backtest_id=bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`。
+- 回测区间为 `2024-01-02` 至 `2025-12-31`，不是只覆盖 2025；2024 仍同时承担 valid/诊断角色。
+- 评估主基准为 `000852.SH`；同期沪深300 `000300.SH` 可作为展示对比基准。
+- 报告路径：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01/backtest_id=bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`。
+
+### 改动文件
+
+- `logs/strategy1/oq010_manifests/oq010_official_baseline_pvfq_n30_bw_h5_20260604_01.json`（日志目录，可能被 gitignore 忽略）
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- OQ-010 runner 01-12 全部成功，调度器退出码 0。
+- `10_qa_runner_outputs.sql` 通过。
+- `12_qa_model_diagnosis_outputs.sql` 通过。
+- summary：total_return=41.10%、excess_return=12.09% vs `000852.SH`、Sharpe=1.043、max_drawdown=-14.48%、turnover_annual=19.38、cost_bps=17.0。
+- 诊断：`primary_diagnosis=usable_signal`、confidence=`low`；valid RankIC=0.0968，test RankIC=0.0559。
+
+### 阻塞项
+
+- 无运行阻塞；OQ-010 仍需 owner 确认是否正式采纳该默认参数。
+
+### 下一步建议
+
+- 补跑 2026 YTD OOS。
+- 做稳健性检查后再关闭 OQ-010。
+- 在做 05-08 联动 / stateful ledger v1 前，先写 PRD 明确组合目标、订单计划和实际成交反馈的日内/次日边界。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+---
 
 日期: 2026-06-04
 Agent ID: Codex
