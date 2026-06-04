@@ -172,6 +172,11 @@ def run_train_predict(
 
     parity = compute_model_quality_parity(client, config, selected)
     selected.metrics.update(parity)
+    if parity["model_quality_parity_status"] != "passed":
+        raise RuntimeError(
+            "sklearn vs BQML model-quality parity gate failed: "
+            + json.dumps(parity, ensure_ascii=False, default=str)
+        )
 
     model_id = f"s1_sklearn_{run_safe(experiment.run_id)}__{selected.candidate_id}"
     artifact_local_dir = artifact_dir(config, experiment, model_id)

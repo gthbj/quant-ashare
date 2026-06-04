@@ -18,7 +18,8 @@
 1. 训练面板仍由现有 `01_build_training_panel.sql` 生成。
 2. `05-07` 仍使用 BigQuery SQL。
 3. Python ledger P0 先支持 fresh-start；resume 路径 fail-fast，等 fresh-start 与 BigQuery ledger 等价验证通过后再扩展。
-4. Cloud Run Jobs、Artifact Registry、IAM 和服务账号需按本文部署，不在代码中保存任何凭据。
+4. Orchestrator P0 采用每实验唯一 `run_id` / `backtest_id` + Cloud Run execution 隔离；尚未写入 `strategy1_experiment_run_status` 或 GCS lock，后续真实多实验 smoke 后再对齐既有并发状态框架。
+5. Cloud Run Jobs、Artifact Registry、IAM 和服务账号需按本文部署，不在代码中保存任何凭据。
 
 ## 2. 本地 dry-run
 
@@ -148,6 +149,9 @@ python -m scripts.strategy1_cloudrun.backtest_report \
 ```
 
 若只做 ledger 对照，可在 `backtest_report` 加 `--use-bq-ledger` 走原 `08` SQL fallback。
+该 fallback 会把 summary 标记为 `execution_backend='cloud_run_sklearn_bq_sql_ledger_v1'`、`ledger_executor='bigquery_sql'`；默认 Python ledger 路径为 `execution_backend='cloud_run_sklearn_ledger_v1'`、`ledger_executor='cloud_run_python'`。
+
+`train_predict` 会把 sklearn selected model 与配置中的 BQML reference run 做模型质量对等检查；`model_quality_parity_status != 'passed'` 时直接 fail-fast，不写 selected registry 和 prediction。
 
 ## 7. Cloud Run orchestrator
 
@@ -176,7 +180,9 @@ python -m scripts.strategy1_cloudrun.orchestrate_experiments \
 
 1. `0` 或未传：resolved 并发数 = 本次可执行实验数。
 2. `N > 0`：同一时刻最多 N 条实验链。
-3. 如果 GCP quota 不足，失败实验必须以 Cloud Run execution 和日志追踪，不允许 runner 静默降到内部默认 2 或 1。
+3. 默认遇到实验失败时停止提交新的排队实验，但已提交到 Cloud Run 的 job 会继续由 Cloud Run 执行；所有已完成 / 失败 / 跳过结果都会在最终 JSON 中列出。
+4. 如需继续执行剩余排队实验，加 `--continue-on-error`；最终仍会按失败数量返回非零退出码。
+5. 如果 GCP quota 不足，失败实验必须以 Cloud Run execution 和日志追踪，不允许 runner 静默降到内部默认 2 或 1。
 
 ## 8. QA
 

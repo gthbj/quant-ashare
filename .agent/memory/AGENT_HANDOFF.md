@@ -183,12 +183,13 @@ Run ID: —
 - 新增 `Dockerfile.strategy1-cloudrun`、`cloudbuild.strategy1-cloudrun.yaml`、`configs/strategy1/cloudrun_runner_default.yml` 和 `docs/策略1CloudRun训练回测运行手册.md`。
 - 新增 `sql/meta/03_strategy1_cloudrun_status_extensions.sql` 和 `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`；`09_build_metrics_and_report_inputs.sql` 已把 `execution_backend` 写入 summary `metrics_json`。
 - `sql/ml/strategy1/README.md` 和 `scripts/strategy1/requirements.txt` 已同步 Cloud Run / sklearn runner 运行说明和依赖。
+- 跟进 PR #56 review comment：确认 QA-CR-5 提到的 `ledger_version` 缺失不成立（`09` 已写入该字段）；同时补 `p_ledger_version` / `p_ledger_executor` 参数化、`--use-bq-ledger` fallback backend 标记、parity failed fail-fast 与 QA hard gate、orchestrator 失败结果汇总和 `--continue-on-error`。
 - 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md` 和当前交接摘要。
 
 ### 重要上下文
 
 - 当前首版边界：`01_build_training_panel.sql` 仍是前置 SQL；`05/06/07` 仍复用 BigQuery SQL；Python ledger P0 只支持 fresh-start，resume 先 fail-fast，等 Python ledger vs SQL ledger 等价验收后再补。
-- Cloud Run orchestrator 遵守 PRD 并发契约：未设置或传 `0` 时，默认并发数等于 manifest 中可执行实验数量；owner 可用 `--max-parallel-experiments N` 显式限流。
+- Cloud Run orchestrator 遵守 PRD 并发契约：未设置或传 `0` 时，默认并发数等于 manifest 中可执行实验数量；owner 可用 `--max-parallel-experiments N` 显式限流。P0 采用唯一 `run_id` / `backtest_id` + Cloud Run execution 轻隔离，尚未写 `strategy1_experiment_run_status` / GCS lock，真实多实验 smoke 后再对齐状态框架。
 - 为避免 Cloud Run job 读取本地临时 manifest，orchestrator 已把 resolved experiment payload 通过 URL-safe base64 `--experiment-json` 传入 job。
 - 本地 Python 3.9 环境未安装 sklearn/joblib；代码已使用 lazy import，使 dry-run 不依赖本地 sklearn。真实训练应在 Cloud Run 镜像内用 Python 3.11 和 requirements 执行。
 - 本次没有执行真实 Cloud Run job，没有重建 ADS 表，没有上传真实 sklearn model artifact。
@@ -220,6 +221,7 @@ Run ID: —
 - `bq query --use_legacy_sql=false --location=asia-east2 --dry_run < sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`
 - `bq query --use_legacy_sql=false --location=asia-east2 --dry_run < sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`
 - `git diff --check`
+- PR #56 review follow-up 后补跑：`python3 -m compileall scripts/strategy1_cloudrun`、`python3 -m scripts.strategy1_cloudrun.backtest_report --experiment-id oq010_a0_n5_w20 --dry-run`、`python3 -m scripts.strategy1_cloudrun.backtest_report --experiment-id oq010_a0_n5_w20 --use-bq-ledger --dry-run`、`python3 -m scripts.strategy1_cloudrun.orchestrate_experiments --stage-id stage_a --dry-run`、`09` / `16` BigQuery dry-run、`git diff --check`。
 
 ### 阻塞项
 

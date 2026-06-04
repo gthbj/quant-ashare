@@ -33,9 +33,12 @@ def main() -> int:
     args = parse_args()
     config = apply_cli_overrides(load_runner_config(args.config), args)
     experiment = resolve_experiment(args)
+    execution_backend, ledger_executor = resolve_backend_tags(args.use_bq_ledger)
     plan = {
         "entrypoint": "backtest_report",
-        "execution_backend": config.execution_backend,
+        "execution_backend": execution_backend,
+        "ledger_version": "ledger_exec_v1",
+        "ledger_executor": ledger_executor,
         "project": config.project,
         "region": config.region,
         "experiment": experiment.to_params(),
@@ -49,7 +52,7 @@ def main() -> int:
         return 0
 
     client = make_client(config.project, config.region)
-    sql_params = build_sql_params(experiment, args.force_replace)
+    sql_params = build_sql_params(experiment, args.force_replace, args.use_bq_ledger)
     job_ids = []
     for script in SQL_STEPS:
         job_ids.append({"script": script, "job_id": run_sql_script(client, script, sql_params)})
@@ -125,7 +128,14 @@ def resolve_experiment(args: argparse.Namespace) -> Experiment:
     return exp
 
 
-def build_sql_params(exp: Experiment, force_replace: bool) -> dict[str, object]:
+def resolve_backend_tags(use_bq_ledger: bool) -> tuple[str, str]:
+    if use_bq_ledger:
+        return "cloud_run_sklearn_bq_sql_ledger_v1", "bigquery_sql"
+    return "cloud_run_sklearn_ledger_v1", "cloud_run_python"
+
+
+def build_sql_params(exp: Experiment, force_replace: bool, use_bq_ledger: bool) -> dict[str, object]:
+    execution_backend, ledger_executor = resolve_backend_tags(use_bq_ledger)
     return {
         "p_run_id": exp.run_id,
         "p_prediction_run_id": exp.prediction_run_id,
@@ -142,7 +152,9 @@ def build_sql_params(exp: Experiment, force_replace: bool) -> dict[str, object]:
         "p_label_horizon": exp.label_horizon,
         "p_horizon_natural_frequency": exp.horizon_natural_frequency,
         "p_feature_set_id": exp.feature_set_id,
-        "p_execution_backend": "cloud_run_sklearn_ledger_v1",
+        "p_execution_backend": execution_backend,
+        "p_ledger_version": "ledger_exec_v1",
+        "p_ledger_executor": ledger_executor,
         "p_predict_start": exp.predict_start,
         "p_predict_end": exp.predict_end,
         "p_force_replace": force_replace,

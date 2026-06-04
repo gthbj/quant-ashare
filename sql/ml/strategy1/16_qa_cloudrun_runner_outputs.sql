@@ -8,6 +8,8 @@ DECLARE p_backtest_id STRING DEFAULT 'bt_s1_cloudrun_sklearn_smoke_20260604_01';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_expected_execution_backend STRING DEFAULT 'cloud_run_sklearn_ledger_v1';
+DECLARE p_expected_ledger_version STRING DEFAULT 'ledger_exec_v1';
+DECLARE p_expected_ledger_executor STRING DEFAULT 'cloud_run_python';
 DECLARE p_expected_executable_experiment_count INT64 DEFAULT NULL;
 DECLARE p_resolved_max_parallel_experiments INT64 DEFAULT NULL;
 
@@ -52,26 +54,27 @@ ASSERT (
     AND predict_date BETWEEN p_predict_start AND p_predict_end
 ) AS 'QA-CR-3: prediction raw_score/score/score_orientation must be complete and consistent';
 
--- QA-CR-4: model-quality parity status is present and internally consistent.
+-- QA-CR-4: model-quality parity gate is present and passed.
 ASSERT (
   SELECT COUNT(*) = 1
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') IN ('passed', 'failed', 'warning'))
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') = 'passed')
     AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.bqml_reference_run_id') IS NOT NULL)
     AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.sklearn_oriented_valid_rank_ic_mean') IS NOT NULL)
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
     AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
-) AS 'QA-CR-4: selected model must record sklearn vs BQML model-quality parity evidence';
+ ) AS 'QA-CR-4: selected model must pass sklearn vs BQML model-quality parity gate';
 
--- QA-CR-5: summary records Cloud Run backend.
+-- QA-CR-5: summary records the expected backend and ledger implementation.
 ASSERT (
   SELECT COUNT(*) = 1
     AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.execution_backend') = p_expected_execution_backend)
-    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.ledger_version') = 'ledger_exec_v1')
+    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.ledger_version') = p_expected_ledger_version)
+    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.ledger_executor') = p_expected_ledger_executor)
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
-) AS 'QA-CR-5: backtest summary must record Cloud Run backend and ledger_exec_v1';
+) AS 'QA-CR-5: backtest summary must record expected backend and ledger executor';
 
 -- QA-CR-6: no ADS串号 for this run/backtest.
 ASSERT (

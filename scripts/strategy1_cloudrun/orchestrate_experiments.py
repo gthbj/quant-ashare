@@ -58,6 +58,7 @@ def main() -> int:
         "max_parallel_experiments_arg": args.max_parallel_experiments,
         "resolved_max_parallel_experiments": resolved_parallel,
         "resolved_manifest": str(resolved_manifest),
+        "continue_on_error": args.continue_on_error,
         "experiments": [exp.to_params() for exp in selected],
         "commands": [build_chain_commands(config, exp, resolved_manifest, args) for exp in selected],
     }
@@ -70,12 +71,44 @@ def main() -> int:
 
     max_workers = max(1, resolved_parallel)
     results = []
+    stop_submitting = False
+    queued = list(selected)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(run_chain, build_chain_commands(config, exp, resolved_manifest, args)) for exp in selected]
-        for future in concurrent.futures.as_completed(futures):
-            results.append(future.result())
-    print(json.dumps({"status": "succeeded", "results": results}, ensure_ascii=False, indent=2))
-    return 0
+        futures: dict[concurrent.futures.Future, object] = {}
+        while queued and len(futures) < max_workers:
+            exp = queued.pop(0)
+            futures[executor.submit(run_chain, build_chain_commands(config, exp, resolved_manifest, args))] = exp
+        while futures:
+            done, _ = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
+            for future in done:
+                exp = futures.pop(future)
+                try:
+                    result = future.result()
+                    result["experiment_id"] = exp.experiment_id
+                    results.append(result)
+                except Exception as exc:
+                    results.append({
+                        "status": "failed",
+                        "experiment_id": exp.experiment_id,
+                        "error": str(exc)[-8000:],
+                    })
+                    if not args.continue_on_error:
+                        stop_submitting = True
+            while queued and not stop_submitting and len(futures) < max_workers:
+                exp = queued.pop(0)
+                futures[executor.submit(run_chain, build_chain_commands(config, exp, resolved_manifest, args))] = exp
+        for exp in queued:
+            results.append({"status": "skipped_due_to_prior_failure", "experiment_id": exp.experiment_id})
+    failure_count = sum(1 for item in results if item["status"] == "failed")
+    skipped_count = sum(1 for item in results if item["status"] == "skipped_due_to_prior_failure")
+    status = "succeeded" if failure_count == 0 and skipped_count == 0 else "failed"
+    print(json.dumps({
+        "status": status,
+        "failure_count": failure_count,
+        "skipped_count": skipped_count,
+        "results": results,
+    }, ensure_ascii=False, indent=2))
+    return 1 if failure_count or skipped_count else 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -90,6 +123,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-diagnosis", action="store_true")
     parser.add_argument("--skip-qa", action="store_true")
     parser.add_argument("--use-bq-ledger", action="store_true")
+    parser.add_argument("--continue-on-error", action="store_true", help="Run remaining queued experiments after a failure")
     return parser.parse_args()
 
 
