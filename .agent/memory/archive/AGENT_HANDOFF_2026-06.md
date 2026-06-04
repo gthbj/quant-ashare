@@ -3427,6 +3427,64 @@ Agent ID: Codex
 Agent 实例 ID: Codex desktop session
 模型: GPT-5
 运行环境: Codex desktop
+Run ID: `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`
+相关 issue/PR: OQ-010 / official baseline run
+
+### 已完成工作
+
+- 在独立 worktree `/Users/luna/Desktop/git/quant-ashare-oq010-parallel-experiments` 运行 OQ-010 正式基线。
+- 使用参数 `pv_fin_quality + 30/5% + biweekly + 5d` 重新训练并完整执行 01-12。
+- `10_qa_runner_outputs.sql` 和 `12_qa_model_diagnosis_outputs.sql` 均通过。
+- 中文报告和模型诊断均已 uploaded 到 GCS。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- `backtest_id=bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`。
+- 回测区间为 `2024-01-02` 至 `2025-12-31`，不是只覆盖 2025；2024 仍同时承担 valid/诊断角色。
+- 评估主基准为 `000852.SH`；同期沪深300 `000300.SH` 可作为展示对比基准。
+- 报告路径：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01/backtest_id=bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`。
+
+### 改动文件
+
+- `logs/strategy1/oq010_manifests/oq010_official_baseline_pvfq_n30_bw_h5_20260604_01.json`（日志目录，可能被 gitignore 忽略）
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- OQ-010 runner 01-12 全部成功，调度器退出码 0。
+- `10_qa_runner_outputs.sql` 通过。
+- `12_qa_model_diagnosis_outputs.sql` 通过。
+- summary：total_return=41.10%、excess_return=12.09% vs `000852.SH`、Sharpe=1.043、max_drawdown=-14.48%、turnover_annual=19.38、cost_bps=17.0。
+- 诊断：`primary_diagnosis=usable_signal`、confidence=`low`；valid RankIC=0.0968，test RankIC=0.0559。
+
+### 阻塞项
+
+- 无运行阻塞；OQ-010 仍需 owner 确认是否正式采纳该默认参数。
+
+### 下一步建议
+
+- 补跑 2026 YTD OOS。
+- 做稳健性检查后再关闭 OQ-010。
+- 在做 05-08 联动 / stateful ledger v1 前，先写 PRD 明确组合目标、订单计划和实际成交反馈的日内/次日边界。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+---
+
+日期: 2026-06-04
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
 Run ID: `oq010_ff24_fill_20260604_01`
 相关 issue/PR: OQ-010 / 3*2*2*2 full-factor fill
 
