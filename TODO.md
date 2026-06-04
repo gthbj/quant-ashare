@@ -12,6 +12,7 @@
 - [ ] Ledger v1 P1：不重新训练，复用正式 baseline 模型/参数/score orientation，从 `2024-01-02` fresh-start 重跑至 `2026-04-30`，产出 fixed-model extended baseline，并在报告中单独拆出 `2026-01-02` 至 `2026-04-30` 表现
 - [~] Ledger v1 P2：`codex/ledger-state-resume` 已实现 ledger state resume，支持从 `parent_backtest_id + state_as_of_date` 恢复现金、持仓、active target 和 pending sell，并新增 resume QA 与一致性 QA；PR #54 review follow-up 已修复 biweekly resume QA 必填原实验 anchor、resume 首日 `daily_return` 父 NAV 锚点和 `15` 一致性 QA 的 daily_return 覆盖；已用 `bt_ledger_resume_smoke_20260604_01` 跑通短区间 `08`/`09`/本地报告/`10` QA。待 PR review/merge 后，结合 P1 extended baseline 做 `2024-2026.04` fresh 全段 vs `2024-2025 + resume 2026` 一致性验收
 - [ ] 按 `docs/prd/PRD_20260604_02_策略1月度滚动重训.md` 实现月度滚动重训 prediction stream；该项必须在 Ledger v1 P0/P1/P2 完成后再做，避免模型生命周期变化和交易执行语义变化混在一起
+- [ ] 按 `docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md` 实现策略 1 Cloud Run 训练回测执行器：用 sklearn logistic 替代 BQML 训练 / 预测，用 Cloud Run Python `ledger_exec_v1` 替代 BigQuery scripting `08` 回测；默认并发数为 manifest 可执行实验数量，owner 可用 `--max-parallel-experiments` 显式限流
 
 ## P1 — 数据 / 特征扩展
 
@@ -32,6 +33,7 @@
 
 ## 近期完成
 
+- [x] 新增策略 1 Cloud Run 训练回测执行器 PRD：`docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`，定义 Cloud Run Jobs + sklearn logistic + Python ledger_exec_v1 + GCS model/report artifact + 默认全实验并发 / owner 显式限流的目标执行路径；已明确 scikit-learn 只替代 BQML 模型训练/预测，不替代 BigQuery DWS/ADS、GCS artifact、报告诊断和 QA
 - [x] Ledger v1 P0 交易执行语义已进入 main（commit `602baea`）：`08_run_backtest.sql` 已升级为 `ledger_exec_v1` 日级账户 ledger，固化 t-1 信号 / t 开盘执行、pending sell 每日继续卖、实际持仓 netting、现金缩放、订单状态和每日 mark-to-market NAV；短区间 BigQuery smoke（`bt_ledger_v1_p0_smoke_20260604_01`）和 `10` QA 已通过
 - [x] 实现策略 1 因子贡献度分析 P0：新增 `scripts/strategy1/attribute_factor_contribution.py`、`sql/ml/strategy1/14_qa_factor_attribution_outputs.sql`，主报告接入因子贡献度摘要，并更新 runner README；正式 baseline local-only 生成 `factor_attribution/` artifact，覆盖 selected model 55 个非截距特征、13 个因子组，`14_qa_factor_attribution_outputs.sql` 全部通过
 - [x] 工作记忆轻清理：`AGENT_HANDOFF.md` 缩到当前摘要 + 最近 3 条交接，19 条旧交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`

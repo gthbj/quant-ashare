@@ -1176,3 +1176,41 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/prd/PRD_20260604_03_策略1因子贡献度分析.md`, `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`, `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`, `TODO.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260604-03: 策略 1 训练回测迁移为 Cloud Run Jobs
+
+日期: 2026-06-04
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+当前策略 1 runner 基于 BigQuery ML + BigQuery SQL scripting。BQML 训练成本偏高，BigQuery scripting 做日级有状态 ledger 在长区间和多实验场景下耗时较长。owner 要求把训练和回测都做成 Cloud Run Job，并明确多实验对照时不要设置默认并发上限：默认做几个实验就并发几个，但 owner 可以显式选择并发几个。
+
+### 决策
+
+1. 新增 `docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`，只写一篇统一 PRD，不拆训练 PRD 和回测 PRD。
+2. Cloud Run P0 用 scikit-learn logistic regression 替代当前 BQML `LOGISTIC_REG` 的训练、候选模型评价和批量预测。
+3. scikit-learn 只替代模型训练 / 预测能力，不替代 BigQuery DWS/ADS、GCS artifact、报告、诊断和 QA；P0 仍需 `google-cloud-bigquery`、`google-cloud-bigquery-storage`、`google-cloud-storage`、`pyarrow`、`polars` / `pandas`、`joblib` 等依赖。
+4. Cloud Run P0 用 Python `ledger_exec_v1` 替代 BigQuery `08_run_backtest.sql` 中的有状态 ledger 执行；交易语义必须与 `PRD_20260604_01_策略1LedgerV1交易执行语义.md` 对齐。
+5. 多实验 Cloud Run orchestrator 的默认并发为本次 manifest 可执行实验数量；`--max-parallel-experiments` 未设置或为 0 时不得隐式降到 2、1 或其他保守默认值。
+6. owner 可通过 `--max-parallel-experiments N` 显式限流；项目代码不写死默认 backtest 子并发上限。
+7. 既有 BigQuery ML + SQL runner 保留为 reference / fallback，直到 Cloud Run sklearn + Python ledger 通过契约、QA 和回测语义一致性验收。
+
+### 理由
+
+训练、预测、回测、报告和并发调度共享同一组 `experiment_id`、`run_id`、`prediction_run_id`、`backtest_id`、状态表和 artifact 路径。拆成多篇 PRD 容易让 score orientation、prediction stream、ledger 输入和并发语义漂移。Cloud Run Jobs 可以把训练和回测放进可配置容器环境，便于降低 BQML 成本、提高回测执行弹性，并把多实验并发交给 Cloud Run / GCP quota 和 owner 显式参数控制。
+
+### 影响
+
+后续实现应新增 `scripts/strategy1_cloudrun/` 执行包、Cloud Run Dockerfile / build config、`sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql` 和运行手册。Cloud Run runner 必须继续写既有 ADS 契约表，并通过 `10`、`12`、必要时 `14` / `15` 以及新增 `16` QA。月度滚动重训后续应优先复用该 Cloud Run train/predict job，而不是继续扩展 BQML 训练路径。
+
+### 备选方案
+
+继续优化 BQML + SQL runner；保留为 fallback，但不能解决 owner 对训练成本和 Cloud Run 执行形态的要求。拆成训练 PRD 和回测 PRD；放弃，因为两者共享执行身份、artifact、prediction stream 和并发契约。直接引入 LightGBM / XGBoost；放弃作为 P0，因为会把执行环境迁移和模型族升级混在一起。
+
+### 相关文件
+
+`docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`, `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`, `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`, `docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`, `TODO.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
