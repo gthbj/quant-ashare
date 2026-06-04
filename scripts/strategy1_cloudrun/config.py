@@ -27,6 +27,44 @@ DEFAULT_LOCAL_MIRROR_ROOT = "reports/strategy1_cloudrun"
 DEFAULT_EXECUTION_BACKEND = "cloud_run_sklearn_ledger_v1"
 DEFAULT_LOCK_BUCKET = "ashare-artifacts"
 DEFAULT_LOCK_PREFIX = "locks/strategy1/cloudrun"
+DEFAULT_LOGISTIC_C_VALUES = (0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0)
+DEFAULT_LOGISTIC_L1_RATIOS = (0.1, 0.5, 0.9)
+
+
+def default_logistic_candidate_grid() -> tuple[dict[str, Any], ...]:
+    """Return the sklearn-native logistic parity grid.
+
+    The values are intentionally expressed in sklearn terms (`penalty`, `C`,
+    `l1_ratio`), not as translated BQML L1/L2 regularization settings.
+    """
+    grid: list[dict[str, Any]] = []
+    for c_value in DEFAULT_LOGISTIC_C_VALUES:
+        grid.append({
+            "candidate_id": f"l2_c_{_token(c_value)}",
+            "penalty": "l2",
+            "C": c_value,
+            "l1_ratio": None,
+        })
+    for c_value in DEFAULT_LOGISTIC_C_VALUES:
+        grid.append({
+            "candidate_id": f"l1_c_{_token(c_value)}",
+            "penalty": "l1",
+            "C": c_value,
+            "l1_ratio": None,
+        })
+    for c_value in DEFAULT_LOGISTIC_C_VALUES:
+        for l1_ratio in DEFAULT_LOGISTIC_L1_RATIOS:
+            grid.append({
+                "candidate_id": f"elastic_c_{_token(c_value)}_l1_{_token(l1_ratio)}",
+                "penalty": "elasticnet",
+                "C": c_value,
+                "l1_ratio": l1_ratio,
+            })
+    return tuple(grid)
+
+
+def _token(value: float) -> str:
+    return ("%g" % value).replace(".", "_").replace("-", "m")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -44,23 +82,7 @@ class RunnerConfig:
     lock_prefix: str = DEFAULT_LOCK_PREFIX
     lock_ttl_minutes: int = 30
     heartbeat_interval_seconds: int = 60
-    candidate_grid: tuple[dict[str, Any], ...] = (
-        {"candidate_id": "l2_c_0_1", "penalty": "l2", "C": 0.1, "l1_ratio": None},
-        {"candidate_id": "l2_c_1", "penalty": "l2", "C": 1.0, "l1_ratio": None},
-        {"candidate_id": "l2_c_10", "penalty": "l2", "C": 10.0, "l1_ratio": None},
-        {
-            "candidate_id": "elastic_c_1_l1_0_15",
-            "penalty": "elasticnet",
-            "C": 1.0,
-            "l1_ratio": 0.15,
-        },
-        {
-            "candidate_id": "elastic_c_1_l1_0_5",
-            "penalty": "elasticnet",
-            "C": 1.0,
-            "l1_ratio": 0.5,
-        },
-    )
+    candidate_grid: tuple[dict[str, Any], ...] = dataclasses.field(default_factory=default_logistic_candidate_grid)
     preprocess_version: str = "sklearn_median_winsor_zscore_v1"
     winsor_lower: float = 0.01
     winsor_upper: float = 0.99

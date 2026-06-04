@@ -98,3 +98,17 @@ ASSERT (
     OR p_resolved_max_parallel_experiments IS NULL
     OR p_expected_executable_experiment_count = p_resolved_max_parallel_experiments
 ) AS 'QA-CR-7: unresolved max_parallel must resolve to executable experiment count';
+
+-- QA-CR-8: sklearn parity diagnostics are traceable.
+ASSERT (
+  SELECT COUNT(*) = 1
+    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_grid_size') AS INT64) >= 5)
+    AND LOGICAL_AND(STARTS_WITH(JSON_VALUE(reg.metrics_json, '$.candidate_metrics_uri'), 'gs://'))
+    AND LOGICAL_AND(STARTS_WITH(JSON_VALUE(reg.metrics_json, '$.implementation_audit_uri'), 'gs://'))
+    AND LOGICAL_AND(STARTS_WITH(JSON_VALUE(reg.metrics_json, '$.selected_coefficients_uri'), 'gs://'))
+    AND LOGICAL_AND(STARTS_WITH(JSON_VALUE(reg.metrics_json, '$.bqml_weight_alignment_uri'), 'gs://'))
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.strategy_id = p_strategy_id
+    AND reg.status = 'selected'
+    AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_prediction_run_id
+) AS 'QA-CR-8: selected model must record sklearn parity diagnostic artifact URIs';

@@ -11,7 +11,7 @@
 1. `scripts/strategy1_cloudrun/train_predict.py`：读取既有 `ads_ml_training_panel_daily`，用 scikit-learn logistic regression 训练候选，做 valid 选型、score orientation、sklearn vs BQML parity，写 `ads_model_registry` 与 `ads_model_prediction_daily`。
 2. `scripts/strategy1_cloudrun/backtest_report.py`：复用现有 `05-07` SQL 生成候选 / 组合 / 订单，默认使用 Cloud Run Python `ledger_exec_v1` fresh-start 回测，随后跑 `09`、报告、诊断和 QA。
 3. `scripts/strategy1_cloudrun/orchestrate_experiments.py`：按 manifest 启动 Cloud Run Jobs，并写 `ashare_meta.strategy1_experiment_run_status`、使用 GCS generation-guarded lock。未设置 `--max-parallel-experiments` 或传 `0` 时，resolved 并发数等于本次可执行实验数。
-4. `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`：校验 Cloud Run backend、sklearn artifact、prediction orientation、model-quality parity 和 resolved 并发契约。
+4. `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`：校验 Cloud Run backend、sklearn artifact、prediction orientation、model-quality parity、parity 诊断 artifact URI 和 resolved 并发契约。
 5. `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`：校验 Cloud Run orchestrator 状态表、锁元数据和审计字段。
 
 当前限制：
@@ -20,6 +20,8 @@
 2. `05-07` 仍使用 BigQuery SQL。
 3. Python ledger P0 先支持 fresh-start；resume 路径 fail-fast，等 fresh-start 与 BigQuery ledger 等价验证通过后再扩展。
 4. Cloud Run Jobs、Artifact Registry、IAM 和服务账号需按本文部署，不在代码中保存任何凭据。
+
+默认训练候选网格由 `scripts/strategy1_cloudrun/config.py` 展开，不在 `configs/strategy1/cloudrun_runner_default.yml` 中重复写死。当前版本为 `sklearn_logistic_parity_v1`：7 个 L2、7 个 L1、21 个 elasticnet，共 35 个 sklearn 原生 logistic 候选。
 
 ## 2. 本地 dry-run
 
@@ -181,6 +183,17 @@ python -m scripts.strategy1_cloudrun.backtest_report \
 
 `train_predict` 会把 sklearn selected model 与配置中的 BQML reference run 做模型质量对等检查；若 `model_quality_parity_status != 'passed'`，仍会写 selected registry、prediction、model artifact 和 parity 证据，但 `metrics_json.model_quality_status` 必须标记为 `model_quality_not_equivalent`，不得声明 sklearn backend 已等价替代 BQML baseline。
 正式 baseline 验收继续要求 `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql` 默认通过；只做 smoke / 证据留存时，可以显式把 `p_require_model_quality_parity_passed` 设为 `FALSE`，此时 QA 只要求 parity 证据完整。
+
+selected model artifact 目录会写入以下 parity 诊断文件：
+
+| 文件 | 用途 |
+|---|---|
+| `candidate_metrics.csv/json` | 对比全部 sklearn 候选参数、valid RankIC、topN 收益、AUC 和 selected 标记 |
+| `selected_coefficients.csv` | 查看 selected sklearn 模型的 raw/oriented 系数 |
+| `bqml_weight_alignment.csv` | 将 selected sklearn 系数与 BQML `ML.WEIGHTS` 同名特征对齐 |
+| `implementation_audit.json` | 汇总候选网格、split、特征顺序、缺失率、预处理和 BQML reference 口径 |
+
+这些文件用于解释 parity 未通过时的根因；它们是诊断证据，不改变选股或回测结果。
 
 ## 7. Cloud Run orchestrator
 

@@ -28,24 +28,9 @@ random_state: 20260604
 
 bqml_reference_run_id: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
 
-candidate_grid:
-  - candidate_id: l2_c_0_1
-    penalty: l2
-    C: 0.1
-    l1_ratio:
-  - candidate_id: l2_c_1
-    penalty: l2
-    C: 1.0
-    l1_ratio:
-  - candidate_id: l2_c_10
-    penalty: l2
-    C: 10.0
-    l1_ratio:
-  - candidate_id: elastic_c_1_l1_0_15
-    penalty: elasticnet
-    C: 1.0
-    l1_ratio: 0.15
-  - candidate_id: elastic_c_1_l1_0_5
-    penalty: elasticnet
-    C: 1.0
-    l1_ratio: 0.5
+# candidate_grid omitted intentionally: config.py expands the default
+# sklearn-native parity grid to 35 candidates:
+# - l2 C in [0.01, 0.03, 0.1, 0.3, 1, 3, 10]
+# - l1 C in [0.01, 0.03, 0.1, 0.3, 1, 3, 10]
+# - elasticnet C in the same grid × l1_ratio in [0.1, 0.5, 0.9]
+# Do not encode these as BQML L1/L2 equivalents.

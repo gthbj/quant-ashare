@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import math
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -65,6 +67,8 @@ def main() -> int:
         "experiment": experiment.to_params(),
         "model_artifact_base_uri": config.model_artifact_base_uri,
         "local_mirror_root": config.local_mirror_root,
+        "candidate_grid_version": "sklearn_logistic_parity_v1",
+        "candidate_grid_size": len(config.candidate_grid),
         "skip_gcs_upload": args.skip_gcs_upload,
     }
     if args.dry_run:
@@ -171,7 +175,11 @@ def run_train_predict(
         reverse=True,
     )[0]
 
-    parity = compute_model_quality_parity(client, config, selected)
+    selected.metrics["candidate_grid_version"] = "sklearn_logistic_parity_v1"
+    selected.metrics["candidate_grid_size"] = len(candidates)
+
+    bqml_reference = load_bqml_reference_metrics(client, config.bqml_reference_run_id)
+    parity = compute_model_quality_parity(config, selected, bqml_reference)
     selected.metrics.update(parity)
     if parity["model_quality_parity_status"] == "passed":
         selected.metrics["model_quality_status"] = "model_quality_equivalent"
@@ -188,7 +196,39 @@ def run_train_predict(
         f"run_id={experiment.run_id}",
         f"model_id={model_id}",
     )
-    materialize_artifacts(config, experiment, selected, preprocessor, feature_columns, artifact_local_dir, artifact_uri)
+    selected.metrics["candidate_metrics_uri"] = join_gs_uri(artifact_uri, "candidate_metrics.csv")
+    selected.metrics["implementation_audit_uri"] = join_gs_uri(artifact_uri, "implementation_audit.json")
+    selected.metrics["selected_coefficients_uri"] = join_gs_uri(artifact_uri, "selected_coefficients.csv")
+    selected.metrics["bqml_weight_alignment_uri"] = join_gs_uri(artifact_uri, "bqml_weight_alignment.csv")
+
+    bqml_weights, bqml_weight_error = load_bqml_reference_weights(client, bqml_reference.get("model_uri"))
+    selected_coefficients = selected_coefficients_frame(selected, feature_columns)
+    bqml_weight_alignment = align_bqml_weights(selected_coefficients, bqml_weights, bqml_reference)
+    implementation_audit = build_implementation_audit(
+        config,
+        experiment,
+        panel,
+        feature_frame,
+        feature_columns,
+        candidates,
+        selected,
+        bqml_reference,
+        bqml_weight_alignment,
+        bqml_weight_error,
+    )
+    materialize_artifacts(
+        config,
+        experiment,
+        candidates,
+        selected,
+        preprocessor,
+        feature_columns,
+        selected_coefficients,
+        bqml_weight_alignment,
+        implementation_audit,
+        artifact_local_dir,
+        artifact_uri,
+    )
     uploaded = [] if skip_gcs_upload else upload_directory_to_gcs(config.project, artifact_local_dir, artifact_uri)
 
     if force_replace:
@@ -379,8 +419,11 @@ def decide_orientation(raw: dict[str, float], rev: dict[str, float]) -> tuple[st
     return "identity", "raw_rank_ic non-negative - kept identity"
 
 
-def compute_model_quality_parity(client: bigquery.Client, config: RunnerConfig, selected: CandidateResult) -> dict[str, Any]:
-    reference = load_bqml_reference_metrics(client, config.bqml_reference_run_id)
+def compute_model_quality_parity(
+    config: RunnerConfig,
+    selected: CandidateResult,
+    reference: dict[str, Any],
+) -> dict[str, Any]:
     bqml_rank_ic = reference.get("oriented_valid_rank_ic_mean")
     bqml_topn = reference.get("valid_topn_fwd_ret_mean")
     bqml_coverage = reference.get("valid_eval_coverage")
@@ -395,12 +438,18 @@ def compute_model_quality_parity(client: bigquery.Client, config: RunnerConfig, 
     return {
         "bqml_reference_run_id": config.bqml_reference_run_id,
         "bqml_reference_model_id": reference.get("model_id"),
+        "bqml_reference_model_uri": reference.get("model_uri"),
+        "bqml_reference_score_orientation": reference.get("score_orientation"),
+        "bqml_reference_auto_class_weights": reference.get("auto_class_weights"),
         "bqml_oriented_valid_rank_ic_mean": bqml_rank_ic,
         "sklearn_oriented_valid_rank_ic_mean": selected.metrics["oriented_valid_rank_ic_mean"],
+        "rank_ic_parity_passed": rank_ok,
         "rank_ic_parity_delta": rank_delta,
         "bqml_valid_topn_fwd_ret_mean": bqml_topn,
         "sklearn_valid_topn_fwd_ret_mean": selected.metrics["valid_topn_fwd_ret_mean"],
+        "topn_ret_parity_passed": topn_ok,
         "topn_ret_parity_delta": topn_delta,
+        "prediction_coverage_parity_passed": coverage_ok,
         "prediction_coverage_parity_delta": coverage_delta,
         "model_quality_parity_status": status,
     }
@@ -408,7 +457,7 @@ def compute_model_quality_parity(client: bigquery.Client, config: RunnerConfig, 
 
 def load_bqml_reference_metrics(client: bigquery.Client, reference_run_id: str) -> dict[str, Any]:
     sql = f"""
-    SELECT model_id, metrics_json
+    SELECT model_id, model_uri, model_params_json, metrics_json
     FROM `{ADS}.ads_model_registry`
     WHERE status = 'selected'
       AND JSON_VALUE(model_params_json, '$.run_id') = @run_id
@@ -423,20 +472,57 @@ def load_bqml_reference_metrics(client: bigquery.Client, reference_run_id: str) 
     if frame.empty:
         return {}
     metrics = json.loads(frame.iloc[0]["metrics_json"] or "{}")
+    params = json.loads(frame.iloc[0]["model_params_json"] or "{}")
     return {
         "model_id": frame.iloc[0]["model_id"],
+        "model_uri": frame.iloc[0]["model_uri"],
+        "auto_class_weights": params.get("auto_class_weights"),
         "oriented_valid_rank_ic_mean": _first_float(metrics, ["oriented_valid_rank_ic_mean", "rank_ic_mean"]),
         "valid_topn_fwd_ret_mean": _first_float(metrics, ["valid_topn_fwd_ret_mean", "topn_fwd_ret_mean"]),
         "valid_eval_coverage": _first_float(metrics, ["valid_eval_coverage"]),
+        "score_orientation": metrics.get("score_orientation"),
     }
+
+
+def load_bqml_reference_weights(client: bigquery.Client, model_uri: str | None) -> tuple[pd.DataFrame, str | None]:
+    model_ref = bqml_model_ref_from_uri(model_uri)
+    if model_ref is None:
+        return pd.DataFrame(columns=["feature_name", "bqml_weight"]), "missing_or_invalid_bqml_model_uri"
+    try:
+        frame = query_dataframe(
+            client,
+            f"""
+            SELECT
+              processed_input AS feature_name,
+              CAST(weight AS FLOAT64) AS bqml_weight
+            FROM ML.WEIGHTS(MODEL `{model_ref}`)
+            """,
+            [],
+        )
+        return frame, None
+    except Exception as exc:  # pragma: no cover - depends on remote BQML model state.
+        return pd.DataFrame(columns=["feature_name", "bqml_weight"]), str(exc)
+
+
+def bqml_model_ref_from_uri(model_uri: str | None) -> str | None:
+    if not model_uri or not model_uri.startswith("bq://"):
+        return None
+    model_ref = model_uri[5:]
+    if not re.fullmatch(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_]+\.[A-Za-z0-9_]+", model_ref):
+        return None
+    return model_ref
 
 
 def materialize_artifacts(
     config: RunnerConfig,
     experiment: Experiment,
+    candidates: list[CandidateResult],
     selected: CandidateResult,
     preprocessor: MedianWinsorZScorePreprocessor,
     feature_columns: list[str],
+    selected_coefficients: pd.DataFrame,
+    bqml_weight_alignment: pd.DataFrame,
+    implementation_audit: dict[str, Any],
     artifact_local_dir: Path,
     artifact_uri: str,
 ) -> None:
@@ -445,6 +531,15 @@ def materialize_artifacts(
     artifact_local_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump(selected.model, artifact_local_dir / "model.joblib")
     joblib.dump(preprocessor, artifact_local_dir / "preprocess.joblib")
+    candidate_metrics = candidate_metrics_frame(candidates, selected.candidate_id)
+    candidate_metrics.to_csv(artifact_local_dir / "candidate_metrics.csv", index=False)
+    write_json(
+        artifact_local_dir / "candidate_metrics.json",
+        {"candidates": candidate_metrics.to_dict(orient="records")},
+    )
+    selected_coefficients.to_csv(artifact_local_dir / "selected_coefficients.csv", index=False)
+    bqml_weight_alignment.to_csv(artifact_local_dir / "bqml_weight_alignment.csv", index=False)
+    write_json(artifact_local_dir / "implementation_audit.json", implementation_audit)
     write_json(
         artifact_local_dir / "feature_schema.json",
         {
@@ -479,6 +574,185 @@ def materialize_artifacts(
     )
     write_text(artifact_local_dir / "requirements_lock.txt", requirements_snapshot())
     write_text(artifact_local_dir / "container_image.txt", env_container_image() or "local")
+
+
+def candidate_metrics_frame(candidates: list[CandidateResult], selected_candidate_id: str) -> pd.DataFrame:
+    rows = []
+    for candidate in candidates:
+        row = dict(candidate.metrics)
+        row["is_selected"] = candidate.candidate_id == selected_candidate_id
+        row["penalty"] = candidate.model_params.get("penalty")
+        row["C"] = candidate.model_params.get("C")
+        row["l1_ratio"] = candidate.model_params.get("l1_ratio")
+        row["solver"] = candidate.model_params.get("solver")
+        row["class_weight"] = candidate.model_params.get("class_weight")
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values(
+        ["is_selected", "oriented_valid_rank_ic_mean", "valid_topn_fwd_ret_mean", "roc_auc"],
+        ascending=[False, False, False, False],
+    )
+
+
+def selected_coefficients_frame(selected: CandidateResult, feature_columns: list[str]) -> pd.DataFrame:
+    coef = np.asarray(getattr(selected.model, "coef_", [[]]), dtype=float)
+    if coef.ndim != 2 or coef.shape[0] == 0:
+        return pd.DataFrame(columns=[
+            "feature_name", "raw_coefficient", "oriented_coefficient",
+            "abs_oriented_coefficient", "abs_oriented_rank",
+        ])
+    raw = coef[0]
+    orientation_multiplier = -1.0 if selected.score_orientation == "reverse_probability" else 1.0
+    rows = []
+    for idx, feature in enumerate(feature_columns):
+        value = float(raw[idx]) if idx < len(raw) else math.nan
+        oriented = orientation_multiplier * value if np.isfinite(value) else math.nan
+        rows.append({
+            "feature_name": feature,
+            "raw_coefficient": value,
+            "oriented_coefficient": oriented,
+            "abs_oriented_coefficient": abs(oriented) if np.isfinite(oriented) else math.nan,
+        })
+    frame = pd.DataFrame(rows)
+    frame["abs_oriented_rank"] = frame["abs_oriented_coefficient"].rank(method="first", ascending=False)
+    return frame.sort_values("abs_oriented_rank")
+
+
+def align_bqml_weights(
+    selected_coefficients: pd.DataFrame,
+    bqml_weights: pd.DataFrame,
+    bqml_reference: dict[str, Any],
+) -> pd.DataFrame:
+    if selected_coefficients.empty or bqml_weights.empty:
+        return pd.DataFrame(columns=[
+            "feature_name", "oriented_coefficient", "bqml_oriented_weight",
+            "coefficient_sign_matches_bqml",
+        ])
+    bqml = bqml_weights.rename(columns={"processed_input": "feature_name"}).copy()
+    bqml = bqml[~bqml["feature_name"].isin(["__INTERCEPT__", "intercept", "Intercept"])]
+    bqml["bqml_weight"] = pd.to_numeric(bqml["bqml_weight"], errors="coerce")
+    orientation_multiplier = -1.0 if bqml_reference.get("score_orientation") == "reverse_probability" else 1.0
+    bqml["bqml_oriented_weight"] = orientation_multiplier * bqml["bqml_weight"]
+    merged = selected_coefficients.merge(
+        bqml[["feature_name", "bqml_weight", "bqml_oriented_weight"]],
+        on="feature_name",
+        how="inner",
+    )
+    if merged.empty:
+        return merged
+    merged["coefficient_sign_matches_bqml"] = np.sign(merged["oriented_coefficient"]) == np.sign(merged["bqml_oriented_weight"])
+    merged["abs_bqml_oriented_weight"] = merged["bqml_oriented_weight"].abs()
+    merged["abs_bqml_rank"] = merged["abs_bqml_oriented_weight"].rank(method="first", ascending=False)
+    merged["rank_gap"] = merged["abs_oriented_rank"] - merged["abs_bqml_rank"]
+    return merged.sort_values("abs_oriented_rank")
+
+
+def build_implementation_audit(
+    config: RunnerConfig,
+    experiment: Experiment,
+    panel: pd.DataFrame,
+    feature_frame: pd.DataFrame,
+    feature_columns: list[str],
+    candidates: list[CandidateResult],
+    selected: CandidateResult,
+    bqml_reference: dict[str, Any],
+    bqml_weight_alignment: pd.DataFrame,
+    bqml_weight_error: str | None,
+) -> dict[str, Any]:
+    feature_hash = hashlib.sha256("\n".join(feature_columns).encode("utf-8")).hexdigest()
+    split_summary = []
+    for split, group in panel.groupby("split_tag", dropna=False):
+        labeled = group["target_label"].notna()
+        split_summary.append({
+            "split_tag": str(split),
+            "row_count": int(len(group)),
+            "labeled_rows": int(labeled.sum()),
+            "target_positive_rate": _float_or_none(group.loc[labeled, "target_label"].astype(float).mean()) if labeled.any() else None,
+            "target_return_available_rows": int(group["target_return"].notna().sum()),
+        })
+
+    missing_rates = feature_frame.isna().mean().sort_values(ascending=False)
+    alignment_summary = summarize_bqml_weight_alignment(bqml_weight_alignment, bqml_weight_error)
+    return {
+        "audit_version": "sklearn_bqml_parity_audit_v1",
+        "purpose": "debug sklearn vs BQML model-quality parity differences",
+        "experiment": experiment.to_params(),
+        "candidate_grid": {
+            "version": "sklearn_logistic_parity_v1",
+            "candidate_count": len(candidates),
+            "candidate_ids": [candidate.candidate_id for candidate in candidates],
+            "penalties": sorted({str(candidate.model_params.get("penalty")) for candidate in candidates}),
+            "C_values": sorted({float(candidate.model_params.get("C")) for candidate in candidates}),
+            "l1_ratios": sorted({
+                float(candidate.model_params["l1_ratio"])
+                for candidate in candidates
+                if candidate.model_params.get("l1_ratio") is not None
+            }),
+            "solver": config.logistic_solver,
+            "class_weight": config.logistic_class_weight,
+            "max_iter": config.logistic_max_iter,
+        },
+        "selected": {
+            "candidate_id": selected.candidate_id,
+            "score_orientation": selected.score_orientation,
+            "oriented_valid_rank_ic_mean": selected.metrics.get("oriented_valid_rank_ic_mean"),
+            "valid_topn_fwd_ret_mean": selected.metrics.get("valid_topn_fwd_ret_mean"),
+            "roc_auc": selected.metrics.get("roc_auc"),
+            "model_quality_parity_status": selected.metrics.get("model_quality_parity_status"),
+            "model_quality_status": selected.metrics.get("model_quality_status"),
+        },
+        "bqml_reference": bqml_reference,
+        "split_summary": split_summary,
+        "feature_schema": {
+            "feature_count": len(feature_columns),
+            "feature_order_sha256": feature_hash,
+            "first_10_features": feature_columns[:10],
+            "last_10_features": feature_columns[-10:],
+        },
+        "feature_missingness": {
+            "mean_missing_rate": _float_or_none(missing_rates.mean()),
+            "max_missing_rate": _float_or_none(missing_rates.max()),
+            "all_missing_feature_count": int((missing_rates >= 1.0).sum()),
+            "top_missing_features": [
+                {"feature_name": str(name), "missing_rate": _float_or_none(value)}
+                for name, value in missing_rates.head(15).items()
+            ],
+        },
+        "preprocess": {
+            "preprocess_version": config.preprocess_version,
+            "winsor_lower": config.winsor_lower,
+            "winsor_upper": config.winsor_upper,
+            "train_only_statistics": True,
+            "uses_median_fill": True,
+            "uses_winsorization": True,
+            "uses_zscore": True,
+        },
+        "known_semantic_differences": {
+            "bqml_preprocess_version": "raw_v0",
+            "sklearn_preprocess_version": config.preprocess_version,
+            "bqml_auto_class_weights": bqml_reference.get("auto_class_weights"),
+            "sklearn_class_weight": config.logistic_class_weight,
+            "note": "Differences are recorded for audit; class_weight remains None per Cloud Run PRD.",
+        },
+        "bqml_weight_alignment": alignment_summary,
+    }
+
+
+def summarize_bqml_weight_alignment(frame: pd.DataFrame, error: str | None) -> dict[str, Any]:
+    if error:
+        return {"status": "unavailable", "error": error}
+    if frame.empty:
+        return {"status": "empty"}
+    corr = frame[["oriented_coefficient", "bqml_oriented_weight"]].corr().iloc[0, 1]
+    sign_rate = frame["coefficient_sign_matches_bqml"].mean()
+    return {
+        "status": "available",
+        "matched_feature_count": int(len(frame)),
+        "oriented_weight_correlation": _float_or_none(corr),
+        "sign_agreement_rate": _float_or_none(sign_rate),
+        "top_rank_gap_features": frame.reindex(frame["rank_gap"].abs().sort_values(ascending=False).index)
+        .head(10)[["feature_name", "abs_oriented_rank", "abs_bqml_rank", "rank_gap"]]
+        .to_dict(orient="records"),
+    }
 
 
 def write_registry(
@@ -645,6 +919,16 @@ def safe_divide(numerator: Any, denominator: Any) -> float:
     if denominator in (0, None) or pd.isna(denominator):
         return math.nan
     return float(numerator) / float(denominator)
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(value):
+        return None
+    return value
 
 
 def _first_float(payload: dict[str, Any], keys: list[str]) -> float | None:
