@@ -1,6 +1,6 @@
 # Cloud Composer - 每日 A 股数据流水线
 
-> 文档维护：GPT-5（最近更新 2026-06-04）
+> 文档维护：GPT-5（最近更新 2026-06-05）
 
 Composer 负责串联全流程：
 
@@ -10,14 +10,19 @@ Composer 负责串联全流程：
 4. 全量 schema 检查、P0 QA、策略 1 QA 和报告产物检查。
 5. 失败重试、告警和运行状态追踪。
 
-当前 DAG 是 Phase 1.7 生产采集入口，采集写入开关由 Airflow Variables 控制：
+当前 DAG 是 Phase 2.0 BigQuery SQL 兼容路径入口，采集写入、ODS readiness、可选转换、可选只读 QA、ADS 契约初始化和状态表回写由 Airflow Variables / DAG run conf 控制：
 
 - `ashare_pipeline_dry_run=true` 时，Cloud Run Job 只执行采集计划展开，不写 GCS。
 - `ashare_pipeline_dry_run=false` 时，DAG 会向 Cloud Run Job 传入 `--allow-gcs-write`，按业务日期写入当前范围 ODS 分区。
 - 不直接保存 token。
 - 每日默认主链只执行单个 Cloud Run ingestion（`ashare-ingest-current-scope`）和 `sql/qa/09_ods_daily_partition_readiness.sql`；该检查只读业务日分区或近期小窗口，不扫描 2019+ 全历史。
-- `ashare_enable_full_refresh=false` 时，`sql/qa/06_ods_parquet_schema_checks.sql`、DIM、DWD、DWS、metadata、QA 全量链路不会进入每日主链。
-- `ashare_enable_full_refresh=true` 时，DAG 在每日 readiness 之后进入 full refresh 分支，执行 schema P0、DIM、DWD、DWS、metadata、QA 节点。
+- `ashare_warehouse_mode=daily_current` 时，DAG 执行采集、ODS readiness 和状态表回写；Phase 2.2 增量影响窗口完成前不进入 CTAS 转换分支。
+- `warehouse_mode=full_rebuild` 或 `warehouse_mode=full_rebuild_compat` 时，DAG 在每日 readiness 之后进入 BigQuery SQL 兼容转换分支，执行 schema P0、DIM、DWD、DWS、metadata、QA 节点。
+- 兼容变量 `ashare_enable_full_refresh=true` 会把 `daily_current` 映射为 `full_rebuild_compat` 记录，避免把现有 CTAS 全量重建标记成增量。
+- `warehouse_mode=qa_only` 时，DAG 只执行 ODS readiness 之后的 `01-05` 只读 QA，不改生产表。
+- `skip_ingestion=true` 时，DAG 跳过 Cloud Run Job，直接从 ODS readiness 继续。
+- `enable_ads_contract_init=true` 时，DAG 执行 `sql/ads/01_ads_strategy1_tables.sql`，该分支只用于手工初始化或补齐 ADS 契约。
+- `ashare_meta.pipeline_run` 记录 DAG run terminal 状态；`ashare_meta.pipeline_task_status` 记录 task 状态、Airflow log URL、BigQuery job URL 和 Cloud Run execution URL。
 - `sql/qa/08_ods_external_readability_checks.sql` 和 `sql/qa/06_ods_parquet_schema_checks.sql` 是维护/全量刷新检查，不作为每日调度默认门禁。
 - 策略 1 ADS 实验/回测产物仍由策略 runner 写入；每日 DAG 不重跑 `sql/ads/01_ads_strategy1_tables.sql`，避免覆盖已有实验产物。
 
@@ -61,13 +66,16 @@ ashare_region=asia-east2
 ashare_bq_location=asia-east2
 ashare_pipeline_dry_run=false
 ashare_enable_full_refresh=false
+ashare_warehouse_mode=daily_current
+ashare_transform_backend=bq_sql
+ashare_enable_ads_contract_init=false
 ```
 
 ## 部署 DAG
 
 将 `orchestration/composer/dags/ashare_daily_pipeline_v0.py` 上传到 Composer 环境的 DAG bucket，并同步仓库 `sql/` 目录到 Composer bucket 下的 `data/sql/`。Composer 3 worker 会把该路径挂载为 `/home/airflow/gcs/data/sql`；当前 DAG 会在运行时读取这些 SQL 文件，缺少文件时对应 BigQuery task 会失败。
 
-Cloud Run Job image 更新后，先用手工 DAG run 或临时变量做调度 smoke；确认 Cloud Run execution 和每日 ODS readiness 通过后，生产每日采集保持 `ashare_pipeline_dry_run=false`。完整 ODS→DIM/DWD/DWS/ADS 刷新需要单独将 `ashare_enable_full_refresh=true`。
+Cloud Run Job image 更新后，先用手工 DAG run 或临时变量做调度 smoke；确认 Cloud Run execution、每日 ODS readiness、状态表回写通过后，生产每日采集保持 `ashare_pipeline_dry_run=false`、`ashare_warehouse_mode=daily_current`。完整 ODS→DIM/DWD/DWS 刷新使用手工 DAG run 参数 `warehouse_mode=full_rebuild_compat` 或 `warehouse_mode=full_rebuild`。
 
 部署命令：
 
@@ -87,13 +95,28 @@ gcloud storage rsync -r sql gs://asia-east2-ashare-composer-b2629133-bucket/data
 
 如果只上传 DAG 文件而没有同步 `sql/`，BigQuery task 会 fail-closed。
 
-设置 full refresh 开关：
+设置默认调度变量：
 
 ```bash
 gcloud composer environments run ashare-composer \
   --project=data-aquarium \
   --location=asia-east2 \
   variables set -- ashare_enable_full_refresh false
+
+gcloud composer environments run ashare-composer \
+  --project=data-aquarium \
+  --location=asia-east2 \
+  variables set -- ashare_warehouse_mode daily_current
+
+gcloud composer environments run ashare-composer \
+  --project=data-aquarium \
+  --location=asia-east2 \
+  variables set -- ashare_transform_backend bq_sql
+
+gcloud composer environments run ashare-composer \
+  --project=data-aquarium \
+  --location=asia-east2 \
+  variables set -- ashare_enable_ads_contract_init false
 ```
 
 ## 运行参数
@@ -107,3 +130,37 @@ gcloud composer environments run ashare-composer \
 ```
 
 未传入时使用 Airflow `ds`。
+
+只重跑下游 readiness / QA：
+
+```json
+{
+  "business_date": "2026-06-04",
+  "skip_ingestion": true,
+  "warehouse_mode": "qa_only",
+  "run_label": "manual_smoke"
+}
+```
+
+手工执行 BigQuery SQL 兼容全量转换：
+
+```json
+{
+  "business_date": "2026-06-04",
+  "skip_ingestion": true,
+  "warehouse_mode": "full_rebuild_compat",
+  "run_label": "maintenance"
+}
+```
+
+手工初始化 ADS 契约：
+
+```json
+{
+  "business_date": "2026-06-04",
+  "skip_ingestion": true,
+  "warehouse_mode": "daily_current",
+  "enable_ads_contract_init": true,
+  "run_label": "maintenance"
+}
+```

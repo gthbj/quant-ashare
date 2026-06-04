@@ -1,4 +1,4 @@
-> 文档维护：GPT-5（最近更新 2026-06-01）
+> 文档维护：GPT-5（最近更新 2026-06-05）
 
 # A 股 DIM/DWD/DWS/ADS 建表 SQL
 
@@ -10,6 +10,9 @@
 
 ```bash
 bq query --use_legacy_sql=false --location=asia-east2 < sql/00_create_datasets.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/meta/01_create_meta_tables.sql
+# 单位换算映射（OQ-006）：覆盖 P0 + 财务三表标准字段，qa/05 据此门禁。
+bq query --use_legacy_sql=false --location=asia-east2 < sql/meta/04_ods_field_unit_map.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/01_dim_trade_calendar.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/02_dim_stock.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/03_dim_stock_name_hist.sql
@@ -26,8 +29,6 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/08_dwd_fin_balan
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/09_dwd_fin_balancesheet_latest.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/10_dwd_fin_cashflow.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/11_dwd_fin_cashflow_latest.sql
-# 单位换算映射（OQ-006）：覆盖 P0 + 财务三表标准字段，qa/05 据此门禁。
-bq query --use_legacy_sql=false --location=asia-east2 < sql/meta/01_ods_field_unit_map.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/metadata/01_p0_table_column_descriptions.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/01_dws_stock_universe_daily.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/02_dws_stock_feature_price_daily.sql

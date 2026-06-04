@@ -1254,3 +1254,44 @@ OQ-005 Phase 1.7 已部署 `ashare-ingest-current-scope`、Direct VPC egress、C
 ### 相关文件
 
 `scripts/ingestion/run_ingestion_job.py`, `orchestration/cloud_run_jobs/deploy_ingestion_jobs.sh`, `orchestration/cloud_run_jobs/ingestion_jobs.yaml`, `orchestration/cloud_run_jobs/README.md`, `orchestration/composer/dags/ashare_daily_pipeline_v0.py`, `orchestration/composer/README.md`, `orchestration/README.md`, `TODO.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260605-01: OQ-005 Phase 2.0 用 warehouse_mode 显式区分每日与兼容全量转换
+
+日期: 2026-06-05
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+OQ-005 Phase 2.0 需要在现有 Composer DAG 中接入 ODS readiness 之后的 BigQuery SQL 兼容路径。现有 DIM/DWD/DWS SQL 大多仍是 CTAS / 全量重建口径，尚未实现 Phase 2.2 的每日增量影响窗口。旧变量 `ashare_enable_full_refresh=true` 只能表示进入全量分支，无法区分每日增量、维护重建、只读 QA 和 ADS 契约初始化。
+
+### 决策
+
+本决策 supersedes `DECISION-20260604-04` 第 6 条中关于完整 ODS→DIM/DWD/DWS/ADS 转换入口只由 `ashare_enable_full_refresh=true` 控制的描述；`DECISION-20260604-04` 其余采集入口、固定出口和 default Celery queue 决策保持 active。
+
+1. `ashare_daily_pipeline_v0` 以 `warehouse_mode` 作为 ODS→DIM/DWD/DWS/QA 分支主控。
+2. 默认 `warehouse_mode=daily_current` 只执行采集、ODS readiness 和 pipeline 状态回写；Phase 2.2 增量影响窗口完成前，不进入 CTAS 转换分支。
+3. 现有 BigQuery SQL CTAS 转换只通过 `warehouse_mode=full_rebuild` 或 `warehouse_mode=full_rebuild_compat` 显式手工进入。
+4. 兼容变量 `ashare_enable_full_refresh=true` 保留，但当 selected mode 为 `daily_current` 时必须记录为 `full_rebuild_compat`，不得把 CTAS 全量重建标记为每日增量。
+5. `warehouse_mode=qa_only` 只执行 ODS readiness 后的只读 QA，不改生产表。
+6. ADS 契约初始化从每日默认链路剥离，只能通过 `enable_ads_contract_init=true` 手工启用。
+7. `ashare_meta.pipeline_run` 与 `ashare_meta.pipeline_task_status` 记录 DAG run / task 状态、业务日期、mode、backend、BigQuery job / Cloud Run execution / Airflow log 链接。
+8. `sql/meta/01_ods_field_unit_map.sql` 重命名为 `sql/meta/04_ods_field_unit_map.sql`，避免与 `sql/meta/01_create_meta_tables.sql` 编号冲突；DAG 和 README 使用显式文件顺序。
+
+### 理由
+
+每日生产调度必须避免把 2019+ 全历史 CTAS 扫描误当成增量写入。显式 mode 能让 smoke、只读 QA、维护重建和后续 Dataform / 增量路径共享同一 DAG，同时让状态表保留可审计的执行语义。
+
+### 影响
+
+Phase 2.0 实现分支 `codex/oq005-scheduler-phase2` 更新 Composer DAG、meta DDL、README、PRD 和记忆文件。部署后需要分别验证 `skip_ingestion=true` smoke、`warehouse_mode=qa_only` 只读 QA、`warehouse_mode=full_rebuild_compat` 维护链路和状态表 terminal 状态。OQ-005 仍保持 open，后续 Dataform definitions、增量影响窗口、告警、补跑和完整生产运维观测闭环完成后才能关闭。
+
+### 备选方案
+
+继续使用 `ashare_enable_full_refresh` 单开关；放弃，因为无法表达 `daily_current`、`qa_only`、`full_rebuild_compat` 和 ADS 契约初始化的差异。立即把现有 CTAS 标为每日增量；放弃，因为会造成运行状态与实际写入范围不一致。直接等待 Dataform 后再接状态表；放弃，因为 Phase 2.0 需要先把现有生产 DAG 的状态、QA 和手工维护路径闭环。
+
+### 相关文件
+
+`orchestration/composer/dags/ashare_daily_pipeline_v0.py`, `sql/meta/01_create_meta_tables.sql`, `sql/meta/04_ods_field_unit_map.sql`, `orchestration/composer/README.md`, `orchestration/README.md`, `sql/README.md`, `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`, `TODO.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
