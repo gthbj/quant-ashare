@@ -8,9 +8,9 @@
 
 **策略 1 Cloud Run 真实 smoke（2026-06-05）**：Cloud Run runner 与 orchestrator 状态/锁增强已进入 `main` 后，完成真实 Cloud Run/BQ smoke。已部署镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:6564434f9f216aec6c86cae3923bc44450c3ca26ead14a248b05ca77087d8ead` 到 `strategy1-train-predict-job` / `strategy1-backtest-report-job`，job 配置 16Gi/4CPU/`--max-retries=0`；runtime service account 已具备 `ashare_ads` 写权限。smoke `cloudrun_smoke_pvfq_n30_bw_h5` 跑通 `run_id=s1_cloudrun_sklearn_smoke_20260604_02` / `backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`，train/predict execution `strategy1-train-predict-job-s5725`、backtest/report execution `strategy1-backtest-report-job-6fzvr` 均成功，prediction 1,056,716 行，报告 uploaded 到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_sklearn_smoke_20260604_02/backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`，`16_qa_cloudrun_runner_outputs.sql`（smoke 模式 `p_require_model_quality_parity_passed=FALSE`）和 `17_qa_cloudrun_orchestrator_status.sql` 通过。回测指标：total_return 46.29%、Sharpe 1.111、max_drawdown -13.94%、excess_return 17.28% vs `000852.SH`。注意：sklearn vs BQML parity 未通过，当前 `model_quality_status=model_quality_not_equivalent`，只能证明 Cloud Run 链路可运行，不能声明 sklearn 已等价替代 BQML baseline。
 
-**OQ-005 剩余调度 PRD（2026-06-05）**：新增 `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`，专门定义 Phase 1.7 生产采集之后的 ODS→ADS 剩余链路：ODS gate、BigQuery SQL 兼容路径、Dataform definitions、ADS 契约隔离、刷新窗口、metadata、QA、pipeline 状态、告警、补跑、策略 runner/report 可选分支和 OQ-005 关闭标准。PR #59 review follow-up 已澄清 Phase 2.0/2.1 CTAS 全量兼容路径与 Phase 2.2 增量 `daily_current` 的边界、ADS 脚本现状、meta 编号整理要求和字段说明生产来源。本次只写文档并更新 TODO/memory，未实现代码、未部署任务、未执行 BigQuery。当前工作树：`/private/tmp/quant-ashare-oq005-ods-ads-scheduler-prd`，分支 `codex/oq005-ods-ads-scheduler-prd`。
+**OQ-005 Phase 2.0 实现分支（2026-06-05）**：工作树 `/private/tmp/quant-ashare-oq005-scheduler-phase2`，分支 `codex/oq005-scheduler-phase2`，PR #61 已创建并跟进 review comment。Phase 2.0 BigQuery SQL 兼容路径已实现：`ashare_daily_pipeline_v0` 新增 `pipeline_run` / `pipeline_task_status` 状态回写、task callback、`warehouse_mode` 分支、legacy `ashare_enable_full_refresh=true` 到 `full_rebuild_compat` 的记录映射、`skip_ingestion` 跳过采集 smoke、`qa_only` 只读 QA、ADS 契约手工初始化隔离；已移除模块顶层 `Variable.get()`，支持单次 DAG run 用 `pipeline_dry_run` / `dry_run` 覆盖 Cloud Run dry/write 分支，`09_ods_daily_partition_readiness.sql` 按运行期 dry-run 参数推导分区门禁；`qa` / `qa_only` 复用 `_build_qa_chain`；冗余 `ods_daily_partition_readiness >> finish` 依赖已删除；`sql/meta/01_create_meta_tables.sql` 扩展 pipeline 状态表与 task/job/execution URL 字段；OQ-006 单位映射脚本已从 `sql/meta/01_ods_field_unit_map.sql` 整理为 `sql/meta/04_ods_field_unit_map.sql` 并同步引用。验证已通过 Python py_compile、meta DDL / 单位映射 / `09` readiness BigQuery dry-run 和 `git diff --check`。尚未部署 Composer、未执行生产 BigQuery 转换、未关闭 OQ-005。
 
-**OQ-005 最新状态（2026-06-04）**：OQ-005 已从 PRD/worker/dry-run 进入生产采集阶段。当前每日生产采集只覆盖 SQL 实际消费的 14 张 ODS；`ashare-ingest-current-scope` 单 execution 入口已部署，Cloud Run Jobs 走 Direct VPC egress + Cloud NAT + 区域静态 IP 固定出口，Composer DAG 使用 default Celery queue；Airflow 变量当前为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`。纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 成功；`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填全部成功并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`；`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness。OQ-005 仍未关闭，因为完整 ODS→ADS 转换、Dataform/BigQuery SQL 生产链路、告警、补跑和运维观测尚未验收。
+**OQ-005 生产采集状态（2026-06-05）**：当前每日生产采集只覆盖 SQL 实际消费的 14 张 ODS；`ashare-ingest-current-scope` 单 execution 入口已部署，Cloud Run Jobs 走 Direct VPC egress + Cloud NAT + 区域静态 IP 固定出口，Composer DAG 使用 default Celery queue。纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 成功；`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填全部成功并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`；`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness。OQ-005 仍未关闭，因为 Phase 2.0 仍需部署 smoke / `skip_ingestion`、`qa_only`、`full_rebuild_compat` 验收，后续还需 Dataform 生产链路、增量影响窗口、告警、补跑和运维观测闭环。
 
 **PR #58 review follow-up**：live ingestion 已补 `ashare_meta.ingestion_run` 与 `ingestion_partition_status` 写入，dry-run/API 只读 smoke 不写 meta；`ingestion_partition_status.endpoint` 存 `partition_endpoint`，避免同 API 多 variant 串状态。raw GCS canonical 路径固定为 `api=<api>/endpoint=<partition_endpoint>/partition_date=...`，不使用 `api=tushare`；2026-06-04 已用 BigQuery `INFORMATION_SCHEMA.TABLE_OPTIONS` 复核当前 14 张 ODS 与 10 张 schema repair 表 source URI。GCS publish 覆盖正式 object 不做 write-once backup，这是采集重跑口径；历史可回滚回填留后续独立开关/流程。
 
@@ -45,6 +45,144 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: PR #61 / OQ-005 Phase 2.0 BigQuery SQL 兼容调度路径
+
+### 已完成工作
+
+- 跟进 PR #61 review comment。
+- `orchestration/composer/dags/ashare_daily_pipeline_v0.py` 移除模块顶层 `Variable.get()`：project/region/location 改为 operator 模板参数，callback URL / BigQuery client 改为运行期 helper 读取。
+- `pipeline_dry_run` / `dry_run` 支持单次 DAG run 覆盖 Airflow Variable；DAG 通过 branch 在运行期选择 `ingest_current_scope_dry_run` 或 `ingest_current_scope_write`，避免全局翻转变量才能做真实采集。
+- `sql/qa/09_ods_daily_partition_readiness.sql` 新增 `pipeline_dry_run` 参数；`require_business_partition` 为空时由 dry-run 运行期口径推导，dry-run 默认不要求精确业务日分区，真实写入默认要求精确业务日/交易日分区。
+- 删除冗余 `ods_daily_partition_readiness >> finish` 依赖。
+- 抽出 `_build_qa_chain(group_id)`，复用 `qa` 与 `qa_only` 的 5 个 QA task 定义。
+- 同步 `orchestration/composer/README.md` / `orchestration/README.md` 的手工运行参数说明。
+
+### 重要上下文
+
+- 本次只改仓库文件；未部署 Composer、未触发 DAG、未执行生产 BigQuery 转换、未写 GCS。
+- PR #61 仍是 OQ-005 Phase 2.0 代码入口；OQ-005 仍保持 open，后续还需要 Composer 部署 smoke、生产验收、Dataform 生产链路、增量影响窗口、告警和补跑闭环。
+
+### 改动文件
+
+- `orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `sql/qa/09_ods_daily_partition_readiness.sql`
+- `orchestration/composer/README.md`
+- `orchestration/README.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 --parameter=business_date:STRING:2026-06-04 --parameter=pipeline_dry_run:STRING:true --parameter=require_business_partition:STRING: < sql/qa/09_ods_daily_partition_readiness.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 --parameter=business_date:STRING:2026-06-04 --parameter=pipeline_dry_run:STRING:false --parameter=require_business_partition:STRING: < sql/qa/09_ods_daily_partition_readiness.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/meta/01_create_meta_tables.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/meta/04_ods_field_unit_map.sql`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 推送 PR #61 follow-up commit 并在 PR comment 回复验证结果。
+- 部署到 Composer 后先做 `skip_ingestion=true` smoke，再做 `warehouse_mode=qa_only` 只读 QA 和 `warehouse_mode=full_rebuild_compat` 维护链路 smoke。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: OQ-005 / Phase 2.0 BigQuery SQL 兼容调度路径
+
+### 已完成工作
+
+- 在新工作树 `/private/tmp/quant-ashare-oq005-scheduler-phase2`、分支 `codex/oq005-scheduler-phase2` 开始实现已合并的 `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`。
+- `orchestration/composer/dags/ashare_daily_pipeline_v0.py` 新增 `pipeline_run` / `pipeline_task_status` 状态回写、task success/failure callback、DAG failed callback、`warehouse_mode` 分支、legacy `ashare_enable_full_refresh=true` 到 `full_rebuild_compat` 的记录映射、`skip_ingestion` 分支、`qa_only` 只读 QA 分支和 ADS 契约手工初始化分支。
+- `sql/meta/01_create_meta_tables.sql` 扩展 `pipeline_run` / `pipeline_task_status` 字段，新增 `date_from`、`date_to`、`run_label`、`warehouse_mode`、`transform_backend`、`updated_at` 和 Airflow / BigQuery / Cloud Run URL 字段。
+- 将 OQ-006 单位映射脚本从 `sql/meta/01_ods_field_unit_map.sql` 重命名为 `sql/meta/04_ods_field_unit_map.sql`，并同步 DAG、SQL README 和 PRD 引用。
+- 同步 `orchestration/composer/README.md`、`orchestration/README.md`、`sql/README.md` 和 OQ-005 PRD 中的 Phase 2.0 口径。
+- 新增 `DECISION-20260605-01`，记录 `warehouse_mode` 显式区分每日、只读 QA、兼容全量转换和 ADS 契约初始化。
+
+### 重要上下文
+
+- 本次只改仓库文件；未部署 Composer、未触发 DAG、未执行生产 BigQuery 转换、未写 GCS。
+- Phase 2.0 现有 CTAS 转换只允许 `warehouse_mode=full_rebuild` 或 `warehouse_mode=full_rebuild_compat` 手工进入；默认 `daily_current` 只做采集、ODS readiness 和状态回写。
+- `warehouse_mode=qa_only` 只跑 ODS readiness 后的 `01-05` QA，不改生产表。
+- `enable_ads_contract_init=true` 才会执行 `sql/ads/01_ads_strategy1_tables.sql`。
+
+### 改动文件
+
+- `orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `sql/meta/01_create_meta_tables.sql`
+- `sql/meta/04_ods_field_unit_map.sql`
+- `orchestration/composer/README.md`
+- `orchestration/README.md`
+- `sql/README.md`
+- `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`
+- `docs/prd/PRD_20260602_01_OQ006接口单位换算口径.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/meta/01_create_meta_tables.sql`
+- `git diff --check`
+
+### 阻塞项
+
+- 未阻塞；下一步需要提 PR / review 后部署到 Composer 做 smoke。
+
+### 下一步建议
+
+- 提 PR 并 review Phase 2.0 DAG 变更。
+- 部署后先用 `skip_ingestion=true` 做调度 smoke，确认不创建 Cloud Run execution 且 ODS readiness / 状态表回写正常。
+- 再用 `warehouse_mode=qa_only` 验证只读 QA 不改生产表。
+- 最后用 `warehouse_mode=full_rebuild_compat` 手工 smoke BigQuery SQL 兼容转换链路，确认 metadata / QA / `pipeline_run` terminal 状态完整。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+
+---
 
 日期: 2026-06-05
 Agent ID: Codex
