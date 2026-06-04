@@ -20,6 +20,8 @@ DEFAULT_THROTTLE_SECONDS = 0.3
 DEFAULT_MAX_RETRIES = 3
 # 超时（秒）
 DEFAULT_TIMEOUT_SECONDS = 60
+# 单次调用最大分页数，避免 limit/offset 被接口忽略时无限循环
+DEFAULT_MAX_PAGES = 100
 
 
 class TushareClient:
@@ -30,13 +32,15 @@ class TushareClient:
                  throttle: float = DEFAULT_THROTTLE_SECONDS,
                  max_retries: int = DEFAULT_MAX_RETRIES,
                  timeout: int = DEFAULT_TIMEOUT_SECONDS,
-                 row_limit: int = DEFAULT_ROW_LIMIT):
+                 row_limit: int = DEFAULT_ROW_LIMIT,
+                 max_pages: int = DEFAULT_MAX_PAGES):
         self.token = token or os.environ.get("TUSHARE_TOKEN", "")
         self.base_url = base_url
         self.throttle = throttle
         self.max_retries = max_retries
         self.timeout = timeout
         self.row_limit = row_limit
+        self.max_pages = max_pages
         self._last_request_time = 0.0
 
     def query(self, api_name: str, params: dict[str, Any] | None = None,
@@ -46,13 +50,46 @@ class TushareClient:
         自动处理：
         - 节流（throttle）
         - 重试（timeout / 5xx）
-        - 返回上限命中检测
+        - limit/offset 分页；分页不能收敛时 fail-closed
         """
+        base_params = params or {}
+        rows: list[dict[str, Any]] = []
+        seen_page_signatures: set[str] = set()
+
+        for page_no in range(self.max_pages):
+            page_params = {
+                **base_params,
+                "limit": self.row_limit,
+                "offset": page_no * self.row_limit,
+            }
+            page_rows = self._query_once(api_name=api_name, params=page_params, fields=fields)
+            page_signature = self._page_signature(page_rows)
+            if page_signature in seen_page_signatures and page_rows:
+                raise RuntimeError(
+                    f"API {api_name} returned a repeated page at offset {page_params['offset']}; "
+                    "limit/offset pagination did not advance."
+                )
+            seen_page_signatures.add(page_signature)
+            rows.extend(page_rows)
+            if len(page_rows) < self.row_limit:
+                return rows
+
+        raise RuntimeError(
+            f"API {api_name} reached max_pages={self.max_pages} with page size {self.row_limit}; "
+            "must split request to avoid silent data loss."
+        )
+
+    def _query_once(
+        self,
+        api_name: str,
+        params: dict[str, Any],
+        fields: str | None = None,
+    ) -> list[dict[str, Any]]:
         self._throttle()
         payload: dict[str, Any] = {
             "api_name": api_name,
             "token": self.token,
-            "params": params or {},
+            "params": params,
         }
         if fields:
             payload["fields"] = fields
@@ -71,14 +108,7 @@ class TushareClient:
                     raise RuntimeError(f"Tushare API error: {data.get('msg', 'unknown')}")
                 items = data.get("data", {}).get("items", [])
                 columns = data.get("data", {}).get("fields", [])
-                rows = [dict(zip(columns, row)) for row in items]
-                # 返回上限命中检测：命中即 raise，不静默发布截断数据
-                if len(rows) >= self.row_limit:
-                    raise RuntimeError(
-                        f"API {api_name} returned {len(rows)} rows (hit limit {self.row_limit}). "
-                        f"Must split request to avoid silent data loss."
-                    )
-                return rows
+                return [dict(zip(columns, row)) for row in items]
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 last_error = e
                 if attempt < self.max_retries:
@@ -106,3 +136,10 @@ class TushareClient:
         """计算请求参数 SHA256（用于去重）。"""
         raw = str(sorted(params.items()))
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _page_signature(rows: list[dict[str, Any]]) -> str:
+        if not rows:
+            return "empty"
+        raw = repr(rows[:3]) + repr(rows[-3:]) + str(len(rows))
+        return hashlib.sha256(raw.encode()).hexdigest()

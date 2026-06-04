@@ -4,7 +4,7 @@
 source_system: tushare
 endpoint: stk_limit
 ods_table: ods_tushare_stk_limit
-gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=stk_limit
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=stk_limit/endpoint=stk_limit
 partition_field: partition_date
 priority: P0
 consumers:

@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+COPY scripts/ingestion/requirements.txt /app/scripts/ingestion/requirements.txt
+RUN pip install --no-cache-dir -r /app/scripts/ingestion/requirements.txt
+
+COPY scripts/ingestion /app/scripts/ingestion
+COPY configs/ingestion /app/configs/ingestion
+
+ENV INGESTION_MANIFEST=configs/ingestion/ods_current_scope_v0.yml
+
+ENTRYPOINT ["python", "-m", "scripts.ingestion.run_ingestion_job"]

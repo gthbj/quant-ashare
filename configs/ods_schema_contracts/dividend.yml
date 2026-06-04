@@ -4,7 +4,7 @@
 source_system: tushare
 endpoint: dividend
 ods_table: ods_tushare_dividend
-gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=dividend
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=dividend/endpoint=dividend
 partition_field: partition_date
 priority: P1
 consumers: []

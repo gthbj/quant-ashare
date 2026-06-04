@@ -1217,3 +1217,39 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`, `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`, `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`, `docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`, `TODO.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260604-04: OQ-005 每日生产采集采用 current-scope 单 Job + 固定出口
+
+日期: 2026-06-04
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+OQ-005 生产写入 smoke 期间，多个分组 Cloud Run Jobs 在短时间内连续请求 Tushare 兼容 API，存在同一 Tushare token 被识别为多 IP 使用的风险。Composer `kubernetes` queue 任务曾停留在 queued 且没有创建 Cloud Run execution，default Celery queue 的只读 smoke 已验证可由 scheduler 正常派发。
+
+### 决策
+
+1. 每日生产采集入口统一使用 `ashare-ingest-current-scope` 单个 Cloud Run Job execution，顺序执行当前实际消费的 14 个 ODS endpoint。
+2. 4 个分组 Jobs（`market_eod`、`index_eod`、`dim_snapshot`、`finance_recent`）保留为诊断和单组补救入口，不作为每日 DAG 默认并发入口。
+3. Cloud Run Jobs 使用 Direct VPC egress + Cloud NAT + 区域静态外部 IP 固定出口；Job 模板默认保留 `--dry-run`，Composer 生产路径在 `ashare_pipeline_dry_run=false` 时显式传入 `--allow-gcs-write`。
+4. Composer DAG 使用 default Celery queue，不显式指定 `queue="kubernetes"`。
+5. 当前 Airflow 变量为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`；每日生产采集启用，但完整 ODS→DIM/DWD/DWS/ADS 转换仍需 `ashare_enable_full_refresh=true` 显式进入。
+
+### 理由
+
+单 execution 顺序执行能在当前 token/IP 约束下减少并发出口风险，并且更容易定位单日采集失败。固定出口使 Cloud Run 请求来源稳定。default Celery queue 已通过纯 scheduler smoke，避免 Kubernetes worker pod queued 后无 Cloud Run execution 的派发问题。
+
+### 影响
+
+OQ-005 Phase 1.7 已部署 `ashare-ingest-current-scope`、Direct VPC egress、Cloud NAT 固定出口和更新后的 Composer DAG。`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填全部成功并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`；`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness。OQ-005 仍保持 open，待 Dataform/BigQuery SQL 生产转换、告警、补跑和运维观测闭环完成后关闭。
+
+### 备选方案
+
+继续每日 DAG 并发触发 4 个分组 Jobs；放弃，因为会增加同一 token 短时间多出口请求风险。继续使用 `kubernetes` queue；放弃，因为当前环境出现过 scheduler 派发后任务停留 queued 且没有创建 Cloud Run execution 的现象。把 full refresh 放回每日主链；放弃，因为每日调度只应处理最新业务日，2019+ 全历史 schema 检查和完整重建必须作为显式维护/补跑路径。
+
+### 相关文件
+
+`scripts/ingestion/run_ingestion_job.py`, `orchestration/cloud_run_jobs/deploy_ingestion_jobs.sh`, `orchestration/cloud_run_jobs/ingestion_jobs.yaml`, `orchestration/cloud_run_jobs/README.md`, `orchestration/composer/dags/ashare_daily_pipeline_v0.py`, `orchestration/composer/README.md`, `orchestration/README.md`, `TODO.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`

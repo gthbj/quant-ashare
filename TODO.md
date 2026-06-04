@@ -26,13 +26,14 @@
 
 ## 工程 / 调度
 
-- [ ] OQ-005 GCP 数据流水线落地：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md` 已定义 Cloud Run Jobs 采集、Dataform / BigQuery Studio pipeline 做 ODS→ADS、Cloud Composer 编排，且已按 owner 要求收敛为只描述最终实现方式的陈述性方案；PR #42 分支已实现 Phase 0 采集 manifest、14 张 schema contract、meta 表 DDL 与采集脚本 stub，并已合入 #44/#46 review 修复；下一步实现 Cloud Run Jobs、Dataform P0 转换和 Composer DAG
+- [~] OQ-005 GCP 数据流水线落地：`docs/prd/PRD_20260603_03_GCP数据流水线方案.md` 已定义 Cloud Run Jobs 采集、Dataform / BigQuery Studio pipeline 做 ODS→ADS、Cloud Composer 编排；Phase 0 已实现采集 manifest、14 张 schema contract、meta 表 DDL 与采集脚本 stub；Phase 1/1.5/1.6 已实现 endpoint worker、GCS staging/publish、小范围写入 smoke、ODS 可读性 QA、Composer 3 环境和每日轻量 readiness DAG；Phase 1.7 已新增 `ashare-ingest-current-scope` 单 execution 生产入口、Direct VPC egress + Cloud NAT 固定出口，修复 Composer scheduler queued 问题为 default Celery queue 路径，并完成 `2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填和 `2026-06-04` Composer 生产 DAG 首跑。当前 Airflow 变量为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`；下一步接入/验证 Dataform 或 BigQuery SQL 生产转换、告警、补跑和完整 ODS→ADS 生产链路
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算 / 调度配置
 - [ ] 写"从 ODS 继承字段描述"脚本（`bq show` -> 映射 -> `bq update`）
 - [ ] 增量调度（dbt 或 Airflow + SQL）与数据质量断言
 
 ## 近期完成
 
+- [x] OQ-005 Phase 1.7 生产采集首跑已完成：Cloud Run Jobs 已切到 Direct VPC egress + Cloud NAT + 静态出口 IP，生产入口改为 `ashare-ingest-current-scope` 单 execution 顺序执行当前 14 个 ODS endpoint，Composer DAG 使用 default Celery queue 解决 scheduler 派发卡在 queued 的问题；纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 成功；`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填全部成功并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`；`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness，Airflow 变量当前为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`
 - [x] 新增策略 1 Cloud Run 训练回测执行器 PRD：`docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`，定义 Cloud Run Jobs + sklearn logistic + Python ledger_exec_v1 + GCS model/report artifact + 默认全实验并发 / owner 显式限流的目标执行路径；已明确 scikit-learn 只替代 BQML 模型训练/预测，不替代 BigQuery DWS/ADS、GCS artifact、报告诊断和 QA
 - [x] Ledger v1 P0 交易执行语义已进入 main（commit `602baea`）：`08_run_backtest.sql` 已升级为 `ledger_exec_v1` 日级账户 ledger，固化 t-1 信号 / t 开盘执行、pending sell 每日继续卖、实际持仓 netting、现金缩放、订单状态和每日 mark-to-market NAV；短区间 BigQuery smoke（`bt_ledger_v1_p0_smoke_20260604_01`）和 `10` QA 已通过
 - [x] 实现策略 1 因子贡献度分析 P0：新增 `scripts/strategy1/attribute_factor_contribution.py`、`sql/ml/strategy1/14_qa_factor_attribution_outputs.sql`，主报告接入因子贡献度摘要，并更新 runner README；正式 baseline local-only 生成 `factor_attribution/` artifact，覆盖 selected model 55 个非截距特征、13 个因子组，`14_qa_factor_attribution_outputs.sql` 全部通过

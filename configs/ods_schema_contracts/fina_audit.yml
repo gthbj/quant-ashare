@@ -4,7 +4,7 @@
 source_system: tushare
 endpoint: fina_audit
 ods_table: ods_tushare_fina_audit
-gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=fina_audit
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=fina_audit/endpoint=fina_audit
 partition_field: partition_date
 priority: P2
 consumers: []

@@ -11,7 +11,7 @@
   "fields": [
     {"name": "ts_code", "type": "STRING", "nullable": false, "description": "TS股票代码"},
     {"name": "trade_date", "type": "STRING", "nullable": false, "description": "交易日期 YYYYMMDD"},
-    {"name": "suspend_timing", "type": "STRING", "nullable": false, "description": "停牌时间段（全天/半天）"},
+    {"name": "suspend_timing", "type": "STRING", "nullable": true, "description": "停牌时间段（全天/半天），Tushare 可返回 NULL"},
     {"name": "suspend_type", "type": "STRING", "nullable": true, "description": "停牌类型"}
   ]
 }

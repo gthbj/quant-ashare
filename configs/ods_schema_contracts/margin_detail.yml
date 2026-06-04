@@ -4,7 +4,7 @@
 source_system: tushare
 endpoint: margin_detail
 ods_table: ods_tushare_margin_detail
-gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=margin_detail
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=margin_detail/endpoint=margin_detail
 partition_field: partition_date
 priority: P1
 consumers: []

@@ -48,10 +48,13 @@
 
 - 仓库、记忆文件、文档、日志中**绝不可出现**：BigQuery service account key、Tushare token、任何 API key / 凭据 / 个人隐私。
 - 凭据通过环境变量 / 受信环境注入；`.gitignore` 已忽略 `*.key`/`credentials*.json`/`.env` 等。
+- OQ-005 Cloud Run Jobs 部署只允许通过 Secret Manager 将 Tushare token 注入为运行时环境变量 `TUSHARE_TOKEN`；Tushare 官方或兼容 API 地址用 `TUSHARE_HTTP_URL` 运行时配置，不把 token、代理认证信息或临时凭据写入仓库。
 
 ## 工程约束
 
 - DWD/DIM 物化后，下游一律查 DWD/DIM，不直接打 ODS。
+- OQ-005 Cloud Run Job 模板仍默认 `--dry-run`，生产写入只能由 Composer 在 `ashare_pipeline_dry_run=false` 时显式传入 `--allow-gcs-write`，不得在脚本里硬编码 token 或绕过 dry-run guard。当前 Cloud Composer Airflow 变量为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`：endpoint worker 已支持真实 API 拉取、limit/offset 分页、schema cast、GCS staging/publish、空返回记录和财务报告期 merge；当前生产入口为 `ashare-ingest-current-scope` 单 execution 顺序执行 14 个 ODS endpoint，并通过 Direct VPC egress + Cloud NAT 固定出口。每日 DAG 默认主链只读业务日分区或近期小窗口，不得默认执行 2019+ 全历史 schema 检查或完整 ODS→DIM/DWD/DWS/ADS 重建；`sql/qa/06_ods_parquet_schema_checks.sql` 和全量转换/QA 必须通过 `ashare_enable_full_refresh=true` 显式启用。已完成 `2026-05-20` 至 `2026-06-04` 当前范围 ODS 生产 GCS 写入和 `sql/qa/09_ods_daily_partition_readiness.sql` 验证；完整 ODS→ADS 转换/QA、Dataform/BigQuery SQL 生产链路、告警和补跑验收仍未完成。
+- Composer DAG SQL 文件同步到 Composer bucket 的 `data/sql/`；不得把项目 SQL 树同步到 `dags/sql/`，避免 DAG 解析器把 SQL 文件树当作 DAG bundle 处理并造成 worker/DagBag 状态异常。
 - 大范围回填建议分批（按年/季）跑并记录批次状态；P0 行情最终写 2019+，财务/事件从 2017 起。
 - `dim_stock` 若遇到 latest `stock_basic` 缺失但 2019+ daily 有记录的代码，只能作为 `derived_from_daily` 兜底；派生退市边界用 ODS 最新交易日减宽限期判断，不能用系统当前日期直接判退市。
 - PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支，保持分支列表干净。

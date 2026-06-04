@@ -4,7 +4,7 @@
 source_system: tushare
 endpoint: sz_daily_info
 ods_table: ods_tushare_sz_daily_info
-gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=sz_daily_info
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=sz_daily_info/endpoint=sz_daily_info
 partition_field: partition_date
 priority: P2
 consumers: []

@@ -81,6 +81,35 @@ endpoints:
   cadence: trade_day_daily
   business_date_field: trade_date
   partition_date_semantics: business_date
+  request_variants:
+  - variant: index_daily_000016_SH
+    params:
+      ts_code: 000016.SH
+    partition_endpoint: index_daily_000016_SH
+  - variant: index_daily_000688_SH
+    params:
+      ts_code: 000688.SH
+    partition_endpoint: index_daily_000688_SH
+  - variant: index_daily_000852_SH
+    params:
+      ts_code: 000852.SH
+    partition_endpoint: index_daily_000852_SH
+  - variant: index_daily_000905_SH
+    params:
+      ts_code: 000905.SH
+    partition_endpoint: index_daily_000905_SH
+  - variant: index_daily_399001_SZ
+    params:
+      ts_code: 399001.SZ
+    partition_endpoint: index_daily_399001_SZ
+  - variant: index_daily_399006_SZ
+    params:
+      ts_code: 399006.SZ
+    partition_endpoint: index_daily_399006_SZ
+  - variant: index_daily_399300_SZ
+    params:
+      ts_code: 399300.SZ
+    partition_endpoint: index_daily_399300_SZ
   unit_contract_required: false
   current_consumer:
   - dim_index
@@ -96,6 +125,27 @@ endpoints:
   cadence: trade_day_daily
   business_date_field: trade_date
   partition_date_semantics: business_date
+  request_variants:
+  - variant: index_dailybasic_000016_SH
+    params:
+      ts_code: 000016.SH
+    partition_endpoint: index_dailybasic_000016_SH
+  - variant: index_dailybasic_000905_SH
+    params:
+      ts_code: 000905.SH
+    partition_endpoint: index_dailybasic_000905_SH
+  - variant: index_dailybasic_399001_SZ
+    params:
+      ts_code: 399001.SZ
+    partition_endpoint: index_dailybasic_399001_SZ
+  - variant: index_dailybasic_399006_SZ
+    params:
+      ts_code: 399006.SZ
+    partition_endpoint: index_dailybasic_399006_SZ
+  - variant: index_dailybasic_399300_SZ
+    params:
+      ts_code: 399300.SZ
+    partition_endpoint: index_dailybasic_399300_SZ
   unit_contract_required: true
   current_consumer:
   - dim_index
@@ -171,7 +221,7 @@ endpoints:
   - unit_contract
   - finance_caliber
   notes: 财务指标（衍生 ROE/EPS/杠杆等），ann_date 做 PIT
-  api: fina_indicator
+  api: fina_indicator_vip
 - endpoint: income
   partition_endpoint: income
   ods_table: ashare_ods.ods_tushare_income
@@ -187,7 +237,7 @@ endpoints:
   - unit_contract
   - finance_caliber
   notes: 利润表，f_ann_date 做 PIT
-  api: income
+  api: income_vip
 - endpoint: balancesheet
   partition_endpoint: balancesheet
   ods_table: ashare_ods.ods_tushare_balancesheet
@@ -203,7 +253,7 @@ endpoints:
   - unit_contract
   - finance_caliber
   notes: 资产负债表，f_ann_date 做 PIT
-  api: balancesheet
+  api: balancesheet_vip
 - endpoint: cashflow
   partition_endpoint: cashflow
   ods_table: ashare_ods.ods_tushare_cashflow
@@ -219,4 +269,4 @@ endpoints:
   - unit_contract
   - finance_caliber
   notes: 现金流量表，f_ann_date 做 PIT
-  api: cashflow
+  api: cashflow_vip

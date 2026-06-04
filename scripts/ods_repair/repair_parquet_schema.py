@@ -159,6 +159,25 @@ def source_uri_hash(source_uri: str) -> str:
     return hashlib.sha256(blob_path.encode()).hexdigest()[:12]
 
 
+def hive_partition_value_from_uri(uri: str, key: str) -> Optional[str]:
+    _, blob_path = parse_gcs_uri(uri)
+    prefix = f"{key}="
+    for part in blob_path.split("/"):
+        if part.startswith(prefix):
+            return part.split("=", 1)[1]
+    return None
+
+
+def contract_gcs_prefix_to_blob_prefix(contract: Dict[str, Any]) -> str:
+    prefix_uri = contract.get("gcs_prefix")
+    if not prefix_uri:
+        prefix_uri = f"gs://{GCS_BUCKET}/{RAW_PREFIX}/api={contract['endpoint']}/endpoint={contract['endpoint']}"
+    bucket_name, blob_prefix = parse_gcs_uri(prefix_uri)
+    if bucket_name != GCS_BUCKET:
+        raise ValueError(f"Unsupported contract bucket {bucket_name}; expected {GCS_BUCKET}")
+    return blob_prefix.rstrip("/") + "/"
+
+
 # ---------------------------------------------------------------------------
 # Schema comparison and casting
 # ---------------------------------------------------------------------------
@@ -177,7 +196,7 @@ def detect_mismatches(
 ) -> List[Dict[str, Any]]:
     mismatches = []
     contract_fields = {f["field_name"]: f for f in contract["fields"]}
-    for i in range(actual_schema.num_fields):
+    for i in range(len(actual_schema)):
         actual_field = actual_schema.field(i)
         name = actual_field.name
         if name in contract_fields:
@@ -392,14 +411,15 @@ def repair_file(
             return True
 
     src_hash = source_uri_hash(source_uri)
+    api_partition = hive_partition_value_from_uri(source_uri, "api") or endpoint
     staging_uri = (
         f"gs://{GCS_BUCKET}/{STAGING_PREFIX}/run_id={run_id}"
-        f"/api=tushare/endpoint={endpoint}/partition_date={partition_date}"
+        f"/api={api_partition}/endpoint={endpoint}/partition_date={partition_date}"
         f"/src_{src_hash}/data.parquet"
     )
     backup_uri = (
         f"gs://{GCS_BUCKET}/{BACKUP_PREFIX}/run_id={run_id}"
-        f"/api=tushare/endpoint={endpoint}/partition_date={partition_date}"
+        f"/api={api_partition}/endpoint={endpoint}/partition_date={partition_date}"
         f"/src_{src_hash}/data.parquet"
     )
 
@@ -612,7 +632,7 @@ def main():
     client = storage.Client(project=args.gcs_project)
     bq_client = bigquery.Client(project=args.gcs_project)
 
-    prefix = f"{RAW_PREFIX}/api=tushare/endpoint={args.endpoint}/"
+    prefix = contract_gcs_prefix_to_blob_prefix(contract)
     logger.info(f"Listing GCS files: gs://{GCS_BUCKET}/{prefix}")
     all_files = list_gcs_parquet_files(client, prefix)
     logger.info(f"Found {len(all_files)} total Parquet files")

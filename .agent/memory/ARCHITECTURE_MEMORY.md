@@ -12,9 +12,13 @@ Tushare 等数据源
 
 ## GCP 生产流水线目标架构（OQ-005）
 
-长期生产链路采用 GCP 原生组合：Cloud Run Jobs 负责 Tushare/Tinyshare API 到 GCS Parquet 的每日采集；Dataform / BigQuery Studio pipeline 负责 ODS→DIM/DWD/DWS/ADS 的 BigQuery SQL 转换、依赖、assertions 和文档；Cloud Composer 负责全流程编排、失败重试、补跑和告警。方案文档为 `docs/prd/PRD_20260603_03_GCP数据流水线方案.md`，正文已按 owner 反馈收敛为陈述性目标实现方案，并已补入财务 empty-return 口径和 Phase 1 Cloud Scheduler / Composer 触发入口。
+长期生产链路采用 GCP 原生组合：Cloud Run Jobs 负责 Tushare 兼容 API 到 GCS Parquet 的每日采集；Dataform / BigQuery Studio pipeline 负责 ODS→DIM/DWD/DWS/ADS 的 BigQuery SQL 转换、依赖、assertions 和文档；Cloud Composer 负责全流程编排、失败重试、补跑和告警。方案文档为 `docs/prd/PRD_20260603_03_GCP数据流水线方案.md`，正文已按 owner 反馈收敛为陈述性目标实现方案，并已补入财务 empty-return 口径和 Phase 1 Cloud Scheduler / Composer 触发入口。
 
 首批每日生产采集只覆盖当前 SQL 实际消费的 14 张 ODS：`daily`、`adj_factor`、`stk_limit`、`suspend_d`、`daily_basic`、`index_daily`、`index_dailybasic`、`stock_basic`、`trade_cal`、`namechange`、`fina_indicator`、`income`、`balancesheet`、`cashflow`。P1+ 当前未消费 endpoint 进入后续接入池；新增 endpoint 必须先更新采集 manifest、schema contract、单位契约和 QA。
+
+2026-06-04 OQ-005 Phase 1/1.5/1.7 已实现 endpoint-group worker、`ashare-ingest-current-scope` 生产入口、Direct VPC egress + Cloud NAT 固定出口、ODS 可读性 QA 和 Composer smoke：`scripts/ingestion/run_ingestion_job.py` 是 Cloud Run Job 入口，`scripts/ingestion/common/endpoint_runner.py` 统一执行 API 拉取、血缘列、schema cast、分区写入和财务报告期 merge；`orchestration/cloud_run_jobs/` 保存采集镜像、Cloud Build、Job 配置和部署脚本，`orchestration/composer/dags/ashare_daily_pipeline_v0.py` 保存每日流水线 DAG。镜像已推送到 `asia-east2-docker.pkg.dev/data-aquarium/ashare/ingestion@sha256:351dfd996b6ec066135d68c40f84eb1c2a52e43ea8e28208ba1711be90a7652d`，5 个 Cloud Run Jobs 已部署且模板默认 `--dry-run`。Cloud Composer 3 环境 `ashare-composer` 已创建，DAG 文件同步到 Composer bucket 的 `dags/`，SQL 文件同步到 Composer bucket 的 `data/sql/`；不要把 SQL 树放在 `dags/sql/`，避免 DAG 解析/worker 同步异常。Airflow 变量 `ashare_pipeline_dry_run=false` 时，Composer 触发 `ashare-ingest-current-scope` 并显式传入 `--allow-gcs-write` 做生产写入；`ashare_enable_full_refresh=false` 时不进入完整 ODS→ADS 分支。Tushare token 只允许通过 Secret Manager 注入为 `TUSHARE_TOKEN`，官方或兼容 API 地址通过 `TUSHARE_HTTP_URL` 运行时配置。
+
+2026-06-04 OQ-005 Phase 1.6/1.7 已将每日 DAG 主链收窄为 setup → 单个 `ashare-ingest-current-scope` Cloud Run Job → `sql/qa/09_ods_daily_partition_readiness.sql` → finish。`09` 只检查业务日分区或近期小窗口；`sql/qa/06_ods_parquet_schema_checks.sql`、DIM/DWD/DWS/metadata/QA 全量链路统一挂在 `ashare_enable_full_refresh=true` 显式分支后面。Composer 变量当前为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`；default Celery queue 的纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 已成功，`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填均成功并逐日通过 `09` readiness，`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness。
 
 ## ODS Raw Parquet Schema 修复约束
 

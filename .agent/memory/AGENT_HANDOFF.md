@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-005 最新状态（2026-06-04）**：OQ-005 已从 PRD/worker/dry-run 进入生产采集阶段。当前每日生产采集只覆盖 SQL 实际消费的 14 张 ODS；`ashare-ingest-current-scope` 单 execution 入口已部署，Cloud Run Jobs 走 Direct VPC egress + Cloud NAT + 区域静态 IP 固定出口，Composer DAG 使用 default Celery queue；Airflow 变量当前为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`。纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 成功；`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填全部成功并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`；`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness。OQ-005 仍未关闭，因为完整 ODS→ADS 转换、Dataform/BigQuery SQL 生产链路、告警、补跑和运维观测尚未验收。
+
 `quant-ashare` 已完成 P0 DIM/DWD 物化、OQ-004 指数基准口径、策略 1 DWS/ADS、策略 1 BigQuery ML runner 端到端实跑、OQ-006 单位契约、OQ-003 财务三表 DWD/DWS、OQ-010 交易成本 profile、策略 1 中文报告与归因分析、策略 1 报告 GCS uploaded 模式、策略 1 模型质量诊断 PRD 及实现、策略 1 valid/test live-available 预测池口径修正 PRD 及实现，以及策略 1 分数方向校准 PRD 及实现。2026-06-02 已创建 `gs://ashare-artifacts`（`ASIA-EAST2`）、配置本机 ADC（quota project=`data-aquarium`）、去掉 `--skip-gcs-upload` 重跑 `render_report.py`，ADS 已回写 `report_upload_status=uploaded` 和真实 `report_uri`，`sql/ml/strategy1/10_qa_runner_outputs.sql` 全部通过。诊断 QA（`12`）已全部通过：PR #27/28 修复 `split_tag` 歧义（QA-DIAG-6 valid/test 日数校验通过），PR #29/30 实现 live-available 预测池口径（QA-POOL-1~6 全部通过），PR #32 实现 score orientation 校准（QA-ORIENT-DIAG-1 通过）。2026-06-03 已完成 livepool reverse-score shadow run（`s1_bqml_livepool_revscore_20260603_01`），验证反向后的 valid/test RankIC 转正且回测从亏损转为正收益（total_return=0.2787）；oriented run（`s1_bqml_livepool_oriented_20260603_01`）的 `12` QA 全部通过。已新增 `data_audit/` ODS/GCS 数据审查入口和 `data_audit/reports/` 报告目录，提示词限定本次只审查 2019-01-01 及之后的数据、只读不补数据，并要求审查 Agent 自行编写和维护审查脚本；提示词已补 Tushare 官方文档链接、API 返回行数打满单次上限时的截断风险检查，以及按 endpoint/主题拆脚本规则。OQ-005 GCP 数据流水线 PRD 已新增并按 owner 反馈收敛为陈述性目标实现方案：长期方案为 Cloud Run Jobs 采集 Tushare/Tinyshare→GCS Parquet，Dataform / BigQuery Studio pipeline 做 ODS→DIM/DWD/DWS/ADS，Cloud Composer 做全流程编排；首批每日生产采集只覆盖当前实际消费的 14 张 ODS，当前未消费 endpoint 进入后续接入池；PR #39 review 两条低优先级建议已补入财务 empty-return 口径和 Phase 1 Cloud Scheduler / Composer 触发入口；PR #42 分支已实现 Phase 0 采集 manifest、schema contract、meta 表 DDL 与采集脚本 stub，并整合 PR #44/#46 review 修复。已新增 OQ-012 ODS 外部表 Parquet schema 修复 PRD：10 张 2019+ schema mismatch 外部表按 GCS 原文件 schema-preserving rewrite 方案修复，API 重拉只作补救路径，当前 P0 源表 `ods_tushare_stk_limit` 优先；PR #43 已实现 schema contract、修复/验证脚本、QA SQL 和执行 README，并按 review 补齐 INT->FLOAT64 fail-closed、null count 阻断、BQ staging 行数/列可读验证与 staging 清理；P0 `stk_limit` 仍待在 BigQuery 实际执行修复并验证。核心规范保持：`sec_code` 主键、单位元/股、`ann_date_eff`/`visible_trade_date` PIT、后复权 `_hfq`、行业归属时点区间、血缘与版本字段、按月分区 + 聚簇；当前阶段先把 2019+ 数据做正确，2019 年以前正式样本/明细是下一步。
 
 **已物化表**：`data-aquarium.ashare_meta` 下 `ods_field_unit_map`；`data-aquarium.ashare_dim` 下 `dim_trade_calendar`、`dim_stock`、`dim_stock_name_hist`、`dim_index`；`data-aquarium.ashare_dwd` 下 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、`dwd_fin_indicator`、`dwd_fin_indicator_latest`、`dwd_index_eod`，以及 OQ-003 财务三大报表 `dwd_fin_income`/`dwd_fin_balancesheet`/`dwd_fin_cashflow` 及各自 `_latest`（PR #13）；`data-aquarium.ashare_dws` 下策略 1 六表（universe、价格特征、估值特征、标签、特征宽表、样本表）和 `dws_stock_feature_fin_daily`（默认合并口径 PIT 财务特征，PR #13）；`data-aquarium.ashare_ads` 下 11 张训练/预测/组合/回测/监控契约表。PR #9 合并后的 `dim_stock` 依赖链已在 2026-06-02 重建：`dim_stock`、`dwd_stock_eod_price`、策略 1 DWS 六表和 ADS 契约表均已刷新，`sql/metadata/01_p0_table_column_descriptions.sql` 已执行，`sql/qa/01_p0_smoke_checks.sql` 与 `sql/qa/02_strategy1_dws_ads_checks.sql` 均通过；`sql/qa/03_oq004_index_checks.sql` 近期通过。二轮评审发现已修复：盘中临停不再误标全天停牌，财务 latest 改为 `update_flag DESC` 优先。P0 DIM/DWD 字段说明缺失数为 0。
@@ -18,7 +20,7 @@
 
 **下一步（P0/P1）**：score orientation 校准已实现并验证（PR #32），live-available 预测池口径已实现并验证（PR #29/30），诊断 QA 全部通过。`docs/prd/PRD_20260603_02_策略1首轮质量迭代实验.md` 已由 PR #35 合并进入 `main`；OQ-010 首轮实验 runner 参数化、manifest、对比报告脚本、portfolio-only `prediction_run_id` 复用预测源路径和 horizon-aware 诊断/QA 已由 PR #37 合并进入 `main`。2026-06-04 PR #47 合并后 Stage C 已重跑通过；随后补齐 3*2*2*2 全因子网格缺失的 19 个组合，最终 24 个组合均通过 `12_qa_model_diagnosis_outputs`；同 stage dependency batching 与诊断状态语义修复已由 PR #48 合入 `main`。当前最优组合 `pv_fin_quality + 30/5% + biweekly + 5d` 已完成正式基线重训 run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01`（2024-01-02 至 2025-12-31，benchmark=`000852.SH`，total_return=41.10%、excess_return=12.09%、Sharpe=1.043、max_drawdown=-14.48%，报告和诊断均 uploaded 到 GCS）。2026-06-04 已新增并改造 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`、`docs/prd/PRD_20260604_02_策略1月度滚动重训.md` 和 `docs/prd/PRD_20260604_03_策略1因子贡献度分析.md`；因子贡献度分析 P0 已实现：新增独立脚本、`14_qa_factor_attribution_outputs.sql`、主报告摘要接入和 README 说明，正式 baseline local-only 生成 `factor_attribution/` artifact，覆盖 55 个非截距特征、13 个因子组，`14` QA 全部通过。Ledger v1 P0 已进入 `main`（commit `602baea`）；Ledger v1 P2 state resume 已在 `codex/ledger-state-resume` 实现，且 PR #54 review follow-up 已修复 biweekly resume QA anchor 强制、resume 首日 `daily_return` 父 NAV 锚点和 `15` 一致性 QA 的 daily_return 覆盖；`bt_ledger_resume_smoke_20260604_01` 已重新跑通短区间 `08`/`09`/本地报告/`10` resume QA。2026-06-04 已新增 `docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`，定义 Cloud Run Jobs + scikit-learn logistic 训练 / 预测 + Python `ledger_exec_v1` 回测；PR #55 review follow-up 已补 sklearn vs BQML 模型质量对等门槛、P0 默认 `class_weight=None`、sklearn 正则网格不得直接翻译 BQML L1/L2；默认并发数为 manifest 可执行实验数量，owner 可显式限流，既有 BQML runner 保留为 reference / fallback。Cloud Run runner 首版已在 `codex/implement-strategy1-cloudrun-runner` 实现并通过本地 dry-run / py_compile / BigQuery dry-run；真实 Cloud Run/BQ smoke、sklearn vs BQML parity 和 Python ledger vs SQL ledger 等价验收仍待做。后续建议 review/merge Cloud Run runner PR，再 review/merge P2 resume PR；随后跑 Ledger v1 P1 fixed-model 扩展回测至 `2026-04-30` 并做 full fresh vs resume segment 一致性验收；月度滚动重训应复用 Cloud Run train/predict 底座。P1 再做三大报表单季 `q_*` 派生、行业/资金/事件特征扩展。关键参数：`@dwd_start_date = DATE '2019-01-01'`、`@fin_start_period = '20170101'`、`@lookback_start_date = DATE '2018-01-01'` 默认；后续应把 lookback 改为按最大滚动窗口计算，并决定是否补 lookback-capable 价格构建输入（OQ-011）。
 
-**待 owner 确认 / 执行**：OQ-005 GCP 数据流水线后续 Cloud Run Jobs / Dataform / Composer 链路待实施；OQ-010 正式基线默认参数是否采纳；Ledger v1 P2 resume PR 是否合并，以及后续 P1 2026 fixed-model 扩展回测 / resume consistency 验收 / 月度滚动重训；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；OQ-012 修复脚本与 QA 待合并后实际执行 P0 `stk_limit` 修复并验证。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
+**待 owner 确认 / 执行**：OQ-005 生产 GCS 采集已启用并完成 `2026-05-20` 至 `2026-06-04` 当前范围数据写入/日分区 readiness 验证；后续仍需完成完整 ODS→ADS 转换、Dataform/BigQuery SQL 生产链路、告警、补跑和运维观测验收。OQ-010 正式基线默认参数是否采纳；Ledger v1 P2 resume PR 是否合并，以及后续 P1 2026 fixed-model 扩展回测 / resume consistency 验收 / 月度滚动重训；是否补 lookback-capable 价格构建输入以填满 2019-01 起 60 日窗口（OQ-011）；OQ-012 修复脚本与 QA 待合并后实际执行 P0 `stk_limit` 修复并验证。OQ-001/OQ-003/OQ-004/OQ-006/OQ-007 已关闭。
 
 **TODO / OQ 维护约定**：`TODO.md` 只保留下一步可执行事项和少量近期完成项；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源，TODO 仅引用 OQ 编号和对应行动。
 
@@ -167,6 +169,85 @@ Run ID: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `TODO.md`
+
+---
+
+日期: 2026-06-04
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: manual_oq005_scheduler_smoke_default_queue_20260604_01 / manual_oq005_daily_prod_20260604_01
+相关 issue/PR: OQ-005 / GCP pipeline production ingestion phase 1.7
+
+### 已完成工作
+
+- 在工作树 `/private/tmp/quant-ashare-oq005-deploy-phase1`、分支 `codex/oq005-deploy-phase1` 继续推进 OQ-005 生产采集部署，并在 rebase 到最新 `origin/main` 后保留 main 的策略 1 Cloud Run runner 状态。
+- 新增并部署 `ashare-ingest-current-scope` Cloud Run Job，单 execution 顺序执行当前实际消费的 14 个 ODS endpoint；4 个分组 Jobs 保留为诊断和单组补救入口。
+- Cloud Run Jobs 已配置 Direct VPC egress + Cloud NAT + 区域静态外部 IP 固定出口；Job 模板默认保留 `--dry-run`，Composer 生产路径显式传入 `--allow-gcs-write`。
+- `ashare_daily_pipeline_v0` 已移除 `queue="kubernetes"`，使用 default Celery queue；纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 成功。
+- 生产 GCS 回填已完成：`2026-05-20` 至 `2026-06-03` 区间内 SSE 开市日全部写入成功，并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`。
+- Composer 生产 DAG 首跑 `manual_oq005_daily_prod_20260604_01` 已写入 `2026-06-04` 数据并成功完成 readiness。
+- Airflow 变量当前为 `ashare_pipeline_dry_run=false`、`ashare_enable_full_refresh=false`。
+
+### 重要上下文
+
+- 当前只启用 ODS 生产采集和每日分区 readiness；完整 ODS→DIM/DWD/DWS/ADS 转换仍在 `ashare_enable_full_refresh=true` 显式分支之后，尚未作为生产链路验收。
+- Cloud Run Job 模板保留 `--dry-run` 是安全门禁；生产写入依赖 Composer 传参，不能在脚本中移除 token/dry-run guard。
+- Token 只保存在 Secret Manager，不写仓库、文档、日志或记忆。
+- `ods_tushare_stk_limit` 历史 Parquet schema mismatch 仍属于 OQ-012 维护/修复工作，不阻断每日生产采集。
+
+### 改动文件
+
+- `scripts/ingestion/run_ingestion_job.py`
+- `scripts/ingestion/README.md`
+- `scripts/ingestion/common/gcs_writer.py`
+- `configs/ingestion/schema_contracts/suspend_d.json`
+- `orchestration/cloud_run_jobs/deploy_ingestion_jobs.sh`
+- `orchestration/cloud_run_jobs/ingestion_jobs.yaml`
+- `orchestration/cloud_run_jobs/README.md`
+- `orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `orchestration/composer/README.md`
+- `orchestration/README.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+
+### 测试 / 验证
+
+- Artifact Registry latest digest 确认为 `sha256:351dfd996b6ec066135d68c40f84eb1c2a52e43ea8e28208ba1711be90a7652d`。
+- `gcloud composer environments run ... variables get -- ashare_pipeline_dry_run` 返回 `false`。
+- `gcloud composer environments run ... variables get -- ashare_enable_full_refresh` 返回 `false`。
+- `gcloud composer environments run ... dags state -- ashare_daily_pipeline_v0 2026-06-04T15:15:08+00:00` 返回 `success, {"business_date": "2026-06-04"}`。
+- `2026-05-20` 至 `2026-06-03` SSE 开市日生产回填均有对应 Cloud Run execution 成功记录，并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`。
+- `git rebase origin/main` 成功。
+- `git diff --check` 通过。
+
+### 阻塞项
+
+- 无当前采集阻塞。OQ-005 仍未关闭，因完整 ODS→ADS 生产转换、告警、补跑和运维观测尚未验收。
+
+### 下一步建议
+
+- 接入/验证 Dataform 或 BigQuery SQL 生产转换链路。
+- 补 Cloud Composer 告警、补跑和运行状态观测。
+- 明确 ODS→ADS full refresh 的生产启用窗口，再将 `ashare_enable_full_refresh=true` 作为单独维护/补跑任务验收。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
 
 ---
 
