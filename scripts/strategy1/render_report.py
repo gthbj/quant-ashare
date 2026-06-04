@@ -1330,6 +1330,38 @@ def render_markdown(summary: dict, model_info: dict, evidence: dict,
         sections.append("AI 分析未启用或无输出。请检查 `--ai-analysis-mode` 参数。")
         sections.append("")
 
+    # 因子贡献度摘要（可选第 13 步产物）
+    if m.get("factor_attribution_status") == "completed":
+        sections.append("## 因子贡献度摘要\n")
+        if m.get("factor_attribution_uri"):
+            sections.append(f"- GCS: `{m.get('factor_attribution_uri')}`")
+        sections.append(f"- 本地: `{m.get('local_factor_attribution_path', '')}`")
+        sections.append(f"- 版本: `{m.get('factor_attribution_version', '')}`")
+        top_groups = m.get("top_score_factor_groups", []) or []
+        if top_groups:
+            sections.append("")
+            sections.append("| 因子组 | 特征数 | 模型标准化贡献 | 持仓分数贡献 | Test RankIC |")
+            sections.append("|---|---:|---:|---:|---:|")
+            for g in top_groups[:5]:
+                sections.append(
+                    f"| {g.get('factor_group', '')} | {g.get('feature_count', '')} | "
+                    f"{_fmt(g.get('model_abs_oriented_standardized_coefficient_sum'))} | "
+                    f"{_fmt(g.get('held_position_score_contribution_sum'))} | "
+                    f"{_fmt(g.get('test_mean_rank_ic_avg'))} |"
+                )
+        pos_factors = m.get("top_positive_score_factors", []) or []
+        neg_factors = m.get("top_negative_score_factors", []) or []
+        if pos_factors:
+            sections.append("")
+            sections.append("正向分数贡献靠前: " + "、".join(
+                f"{x.get('feature')}({x.get('factor_group')})" for x in pos_factors[:5]
+            ))
+        if neg_factors:
+            sections.append("负向分数贡献靠前: " + "、".join(
+                f"{x.get('feature')}({x.get('factor_group')})" for x in neg_factors[:5]
+            ))
+        sections.append("")
+
     # 附件说明
     sections.append("## 附件\n")
     sections.append("| 文件 | 说明 |")
@@ -1420,6 +1452,33 @@ def render_html(summary: dict, model_info: dict, evidence: dict,
 <p><b>模式</b>: {html.escape(status_label)} {'| <b>模型</b>: ' + html.escape(ai_result.get('model', '')) if ai_result.get('model') else ''}</p>
 <div style="white-space:pre-wrap;background:#f9f9f9;padding:16px;border-radius:4px;font-size:0.95em">{html.escape(ai_result.get('analysis', ''))}</div>"""
 
+    factor_html = ""
+    if m.get("factor_attribution_status") == "completed":
+        group_rows = ""
+        for g in (m.get("top_score_factor_groups", []) or [])[:5]:
+            group_rows += (
+                f"<tr><td>{html.escape(str(g.get('factor_group', '')))}</td>"
+                f"<td>{html.escape(str(g.get('feature_count', '')))}</td>"
+                f"<td>{html.escape(_fmt(g.get('model_abs_oriented_standardized_coefficient_sum')))}</td>"
+                f"<td>{html.escape(_fmt(g.get('held_position_score_contribution_sum')))}</td>"
+                f"<td>{html.escape(_fmt(g.get('test_mean_rank_ic_avg')))}</td></tr>\n"
+            )
+        group_table = (
+            "<table><tr><th>因子组</th><th>特征数</th><th>模型标准化贡献</th>"
+            "<th>持仓分数贡献</th><th>Test RankIC</th></tr>"
+            f"{group_rows}</table>"
+        ) if group_rows else "<p>无因子组摘要。</p>"
+        uri_line = (
+            f"<p><b>GCS</b>: <code>{html.escape(str(m.get('factor_attribution_uri')))}</code></p>"
+            if m.get("factor_attribution_uri") else ""
+        )
+        factor_html = f"""<h2>因子贡献度摘要</h2>
+{uri_line}
+<p><b>本地</b>: <code>{html.escape(str(m.get('local_factor_attribution_path', '')))}</code> |
+<b>版本</b>: <code>{html.escape(str(m.get('factor_attribution_version', '')))}</code></p>
+{group_table}
+<p class="muted">该摘要为贡献度 proxy，不是消融实验，也不是因果归因。</p>"""
+
     model_metrics_pre = html.escape(json.dumps(json.loads(model_info.get("metrics_json") or "{}"), indent=2))
 
     return f"""<!DOCTYPE html>
@@ -1456,6 +1515,7 @@ pre{{background:#f6f6f6;padding:12px;overflow:auto;font-size:0.85em}}
 <p>口径: 每日持仓权重 × 股票当日收益的累计贡献（覆盖率 {cov.get('attribution_coverage_ratio', 0):.1%}）</p>
 {loss_table}
 {ai_html}
+{factor_html}
 <h2>模型选型</h2><pre>{model_metrics_pre}</pre>
 <h2>附件说明</h2>
 <table>
