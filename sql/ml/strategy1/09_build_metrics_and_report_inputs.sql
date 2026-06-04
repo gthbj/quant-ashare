@@ -16,6 +16,9 @@ DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
 DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_horizon_natural_frequency STRING DEFAULT 'weekly';
 DECLARE p_feature_set_id STRING DEFAULT 'strategy1_pv_v0_20260601';
+DECLARE p_execution_backend STRING DEFAULT 'bqml_sql_ledger_v1';
+DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1';
+DECLARE p_ledger_executor STRING DEFAULT 'bigquery_sql';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;
@@ -178,6 +181,7 @@ SELECT
     p_label_horizon AS label_horizon,
     p_horizon_natural_frequency AS horizon_natural_frequency,
     p_feature_set_id AS feature_set_id,
+    p_execution_backend AS execution_backend,
     a.n_days, a.annual_return, a.annual_vol,
     SAFE_DIVIDE(a.annual_return, a.annual_vol) AS sharpe,
     dd.max_dd AS max_drawdown,
@@ -191,7 +195,8 @@ SELECT
      OR (a.final_nav - 1.0) < 0
      OR dd.max_dd <= -0.15) AS diagnosis_triggered,
     -- ledger_exec_v1 成交口径（与 ads_backtest_trade_daily 1:1 可对账）
-    'ledger_exec_v1' AS ledger_version,
+    p_ledger_version AS ledger_version,
+    p_ledger_executor AS ledger_executor,
     'signal_date_next_open_execution' AS execution_semantics,
     p_initial_state_mode AS initial_state_mode,
     p_parent_backtest_id AS parent_backtest_id,

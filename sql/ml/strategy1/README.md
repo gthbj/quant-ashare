@@ -72,7 +72,28 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/14_qa_f
 # 15: Ledger resume consistency QA（仅 P2 验收时执行）
 # 用于比较 full fresh-start backtest 与 resume segment backtest 在 2026 段的 NAV/持仓/成交一致性。
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/15_qa_ledger_resume_consistency.sql
+
+# 16: Cloud Run sklearn runner QA（仅 Cloud Run 路径验收时执行）
+# 先按实际 run/backtest 修改脚本顶部参数，或由后续调度器注入参数。
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql
 ```
+
+## Cloud Run sklearn runner（PRD-20260604-04）
+
+Cloud Run 路径保留 BigQuery DWS/ADS、GCS artifact、报告、诊断和 QA 契约，只替代：
+
+| 旧路径 | Cloud Run 路径 |
+|---|---|
+| `02_train_bqml_logistic_candidates.sql` | `python -m scripts.strategy1_cloudrun.train_predict` 训练 scikit-learn logistic candidates |
+| `03_select_model_and_register.sql` | `train_predict` 内完成 valid 选型、score orientation 和 registry 写入 |
+| `04_predict_daily.sql` | `train_predict` 内写 `ads_model_prediction_daily` |
+| `08_run_backtest.sql` | `python -m scripts.strategy1_cloudrun.backtest_report` 默认调用 Python `ledger_exec_v1` fresh-start；`--use-bq-ledger` 可走原 SQL fallback 做等价对照 |
+
+默认配置见 `configs/strategy1/cloudrun_runner_default.yml`，运行手册见 `docs/策略1CloudRun训练回测运行手册.md`。
+
+并发规则：`orchestrate_experiments.py` 未传 `--max-parallel-experiments` 或传 `0` 时，resolved 并发数等于本次 manifest 可执行实验数；只有 owner 显式传 `N > 0` 时才限流。
+
+模型质量对等门禁：`train_predict` 必须使 `model_quality_parity_status='passed'` 才会写 selected registry / prediction；`16_qa_cloudrun_runner_outputs.sql` 也会硬断言该状态。`--use-bq-ledger` fallback 仅改变回测执行器，summary 会标记为 `execution_backend='cloud_run_sklearn_bq_sql_ledger_v1'`、`ledger_executor='bigquery_sql'`，默认 Python ledger 路径标记为 `cloud_run_sklearn_ledger_v1` / `cloud_run_python`。
 
 ## 参数说明
 
