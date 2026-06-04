@@ -1198,6 +1198,9 @@ Agent ID: Codex
 5. 多实验 Cloud Run orchestrator 的默认并发为本次 manifest 可执行实验数量；`--max-parallel-experiments` 未设置或为 0 时不得隐式降到 2、1 或其他保守默认值。
 6. owner 可通过 `--max-parallel-experiments N` 显式限流；项目代码不写死默认 backtest 子并发上限。
 7. 既有 BigQuery ML + SQL runner 保留为 reference / fallback，直到 Cloud Run sklearn + Python ledger 通过契约、QA 和回测语义一致性验收。
+8. sklearn P0 默认 `class_weight=None`，贴近当前 BQML baseline 的非类别平衡训练口径；`class_weight='balanced'` 只能作为后续独立建模实验。
+9. sklearn 正则候选网格必须按 sklearn 原生 `C` / `penalty` / `l1_ratio` 重新定义，不得直接把 BQML `L1_REG` / `L2_REG` 数值翻译过去。
+10. Cloud Run sklearn selected model 必须通过 BQML baseline 模型质量对等门槛；若 oriented valid RankIC、topN 5d 收益或 prediction coverage 明显劣化，应标记 `model_quality_not_equivalent`，不得静默沿用 BQML baseline 参数结论。
 
 ### 理由
 
@@ -1205,7 +1208,7 @@ Agent ID: Codex
 
 ### 影响
 
-后续实现应新增 `scripts/strategy1_cloudrun/` 执行包、Cloud Run Dockerfile / build config、`sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql` 和运行手册。Cloud Run runner 必须继续写既有 ADS 契约表，并通过 `10`、`12`、必要时 `14` / `15` 以及新增 `16` QA。月度滚动重训后续应优先复用该 Cloud Run train/predict job，而不是继续扩展 BQML 训练路径。
+后续实现应新增 `scripts/strategy1_cloudrun/` 执行包、Cloud Run Dockerfile / build config、`sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql` 和运行手册。Cloud Run runner 必须继续写既有 ADS 契约表，并通过 `10`、`12`、必要时 `14` / `15` 以及新增 `16` QA。`16` QA 应校验 `model_quality_parity_status` 与 RankIC/topN/coverage delta 一致。月度滚动重训后续应优先复用该 Cloud Run train/predict job，而不是继续扩展 BQML 训练路径。
 
 ### 备选方案
 
