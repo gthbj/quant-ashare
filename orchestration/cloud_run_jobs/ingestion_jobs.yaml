@@ -1,0 +1,51 @@
+project_id: data-aquarium
+region: asia-east2
+image_uri: asia-east2-docker.pkg.dev/data-aquarium/ashare/ingestion:latest
+service_account: sa-ashare-ingestion@data-aquarium.iam.gserviceaccount.com
+secret_env:
+  TUSHARE_TOKEN: tushare-token:latest
+runtime_env:
+  INGESTION_MANIFEST: configs/ingestion/ods_current_scope_v0.yml
+  TUSHARE_HTTP_URL: ${TUSHARE_HTTP_URL}
+  TUSHARE_ROW_LIMIT: "5000"
+  TUSHARE_THROTTLE_SECONDS: "0.3"
+max_retries: 0
+direct_vpc_egress:
+  network: default
+  subnet: default
+  vpc_egress: all-traffic
+  cloud_nat: ashare-cloudrun-nat-asia-east2
+  static_ip: ashare-cloudrun-nat-ip-asia-east2
+default_args:
+- --dry-run
+jobs:
+- name: ashare-ingest-current-scope
+  endpoint_group: current_scope
+  schedule: daily_current_scope
+  args:
+  - --endpoint-group
+  - current_scope
+- name: ashare-ingest-market-eod
+  endpoint_group: market_eod
+  schedule: trade_day_daily
+  args:
+  - --endpoint-group
+  - market_eod
+- name: ashare-ingest-index-eod
+  endpoint_group: index_eod
+  schedule: trade_day_daily
+  args:
+  - --endpoint-group
+  - index_eod
+- name: ashare-ingest-dim-snapshot
+  endpoint_group: dim_snapshot
+  schedule: calendar_daily_snapshot
+  args:
+  - --endpoint-group
+  - dim_snapshot
+- name: ashare-ingest-finance-recent
+  endpoint_group: finance_recent
+  schedule: calendar_daily_snapshot
+  args:
+  - --endpoint-group
+  - finance_recent

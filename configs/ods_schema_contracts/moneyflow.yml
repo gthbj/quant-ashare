@@ -4,7 +4,7 @@
 source_system: tushare
 endpoint: moneyflow
 ods_table: ods_tushare_moneyflow
-gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=moneyflow
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=moneyflow/endpoint=moneyflow
 partition_field: partition_date
 priority: P1
 consumers: []

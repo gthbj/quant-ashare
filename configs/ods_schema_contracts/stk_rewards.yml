@@ -4,7 +4,7 @@
 source_system: tushare
 endpoint: stk_rewards
 ods_table: ods_tushare_stk_rewards
-gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=tushare/endpoint=stk_rewards
+gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=stk_rewards/endpoint=stk_rewards
 partition_field: partition_date
 priority: P3
 consumers: []

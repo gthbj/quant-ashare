@@ -1,0 +1,15 @@
+substitutions:
+  _IMAGE_URI: asia-east2-docker.pkg.dev/data-aquarium/ashare/ingestion:latest
+
+steps:
+- name: gcr.io/cloud-builders/docker
+  args:
+  - build
+  - -f
+  - orchestration/cloud_run_jobs/Dockerfile.ingestion
+  - -t
+  - ${_IMAGE_URI}
+  - .
+
+images:
+- ${_IMAGE_URI}
