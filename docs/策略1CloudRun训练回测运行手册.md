@@ -225,9 +225,11 @@ gcloud run jobs deploy strategy1-train-candidate-fanout-job \
   --args="-m,scripts.strategy1_cloudrun.train_candidate_task" \
   --memory 4Gi \
   --cpu 1 \
-  --parallelism 100 \
+  --parallelism 40 \
   --task-timeout 3600 \
   --max-retries 0
+
+当前 OQ-010 Cloud Run Python baseline search 的 P0 口径固定为 40 个候选、40 并发。`strategy1-train-candidate-fanout-job` 的共享 Job spec 应保持 `parallelism=40`；若后续扩到 60 / 80 / 100 个候选，需要先更新对应 PRD、Cloud Run 区域配额和本部署命令。
 
 gcloud run jobs deploy strategy1-select-register-predict-job \
   --project data-aquarium \
