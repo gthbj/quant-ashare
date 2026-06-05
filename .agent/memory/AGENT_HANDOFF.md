@@ -8,7 +8,7 @@
 
 **策略 1 Cloud Run task fan-out 正式全量验收（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-p1`，`main` 分支。已先将 `strategy1-prepare-matrix-job` 从 `4 CPU / 16Gi` 提升到 `8 CPU / 32Gi`，再用正式全量 run `s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` / `bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` 跑完整 Cloud Run task fan-out 链路。训练面板 3,055,781 行（train 1,999,065 / valid 476,346 / test 580,370）；`cloudrun_prepare_matrix` 4m10s 成功，5 个 candidate task 全部 succeeded，`cloudrun_select_register_predict`、`cloudrun_backtest_report` succeeded；`backtest_report` 内部完成 `05-09`、Python `ledger_exec_v1`、报告上传、`10`、diagnosis 和 `12`。`16_qa_cloudrun_runner_outputs.sql` 在 smoke/evidence 模式通过，`17_qa_cloudrun_orchestrator_status.sql` 通过；正式 `16` parity 在 `QA-CR-4` 失败，sklearn selected model `elastic_c_1_l1_0_5` valid RankIC `0.06665` 低于 BQML reference `0.09676`，`model_quality_status=model_quality_not_equivalent`。回测结果 total_return `46.29%`、excess_return `17.28%` vs `000852.SH`、Sharpe `1.111`、max_drawdown `-13.94%`，报告 URI `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01/backtest_id=bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01`。结论：Cloud Run 执行链路和 full-panel prepare OOM 已收口，但不能声明 sklearn 正式等价替代 BQML。
 
-**OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新分支（2026-06-05）**：工作树 `/private/tmp/quant-ashare-windowed-refresh`，分支 `codex/windowed-dwd-dws-refresh`。已新增 `sql/incremental/01_refresh_stock_dwd_dws_window.sql`，按 `business_date` / `date_from` / `date_to` 参数窗口化刷新 `dwd_stock_eod_price`、`dwd_stock_eod_valuation` 和策略 1 DWS（universe、价格/估值/财务特征、label、feature wide、sample）；标签、宽表和样本按 SSE 交易日历向前回补 20 个交易日，价格/估值特征向前读取 60 个交易日；不写 ADS runner/backtest/report 产物。新增 `sql/qa/10_windowed_stock_refresh_checks.sql` 做窗口轻量 QA。PR #65 review follow-up 已补目标表存在性 ASSERT、9 张目标表窗口 DML BigQuery transaction，以及 `scripts/qa/run_windowed_refresh_equivalence.py` full-vs-window 等价 QA runner；日常小窗口失败会整体回滚，大区间 backfill 按年/季/月拆分执行。Composer DAG 的 `daily_current/backfill` 真实写入分支现在会刷新 DIM 小表、恢复 P0 metadata、执行股票 DWD/DWS 窗口刷新和窗口 QA；`pipeline_dry_run=true` 不写 DIM/DWD/DWS，`full_rebuild/full_rebuild_compat` 仍走原全量兼容链路，`qa_only` 仍只读。同步纳入静态 project/region/location 热修复和 meta DDL 多列 `ADD COLUMN` 合并。验证已通过 DAG py_compile、窗口 SQL/QA BigQuery dry-run（backfill 与 daily_current 参数）、meta DDL dry-run、P0 metadata dry-run、等价 QA runner `--dry-run` 和 `git diff --check`；未部署 Composer、未执行生产 DML、未写 BigQuery/GCS/ADS 产物。
+**OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新 hotfix（2026-06-05）**：PR #65 已合并后，部署 Composer 与生产 DML 前，在工作树 `/private/tmp/quant-ashare-oq005-window-prod`、分支 `codex/fix-windowed-refresh-equivalence` 做真实 scratch full-vs-window 等价 QA。首次真实 QA 发现两个阻断：`scripts/qa/run_windowed_refresh_equivalence.py` 复制 canonical `_full` 表到 `_window` seed 时缺少 `trade_date` 分区过滤，遇到 `require_partition_filter=true` 失败；`dws_stock_feature_valuation_daily.turnover_rate_zscore_60d` 在 `daily_basic` 稀疏股票上需要超过固定交易日读取窗口才能取满 60 条估值观测。hotfix 已修复：复制 seed 限定 `trade_date BETWEEN build_start_date AND full_end_date`；估值特征按每只股票写入窗口首日前的实际 60 条估值观测推导读取边界；QA runner 新增生产 DWD build-start guard，避免 full/window shadow 被同样截断后假通过。修复后真实 scratch QA 的 9 张目标表 full-vs-window mismatch 均为 0，guard 结果为 `required_build_start_date<=2025-01-23`、`sec_code_count=5407`、`less_than_60_obs=32`；窗口 SQL backfill/daily_current dry-run 和 QA runner dry-run/py_compile 通过。仍未部署 Composer，未执行生产 DML，未写生产 BigQuery/GCS/ADS 产物；下一步是合并 hotfix 后再做 `skip_ingestion=true` + `warehouse_mode=backfill` 小窗口生产 smoke、`daily_current` scheduler smoke 和 `qa_only` 验收。
 
 **策略 1 Cloud Run task fan-out 真实 smoke（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-p1`，分支 `codex/fix-task-fanout-force-replace`。已构建并部署修复镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:8cc8470014cb3b54272d4c7f47afb396d91cf7b97967f0c3ffab947f7432c38a` 到 `strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。当前资源：prepare/select/backtest `4 CPU / 16Gi`，candidate task `1 CPU / 4Gi`；因 `asia-east2` 当前 20 vCPU / 40Gi 配额，candidate job 设置 `parallelism=10`。低成本 smoke `run_id=s1_cloudrun_taskfanout_smoke_20260605_03` / `backtest_id=bt_s1_cloudrun_taskfanout_smoke_20260605_03` 已跑通：`cloudrun_prepare_matrix`、5 个 candidate task、`cloudrun_select_register_predict`、`cloudrun_backtest_report` 全部 succeeded，`10`/`12`/`16`/`17` QA 全部通过。修复内容：orchestrator 不再把 `--force-replace` 传给 `prepare_matrix`；`10` QA 的 split 边界改为参数化；`12` QA-DIAG-6 改用训练面板 `tp.split_tag` 而非 DWS 固定 split。产物：matrix URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/matrix_id=s1_cloudrun_taskfanout_smoke_20260605_03__matrix_5294c2780a86`，model URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/model_id=s1_sklearn_s1_cloudrun_taskfanout_smoke_20260605_03__l2_c_10`，report URI `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/backtest_id=bt_s1_cloudrun_taskfanout_smoke_20260605_03`。本次 smoke 证明 task fan-out 执行链路可用；正式替代 BQML 仍需 sklearn parity passed 或 owner 接受新 Cloud Run baseline。
 
@@ -638,6 +638,74 @@ Agent 实例 ID: Codex desktop session
 模型: GPT-5
 运行环境: Codex desktop
 Run ID: —
+相关 issue/PR: OQ-005 Phase 2.2 / PR #65 post-merge hotfix / branch `codex/fix-windowed-refresh-equivalence`
+
+### 已完成工作
+
+- 在独立工作树 `/private/tmp/quant-ashare-oq005-window-prod` 从最新 `origin/main` 创建热修复分支 `codex/fix-windowed-refresh-equivalence`。
+- 运行真实 scratch full-vs-window 等价 QA，确认 PR #65 合并后生产部署前存在两个阻断：QA runner 复制 `_full` 表时缺少分区过滤；估值特征读取窗口不足导致 `turnover_rate_zscore_60d` 漂移。
+- 修复 `scripts/qa/run_windowed_refresh_equivalence.py`：复制 canonical `_full` 到 `_window` seed 时按 `trade_date BETWEEN build_start_date AND full_end_date` 过滤，兼容 `require_partition_filter=true`。
+- 修复 `sql/incremental/01_refresh_stock_dwd_dws_window.sql`：估值特征读取边界按每只股票写入窗口首日前的实际 60 条估值观测推导，价格特征仍读取 60 个 SSE 交易日，标签/宽表/样本写入仍向前回补 20 个交易日。
+- 修复 `scripts/qa/run_windowed_refresh_equivalence.py`：真实运行前用生产 DWD 估值表校验 `build_start_date` 足够早，避免 full/window shadow 被同样截断后假通过。
+- 跟进 PR #68 comment：不采用固定 180 个交易日作为最终方案，改为 per-stock 实际观测边界，并用 QA guard 覆盖早期窗口假通过风险。
+- 同步 `sql/README.md`、`TODO.md`、OQ-005 架构记忆、约束、状态和开放问题。
+
+### 重要上下文
+
+- 本次真实 QA 只写 scratch dataset `ashare_qa_windowed_equivalence` 的 `_full` / `_window` shadow 表，不写生产 DWD/DWS/ADS。
+- 首次真实 QA 的 drift 集中在 `dws_stock_feature_valuation_daily.turnover_rate_zscore_60d` 和继承该字段的 `dws_stock_feature_daily_v0`，原因是 `daily_basic` 对部分股票不是每日完整观测，60 条观测窗口可能跨越超过 60 个交易日。
+- 修复后 full-vs-window 等价 QA 对 9 张目标表 mismatch 均为 0；guard 结果为 `required_build_start_date<=2025-01-23`、`sec_code_count=5407`、`less_than_60_obs=32`。
+- 仍未部署 Composer，未执行生产 DML，未写生产 BigQuery/GCS/ADS 产物。
+
+### 改动文件
+
+- `scripts/qa/run_windowed_refresh_equivalence.py`
+- `sql/incremental/01_refresh_stock_dwd_dws_window.sql`
+- `sql/README.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/qa/run_windowed_refresh_equivalence.py`
+- `python3 scripts/qa/run_windowed_refresh_equivalence.py --dry-run`
+- `bq query --dry_run`：窗口 SQL `backfill` 参数。
+- `bq query --dry_run`：窗口 SQL `daily_current` 参数。
+- 真实 scratch 等价 QA：9 张目标表 full-vs-window mismatch 均为 0。
+
+### 阻塞项
+
+- 无代码阻塞；生产部署和生产 DML smoke 需等待本 hotfix 合并。
+
+### 下一步建议
+
+- 合并 hotfix PR。
+- 合并后部署 Composer DAG 与 SQL 到 Composer bucket。
+- 先跑 `skip_ingestion=true` + `warehouse_mode=backfill` 小窗口生产 DML smoke，再跑 `daily_current` scheduler smoke 和 `qa_only` 验收。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
 相关 issue/PR: PR #65 / OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新
 
 ### 已完成工作
@@ -716,7 +784,7 @@ Run ID: N/A
 - 本次未部署 Composer，未触发 DAG，未执行生产 BigQuery DML，未写 GCS/ADS/report 产物。
 - 窗口脚本假设目标 DIM/DWD/DWS 表已由全量 CTAS 路径初始化；ADS runner/backtest/report 仍由策略 runner 独立写入。
 - `full_rebuild` / `full_rebuild_compat` 保留原全量兼容链路；`qa_only` 保持只读；`enable_ads_contract_init=true` 仍是 ADS 契约初始化的唯一入口。
-- 窗口标签回补是 20 个 SSE 交易日，价格/估值特征读取回看是 60 个 SSE 交易日。
+- 窗口标签回补是 20 个 SSE 交易日，价格特征读取回看是 60 个 SSE 交易日；后续 hotfix 已把估值特征读取边界改为按每只股票实际 60 条估值观测推导，以覆盖 `daily_basic` 缺口。
 
 ### 改动文件
 
