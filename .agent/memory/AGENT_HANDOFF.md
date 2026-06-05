@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-005 告警/观测 PR #72 review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-alerts-runbook`，分支 `codex/oq005-alerts-runbook`。PR #72 新增 BigQuery 观测视图、Cloud Logging / Cloud Monitoring 告警配置脚本、告警查询脚本和补跑 runbook。本轮按 comment 修复：`setup_alerts.py` 的 `LogMetric` 使用正确 `filter` 字段；`check_alerts.py` 查询失败和缺 `google-cloud-logging` 写日志路径均 fail-closed，默认 lookback 改 10 分钟并用稳定 `insert_id` 降低重复日志；runbook §9 的 `task_failure` / `ingestion_failed` 与 SQL 实现一致；`v_alert_probe` 注释改为固定 24 小时手工健康检查口径。验证通过 Python `py_compile`、观测 SQL BigQuery dry-run、`git diff --check`；本机缺 `google-cloud-logging`，未做真实 log metric API apply。合并后仍需部署视图、配置 Cloud Scheduler/Cloud Run checker、log-based metrics、alert policies，并做生产 smoke。
+
 **OQ-005 PR #70 部署/smoke 与 OQ-012 读层复核（2026-06-05）**：当前处理工作树为 `/Users/luna/Desktop/git/quant-ashare`（`main`，干净起点）；PR #70 实现工作树是 `/private/tmp/quant-ashare-oq005-daily-window-hardening`、分支 `codex/oq005-daily-window-hardening`，已在 PR #70 合并后清理。PR #70 合并后已只读复核 Composer bucket：`data/sql/` 下 `01_refresh_stock_dwd_dws_window.sql` 与 `10_windowed_stock_refresh_checks.sql` 哈希均与当前 `main` 一致；Airflow backfill smoke `manual_oq005_backfill_smoke_pr70_20260605_01`（`2026-06-03..2026-06-04`）成功；非交易日 daily_current smoke `manual_oq005_daily_current_nontd_20260606_01` 归一到 `2026-06-05` 后因 ODS 未采集在 `ods_daily_partition_readiness` 以 `QA-ODS-DAILY-2` 阻断，窗口写入未执行，符合门禁预期。OQ-012 只读复核中 `sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过，当前 BigQuery 读层未再暴露 schema mismatch；待 owner 决定是否关闭/归档 OQ-012 或保留防复发任务。
 
 **PR #71 sklearn native search review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-search`，分支 `codex/implement-sklearn-native-search`。已按 PR #71 comment 修复 6 类问题：native acceptance / `18` QA 补 valid/test `top_minus_bottom_fwd_ret_mean` 不能同时为负的 hard gate；QA-SKN-13 修复 `final_holdout_status` NULL 漏洞；Python/QA 的 test RankIC 边界统一为严格 `>0`；`rank_candidates` fallback 仅限“全员 valid RankIC 非正”且 hard filter 不可绕过，并排除 `not_converged`；Top5 单候选失败改为 fail-soft、其他候选继续跑但最终 `18` 仍要求完整 Top5；额外修复 `fetch_topk_ads_outputs` runtime SQL 中无 `predict_date` 分区过滤的多余 prediction distinct join；最终 follow-up 已将 test 侧 `top_minus_bottom_fwd_ret_mean` 从 10 分桶改为 5 分桶，和 valid 侧 `q=5` 口径一致。验证：Python `py_compile`、ranking fallback 小样例、36-task dry-run、runtime fetch SQL dry-run、`18` BigQuery dry-run、`git diff --check`。尚未部署镜像、未实跑 36 候选。
@@ -65,6 +67,61 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: PR #72
+
+### 已完成工作
+
+- 查看 PR #72 最新 comment，确认并修复新 P1：`setup_alerts.py` 创建 Cloud Logging `LogMetric` 时改用正确 proto 字段 `filter`。
+- 修复告警查询脚本的 fail-open 风险：`--write-log` 缺 `google-cloud-logging` 时 exit 1；默认 lookback 从 60 分钟改为 10 分钟；写日志时按 `alert_type/resource_id/finished_at` 生成稳定 `insert_id`，降低定时重跑造成的重复日志。
+- 同步 runbook / README / SQL 注释：`task_failure` 覆盖所有失败 task，`ingestion_failed` 只覆盖 `status='failed'` 且不含 `empty_return`；`v_alert_probe` 明确为固定 24 小时手工健康检查视图。
+- 同步 `TODO.md` 与实现状态 / 交接记忆。
+
+### 重要上下文
+
+- 本次未部署 BigQuery 视图、未配置 Cloud Monitoring policy、未执行生产 smoke；PR #72 合并后仍需在 GCP 环境创建视图、部署定时 checker、创建 log-based metrics / alert policies 并验证告警链路。
+- 本机 Python 缺 `google-cloud-logging`，已验证缺依赖时 `--write-log` fail-closed；真实 `LogMetric(filter=...)` apply 需在安装依赖的运行环境验证。
+
+### 改动文件
+
+- `sql/observability/01_pipeline_status_views.sql`
+- `scripts/alerting/setup_alerts.py`
+- `scripts/alerting/check_alerts.py`
+- `scripts/alerting/README.md`
+- `docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/alerting/check_alerts.py scripts/alerting/setup_alerts.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/observability/01_pipeline_status_views.sql`
+- `python3 scripts/alerting/check_alerts.py --lookback-minutes 1 --json`（本地因 `v_alert_summary` 未部署 exit 1，符合查询失败 fail-closed）
+- `write_to_cloud_logging` 缺 `google-cloud-logging` 时抛 `AlertLogWriteError`
+- `git diff --check`
+
+### 阻塞项
+
+- 无代码阻塞；生产部署/验收待 PR 合并后执行。
+
+### 下一步建议
+
+- 合并 PR #72 后执行 `sql/observability/01_pipeline_status_views.sql` 创建视图。
+- 在安装 `google-cloud-logging` / `google-cloud-monitoring` 的运行环境执行 `setup_alerts.py` 创建 log-based metrics 和 alert policies。
+- 部署 `check_alerts.py --write-log --lookback-minutes 10` 为 Cloud Scheduler / Cloud Run 定时检查，并做故障样本 smoke。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
 
 日期: 2026-06-05
 Agent ID: Codex

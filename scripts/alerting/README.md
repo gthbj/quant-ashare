@@ -82,7 +82,7 @@ gcloud scheduler jobs create http oq005-alert-check \
 ### 4. 查询异常
 
 ```bash
-# 查询最近 1 小时异常
+# 查询最近 10 分钟异常
 python scripts/alerting/check_alerts.py
 
 # 查询最近 10 分钟异常
@@ -114,7 +114,7 @@ python scripts/alerting/check_alerts.py --json
 | `v_ingestion_empty_returns` | empty_return 明细（需按 endpoint/date 判断） |
 | `v_pipeline_daily_health` | 每日 pipeline 健康仪表盘（按 pipeline_run_id join） |
 | `v_alert_summary` | 最近 24 小时异常摘要（供告警查询） |
-| `v_alert_probe` | 告警探针（返回异常计数） |
+| `v_alert_probe` | 24 小时异常计数（手工健康检查；定时告警用 `check_alerts.py`） |
 
 ## 前置条件
 

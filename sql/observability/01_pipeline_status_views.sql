@@ -226,8 +226,9 @@ WHERE status = 'failed'
 ORDER BY finished_at DESC;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 7. 告警探针（供 Cloud Scheduler / check_alerts.py 查询）
---    返回最近 N 分钟内新增的异常数量，> 0 即触发通知。
+-- 7. 告警探针（手工健康检查）
+--    返回 v_alert_summary 固定 24 小时窗口内的异常数量。
+--    定时告警请调用 check_alerts.py，并由 --lookback-minutes 控制检查窗口。
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE VIEW `data-aquarium.ashare_meta.v_alert_probe` AS
 SELECT

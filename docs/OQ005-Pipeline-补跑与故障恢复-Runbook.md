@@ -263,8 +263,8 @@ SELECT * FROM `data-aquarium.ashare_meta.v_pipeline_daily_health`;
 告警规则基于 `v_alert_summary` 视图，配置在 Cloud Monitoring 中：
 
 1. **pipeline_failure：** `pipeline_run.status = 'failed'`
-2. **task_failure：** `pipeline_task_status.status = 'failed'` 且 task_id 包含 `qa`/`checks`/`readiness`/`windowed`
-3. **ingestion_failure：** `ingestion_run.status IN ('failed', 'empty_return')`
+2. **task_failure：** `pipeline_task_status.status = 'failed'`（所有失败 task；QA/readiness/windowed 明细见 `v_pipeline_qa_failures`）
+3. **ingestion_failed：** `ingestion_run.status = 'failed'`（不含 `empty_return`，空返回见 `v_ingestion_empty_returns` 并按 endpoint/date 判断）
 
 通知渠道建议：Email + Slack/PagerDuty（按严重程度分级）。
 

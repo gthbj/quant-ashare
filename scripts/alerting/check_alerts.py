@@ -12,7 +12,7 @@
   2：查询成功但有异常（供探针脚本判断）
 
 使用方式：
-    # 查询最近 1 小时异常（无异常输出 "0"，有异常输出详情并 exit 2）
+    # 查询最近 10 分钟异常（无异常输出 "0"，有异常输出详情并 exit 2）
     python scripts/alerting/check_alerts.py
 
     # 写入 Cloud Logging（供告警链路使用）
@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -58,9 +59,13 @@ class AlertCheckError(Exception):
     """查询失败（视图不存在、权限不足、BQ 临时错误等）。"""
 
 
+class AlertLogWriteError(Exception):
+    """告警日志写入失败。"""
+
+
 def check_alerts(
     project_id: str,
-    lookback_minutes: int = 60,
+    lookback_minutes: int = 10,
 ) -> list[dict[str, Any]]:
     """查询最近 N 分钟的异常。
 
@@ -115,8 +120,7 @@ def write_to_cloud_logging(
 ) -> int:
     """将异常写入 Cloud Logging，供日志指标采集。"""
     if not HAS_CLOUD_LOGGING:
-        print("请安装依赖：pip install google-cloud-logging", file=sys.stderr)
-        return 0
+        raise AlertLogWriteError("请安装依赖：pip install google-cloud-logging")
 
     client = cloud_logging.Client(project=project_id)
     logger = client.logger(LOG_NAME)
@@ -133,7 +137,12 @@ def write_to_cloud_logging(
             "started_at": alert["started_at"],
             "finished_at": alert["finished_at"],
         }
-        logger.log_struct(payload, severity="ERROR")
+        insert_id_source = "|".join(
+            str(payload.get(key) or "")
+            for key in ("alert_type", "resource_id", "finished_at")
+        )
+        insert_id = hashlib.sha256(insert_id_source.encode("utf-8")).hexdigest()
+        logger.log_struct(payload, severity="ERROR", insert_id=insert_id)
         written += 1
 
     return written
@@ -169,7 +178,7 @@ def format_alert_message(alerts: list[dict[str, Any]]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="OQ-005 Pipeline Alert Checker")
     parser.add_argument("--project", default=PROJECT_ID, help=f"GCP project (default: {PROJECT_ID})")
-    parser.add_argument("--lookback-minutes", type=int, default=60, help="Lookback window in minutes (default: 60)")
+    parser.add_argument("--lookback-minutes", type=int, default=10, help="Lookback window in minutes (default: 10)")
     parser.add_argument("--write-log", action="store_true", help="Write alerts to Cloud Logging")
     parser.add_argument("--notify", action="store_true", help="Send notification")
     parser.add_argument("--channel", default="stdout", choices=["stdout", "slack", "email"], help="Notification channel")
@@ -193,7 +202,11 @@ def main() -> None:
 
     # 写入 Cloud Logging
     if args.write_log:
-        written = write_to_cloud_logging(args.project, alerts)
+        try:
+            written = write_to_cloud_logging(args.project, alerts)
+        except AlertLogWriteError as e:
+            print(f"ALERT LOG WRITE FAILED: {e}", file=sys.stderr)
+            sys.exit(1)
         print(f"Wrote {written} alerts to Cloud Logging", file=sys.stderr)
 
     # 输出/通知

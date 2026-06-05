@@ -125,7 +125,7 @@ def create_log_metric(
     metric = cloud_logging.LogMetric(
         name=metric_def["name"],
         description=metric_def["description"],
-        filter_=metric_def["filter"],
+        filter=metric_def["filter"],
     )
 
     try:
