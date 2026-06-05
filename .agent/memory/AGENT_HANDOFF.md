@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**策略 1 scikit-learn native 模型实验 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-prd`，分支 `codex/prd-sklearn-native-experiment`。新增 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md`，定义 Cloud Run sklearn backend 在 BQML parity 未通过后的新 baseline 实验方案：固定当前最优交易口径 `pv_fin_quality + 30/5% + biweekly + 5d`，用 task fan-out 并发训练 36 个 sklearn 原生 LogisticRegression 候选，valid-only 选 Top 5 进入完整预测/组合/回测/报告/诊断，并通过 native acceptance gate 决定是否建立 `cloud_run_sklearn_native_baseline_v1`。BQML baseline 保留为历史 reference / fallback；现有 Cloud Run parity gate 不删除，只是不再作为 native baseline 的 hard gate。本次只写 PRD 和记忆/TODO，未实现代码、未部署 Cloud Run Job、未执行 BigQuery。
+
 **策略 1 Cloud Run task fan-out 正式全量验收（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-p1`，`main` 分支。已先将 `strategy1-prepare-matrix-job` 从 `4 CPU / 16Gi` 提升到 `8 CPU / 32Gi`，再用正式全量 run `s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` / `bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` 跑完整 Cloud Run task fan-out 链路。训练面板 3,055,781 行（train 1,999,065 / valid 476,346 / test 580,370）；`cloudrun_prepare_matrix` 4m10s 成功，5 个 candidate task 全部 succeeded，`cloudrun_select_register_predict`、`cloudrun_backtest_report` succeeded；`backtest_report` 内部完成 `05-09`、Python `ledger_exec_v1`、报告上传、`10`、diagnosis 和 `12`。`16_qa_cloudrun_runner_outputs.sql` 在 smoke/evidence 模式通过，`17_qa_cloudrun_orchestrator_status.sql` 通过；正式 `16` parity 在 `QA-CR-4` 失败，sklearn selected model `elastic_c_1_l1_0_5` valid RankIC `0.06665` 低于 BQML reference `0.09676`，`model_quality_status=model_quality_not_equivalent`。回测结果 total_return `46.29%`、excess_return `17.28%` vs `000852.SH`、Sharpe `1.111`、max_drawdown `-13.94%`，报告 URI `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01/backtest_id=bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01`。结论：Cloud Run 执行链路和 full-panel prepare OOM 已收口，但不能声明 sklearn 正式等价替代 BQML。
 
 **OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新 hotfix（2026-06-05）**：PR #65 已合并后，部署 Composer 与生产 DML 前，在工作树 `/private/tmp/quant-ashare-oq005-window-prod`、分支 `codex/fix-windowed-refresh-equivalence` 做真实 scratch full-vs-window 等价 QA。首次真实 QA 发现两个阻断：`scripts/qa/run_windowed_refresh_equivalence.py` 复制 canonical `_full` 表到 `_window` seed 时缺少 `trade_date` 分区过滤，遇到 `require_partition_filter=true` 失败；`dws_stock_feature_valuation_daily.turnover_rate_zscore_60d` 在 `daily_basic` 稀疏股票上需要超过固定交易日读取窗口才能取满 60 条估值观测。hotfix 已修复：复制 seed 限定 `trade_date BETWEEN build_start_date AND full_end_date`；估值特征按每只股票写入窗口首日前的实际 60 条估值观测推导读取边界；QA runner 新增生产 DWD build-start guard，避免 full/window shadow 被同样截断后假通过。修复后真实 scratch QA 的 9 张目标表 full-vs-window mismatch 均为 0，guard 结果为 `required_build_start_date<=2025-01-23`、`sec_code_count=5407`、`less_than_60_obs=32`；窗口 SQL backfill/daily_current dry-run 和 QA runner dry-run/py_compile 通过。仍未部署 Composer，未执行生产 DML，未写生产 BigQuery/GCS/ADS 产物；下一步是合并 hotfix 后再做 `skip_ingestion=true` + `warehouse_mode=backfill` 小窗口生产 smoke、`daily_current` scheduler smoke 和 `qa_only` 验收。
@@ -55,6 +57,62 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: OQ-010 / Strategy 1 sklearn native model experiment PRD
+
+### 已完成工作
+
+- 在独立工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-prd` 和分支 `codex/prd-sklearn-native-experiment` 新增 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md`。
+- PRD 固定当前交易口径 `pv_fin_quality + 30/5% + biweekly + 5d`，避免把模型实验和交易参数变化混在一起。
+- PRD 定义第一轮 36 个 LogisticRegression sklearn 原生候选：无正则、L2、ElasticNet，覆盖 `C`、`class_weight`、`l1_ratio` 和 solver 语义。
+- PRD 定义搜索流程：一次 `prepare_matrix`，candidate task fan-out 并发训练全部候选，valid-only 选 Top 5，再对 Top 5 跑完整预测、组合、回测、报告、诊断和 QA。
+- PRD 定义 sklearn native acceptance gate：valid/test RankIC、2025 test-year 收益和相对中证1000超额、Sharpe、max drawdown、成本、`10/12/16/17/18` QA 和 Python ledger vs SQL ledger 等价边界。
+- 同步 `TODO.md`、`PROJECT_CONTEXT.md`、`OPEN_QUESTIONS.md`、`IMPLEMENTATION_STATUS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 本 PRD 是 Cloud Run sklearn backend 在 BQML parity 未通过后的后续方案；它不删除既有 BQML parity gate，只新增 native baseline path。
+- BQML baseline 继续作为 reference / fallback；native baseline 是否接受由后续 36 候选 + Top 5 回测结果决定。
+- 本次没有实现代码，没有部署 Cloud Run Job，没有执行 BigQuery，没有生成或覆盖 ADS / GCS 产物。
+
+### 改动文件
+
+- `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md`
+- `TODO.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- Review / 合并本 PRD。
+- 合并后实现 `configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml`、candidate search orchestrator、Top 5 backtest flow 和 `18_qa_sklearn_native_search_outputs.sql`。
+- 再跑第一轮 36 个 LogisticRegression 候选并产出 comparison report。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `PROJECT_CONTEXT.md`
+- `OPEN_QUESTIONS.md`
+- `IMPLEMENTATION_STATUS.md`
+- `AGENT_HANDOFF.md`
+
+---
 
 日期: 2026-06-05
 Agent ID: Codex
