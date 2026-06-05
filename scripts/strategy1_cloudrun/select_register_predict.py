@@ -20,6 +20,7 @@ from scripts.strategy1_cloudrun import __version__
 from scripts.strategy1_cloudrun.bq_io import (
     ADS,
     bq_label_value,
+    execute_query,
     get_git_commit,
     join_gs_uri,
     make_client,
@@ -44,8 +45,10 @@ from scripts.strategy1_cloudrun.task_fanout import (
 )
 from scripts.strategy1_cloudrun.train_predict import (
     CandidateResult,
+    classify_valid_signal,
     clear_train_predict_outputs,
     compute_model_quality_parity,
+    model_complexity_rank,
     requirements_snapshot,
     write_predictions_from_preprocessed,
     write_registry,
@@ -71,6 +74,9 @@ def main() -> int:
         "matrix_uri": args.matrix_uri,
         "matrix_local_dir": str(matrix_local),
         "require_all_candidates": not args.allow_partial_candidates,
+        "candidate_id": args.candidate_id,
+        "search_id": args.search_id,
+        "native_search": args.native_search,
         "skip_gcs_upload": args.skip_gcs_upload,
     }
     if args.dry_run:
@@ -84,6 +90,14 @@ def main() -> int:
         force_replace=args.force_replace,
         skip_gcs_upload=args.skip_gcs_upload,
         require_all_candidates=not args.allow_partial_candidates,
+        candidate_id=args.candidate_id,
+        search_id=args.search_id,
+        native_search=args.native_search,
+        shortlist_rank_valid_only=args.shortlist_rank_valid_only,
+        test_reuse_wave_no=args.test_reuse_wave_no,
+        test_reuse_approval_ref=args.test_reuse_approval_ref,
+        final_holdout_status=args.final_holdout_status,
+        native_acceptance_status=args.native_acceptance_status,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     return 0
@@ -98,6 +112,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--matrix-local-dir", default=None)
     parser.add_argument("--force-replace", action="store_true")
     parser.add_argument("--skip-gcs-upload", action="store_true")
+    parser.add_argument("--candidate-id", default=None, help="Force a specific candidate artifact for Top-K backtest")
+    parser.add_argument("--search-id", default=None, help="Sklearn native search id for metadata")
+    parser.add_argument("--native-search", action="store_true", help="Write sklearn native search metadata")
+    parser.add_argument("--shortlist-rank-valid-only", type=int, default=None)
+    parser.add_argument("--test-reuse-wave-no", type=int, default=1)
+    parser.add_argument("--test-reuse-approval-ref", default=None)
+    parser.add_argument("--final-holdout-status", default=None)
+    parser.add_argument("--native-acceptance-status", default="candidate")
     parser.add_argument(
         "--allow-partial-candidates",
         action="store_true",
@@ -131,24 +153,32 @@ def select_register_predict(
     force_replace: bool,
     skip_gcs_upload: bool,
     require_all_candidates: bool,
+    candidate_id: str | None = None,
+    search_id: str | None = None,
+    native_search: bool = False,
+    shortlist_rank_valid_only: int | None = None,
+    test_reuse_wave_no: int = 1,
+    test_reuse_approval_ref: str | None = None,
+    final_holdout_status: str | None = None,
+    native_acceptance_status: str = "candidate",
 ) -> dict[str, Any]:
     manifest = read_json(matrix_local / "matrix_manifest.json")
     work_units = read_json(matrix_local / "work_units.json")
     feature_schema = read_json(matrix_local / "feature_schema.json")
     preprocess_stats = read_json(matrix_local / "preprocess_stats.json")
     candidates = load_candidates(matrix_local, manifest, work_units, require_all_candidates=require_all_candidates)
-    selected = sorted(
-        candidates,
-        key=lambda item: (
-            _neg_inf_if_nan(item.metrics.get("oriented_valid_rank_ic_mean")),
-            _neg_inf_if_nan(item.metrics.get("valid_topn_fwd_ret_mean")),
-            _neg_inf_if_nan(item.metrics.get("roc_auc")),
-        ),
-        reverse=True,
-    )[0]
+    candidate_ranking = rank_candidates(candidates, top_k=5)
+    selected = select_candidate(candidates, candidate_ranking, candidate_id)
+    selected_rank = next((row for row in candidate_ranking if row["candidate_id"] == selected.candidate_id), {})
+    if shortlist_rank_valid_only is None:
+        shortlist_rank_valid_only = selected_rank.get("shortlist_rank_valid_only")
+    source_run_id = str(manifest.get("source_run_id") or manifest.get("run_id") or experiment.run_id)
+    effective_search_id = search_id or str(manifest.get("search_id") or experiment.experiment_id)
     client = make_client(config.project, config.region)
     parity = compute_model_quality_parity(client, config, selected)
-    candidate_task_bq_audit = audit_candidate_task_bigquery_usage(client, config, experiment)
+    candidate_task_bq_audit = audit_candidate_task_bigquery_usage(
+        client, config, experiment, audit_run_id=source_run_id
+    )
     selected.metrics.update(parity)
     if parity["model_quality_parity_status"] == "passed":
         selected.metrics["model_quality_status"] = "model_quality_equivalent"
@@ -173,7 +203,21 @@ def select_register_predict(
         "candidate_task_bq_audit_window_days": int(candidate_task_bq_audit["candidate_task_bq_audit_window_days"]),
         "candidate_task_bq_max_bytes_threshold": int(candidate_task_bq_audit["candidate_task_bq_max_bytes_threshold"]),
         "candidate_task_bq_forbidden_tables": candidate_task_bq_audit["candidate_task_bq_forbidden_tables"],
+        "candidate_task_bq_audit_run_id": source_run_id,
     })
+    if native_search:
+        selected.metrics.update(native_search_metrics(
+            experiment=experiment,
+            selected=selected,
+            selected_rank=selected_rank,
+            search_id=effective_search_id,
+            source_run_id=source_run_id,
+            shortlist_rank_valid_only=shortlist_rank_valid_only,
+            test_reuse_wave_no=test_reuse_wave_no,
+            test_reuse_approval_ref=test_reuse_approval_ref,
+            final_holdout_status=final_holdout_status,
+            native_acceptance_status=native_acceptance_status,
+        ))
 
     model_id = f"s1_sklearn_{run_safe(experiment.run_id)}__{selected.candidate_id}"
     artifact_local_dir = (
@@ -199,13 +243,17 @@ def select_register_predict(
         manifest,
         work_units,
         candidates,
+        candidate_ranking,
         matrix_local,
     )
     uploaded = [] if skip_gcs_upload else upload_directory_to_gcs(config.project, artifact_local_dir, artifact_uri)
 
     if force_replace:
         clear_train_predict_outputs(client, experiment)
-    write_registry(client, config, experiment, candidates, selected, model_id, artifact_uri, force_replace=force_replace)
+    if source_run_id != experiment.run_id:
+        copy_training_panel_alias(client, source_run_id, experiment.run_id, model_id, experiment, force_replace=force_replace)
+    registry_candidates = [selected] if candidate_id else candidates
+    write_registry(client, config, experiment, registry_candidates, selected, model_id, artifact_uri, force_replace=force_replace)
     predict_panel = pd.read_parquet(matrix_local / "predict_index.parquet")
     x_predict = pd.read_parquet(matrix_local / "predict_features.parquet").to_numpy(dtype=np.float32)
     write_predictions_from_preprocessed(client, config, experiment, predict_panel, x_predict, selected, model_id)
@@ -214,6 +262,8 @@ def select_register_predict(
         "run_id": experiment.run_id,
         "model_id": model_id,
         "selected_candidate_id": selected.candidate_id,
+        "shortlist_rank_valid_only": shortlist_rank_valid_only,
+        "search_id": effective_search_id if native_search else None,
         "score_orientation": selected.score_orientation,
         "matrix_id": manifest["matrix_id"],
         "matrix_uri": matrix_uri,
@@ -227,7 +277,13 @@ def select_register_predict(
     }
 
 
-def audit_candidate_task_bigquery_usage(client, config, experiment: Experiment) -> dict[str, Any]:
+def audit_candidate_task_bigquery_usage(
+    client,
+    config,
+    experiment: Experiment,
+    *,
+    audit_run_id: str | None = None,
+) -> dict[str, Any]:
     forbidden_tables = [
         f"{ADS}.ads_ml_training_panel_daily",
         "data-aquarium.ashare_dws.dws_stock_sample_daily",
@@ -283,7 +339,7 @@ def audit_candidate_task_bigquery_usage(client, config, experiment: Experiment) 
         [
             bigquery.ScalarQueryParameter("audit_window_days", "INT64", audit_window_days),
             bigquery.ScalarQueryParameter("max_bytes_threshold", "INT64", max_bytes_threshold),
-            bigquery.ScalarQueryParameter("run_id_label", "STRING", bq_label_value(experiment.run_id)),
+            bigquery.ScalarQueryParameter("run_id_label", "STRING", bq_label_value(audit_run_id or experiment.run_id)),
             bigquery.ArrayQueryParameter("forbidden_tables", "STRING", forbidden_tables),
         ],
         labels={
@@ -302,6 +358,220 @@ def audit_candidate_task_bigquery_usage(client, config, experiment: Experiment) 
         "candidate_task_bq_max_bytes_threshold": max_bytes_threshold,
         "candidate_task_bq_forbidden_tables": forbidden_tables,
     }
+
+
+def rank_candidates(candidates: list[CandidateResult], *, top_k: int = 5) -> list[dict[str, Any]]:
+    coverages = [
+        _float_or_nan(candidate.metrics.get("valid_eval_coverage"))
+        for candidate in candidates
+        if math.isfinite(_float_or_nan(candidate.metrics.get("valid_eval_coverage")))
+    ]
+    median_coverage = float(np.median(coverages)) if coverages else math.nan
+    has_positive_rank_ic = any(
+        _float_or_nan(candidate.metrics.get("oriented_valid_rank_ic_mean")) > 0
+        for candidate in candidates
+    )
+    rows = []
+    for candidate in candidates:
+        metrics = candidate.metrics
+        if not metrics.get("valid_signal_status"):
+            metrics["valid_signal_status"] = classify_valid_signal(metrics)
+        metrics["model_complexity_rank"] = int(metrics.get("model_complexity_rank", model_complexity_rank(metrics)))
+        rank_ic = _float_or_nan(metrics.get("oriented_valid_rank_ic_mean"))
+        coverage = _float_or_nan(metrics.get("valid_eval_coverage"))
+        reasons = []
+        if has_positive_rank_ic and not rank_ic > 0:
+            reasons.append("valid_rank_ic_not_positive")
+        if math.isfinite(median_coverage) and math.isfinite(coverage) and coverage < median_coverage - 0.05:
+            reasons.append("valid_eval_coverage_below_peer_median_minus_5pp")
+        if metrics.get("score_orientation") not in {"identity", "reverse_probability"}:
+            reasons.append("score_orientation_missing")
+        if not metrics.get("convergence_status"):
+            reasons.append("convergence_status_missing")
+        eligible = not reasons
+        rows.append({
+            "candidate_id": candidate.candidate_id,
+            "eligible_for_shortlist": eligible,
+            "shortlist_filter_reason": ";".join(reasons),
+            "valid_oriented_rank_ic_mean": rank_ic,
+            "valid_oriented_rank_ic_icir": _float_or_nan(metrics.get("oriented_valid_rank_ic_icir")),
+            "valid_topn_fwd_ret_mean": _float_or_nan(metrics.get("valid_topn_fwd_ret_mean")),
+            "valid_top_minus_bottom_fwd_ret_mean": _float_or_nan(metrics.get("valid_top_minus_bottom_fwd_ret_mean")),
+            "valid_roc_auc": _float_or_nan(metrics.get("roc_auc")),
+            "valid_eval_coverage": coverage,
+            "valid_signal_status": metrics.get("valid_signal_status"),
+            "score_orientation": metrics.get("score_orientation"),
+            "convergence_status": metrics.get("convergence_status"),
+            "model_family": metrics.get("model_family"),
+            "solver": metrics.get("solver"),
+            "penalty": metrics.get("penalty"),
+            "C": metrics.get("C"),
+            "l1_ratio": metrics.get("l1_ratio"),
+            "class_weight": metrics.get("class_weight"),
+            "model_complexity_rank": metrics.get("model_complexity_rank"),
+        })
+    rows = sorted(rows, key=ranking_sort_key, reverse=True)
+    eligible_assigned = 0
+    fallback_assigned = 0
+    has_eligible = any(row["eligible_for_shortlist"] for row in rows)
+    for position, row in enumerate(rows, start=1):
+        row["valid_only_rank"] = position
+        row["shortlist_ranking_uses_test_metrics"] = False
+        if row["eligible_for_shortlist"]:
+            eligible_assigned += 1
+            row["shortlist_rank_valid_only"] = eligible_assigned if eligible_assigned <= top_k else None
+        elif not has_eligible:
+            fallback_assigned += 1
+            row["shortlist_rank_valid_only"] = fallback_assigned if fallback_assigned <= top_k else None
+            if not row["shortlist_filter_reason"]:
+                row["shortlist_filter_reason"] = "fallback_all_candidates_ineligible"
+        else:
+            row["shortlist_rank_valid_only"] = None
+    return rows
+
+
+def ranking_sort_key(row: dict[str, Any]) -> tuple[float, float, float, float, float, float]:
+    return (
+        1.0 if row.get("eligible_for_shortlist") else 0.0,
+        _neg_inf_if_nan(row.get("valid_oriented_rank_ic_mean")),
+        _neg_inf_if_nan(row.get("valid_topn_fwd_ret_mean")),
+        _neg_inf_if_nan(row.get("valid_top_minus_bottom_fwd_ret_mean")),
+        _neg_inf_if_nan(row.get("valid_roc_auc")),
+        -float(row.get("model_complexity_rank") or 0),
+    )
+
+
+def select_candidate(
+    candidates: list[CandidateResult],
+    ranking: list[dict[str, Any]],
+    candidate_id: str | None,
+) -> CandidateResult:
+    by_id = {candidate.candidate_id: candidate for candidate in candidates}
+    if candidate_id:
+        if candidate_id not in by_id:
+            raise ValueError(f"candidate_id {candidate_id!r} not found in trained artifacts")
+        return by_id[candidate_id]
+    shortlisted = [row for row in ranking if row.get("shortlist_rank_valid_only") == 1]
+    if shortlisted:
+        return by_id[shortlisted[0]["candidate_id"]]
+    return by_id[ranking[0]["candidate_id"]]
+
+
+def native_search_metrics(
+    *,
+    experiment: Experiment,
+    selected: CandidateResult,
+    selected_rank: dict[str, Any],
+    search_id: str,
+    source_run_id: str,
+    shortlist_rank_valid_only: int | None,
+    test_reuse_wave_no: int,
+    test_reuse_approval_ref: str | None,
+    final_holdout_status: str | None,
+    native_acceptance_status: str,
+) -> dict[str, Any]:
+    status = native_acceptance_status or "candidate"
+    return {
+        "search_id": search_id,
+        "source_run_id": source_run_id,
+        "candidate_id": selected.candidate_id,
+        "candidate_run_id": experiment.run_id,
+        "candidate_backtest_id": experiment.backtest_id,
+        "sklearn_native_mode": True,
+        "native_acceptance_status": status,
+        "native_acceptance_reason": "pending_top5_backtest" if status == "candidate" else status,
+        "shortlist_rank_valid_only": shortlist_rank_valid_only,
+        "shortlist_ranking_uses_test_metrics": False,
+        "shortlist_filter_reason": selected_rank.get("shortlist_filter_reason"),
+        "valid_signal_status": selected.metrics.get("valid_signal_status"),
+        "test_reuse_wave_no": int(test_reuse_wave_no),
+        "test_reuse_approval_ref": test_reuse_approval_ref,
+        "final_holdout_status": final_holdout_status,
+    }
+
+
+def copy_training_panel_alias(
+    client: bigquery.Client,
+    source_run_id: str,
+    target_run_id: str,
+    model_id: str,
+    experiment: Experiment,
+    *,
+    force_replace: bool,
+) -> None:
+    if source_run_id == target_run_id:
+        return
+    if force_replace:
+        execute_query(
+            client,
+            f"""
+            DELETE FROM `{ADS}.ads_ml_training_panel_daily`
+            WHERE run_id = @target_run_id
+              AND trade_date BETWEEN @train_start AND @test_end
+            """,
+            [
+                bigquery.ScalarQueryParameter("target_run_id", "STRING", target_run_id),
+                bigquery.ScalarQueryParameter("train_start", "DATE", experiment.train_start),
+                bigquery.ScalarQueryParameter("test_end", "DATE", experiment.test_end),
+            ],
+        )
+    existing = query_dataframe(
+        client,
+        f"""
+        SELECT COUNT(*) AS n
+        FROM `{ADS}.ads_ml_training_panel_daily`
+        WHERE run_id = @target_run_id
+          AND trade_date BETWEEN @train_start AND @test_end
+        """,
+        [
+            bigquery.ScalarQueryParameter("target_run_id", "STRING", target_run_id),
+            bigquery.ScalarQueryParameter("train_start", "DATE", experiment.train_start),
+            bigquery.ScalarQueryParameter("test_end", "DATE", experiment.test_end),
+        ],
+    )
+    if int(existing.iloc[0]["n"] or 0) > 0:
+        raise RuntimeError(f"training panel alias already exists for run_id={target_run_id}; set --force-replace")
+    execute_query(
+        client,
+        f"""
+        INSERT INTO `{ADS}.ads_ml_training_panel_daily`
+        (
+          run_id, strategy_id, model_id, preprocess_version, feature_version,
+          label_version, universe_version, trade_date, sec_code, horizon,
+          split_fold, split_tag, sample_weight, target_label, target_return,
+          feature_values_json, feature_column_list, created_at
+        )
+        SELECT
+          @target_run_id AS run_id,
+          strategy_id,
+          @model_id AS model_id,
+          preprocess_version,
+          feature_version,
+          label_version,
+          universe_version,
+          trade_date,
+          sec_code,
+          horizon,
+          split_fold,
+          split_tag,
+          sample_weight,
+          target_label,
+          target_return,
+          feature_values_json,
+          feature_column_list,
+          CURRENT_TIMESTAMP() AS created_at
+        FROM `{ADS}.ads_ml_training_panel_daily`
+        WHERE run_id = @source_run_id
+          AND trade_date BETWEEN @train_start AND @test_end
+        """,
+        [
+            bigquery.ScalarQueryParameter("target_run_id", "STRING", target_run_id),
+            bigquery.ScalarQueryParameter("source_run_id", "STRING", source_run_id),
+            bigquery.ScalarQueryParameter("model_id", "STRING", model_id),
+            bigquery.ScalarQueryParameter("train_start", "DATE", experiment.train_start),
+            bigquery.ScalarQueryParameter("test_end", "DATE", experiment.test_end),
+        ],
+    )
 
 
 def load_candidates(
@@ -358,6 +628,7 @@ def materialize_selected_artifact(
     manifest: dict[str, Any],
     work_units: dict[str, Any],
     candidates: list[CandidateResult],
+    candidate_ranking: list[dict[str, Any]],
     matrix_local: Path,
 ) -> None:
     artifact_local_dir.mkdir(parents=True, exist_ok=True)
@@ -373,6 +644,12 @@ def materialize_selected_artifact(
         "candidates": [candidate.metrics for candidate in candidates],
         "selected_candidate_id": selected.candidate_id,
     })
+    write_json(artifact_local_dir / "candidate_ranking.json", {
+        "ranking": candidate_ranking,
+        "selected_candidate_id": selected.candidate_id,
+        "ranking_uses_test_metrics": False,
+    })
+    pd.DataFrame(candidate_ranking).to_csv(artifact_local_dir / "candidate_ranking.csv", index=False)
     write_json(artifact_local_dir / "orientation.json", {
         "score_orientation": selected.score_orientation,
         "orientation_decision_reason": selected.orientation_reason,
@@ -401,6 +678,14 @@ def _neg_inf_if_nan(value: Any) -> float:
     except (TypeError, ValueError):
         return -math.inf
     return value if math.isfinite(value) else -math.inf
+
+
+def _float_or_nan(value: Any) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return math.nan
+    return out if math.isfinite(out) else math.nan
 
 
 if __name__ == "__main__":

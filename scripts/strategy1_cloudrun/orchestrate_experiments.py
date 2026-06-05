@@ -203,6 +203,7 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
     common_flags = [
         f"--project={config.project}",
         f"--region={config.region}",
+        f"--config={args.config}",
         f"--manifest={args.manifest}",
         f"--experiment-id={exp.experiment_id}",
         f"--experiment-json={experiment_to_b64(exp)}",
@@ -297,6 +298,7 @@ def build_task_fanout_steps(config, exp, args, common_flags: list[str]) -> list[
                 [
                     f"--project={config.project}",
                     f"--region={config.region}",
+                    f"--config={args.config}",
                     f"--matrix-uri={matrix_uri}",
                     f"--task-index-offset={batch_start}",
                 ],

@@ -8,6 +8,8 @@
 
 **OQ-005 daily_current 20 日窗口与非交易日口径修复（2026-06-05）**：工作树 `/private/tmp/quant-ashare-oq005-daily-window-hardening`，分支 `codex/oq005-daily-window-hardening`。本分支从最新 `origin/main` 补入本地 `5b62895` 的 daily_current 20 个交易日窗口和 QA-WIN-16/17/18 估值覆盖检查，并进一步硬化非交易日口径：`daily_current` 的 `date_to` / `business_date` 会先归一到不晚于请求日期的最近 SSE 开市日，`backfill` 保持显式日期。PR #70 review follow-up 已修复 QA-WIN-18 误以 `pe/pb` 和全量 valuation 行触发的问题，改为在 price-driven feature universe 内按 `total_mv_cny/circ_mv_cny` 检查 `has_valuation_data`；backfill 的估值覆盖 QA 也改为实际写入窗口。已同步 `sql/README.md`、`orchestration/composer/README.md`、`ARCHITECTURE_MEMORY.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`TODO.md` 和 `IMPLEMENTATION_STATUS.md`，将 OQ-005 状态从“尚未部署 / 待 smoke”修正为已完成 Composer DAG/SQL 部署验收、20 日估值缺口回填和 backfill / qa_only / daily_current smoke；OQ-005 仍 open，剩余 Dataform、告警、补跑和运维观测闭环。验证：窗口 SQL / QA 对 `daily_current business_date=2026-06-06` 和 `backfill 2026-06-03..2026-06-04` 的 BigQuery dry-run 均通过；只读窗口计算确认 `2026-06-06` 归一为 `2026-06-05`，窗口起点 `2026-05-11`，`backfill 2026-06-03..2026-06-04` 的估值覆盖起点为 `2026-06-03`。尚未部署本分支到 Composer，合并后需同步 `sql/` 到 Composer bucket。
 
+**策略 1 sklearn native search 实现分支（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-search`，分支 `codex/implement-sklearn-native-search`。已按 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md` 完成 P0 本地可验证实现：新增 36 候选 manifest `configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml`，扩展 sklearn candidate 级参数训练 / convergence metadata / valid_signal_status，新增 valid-only Top 5 ranking、Top5 独立 select/predict/backtest/report/diagnosis orchestrator `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`，新增 `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`。已验证 Python `py_compile`、36-task search dry-run、通用 task-fanout dry-run、配置候选唯一性、`18` BigQuery dry-run 和 `git diff --check`。尚未部署 Cloud Run 镜像、未实跑 36 个候选、未写 ADS/GCS 正式产物；下一步是 review/merge 后部署镜像并执行真实 search。
+
 **策略 1 scikit-learn native 模型实验 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-prd`，分支 `codex/prd-sklearn-native-experiment`。新增 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md`，定义 Cloud Run sklearn backend 在 BQML parity 未通过后的新 baseline 实验方案：固定当前最优交易口径 `pv_fin_quality + 30/5% + biweekly + 5d`，用 task fan-out 并发训练 36 个 sklearn 原生 LogisticRegression 候选，valid-only 选 Top 5 进入完整预测/组合/回测/报告/诊断，并通过 native acceptance gate 决定是否建立 `cloud_run_sklearn_native_baseline_v1`。BQML baseline 保留为历史 reference / fallback；现有 Cloud Run parity gate 不删除，只是不再作为 native baseline 的 hard gate。PR #69 review 后已加固：训练窗口钉死为 `2019-04-03` 至 `2023-12-31`；accepted 候选必须 `valid_signal_status=stable`，valid 弱但 test 过门只能 `needs_more_evidence`；跨模型族复用 2025 test 必须记录 `test_reuse_wave_no` / owner 批准，超过 3 个波次后必须新增最终 holdout 证据。本次只写 PRD 和记忆/TODO，未实现代码、未部署 Cloud Run Job、未执行 BigQuery。
 
 **策略 1 Cloud Run task fan-out 正式全量验收（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-p1`，`main` 分支。已先将 `strategy1-prepare-matrix-job` 从 `4 CPU / 16Gi` 提升到 `8 CPU / 32Gi`，再用正式全量 run `s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` / `bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` 跑完整 Cloud Run task fan-out 链路。训练面板 3,055,781 行（train 1,999,065 / valid 476,346 / test 580,370）；`cloudrun_prepare_matrix` 4m10s 成功，5 个 candidate task 全部 succeeded，`cloudrun_select_register_predict`、`cloudrun_backtest_report` succeeded；`backtest_report` 内部完成 `05-09`、Python `ledger_exec_v1`、报告上传、`10`、diagnosis 和 `12`。`16_qa_cloudrun_runner_outputs.sql` 在 smoke/evidence 模式通过，`17_qa_cloudrun_orchestrator_status.sql` 通过；正式 `16` parity 在 `QA-CR-4` 失败，sklearn selected model `elastic_c_1_l1_0_5` valid RankIC `0.06665` 低于 BQML reference `0.09676`，`model_quality_status=model_quality_not_equivalent`。回测结果 total_return `46.29%`、excess_return `17.28%` vs `000852.SH`、Sharpe `1.111`、max_drawdown `-13.94%`，报告 URI `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01/backtest_id=bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01`。结论：Cloud Run 执行链路和 full-panel prepare OOM 已收口，但不能声明 sklearn 正式等价替代 BQML。
@@ -110,6 +112,77 @@ Run ID: N/A
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: OQ-010 / Strategy 1 sklearn native search implementation
+
+### 已完成工作
+
+- 在工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-search`、分支 `codex/implement-sklearn-native-search` 实现 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md` 的 P0 代码路径。
+- 新增 `configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml`，固定当前最优交易参数 `pv_fin_quality + 30/5% + biweekly + 5d`、训练窗口 `2019-04-03` 至 `2023-12-31`、valid 2024、test/predict 2025，并定义 36 个 sklearn LogisticRegression 原生候选。
+- 扩展 `train_predict.py`：candidate 级 `penalty` / `solver` / `C` / `l1_ratio` / `class_weight` / `max_iter` / `random_state`，记录 convergence warning、`n_iter_max`、`valid_signal_status`、valid RankIC ICIR、valid top-minus-bottom 等元数据。
+- 扩展 `select_register_predict.py`：支持强选 candidate、valid-only ranking、Top5 metadata、training panel alias、native search 初始状态、candidate ranking artifact。
+- 新增 `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`：一次 prepare matrix、36-task candidate fan-out、valid-only Top5、Top5 独立 select/predict/backtest/report/diagnosis、native acceptance 回写、comparison artifact 和 `18` QA。
+- 新增 `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`，覆盖 search_id/source_run_id、candidate_count、task fan-out metadata、valid-only ranking、TopK 独立 run/backtest、report/diagnosis uploaded、accepted gates、BQML reference、test reuse/final holdout 等断言。
+- 修复 `orchestrate_experiments.py` 的配置透传：candidate task 命令现在包含 `--config=...`，避免容器端回退默认 5 候选。
+- 同步 Cloud Run 运行手册、runner README、TODO 和项目记忆。
+
+### 重要上下文
+
+- 这只是实现分支和 dry-run 验证，尚未部署 Cloud Run 镜像、未实跑 36 个候选、未写 ADS/GCS 正式产物。
+- 当前真实执行建议在 PR review/merge 后进行：重新构建/部署包含新脚本的镜像，再运行 `orchestrate_sklearn_native_search.py`。
+- 已知 `asia-east2` Cloud Run 配额提升到约 40 vCPU / 160Gi，第一轮 36 个 candidate task 可按 `1 CPU / 4Gi`、`--tasks=36` 并发尝试。
+- 新 native baseline path 不要求 BQML parity passed，但必须保留 BQML reference 证据，并按 PRD 的 native acceptance gate 决定 accepted / rejected / needs_more_evidence。
+
+### 改动文件
+
+- `configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1_cloudrun/train_predict.py`
+- `scripts/strategy1_cloudrun/select_register_predict.py`
+- `scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
+- `sql/ml/strategy1/README.md`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py scripts/strategy1_cloudrun/select_register_predict.py scripts/strategy1_cloudrun/train_predict.py scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search ... --candidate-parallelism 0 --top-k-backtest 5 --dry-run`
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_experiments ... --train-mode task_fanout --candidate-parallelism 0 --dry-run`
+- 配置校验：36 个 candidate_id 全部唯一，manifest 只含 1 个 search experiment。
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
+- `git diff --check`
+
+### 阻塞项
+
+- 无代码阻塞；真实 36 候选尚未执行。
+
+### 下一步建议
+
+- 创建 PR 并 review。
+- 合并后构建/部署 Cloud Run 镜像到 `strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。
+- 执行真实 sklearn native search：36 候选并发训练、Top5 完整回测、`18` QA，通过 comparison artifact 决定是否接受 `cloud_run_sklearn_native_baseline_v1`。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 
