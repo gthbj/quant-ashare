@@ -341,8 +341,9 @@ python -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search \
 4. Top5 排名只使用 valid 指标；test 指标只在 Top5 完整回测后用于验收。
 5. 每个 Top5 候选会生成独立 `candidate_run_id` / `candidate_backtest_id`，并复制一份同 run_id 的 `ads_ml_training_panel_daily` 别名，保证 `10` / `12` QA 和诊断可按独立 run_id join。
 6. Top5 select/register/predict 与 backtest/report 仍使用 GCS lock 和状态表 step，避免同一 run/backtest 被两个 writer 同时写。
-7. 搜索报告写入 `reports/strategy1_cloudrun/sklearn_native_search/search_id=<search_id>/`，uploaded 模式同步到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/search_id=<search_id>/`。
-8. 完成后运行 `18_qa_sklearn_native_search_outputs.sql`；该 QA 不要求 BQML parity passed，而是检查 native acceptance gate。
+7. 单个 Top5 候选失败时，orchestrator 记录该候选失败并继续等待其他 Top5；最终 `18` QA 仍要求完整 Top5 产物，避免部分成功被误判为通过。
+8. 搜索报告写入 `reports/strategy1_cloudrun/sklearn_native_search/search_id=<search_id>/`，uploaded 模式同步到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/search_id=<search_id>/`。
+9. 完成后运行 `18_qa_sklearn_native_search_outputs.sql`；该 QA 不要求 BQML parity passed，而是检查 native acceptance gate。
 
 ## 8. QA
 

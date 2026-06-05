@@ -191,7 +191,7 @@ def main() -> int:
     )
     topk_results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, max_topk_workers)) as executor:
-        futures = [
+        futures = {
             executor.submit(
                 run_topk_candidate,
                 config,
@@ -206,16 +206,28 @@ def main() -> int:
                 test_reuse_wave_no,
                 test_reuse_approval_ref,
                 final_holdout_status,
-            )
+            ): row
             for row in top_rows
-        ]
+        }
         for future in concurrent.futures.as_completed(futures):
-            topk_results.append(future.result())
+            row = futures[future]
+            try:
+                topk_results.append(future.result())
+            except Exception as exc:
+                exp = topk_experiment(search_exp, search_id, row["candidate_id"])
+                topk_results.append({
+                    "status": "failed",
+                    "candidate_id": row["candidate_id"],
+                    "shortlist_rank_valid_only": int(row["shortlist_rank_valid_only"]),
+                    "experiment": exp.to_params(),
+                    "error": str(exc)[-8000:],
+                })
 
     client = make_client(config.project, config.region)
-    comparison_rows = fetch_topk_ads_outputs(client, topk_results)
+    successful_topk_results = [item for item in topk_results if item.get("status") == "succeeded"]
+    comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results) if successful_topk_results else []
     apply_native_acceptance_to_ads(client, comparison_rows, raw_manifest)
-    comparison_rows = fetch_topk_ads_outputs(client, topk_results)
+    comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results) if successful_topk_results else []
     write_final_comparison(
         comparison_dir,
         search_id=search_id,
@@ -224,6 +236,7 @@ def main() -> int:
         ranking=ranking,
         top_rows=top_rows,
         comparison_rows=comparison_rows,
+        topk_execution_results=topk_results,
         test_reuse_wave_no=test_reuse_wave_no,
         test_reuse_approval_ref=test_reuse_approval_ref,
         final_holdout_status=final_holdout_status,
@@ -415,6 +428,7 @@ def run_topk_candidate(
             args=args,
         ))
     return {
+        "status": "succeeded",
         "candidate_id": candidate_id,
         "shortlist_rank_valid_only": int(row["shortlist_rank_valid_only"]),
         "experiment": exp.to_params(),
@@ -494,6 +508,7 @@ def write_final_comparison(
     ranking: list[dict[str, Any]],
     top_rows: list[dict[str, Any]],
     comparison_rows: list[dict[str, Any]],
+    topk_execution_results: list[dict[str, Any]],
     test_reuse_wave_no: int,
     test_reuse_approval_ref: str | None,
     final_holdout_status: str | None,
@@ -525,6 +540,7 @@ def write_final_comparison(
         "test_reuse_approval_ref": test_reuse_approval_ref,
         "final_holdout_status": final_holdout_status,
         "ranking": ranking,
+        "topk_execution_results": topk_execution_results,
         "top5_backtest_summary": comparison_rows,
         "selected_sklearn_native_baseline": selected,
     }
@@ -617,7 +633,7 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
     ),
     test_rank_ic AS (
       SELECT
-        pred.run_id,
+        day_ic.run_id,
         AVG(day_ic.rank_ic) AS test_rank_ic_mean,
         SAFE_DIVIDE(AVG(day_ic.rank_ic), NULLIF(STDDEV_SAMP(day_ic.rank_ic), 0)) AS test_rank_ic_icir
       FROM (
@@ -647,13 +663,37 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
         ) AS pred
         GROUP BY pred.run_id, pred.predict_date
       ) AS day_ic
-      JOIN (
-        SELECT DISTINCT run_id
-        FROM `data-aquarium.ashare_ads.ads_model_prediction_daily`
-        WHERE run_id IN UNNEST(@run_ids)
-      ) AS pred
-        ON pred.run_id = day_ic.run_id
-      GROUP BY pred.run_id
+      GROUP BY day_ic.run_id
+    ),
+    test_bucket_spread AS (
+      SELECT
+        run_id,
+        AVG(top_minus_bottom) AS test_top_minus_bottom_fwd_ret_mean
+      FROM (
+        SELECT
+          run_id,
+          predict_date,
+          AVG(IF(score_bucket = 10, target_return, NULL))
+            - AVG(IF(score_bucket = 1, target_return, NULL)) AS top_minus_bottom
+        FROM (
+          SELECT
+            pred.run_id,
+            pred.predict_date,
+            tp.target_return,
+            NTILE(10) OVER(PARTITION BY pred.run_id, pred.predict_date ORDER BY pred.score) AS score_bucket
+          FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
+          JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+            ON tp.run_id = pred.run_id
+           AND tp.trade_date = pred.predict_date
+           AND tp.sec_code = pred.sec_code
+          WHERE pred.run_id IN UNNEST(@run_ids)
+            AND pred.predict_date BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
+            AND tp.split_tag = 'test'
+            AND tp.target_return IS NOT NULL
+        )
+        GROUP BY run_id, predict_date
+      )
+      GROUP BY run_id
     ),
     test_perf AS (
       SELECT
@@ -684,6 +724,7 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
       summary.metrics_json AS summary_metrics_json,
       test_rank_ic.test_rank_ic_mean,
       test_rank_ic.test_rank_ic_icir,
+      test_bucket_spread.test_top_minus_bottom_fwd_ret_mean,
       test_perf.test_year_total_return,
       test_perf.test_year_total_return - test_perf.test_year_benchmark_return AS test_year_excess_return
     FROM registry AS reg
@@ -691,6 +732,8 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
       ON summary.model_id = reg.model_id
     LEFT JOIN test_rank_ic
       ON test_rank_ic.run_id = reg.run_id
+    LEFT JOIN test_bucket_spread
+      ON test_bucket_spread.run_id = reg.run_id
     LEFT JOIN test_perf
       ON test_perf.run_id = reg.run_id
     ORDER BY reg.run_id
@@ -726,6 +769,7 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
             "valid_top_minus_bottom_fwd_ret_mean": reg_metrics.get("valid_top_minus_bottom_fwd_ret_mean"),
             "test_rank_ic_mean": row.get("test_rank_ic_mean"),
             "test_rank_ic_icir": row.get("test_rank_ic_icir"),
+            "test_top_minus_bottom_fwd_ret_mean": row.get("test_top_minus_bottom_fwd_ret_mean"),
             "test_year_total_return": row.get("test_year_total_return"),
             "test_year_excess_return": row.get("test_year_excess_return"),
             "total_return": row.get("total_return"),
@@ -764,7 +808,7 @@ def decide_acceptance(row: dict[str, Any], acceptance: dict[str, Any]) -> tuple[
     if valid_status != "stable":
         return ("needs_more_evidence" if valid_status == "weak" else "rejected", f"valid_signal_status={valid_status}")
     checks = [
-        ("test_rank_ic_mean", row.get("test_rank_ic_mean"), float(acceptance.get("min_test_rank_ic", 0.0)), "ge"),
+        ("test_rank_ic_mean", row.get("test_rank_ic_mean"), float(acceptance.get("min_test_rank_ic", 0.0)), "gt"),
         ("test_year_total_return", row.get("test_year_total_return"), 0.0, "gt"),
         ("test_year_excess_return", row.get("test_year_excess_return"), float(acceptance.get("min_test_excess_return", 0.0)), "gt"),
         ("sharpe", row.get("sharpe"), float(acceptance.get("min_full_period_sharpe", 0.70)), "ge"),
@@ -780,6 +824,14 @@ def decide_acceptance(row: dict[str, Any], acceptance: dict[str, Any]) -> tuple[
             failures.append(f"{name}<{threshold}")
         if op == "gt" and actual_value <= threshold:
             failures.append(f"{name}<={threshold}")
+    valid_spread = safe_float(row.get("valid_top_minus_bottom_fwd_ret_mean"))
+    test_spread = safe_float(row.get("test_top_minus_bottom_fwd_ret_mean"))
+    if not math.isfinite(valid_spread):
+        failures.append("valid_top_minus_bottom_fwd_ret_mean=missing")
+    if not math.isfinite(test_spread):
+        failures.append("test_top_minus_bottom_fwd_ret_mean=missing")
+    if math.isfinite(valid_spread) and math.isfinite(test_spread) and valid_spread < 0 and test_spread < 0:
+        failures.append("valid_and_test_top_minus_bottom_both_negative")
     if failures:
         return "rejected", ";".join(failures)
     return "accepted", "all_native_acceptance_gates_passed"
@@ -794,6 +846,7 @@ def patch_native_acceptance(client: bigquery.Client, row: dict[str, Any], status
         bigquery.ScalarQueryParameter("candidate_id", "STRING", row.get("candidate_id")),
         bigquery.ScalarQueryParameter("shortlist_rank", "INT64", row.get("shortlist_rank_valid_only")),
         bigquery.ScalarQueryParameter("test_rank_ic_mean", "FLOAT64", safe_float_or_none(row.get("test_rank_ic_mean"))),
+        bigquery.ScalarQueryParameter("test_top_minus_bottom", "FLOAT64", safe_float_or_none(row.get("test_top_minus_bottom_fwd_ret_mean"))),
         bigquery.ScalarQueryParameter("test_year_total_return", "FLOAT64", safe_float_or_none(row.get("test_year_total_return"))),
         bigquery.ScalarQueryParameter("test_year_excess_return", "FLOAT64", safe_float_or_none(row.get("test_year_excess_return"))),
     ]
@@ -805,6 +858,7 @@ def patch_native_acceptance(client: bigquery.Client, row: dict[str, Any], status
           '$.native_acceptance_status', @status,
           '$.native_acceptance_reason', @reason,
           '$.test_rank_ic_mean', @test_rank_ic_mean,
+          '$.test_top_minus_bottom_fwd_ret_mean', @test_top_minus_bottom,
           '$.test_year_total_return', @test_year_total_return,
           '$.test_year_excess_return', @test_year_excess_return
         ))
@@ -824,6 +878,7 @@ def patch_native_acceptance(client: bigquery.Client, row: dict[str, Any], status
           '$.native_acceptance_status', @status,
           '$.native_acceptance_reason', @reason,
           '$.test_rank_ic_mean', @test_rank_ic_mean,
+          '$.test_top_minus_bottom_fwd_ret_mean', @test_top_minus_bottom,
           '$.test_year_total_return', @test_year_total_return,
           '$.test_year_excess_return', @test_year_excess_return
         ))

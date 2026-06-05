@@ -379,19 +379,24 @@ def rank_candidates(candidates: list[CandidateResult], *, top_k: int = 5) -> lis
         metrics["model_complexity_rank"] = int(metrics.get("model_complexity_rank", model_complexity_rank(metrics)))
         rank_ic = _float_or_nan(metrics.get("oriented_valid_rank_ic_mean"))
         coverage = _float_or_nan(metrics.get("valid_eval_coverage"))
-        reasons = []
-        if has_positive_rank_ic and not rank_ic > 0:
-            reasons.append("valid_rank_ic_not_positive")
+        hard_reasons = []
+        rank_reasons = []
+        if not rank_ic > 0:
+            rank_reasons.append("valid_rank_ic_not_positive")
         if math.isfinite(median_coverage) and math.isfinite(coverage) and coverage < median_coverage - 0.05:
-            reasons.append("valid_eval_coverage_below_peer_median_minus_5pp")
+            hard_reasons.append("valid_eval_coverage_below_peer_median_minus_5pp")
         if metrics.get("score_orientation") not in {"identity", "reverse_probability"}:
-            reasons.append("score_orientation_missing")
+            hard_reasons.append("score_orientation_missing")
         if not metrics.get("convergence_status"):
-            reasons.append("convergence_status_missing")
+            hard_reasons.append("convergence_status_missing")
+        elif metrics.get("convergence_status") != "converged":
+            hard_reasons.append("convergence_status_not_converged")
+        reasons = hard_reasons + rank_reasons
         eligible = not reasons
         rows.append({
             "candidate_id": candidate.candidate_id,
             "eligible_for_shortlist": eligible,
+            "eligible_after_hard_filters": not hard_reasons,
             "shortlist_filter_reason": ";".join(reasons),
             "valid_oriented_rank_ic_mean": rank_ic,
             "valid_oriented_rank_ic_icir": _float_or_nan(metrics.get("oriented_valid_rank_ic_icir")),
@@ -414,17 +419,18 @@ def rank_candidates(candidates: list[CandidateResult], *, top_k: int = 5) -> lis
     eligible_assigned = 0
     fallback_assigned = 0
     has_eligible = any(row["eligible_for_shortlist"] for row in rows)
+    no_positive_valid_signal = not has_positive_rank_ic
     for position, row in enumerate(rows, start=1):
         row["valid_only_rank"] = position
         row["shortlist_ranking_uses_test_metrics"] = False
         if row["eligible_for_shortlist"]:
             eligible_assigned += 1
             row["shortlist_rank_valid_only"] = eligible_assigned if eligible_assigned <= top_k else None
-        elif not has_eligible:
+        elif not has_eligible and no_positive_valid_signal and row.get("eligible_after_hard_filters"):
             fallback_assigned += 1
             row["shortlist_rank_valid_only"] = fallback_assigned if fallback_assigned <= top_k else None
-            if not row["shortlist_filter_reason"]:
-                row["shortlist_filter_reason"] = "fallback_all_candidates_ineligible"
+            row["search_failure_status"] = "failed_no_positive_valid_signal"
+            row["shortlist_fallback_reason"] = "all_candidates_nonpositive_valid_rank_ic"
         else:
             row["shortlist_rank_valid_only"] = None
     return rows
@@ -483,6 +489,8 @@ def native_search_metrics(
         "shortlist_rank_valid_only": shortlist_rank_valid_only,
         "shortlist_ranking_uses_test_metrics": False,
         "shortlist_filter_reason": selected_rank.get("shortlist_filter_reason"),
+        "shortlist_fallback_reason": selected_rank.get("shortlist_fallback_reason"),
+        "search_failure_status": selected_rank.get("search_failure_status"),
         "valid_signal_status": selected.metrics.get("valid_signal_status"),
         "test_reuse_wave_no": int(test_reuse_wave_no),
         "test_reuse_approval_ref": test_reuse_approval_ref,

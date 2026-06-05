@@ -99,6 +99,12 @@ ASSERT (
     AND (
       JSON_VALUE(reg.metrics_json, '$.valid_signal_status') != 'stable'
       OR SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) <= 0
+      OR SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) IS NULL
+      OR SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) IS NULL
+      OR (
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) < 0
+        AND SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) < 0
+      )
       OR SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_year_total_return') AS FLOAT64) <= 0
       OR SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_year_excess_return') AS FLOAT64) <= 0
       OR bs.sharpe < 0.70
@@ -149,7 +155,7 @@ ASSERT (
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
     AND SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_reuse_wave_no') AS INT64) > 3
     AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') = 'accepted'
-    AND JSON_VALUE(reg.metrics_json, '$.final_holdout_status') != 'passed'
+    AND IFNULL(JSON_VALUE(reg.metrics_json, '$.final_holdout_status'), '') != 'passed'
 ) AS 'QA-SKN-13: wave >3 cannot be accepted without final holdout passed evidence';
 
 -- Sanity: caller-provided wave number must match registry rows.
