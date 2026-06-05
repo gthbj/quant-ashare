@@ -72,7 +72,7 @@ python scripts/strategy1/render_report.py --project data-aquarium --backtest-id 
 
 `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 用于生产每日或区间补跑。目标表必须已由全量 CTAS 路径初始化；脚本只刷新股票日频 DWD 与策略 1 DWS，不写 ADS run/backtest 产物。
 
-- DWD 写入窗口：`date_from` / `date_to`，未传 `date_from` 时只写 `date_to` 或 `business_date`。
+- DWD 写入窗口：`backfill` 保持显式 `date_from` / `date_to`；`daily_current` 未传 `date_from` 时，先把 `date_to` 或 `business_date` 归一到不晚于请求日期的最近 SSE 开市日，再刷新最近 20 个交易日。
 - 价格特征读取窗口：按 SSE 交易日历向前读取 60 个交易日。
 - 估值特征读取窗口：按每只股票写入窗口首日前的实际 60 条估值观测推导，覆盖 `daily_basic` 缺口。
 - 标签、特征宽表、样本表写入窗口：按 SSE 交易日历向前回补 20 个交易日，覆盖 forward label 受新增价格影响的历史样本。
