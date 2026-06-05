@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新分支（2026-06-05）**：工作树 `/private/tmp/quant-ashare-windowed-refresh`，分支 `codex/windowed-dwd-dws-refresh`。已新增 `sql/incremental/01_refresh_stock_dwd_dws_window.sql`，按 `business_date` / `date_from` / `date_to` 参数窗口化刷新 `dwd_stock_eod_price`、`dwd_stock_eod_valuation` 和策略 1 DWS（universe、价格/估值/财务特征、label、feature wide、sample）；标签、宽表和样本按 SSE 交易日历向前回补 20 个交易日，价格/估值特征向前读取 60 个交易日；不写 ADS runner/backtest/report 产物。新增 `sql/qa/10_windowed_stock_refresh_checks.sql` 做窗口轻量 QA。Composer DAG 的 `daily_current/backfill` 真实写入分支现在会刷新 DIM 小表、恢复 P0 metadata、执行股票 DWD/DWS 窗口刷新和窗口 QA；`pipeline_dry_run=true` 不写 DIM/DWD/DWS，`full_rebuild/full_rebuild_compat` 仍走原全量兼容链路，`qa_only` 仍只读。同步纳入静态 project/region/location 热修复和 meta DDL 多列 `ADD COLUMN` 合并。验证已通过 DAG py_compile、窗口 SQL/QA BigQuery dry-run（backfill 与 daily_current 参数）、meta DDL dry-run、P0 metadata dry-run；未部署 Composer、未执行生产 DML、未写 BigQuery/GCS/ADS 产物。
+
 **策略 1 Cloud Run task fan-out 真实 smoke（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-p1`，分支 `codex/fix-task-fanout-force-replace`。已构建并部署修复镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:8cc8470014cb3b54272d4c7f47afb396d91cf7b97967f0c3ffab947f7432c38a` 到 `strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。当前资源：prepare/select/backtest `4 CPU / 16Gi`，candidate task `1 CPU / 4Gi`；因 `asia-east2` 当前 20 vCPU / 40Gi 配额，candidate job 设置 `parallelism=10`。低成本 smoke `run_id=s1_cloudrun_taskfanout_smoke_20260605_03` / `backtest_id=bt_s1_cloudrun_taskfanout_smoke_20260605_03` 已跑通：`cloudrun_prepare_matrix`、5 个 candidate task、`cloudrun_select_register_predict`、`cloudrun_backtest_report` 全部 succeeded，`10`/`12`/`16`/`17` QA 全部通过。修复内容：orchestrator 不再把 `--force-replace` 传给 `prepare_matrix`；`10` QA 的 split 边界改为参数化；`12` QA-DIAG-6 改用训练面板 `tp.split_tag` 而非 DWS 固定 split。产物：matrix URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/matrix_id=s1_cloudrun_taskfanout_smoke_20260605_03__matrix_5294c2780a86`，model URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/model_id=s1_sklearn_s1_cloudrun_taskfanout_smoke_20260605_03__l2_c_10`，report URI `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/backtest_id=bt_s1_cloudrun_taskfanout_smoke_20260605_03`。本次 smoke 证明 task fan-out 执行链路可用；正式替代 BQML 仍需 sklearn parity passed 或 owner 接受新 Cloud Run baseline。
 
 **策略 1 Cloud Run 轻量 Task 并发实现分支（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-task-fanout-impl`，分支 `codex/cloudrun-task-fanout`。已按 PRD-20260605-02 实现 P0 task fan-out 训练链路：`prepare_matrix.py` 一次性读取 `ads_ml_training_panel_daily` 并输出 GCS frozen matrix / work units / feature schema / preprocess stats / BigQuery job audit；`train_candidate_task.py` 通过 `CLOUD_RUN_TASK_INDEX + TASK_INDEX_OFFSET` 训练单个 candidate 并写 candidate artifact；`select_register_predict.py` 汇总 candidate artifact、校验 hash、选型、写 selected registry / prediction；`orchestrate_experiments.py` 新增 `--train-mode task_fanout` 和 `--candidate-parallelism`，可在 owner 不限流时单批 `--tasks=N` 全并发，显式限流时分批执行。PR #64 review follow-up 已修 QA-TASK-8：`select_register_predict` 通过 `JOBS_BY_PROJECT` 写入真实 `candidate_task_bq_*` 审计计数，`16_qa_cloudrun_runner_outputs.sql` 也直接查 `JOBS_BY_PROJECT` 兜底断言，不再依赖硬编码 0；后续 nit 已补齐 SQL 版 run_id label 归一化，使其与 Python `bq_label_value()` 完全一致。`17_qa_cloudrun_orchestrator_status.sql` 已补 task fan-out 状态 QA，运行手册和 README 已同步。验证：Python py_compile、入口 dry-run、orchestrator `--tasks` 计划 dry-run、`16`/`17` BigQuery dry-run、实际 Python INFORMATION_SCHEMA audit 查询、`git diff --check`、`gcloud run jobs execute --help` 参数核验均通过。该条为 PR #64 合并前 dry-run 阶段记录；真实 task fan-out smoke 见上一条。
@@ -564,6 +566,78 @@ Run ID: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `TODO.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: OQ-005 Phase 2.2 / 股票 DWD-DWS 窗口刷新
+
+### 已完成工作
+
+- 在工作树 `/private/tmp/quant-ashare-windowed-refresh`、分支 `codex/windowed-dwd-dws-refresh` 实现股票 DWD/DWS 窗口刷新。
+- 新增 `sql/incremental/01_refresh_stock_dwd_dws_window.sql`，对 `dwd_stock_eod_price`、`dwd_stock_eod_valuation`、策略 1 universe/price/valuation/finance/label/feature/sample DWS 做参数化窗口 DELETE/INSERT。
+- 新增 `sql/qa/10_windowed_stock_refresh_checks.sql`，覆盖窗口内主键唯一、生命周期、退市日、ODS daily 表示性、停牌语义和 trainable sample 基础断言。
+- `orchestration/composer/dags/ashare_daily_pipeline_v0.py` 新增 `daily_current/backfill` 窗口分支：真实写入时刷新 DIM 小表、恢复 P0 metadata、执行窗口刷新和窗口 QA；`pipeline_dry_run=true` 不写表。
+- 同步修复 Composer project/region/location 常量，避免 BigQuery operator `location` 使用未渲染 Jinja。
+- `sql/meta/01_create_meta_tables.sql` 合并同表多列 `ADD COLUMN IF NOT EXISTS`，降低连续 table update 限流风险。
+- 更新 `orchestration/README.md`、`orchestration/composer/README.md`、`sql/README.md`、`TODO.md` 和相关记忆。
+
+### 重要上下文
+
+- 本次未部署 Composer，未触发 DAG，未执行生产 BigQuery DML，未写 GCS/ADS/report 产物。
+- 窗口脚本假设目标 DIM/DWD/DWS 表已由全量 CTAS 路径初始化；ADS runner/backtest/report 仍由策略 runner 独立写入。
+- `full_rebuild` / `full_rebuild_compat` 保留原全量兼容链路；`qa_only` 保持只读；`enable_ads_contract_init=true` 仍是 ADS 契约初始化的唯一入口。
+- 窗口标签回补是 20 个 SSE 交易日，价格/估值特征读取回看是 60 个 SSE 交易日。
+
+### 改动文件
+
+- `orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `orchestration/composer/README.md`
+- `orchestration/README.md`
+- `sql/incremental/01_refresh_stock_dwd_dws_window.sql`
+- `sql/qa/10_windowed_stock_refresh_checks.sql`
+- `sql/meta/01_create_meta_tables.sql`
+- `sql/README.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 --parameter=business_date:STRING:2026-06-04 --parameter=date_from:STRING:2026-06-03 --parameter=date_to:STRING:2026-06-04 --parameter=warehouse_mode:STRING:backfill < sql/incremental/01_refresh_stock_dwd_dws_window.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 --parameter=business_date:STRING:2026-06-04 --parameter=date_from:STRING: --parameter=date_to:STRING:2026-06-04 --parameter=warehouse_mode:STRING:daily_current < sql/incremental/01_refresh_stock_dwd_dws_window.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 --parameter=business_date:STRING:2026-06-04 --parameter=date_from:STRING:2026-06-03 --parameter=date_to:STRING:2026-06-04 --parameter=warehouse_mode:STRING:backfill < sql/qa/10_windowed_stock_refresh_checks.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 --parameter=business_date:STRING:2026-06-04 --parameter=date_from:STRING: --parameter=date_to:STRING:2026-06-04 --parameter=warehouse_mode:STRING:daily_current < sql/qa/10_windowed_stock_refresh_checks.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/meta/01_create_meta_tables.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/metadata/01_p0_table_column_descriptions.sql`
+
+### 阻塞项
+
+- 无代码阻塞；生产前仍需部署 Composer 并做 `skip_ingestion=true` + `warehouse_mode=backfill` 窗口 smoke、`daily_current` scheduler smoke 和 `qa_only` 验收。
+
+### 下一步建议
+
+- 运行 `git diff --check` 后提交 PR。
+- PR 合并后同步 DAG 与 `sql/` 到 Composer bucket。
+- 先用 `skip_ingestion=true`、`pipeline_dry_run=false`、`warehouse_mode=backfill`、小日期窗口做生产 DML smoke，再恢复/观察 `daily_current` scheduler。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
 
 ---
 

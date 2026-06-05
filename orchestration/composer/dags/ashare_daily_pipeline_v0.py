@@ -24,9 +24,9 @@ from airflow.utils.trigger_rule import TriggerRule
 DEFAULT_PROJECT_ID = "data-aquarium"
 DEFAULT_REGION = "asia-east2"
 DEFAULT_BQ_LOCATION = "asia-east2"
-PROJECT_ID = "{{ var.value.get('ashare_project_id', 'data-aquarium') }}"
-REGION = "{{ var.value.get('ashare_region', 'asia-east2') }}"
-BQ_LOCATION = "{{ var.value.get('ashare_bq_location', 'asia-east2') }}"
+PROJECT_ID = DEFAULT_PROJECT_ID
+REGION = DEFAULT_REGION
+BQ_LOCATION = DEFAULT_BQ_LOCATION
 BUSINESS_DATE = "{{ dag_run.conf.get('business_date', ds) }}"
 DATE_FROM = "{{ dag_run.conf.get('date_from', '') }}"
 DATE_TO = "{{ dag_run.conf.get('date_to', dag_run.conf.get('business_date', ds)) }}"
@@ -211,6 +211,14 @@ def _transform_enabled(**context) -> bool:
     return backend == "bq_sql" and mode in {"full_rebuild", "full_rebuild_compat"}
 
 
+def _window_transform_enabled(**context) -> bool:
+    if _skip_transform(context) or _pipeline_dry_run(context):
+        return False
+    mode = _effective_warehouse_mode(context)
+    backend = _transform_backend(context)
+    return backend == "bq_sql" and mode in {"daily_current", "backfill"}
+
+
 def _qa_only_enabled(**context) -> bool:
     return not _skip_transform(context) and _effective_warehouse_mode(context) == "qa_only"
 
@@ -225,9 +233,9 @@ def _ads_contract_init_enabled(**context) -> bool:
 def _task_type(task_id: str) -> str:
     if task_id.startswith("ingestion."):
         return "ingestion"
-    if task_id.startswith("dim.") or task_id.startswith("dwd.") or task_id.startswith("dws."):
+    if task_id.startswith(("dim.", "dwd.", "dws.", "windowed_dim.", "windowed_transform.")):
         return "transform"
-    if task_id.startswith("metadata."):
+    if task_id.startswith(("metadata.", "windowed_metadata.")):
         return "metadata"
     if task_id.startswith("qa.") or task_id.startswith("qa_only.") or task_id.endswith("_checks"):
         return "qa"
@@ -278,6 +286,15 @@ def _pipeline_run_parameters(status: str) -> list[dict]:
         _string_query_parameter("legacy_full_refresh", LEGACY_FULL_REFRESH),
         _string_query_parameter("transform_backend", TRANSFORM_BACKEND),
         _string_query_parameter("status", status),
+    ]
+
+
+def _window_refresh_parameters() -> list[dict]:
+    return [
+        _string_query_parameter("business_date", BUSINESS_DATE),
+        _string_query_parameter("date_from", DATE_FROM),
+        _string_query_parameter("date_to", DATE_TO),
+        _string_query_parameter("warehouse_mode", WAREHOUSE_MODE),
     ]
 
 
@@ -688,6 +705,11 @@ with DAG(
         python_callable=_transform_enabled,
         ignore_downstream_trigger_rules=False,
     )
+    window_refresh_gate = ShortCircuitOperator(
+        task_id="window_refresh_gate",
+        python_callable=_window_transform_enabled,
+        ignore_downstream_trigger_rules=False,
+    )
     ods_parquet_schema_p0 = _bq_sql_task(
         "ods_parquet_schema_p0",
         "sql/qa/06_ods_parquet_schema_checks.sql",
@@ -792,6 +814,36 @@ with DAG(
 
     qa = _build_qa_chain("qa")
 
+    with TaskGroup(group_id="windowed_dim") as windowed_dim:
+        windowed_dim_trade_calendar = _bq_sql_task("dim_trade_calendar", "sql/dim/01_dim_trade_calendar.sql")
+        windowed_dim_stock = _bq_sql_task("dim_stock", "sql/dim/02_dim_stock.sql")
+        windowed_dim_stock_name_hist = _bq_sql_task("dim_stock_name_hist", "sql/dim/03_dim_stock_name_hist.sql")
+        windowed_dim_index = _bq_sql_task("dim_index", "sql/dim/04_dim_index.sql")
+
+        windowed_dim_trade_calendar >> windowed_dim_stock
+        windowed_dim_stock >> windowed_dim_stock_name_hist
+        windowed_dim_stock >> windowed_dim_index
+
+    with TaskGroup(group_id="windowed_metadata") as windowed_metadata:
+        _bq_sql_task(
+            "p0_column_descriptions",
+            "sql/metadata/01_p0_table_column_descriptions.sql",
+        )
+
+    with TaskGroup(group_id="windowed_transform") as windowed_transform:
+        stock_dwd_dws_window = _bq_sql_task(
+            "stock_dwd_dws_window",
+            "sql/incremental/01_refresh_stock_dwd_dws_window.sql",
+            query_parameters=_window_refresh_parameters(),
+        )
+        windowed_stock_refresh_checks = _bq_sql_task(
+            "windowed_stock_refresh_checks",
+            "sql/qa/10_windowed_stock_refresh_checks.sql",
+            query_parameters=_window_refresh_parameters(),
+        )
+
+        stock_dwd_dws_window >> windowed_stock_refresh_checks
+
     qa_only_gate = ShortCircuitOperator(
         task_id="qa_only_gate",
         python_callable=_qa_only_enabled,
@@ -815,12 +867,14 @@ with DAG(
     branch_ingestion >> ingestion >> ods_daily_partition_readiness
     branch_ingestion >> ods_daily_partition_readiness
     ods_daily_partition_readiness >> full_refresh_gate >> ods_parquet_schema_p0
+    ods_daily_partition_readiness >> window_refresh_gate >> windowed_dim >> windowed_metadata >> windowed_transform
     ods_daily_partition_readiness >> qa_only_gate >> qa_only
     ods_daily_partition_readiness >> ads_contract_gate >> ads_contract_init
     ods_parquet_schema_p0 >> dim >> dwd >> dws >> metadata >> qa
     [
         ods_daily_partition_readiness,
         qa,
+        windowed_transform,
         qa_only,
         ads_contract_init,
     ] >> pipeline_finalize_status >> finish
