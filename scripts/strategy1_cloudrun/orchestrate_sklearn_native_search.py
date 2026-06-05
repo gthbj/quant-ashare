@@ -673,14 +673,14 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
         SELECT
           run_id,
           predict_date,
-          AVG(IF(score_bucket = 10, target_return, NULL))
+          AVG(IF(score_bucket = 5, target_return, NULL))
             - AVG(IF(score_bucket = 1, target_return, NULL)) AS top_minus_bottom
         FROM (
           SELECT
             pred.run_id,
             pred.predict_date,
             tp.target_return,
-            NTILE(10) OVER(PARTITION BY pred.run_id, pred.predict_date ORDER BY pred.score) AS score_bucket
+            NTILE(5) OVER(PARTITION BY pred.run_id, pred.predict_date ORDER BY pred.score) AS score_bucket
           FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
           JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
             ON tp.run_id = pred.run_id
