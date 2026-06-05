@@ -1197,10 +1197,10 @@ Agent ID: Codex
 4. Cloud Run P0 用 Python `ledger_exec_v1` 替代 BigQuery `08_run_backtest.sql` 中的有状态 ledger 执行；交易语义必须与 `PRD_20260604_01_策略1LedgerV1交易执行语义.md` 对齐。
 5. 多实验 Cloud Run orchestrator 的默认并发为本次 manifest 可执行实验数量；`--max-parallel-experiments` 未设置或为 0 时不得隐式降到 2、1 或其他保守默认值。
 6. owner 可通过 `--max-parallel-experiments N` 显式限流；项目代码不写死默认 backtest 子并发上限。
-7. 既有 BigQuery ML + SQL runner 保留为 reference / fallback，直到 Cloud Run sklearn + Python ledger 通过契约、QA 和回测语义一致性验收。
+7. 既有 BigQuery ML + SQL runner 原计划保留为 reference / fallback，直到 Cloud Run sklearn + Python ledger 通过契约、QA 和回测语义一致性验收；**2026-06-05 起本条被 `DECISION-20260605-03` supersede，BQML / SQL runner 仅保留为 historical reference / audit，不再作为 fallback**。
 8. sklearn P0 默认 `class_weight=None`，贴近当前 BQML baseline 的非类别平衡训练口径；`class_weight='balanced'` 只能作为后续独立建模实验。
 9. sklearn 正则候选网格必须按 sklearn 原生 `C` / `penalty` / `l1_ratio` 重新定义，不得直接把 BQML `L1_REG` / `L2_REG` 数值翻译过去。
-10. Cloud Run sklearn selected model 必须通过 BQML baseline 模型质量对等门槛；若 oriented valid RankIC、topN 5d 收益或 prediction coverage 明显劣化，应标记 `model_quality_not_equivalent`，不得静默沿用 BQML baseline 参数结论。
+10. Cloud Run sklearn selected model 原计划必须通过 BQML baseline 模型质量对等门槛；**2026-06-05 起该 parity gate 仅作为历史对照证据，不再是后续 accepted Cloud Run Python baseline 的硬门槛**。后续 baseline 接受应以 native acceptance / 新模型 PRD 为准。
 
 ### 理由
 
@@ -1212,7 +1212,7 @@ Agent ID: Codex
 
 ### 备选方案
 
-继续优化 BQML + SQL runner；保留为 fallback，但不能解决 owner 对训练成本和 Cloud Run 执行形态的要求。拆成训练 PRD 和回测 PRD；放弃，因为两者共享执行身份、artifact、prediction stream 和并发契约。直接引入 LightGBM / XGBoost；放弃作为 P0，因为会把执行环境迁移和模型族升级混在一起。
+继续优化 BQML + SQL runner；当时保留为 fallback，但 2026-06-05 起已被 `DECISION-20260605-03` supersede，不再作为 fallback。拆成训练 PRD 和回测 PRD；放弃，因为两者共享执行身份、artifact、prediction stream 和并发契约。直接引入 LightGBM / XGBoost；当时放弃作为 P0，因为会把执行环境迁移和模型族升级混在一起，后续可按新的 Python backend PRD 单独评估。
 
 ### 相关文件
 
@@ -1331,3 +1331,40 @@ PR #65 合并后、部署 Composer 和生产 DML 前，真实 scratch full-vs-wi
 ### 相关文件
 
 `sql/incremental/01_refresh_stock_dwd_dws_window.sql`, `scripts/qa/run_windowed_refresh_equivalence.py`, `sql/README.md`, `TODO.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260605-03: 策略执行层后续停止使用 BQML 与 SQL runner
+
+日期: 2026-06-05
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+策略 1 已有 BigQuery ML + `sql/ml/strategy1` SQL runner 历史链路，并完成过 BQML baseline、Ledger v1 P1/P2、报告、诊断和 QA 验收。但 owner 明确表示后续不再使用 BQML 以及策略 SQL runner。主要原因是 BQML 成本偏高，SQL runner 在多实验、模型生命周期和有状态回测扩展上较慢且维护复杂；项目已开始迁移到 Cloud Run Python runner、task fan-out 和 sklearn/native 模型实验路线。
+
+### 决策
+
+1. 策略 1 后续训练、预测、候选、组合、回测、报告、诊断、月度滚动重训和多实验搜索，不再以 BigQuery ML 或 `sql/ml/strategy1/01-12` SQL runner 作为默认、fallback 或新增开发路线。
+2. 既有 BQML / SQL runner 运行结果、PRD、README 和 SQL 文件保留为历史 reference / audit，用于解释历史结论和必要的一次性对照；不得继续扩展为生产默认链路。
+3. 后续策略执行层目标路径为 Cloud Run Python runner；模型训练优先走 Python 生态（当前 sklearn，后续可按 PRD 引入 LightGBM / XGBoost / CatBoost 等），回测执行走 Python `ledger_exec_v1` 及其后续版本。
+4. BigQuery SQL 仍保留并继续用于 ODS→DIM/DWD/DWS/ADS 数据仓库转换、metadata、单位契约、QA、状态表和只读分析；本决策中的“停止使用 SQL runner”特指停止把 `sql/ml/strategy1` 作为策略模型训练 / 预测 / 回测 runner。
+5. `docs/prd/PRD_20260604_02_策略1月度滚动重训.md` 在实现前必须改造为 Cloud Run Python / backend-neutral 口径，不得按原 BQML 月度重训路径直接实现。
+6. 后续若为了回归审计短暂运行历史 BQML / SQL runner，必须在任务说明和结果中标记为历史对照，不得把结果登记为新的默认 baseline 或生产路径。
+
+### 理由
+
+该决策避免继续投入高成本、低弹性的 BQML / SQL runner 路线，把后续工程集中到可控的 Python 执行环境、Cloud Run 并发调度、模型库扩展和可复用 ledger 上。同时保留 BigQuery 数据仓库与 QA 的职责边界，避免把“停止策略 SQL runner”误解为停止使用 BigQuery SQL 做数仓。
+
+### 影响
+
+OQ-010 的下一步不再是确认是否采纳 BQML baseline 作为默认参数，而是先找到可接受的 Cloud Run Python 模型 / backend baseline，并把月度滚动重训 PRD 改成 Cloud Run Python 口径。`pv_fin_quality + 30/5% + biweekly + 5d` 及其 BQML run/backtest 仍是历史最佳实验结果和对照基准，但不是未来默认执行链路。记忆、TODO 和后续 PRD / 实现提示词必须以该决策为准。
+
+### 备选方案
+
+继续把 BQML baseline 作为 fallback；放弃，因为 owner 已明确后续不用 BQML。继续扩展 `sql/ml/strategy1` 月度重训；放弃，因为会继续扩大已决定废弃的 runner 面。完全移除 BigQuery SQL；放弃，因为 BigQuery SQL 仍是数仓转换、QA 和状态契约的核心。
+
+### 相关文件
+
+`.agent/memory/PROJECT_CONTEXT.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`, `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`, `docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`, `docs/prd/PRD_20260605_02_策略1CloudRun轻量Task并发.md`, `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md`, `sql/ml/strategy1/README.md`
