@@ -47,6 +47,7 @@ except ImportError:
 
 try:
     from google.cloud import logging as cloud_logging
+    from google.cloud.logging_v2.resource import Resource as CloudLoggingResource
     HAS_CLOUD_LOGGING = True
 except ImportError:
     HAS_CLOUD_LOGGING = False
@@ -64,6 +65,11 @@ class AlertCheckError(Exception):
 
 class AlertLogWriteError(Exception):
     """告警日志写入失败。"""
+
+
+def _global_log_resource(project_id: str) -> Any:
+    """Normalize checker logs to the global resource used by alert policies."""
+    return CloudLoggingResource(type="global", labels={"project_id": project_id})
 
 
 def check_alerts(
@@ -127,6 +133,7 @@ def write_to_cloud_logging(
 
     client = cloud_logging.Client(project=project_id)
     logger = client.logger(LOG_NAME)
+    resource = _global_log_resource(project_id)
 
     written = 0
     for alert in alerts:
@@ -145,7 +152,7 @@ def write_to_cloud_logging(
             for key in ("alert_type", "resource_id", "finished_at")
         )
         insert_id = hashlib.sha256(insert_id_source.encode("utf-8")).hexdigest()
-        logger.log_struct(payload, severity="ERROR", insert_id=insert_id)
+        logger.log_struct(payload, severity="ERROR", insert_id=insert_id, resource=resource)
         written += 1
 
     return written
@@ -163,6 +170,7 @@ def write_heartbeat_to_cloud_logging(
 
     client = cloud_logging.Client(project=project_id)
     logger = client.logger(LOG_NAME)
+    resource = _global_log_resource(project_id)
     checked_at = datetime.now(timezone.utc).isoformat()
     payload = {
         "alert_type": "alert_checker_heartbeat",
@@ -177,7 +185,7 @@ def write_heartbeat_to_cloud_logging(
         for key in ("alert_type", "resource_id", "checked_at")
     )
     insert_id = hashlib.sha256(insert_id_source.encode("utf-8")).hexdigest()
-    logger.log_struct(payload, severity="INFO", insert_id=insert_id)
+    logger.log_struct(payload, severity="INFO", insert_id=insert_id, resource=resource)
 
 
 def format_alert_message(alerts: list[dict[str, Any]]) -> str:

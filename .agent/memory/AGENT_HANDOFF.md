@@ -10,7 +10,7 @@
 
 **OQ-010 Cloud Run Python baseline 搜索 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-python-baseline-search`，分支 `codex/prd-cloudrun-python-baseline-search`。新增 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：本轮数据截止 `2026-04-30`；train/valid/test/final_holdout 为 `2019-04-03..2023-12-31` / 2024 / 2025 / `2026-01-05..2026-04-30`；固定 `pv_fin_quality + 30/5% + biweekly + 5d`、沪深主板股票池、成本 profile 和 Ledger v1；P0 推荐 LightGBM wave 2，固定 40 个候选、40 并发、单 task 1 vCPU / 4Gi，并按 Cloud Run 区域配额 50 vCPU / 200Gi 设计。PR #78 review follow-up 后，候选排序改为 2021/2022/2023 三折 purged walk-forward CV + 2024 valid confirmation，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch；实现时需先落共享验收配置 `configs/strategy1/model_acceptance_contract_v1.yml`，并迁移 sklearn `decide_acceptance` / `18_qa` 以取代旧内联阈值；若 binary LightGBM rejected，后续优先试 `lightgbm_regression`。真实 Cloud Run Job `strategy1-train-candidate-fanout-job` 已更新为 `parallelism=40` 并复核通过；本次未实现 LightGBM 代码、未执行 BigQuery search。
 
-**OQ-005 告警/观测生产闭环部署与 PR #75 follow-up（2026-06-05）**：工作树 `/private/tmp/oq005-alerts-ops`，分支 `codex/oq005-alerts-ops`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到 3 个策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。PR #75 review follow-up 已修复 README 生产入口、OQ-005 状态矛盾、DAG 意外返回码静默成功、checker liveness 缺失和 10 分钟 lookback 无重叠问题：DAG 只接受 rc `0/1/2`，其他 rc fail-closed；生产 lookback 改 20 分钟；`check_alerts.py` 新增 `--write-heartbeat`；`setup_alerts.py` 新增 `oq005_alert_checker_heartbeat` metric 与 30 分钟 absence policy，并修复 Monitoring API duration / condition enum / condition field 写法。验证通过 py_compile、`setup_alerts.py --dry-run`、只读 `check_alerts.py --json`、Monitoring condition 构造、观测 SQL dry-run、`git diff --check`。该 follow-up 尚未同步 Composer bucket 或应用新增 liveness policy；合并后需部署并验收 checker heartbeat absence 告警。下一步：合并 PR 后继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
+**OQ-005 告警/观测生产闭环部署与 PR #75 follow-up（2026-06-05）**：PR #75 已合并并完成生产部署；后续代码收敛工作树 `/private/tmp/oq005-alerting-deploy-followup`，分支 `codex/oq005-alerting-deploy-followup`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到告警策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。PR #75 follow-up 已部署并验收：Composer bucket 已同步 DAG 与 `check_alerts.py`；新增 `oq005_alert_checker_heartbeat` log-based metric 和 `OQ-005: Alert Checker Heartbeat Missing` 30 分钟 absence policy，策略已启用并绑定 1 个 Email 通知渠道；`check_alerts.py` 显式使用 `resource.type=global` 写业务告警与 heartbeat，避免 Composer 默认 `k8s_container` resource 与现有告警策略不匹配。PR #77 review follow-up 已修复告警策略幂等键：`setup_alerts.py` 使用稳定 `user_labels.oq005_policy` 并兼容旧 display name 迁移，避免旧名环境重复创建新旧两份策略。manual smoke `manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功，随后的 scheduled run 也成功；Cloud Logging 中 heartbeat 为 `resource.type=global`、`lookback_minutes=20`、`alerts_count=0`，Cloud Monitoring global timeSeries 已有点。下一步：继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
 
 **OQ-005 告警/观测 PR #72 review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-alerts-runbook`，分支 `codex/oq005-alerts-runbook`。PR #72 新增 BigQuery 观测视图、Cloud Logging / Cloud Monitoring 告警配置脚本、告警查询脚本和补跑 runbook。本轮按 comment 修复：`setup_alerts.py` 的 `LogMetric` 使用正确 `filter` 字段；`check_alerts.py` 查询失败和缺 `google-cloud-logging` 写日志路径均 fail-closed，默认 lookback 改 10 分钟并用稳定 `insert_id` 降低重复日志；runbook §9 的 `task_failure` / `ingestion_failed` 与 SQL 实现一致；`v_alert_probe` 注释改为固定 24 小时手工健康检查口径。验证通过 Python `py_compile`、观测 SQL BigQuery dry-run、`git diff --check`；本机缺 `google-cloud-logging`，未做真实 log metric API apply。合并后仍需部署视图、配置 Cloud Scheduler/Cloud Run checker、log-based metrics、alert policies，并做生产 smoke。
 
@@ -408,4 +408,64 @@ Run ID: sklearn_native_pvfq_n30_bw_h5_20260605_01
 - `TODO.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: manual_oq005_alert_checker_heartbeat_global_20260605_01
+相关 issue/PR: PR #77 / OQ-005 alert checker liveness deployment follow-up
+
+### 已完成工作
+
+- 在 PR #75 合并后完成 OQ-005 alert checker liveness 生产部署验收，并把仓库脚本与生产状态对齐。
+- 修复 `check_alerts.py`，让业务告警与 heartbeat 显式写入 Cloud Logging global resource。
+- 修复 `setup_alerts.py`：正确导入 Logging Metrics client / LogMetric，设置 alert policy combiner，threshold / absence filter 统一加 `resource.type="global"`。
+- 按 PR #77 review comment 修复告警策略幂等：使用稳定 `user_labels.oq005_policy` 做幂等键，并兼容旧 display name 迁移，避免旧名环境重复创建新旧两份策略。
+- 更新 alerting README、TODO 和 OQ-005 记忆状态。
+
+### 重要上下文
+
+- 生产 smoke `manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功；随后 scheduled run 也成功。
+- Cloud Logging 中 heartbeat 已确认为 `resource.type=global`、`lookback_minutes=20`、`alerts_count=0`。
+- Cloud Monitoring `logging.googleapis.com/user/oq005_alert_checker_heartbeat` 的 global timeSeries 已有点；旧的 `k8s_container` heartbeat 只来自修复前第一次 smoke。
+- OQ-005 告警主链路和 checker liveness 均已上线；OQ-005 仍 open，剩余 Dataform 生产链路、补跑与完整 ODS→ADS 运维观测闭环。
+
+### 改动文件
+
+- `scripts/alerting/check_alerts.py`
+- `scripts/alerting/setup_alerts.py`
+- `scripts/alerting/README.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- Composer manual smoke：`manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功。
+- Composer scheduled run 成功。
+- Cloud Logging 查询确认 heartbeat 使用 global resource。
+- Cloud Monitoring timeSeries 查询确认 `oq005_alert_checker_heartbeat` global metric 有数据点。
+- Cloud Monitoring alert policies 查询确认 4 个 OQ-005 policy 均启用并绑定通知渠道。
+- 本地 py_compile、`setup_alerts.py --dry-run`、只读 `check_alerts.py --lookback-minutes 20 --json`、观测 SQL dry-run、旧名 policy 匹配断言和 `git diff --check` 均通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 继续 OQ-005 Dataform definitions、补跑自动化、生产 DAG 参数化闭环和 ODS→ADS 运行状态观测。
+- 修复 `ashare_daily_pipeline_v0` scheduled run 默认 business_date 口径：每日 20 点定时任务必须跑当天数据，而不是 Airflow `ds` 的上一天。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`

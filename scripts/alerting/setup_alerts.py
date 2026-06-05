@@ -32,7 +32,8 @@ import sys
 from typing import Any
 
 try:
-    from google.cloud import logging_v2 as cloud_logging
+    from google.cloud.logging_v2.services.metrics_service_v2 import MetricsServiceV2Client
+    from google.cloud.logging_v2.types import LogMetric
 except ImportError:
     print("请安装依赖：pip install google-cloud-logging")
     sys.exit(1)
@@ -40,12 +41,14 @@ except ImportError:
 try:
     from google.cloud import monitoring_v3
     from google.protobuf import duration_pb2
+    from google.protobuf import field_mask_pb2
 except ImportError:
     print("请安装依赖：pip install google-cloud-monitoring")
     sys.exit(1)
 
 
 PROJECT_ID = "data-aquarium"
+POLICY_LABEL_KEY = "oq005_policy"
 
 # 日志指标定义
 # 用 Cloud Logging Log Metric API 创建，name 即为 metric 的标识。
@@ -81,6 +84,7 @@ LOG_METRICS = [
 # metric_type = logging.googleapis.com/user/{name}，与日志指标对应
 ALERT_POLICIES = [
     {
+        "policy_key": "pipeline_failure",
         "display_name": "OQ-005: Pipeline Run Failed",
         "description": (
             "Composer DAG run 失败。\n\n"
@@ -95,7 +99,11 @@ ALERT_POLICIES = [
         "severity": "ERROR",
     },
     {
-        "display_name": "OQ-005: Task Failed (QA / Readiness / Transform)",
+        "policy_key": "task_failure",
+        "display_name": "OQ-005: Task Failed",
+        "legacy_display_names": [
+            "OQ-005: Task Failed (QA / Readiness / Transform)",
+        ],
         "description": (
             "Pipeline task 失败。\n\n"
             "常见类型：QA-WIN-* 断言、ods_daily_partition_readiness、"
@@ -110,7 +118,11 @@ ALERT_POLICIES = [
         "severity": "ERROR",
     },
     {
-        "display_name": "OQ-005: Cloud Run Ingestion Failed",
+        "policy_key": "ingestion_failed",
+        "display_name": "OQ-005: Ingestion Failed",
+        "legacy_display_names": [
+            "OQ-005: Cloud Run Ingestion Failed",
+        ],
         "description": (
             "Cloud Run ingestion execution 失败。\n\n"
             "注意：empty_return 不触发此告警，需按 endpoint/date 判断是否正常。\n\n"
@@ -124,6 +136,7 @@ ALERT_POLICIES = [
         "severity": "WARNING",
     },
     {
+        "policy_key": "alert_checker_heartbeat_missing",
         "display_name": "OQ-005: Alert Checker Heartbeat Missing",
         "description": (
             "告警 checker 自身心跳缺失。\n\n"
@@ -141,15 +154,89 @@ ALERT_POLICIES = [
 ]
 
 
+def policy_match_names(policy_def: dict[str, Any]) -> set[str]:
+    """Return current and legacy display names for migration-safe matching."""
+    names = {policy_def["display_name"]}
+    names.update(policy_def.get("legacy_display_names", []))
+    return names
+
+
+def policy_matches(existing: monitoring_v3.AlertPolicy, policy_def: dict[str, Any]) -> bool:
+    """Match an existing policy by stable label, falling back to legacy names."""
+    if existing.user_labels.get(POLICY_LABEL_KEY) == policy_def["policy_key"]:
+        return True
+    return existing.display_name in policy_match_names(policy_def)
+
+
+def build_alert_policy(
+    policy_def: dict[str, Any],
+    notification_channels: list[str] | None = None,
+) -> monitoring_v3.AlertPolicy:
+    """Build the desired Cloud Monitoring alert policy proto."""
+    # metric type = logging.googleapis.com/user/{log_metric_name}
+    metric_type = f"logging.googleapis.com/user/{policy_def['log_metric_name']}"
+
+    policy = monitoring_v3.AlertPolicy()
+    policy.display_name = policy_def["display_name"]
+    policy.documentation.content = policy_def["description"]
+    policy.documentation.mime_type = "text/markdown"
+    policy.combiner = monitoring_v3.AlertPolicy.ConditionCombinerType.OR
+    policy.user_labels[POLICY_LABEL_KEY] = policy_def["policy_key"]
+
+    condition = monitoring_v3.AlertPolicy.Condition()
+    condition.display_name = policy_def["condition_display_name"]
+
+    aggregation = monitoring_v3.Aggregation()
+    aggregation.alignment_period = duration_pb2.Duration(seconds=300)
+    aggregation.per_series_aligner = monitoring_v3.Aggregation.Aligner.ALIGN_COUNT
+    aggregation.cross_series_reducer = monitoring_v3.Aggregation.Reducer.REDUCE_SUM
+
+    condition_type = policy_def.get("condition_type", "threshold")
+    if condition_type == "absence":
+        absence = monitoring_v3.AlertPolicy.Condition.MetricAbsence()
+        absence.filter = f'resource.type="global" AND metric.type="{metric_type}"'
+        absence.duration = duration_pb2.Duration(seconds=policy_def["duration_seconds"])
+        absence.aggregations.append(aggregation)
+        condition.condition_absent = absence
+    else:
+        threshold = monitoring_v3.AlertPolicy.Condition.MetricThreshold()
+        threshold.filter = f'resource.type="global" AND metric.type="{metric_type}"'
+        threshold.comparison = monitoring_v3.ComparisonType.COMPARISON_GT
+        threshold.threshold_value = policy_def["threshold_value"]
+
+        if policy_def["duration_seconds"] > 0:
+            threshold.duration = duration_pb2.Duration(seconds=policy_def["duration_seconds"])
+
+        threshold.aggregations.append(aggregation)
+        condition.condition_threshold = threshold
+
+    policy.conditions.append(condition)
+
+    if notification_channels:
+        for channel in notification_channels:
+            policy.notification_channels.append(channel)
+
+    policy.severity = getattr(
+        monitoring_v3.AlertPolicy.Severity,
+        policy_def.get("severity", "ERROR"),
+    )
+
+    alert_strategy = monitoring_v3.AlertPolicy.AlertStrategy()
+    alert_strategy.auto_close = duration_pb2.Duration(seconds=86400)
+    policy.alert_strategy = alert_strategy
+
+    return policy
+
+
 def create_log_metric(
     project_id: str,
     metric_def: dict[str, Any],
 ) -> None:
     """用 Cloud Logging API 创建日志指标。"""
-    client = cloud_logging.MetricsServiceV2Client()
+    client = MetricsServiceV2Client()
     parent = f"projects/{project_id}"
 
-    metric = cloud_logging.LogMetric(
+    metric = LogMetric(
         name=metric_def["name"],
         description=metric_def["description"],
         filter=metric_def["filter"],
@@ -175,57 +262,46 @@ def create_alert_policy(
     client = monitoring_v3.AlertPolicyServiceClient()
     project_name = f"projects/{project_id}"
 
-    # metric type = logging.googleapis.com/user/{log_metric_name}
-    metric_type = f"logging.googleapis.com/user/{policy_def['log_metric_name']}"
+    matches = [
+        existing
+        for existing in client.list_alert_policies(name=project_name)
+        if policy_matches(existing, policy_def)
+    ]
+    if len(matches) > 1:
+        names = ", ".join(f"{p.display_name} ({p.name})" for p in matches)
+        raise RuntimeError(
+            f"检测到重复 OQ-005 告警策略：{policy_def['policy_key']} -> {names}。"
+            "请先手工清理重复策略，再重新执行。"
+        )
 
-    policy = monitoring_v3.AlertPolicy()
-    policy.display_name = policy_def["display_name"]
-    policy.documentation.content = policy_def["description"]
-    policy.documentation.mime_type = "text/markdown"
-
-    condition = monitoring_v3.AlertPolicy.Condition()
-    condition.display_name = policy_def["condition_display_name"]
-
-    aggregation = monitoring_v3.Aggregation()
-    aggregation.alignment_period = duration_pb2.Duration(seconds=300)
-    aggregation.per_series_aligner = monitoring_v3.Aggregation.Aligner.ALIGN_COUNT
-    aggregation.cross_series_reducer = monitoring_v3.Aggregation.Reducer.REDUCE_SUM
-
-    condition_type = policy_def.get("condition_type", "threshold")
-    if condition_type == "absence":
-        absence = monitoring_v3.AlertPolicy.Condition.MetricAbsence()
-        absence.filter = f'metric.type="{metric_type}"'
-        absence.duration = duration_pb2.Duration(seconds=policy_def["duration_seconds"])
-        absence.aggregations.append(aggregation)
-        condition.condition_absent = absence
-    else:
-        threshold = monitoring_v3.AlertPolicy.Condition.MetricThreshold()
-        threshold.filter = f'metric.type="{metric_type}"'
-        threshold.comparison = monitoring_v3.ComparisonType.COMPARISON_GT
-        threshold.threshold_value = policy_def["threshold_value"]
-
-        if policy_def["duration_seconds"] > 0:
-            threshold.duration = duration_pb2.Duration(seconds=policy_def["duration_seconds"])
-
-        threshold.aggregations.append(aggregation)
-        condition.condition_threshold = threshold
-
-    policy.conditions.append(condition)
-
-    if notification_channels:
-        for channel in notification_channels:
-            policy.notification_channels.append(channel)
-
-    policy.severity = getattr(
-        monitoring_v3.AlertPolicy.Severity,
-        policy_def.get("severity", "ERROR"),
-    )
-
-    alert_strategy = monitoring_v3.AlertPolicy.AlertStrategy()
-    alert_strategy.auto_close = duration_pb2.Duration(seconds=86400)
-    policy.alert_strategy = alert_strategy
+    policy = build_alert_policy(policy_def, notification_channels)
 
     try:
+        if matches:
+            existing = matches[0]
+            policy.name = existing.name
+            if not notification_channels:
+                policy.notification_channels.extend(existing.notification_channels)
+            update_mask = field_mask_pb2.FieldMask(paths=[
+                "display_name",
+                "documentation",
+                "combiner",
+                "conditions",
+                "notification_channels",
+                "severity",
+                "alert_strategy",
+                "user_labels",
+            ])
+            updated = client.update_alert_policy(update_mask=update_mask, alert_policy=policy)
+            if existing.display_name != policy_def["display_name"]:
+                print(
+                    f"  ~ 迁移并更新告警策略：{existing.display_name} -> "
+                    f"{policy_def['display_name']} ({updated.name})"
+                )
+            else:
+                print(f"  = 告警策略已存在并已对齐：{policy_def['display_name']} ({updated.name})")
+            return
+
         created = client.create_alert_policy(name=project_name, alert_policy=policy)
         print(f"  + 创建告警策略：{policy_def['display_name']}")
         print(f"    ID：{created.name}")
