@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**策略 1 Cloud Run task fan-out 正式全量验收（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-p1`，`main` 分支。已先将 `strategy1-prepare-matrix-job` 从 `4 CPU / 16Gi` 提升到 `8 CPU / 32Gi`，再用正式全量 run `s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` / `bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` 跑完整 Cloud Run task fan-out 链路。训练面板 3,055,781 行（train 1,999,065 / valid 476,346 / test 580,370）；`cloudrun_prepare_matrix` 4m10s 成功，5 个 candidate task 全部 succeeded，`cloudrun_select_register_predict`、`cloudrun_backtest_report` succeeded；`backtest_report` 内部完成 `05-09`、Python `ledger_exec_v1`、报告上传、`10`、diagnosis 和 `12`。`16_qa_cloudrun_runner_outputs.sql` 在 smoke/evidence 模式通过，`17_qa_cloudrun_orchestrator_status.sql` 通过；正式 `16` parity 在 `QA-CR-4` 失败，sklearn selected model `elastic_c_1_l1_0_5` valid RankIC `0.06665` 低于 BQML reference `0.09676`，`model_quality_status=model_quality_not_equivalent`。回测结果 total_return `46.29%`、excess_return `17.28%` vs `000852.SH`、Sharpe `1.111`、max_drawdown `-13.94%`，报告 URI `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01/backtest_id=bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01`。结论：Cloud Run 执行链路和 full-panel prepare OOM 已收口，但不能声明 sklearn 正式等价替代 BQML。
+
 **OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新分支（2026-06-05）**：工作树 `/private/tmp/quant-ashare-windowed-refresh`，分支 `codex/windowed-dwd-dws-refresh`。已新增 `sql/incremental/01_refresh_stock_dwd_dws_window.sql`，按 `business_date` / `date_from` / `date_to` 参数窗口化刷新 `dwd_stock_eod_price`、`dwd_stock_eod_valuation` 和策略 1 DWS（universe、价格/估值/财务特征、label、feature wide、sample）；标签、宽表和样本按 SSE 交易日历向前回补 20 个交易日，价格/估值特征向前读取 60 个交易日；不写 ADS runner/backtest/report 产物。新增 `sql/qa/10_windowed_stock_refresh_checks.sql` 做窗口轻量 QA。PR #65 review follow-up 已补目标表存在性 ASSERT、9 张目标表窗口 DML BigQuery transaction，以及 `scripts/qa/run_windowed_refresh_equivalence.py` full-vs-window 等价 QA runner；日常小窗口失败会整体回滚，大区间 backfill 按年/季/月拆分执行。Composer DAG 的 `daily_current/backfill` 真实写入分支现在会刷新 DIM 小表、恢复 P0 metadata、执行股票 DWD/DWS 窗口刷新和窗口 QA；`pipeline_dry_run=true` 不写 DIM/DWD/DWS，`full_rebuild/full_rebuild_compat` 仍走原全量兼容链路，`qa_only` 仍只读。同步纳入静态 project/region/location 热修复和 meta DDL 多列 `ADD COLUMN` 合并。验证已通过 DAG py_compile、窗口 SQL/QA BigQuery dry-run（backfill 与 daily_current 参数）、meta DDL dry-run、P0 metadata dry-run、等价 QA runner `--dry-run` 和 `git diff --check`；未部署 Composer、未执行生产 DML、未写 BigQuery/GCS/ADS 产物。
 
 **策略 1 Cloud Run task fan-out 真实 smoke（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-p1`，分支 `codex/fix-task-fanout-force-replace`。已构建并部署修复镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:8cc8470014cb3b54272d4c7f47afb396d91cf7b97967f0c3ffab947f7432c38a` 到 `strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。当前资源：prepare/select/backtest `4 CPU / 16Gi`，candidate task `1 CPU / 4Gi`；因 `asia-east2` 当前 20 vCPU / 40Gi 配额，candidate job 设置 `parallelism=10`。低成本 smoke `run_id=s1_cloudrun_taskfanout_smoke_20260605_03` / `backtest_id=bt_s1_cloudrun_taskfanout_smoke_20260605_03` 已跑通：`cloudrun_prepare_matrix`、5 个 candidate task、`cloudrun_select_register_predict`、`cloudrun_backtest_report` 全部 succeeded，`10`/`12`/`16`/`17` QA 全部通过。修复内容：orchestrator 不再把 `--force-replace` 传给 `prepare_matrix`；`10` QA 的 split 边界改为参数化；`12` QA-DIAG-6 改用训练面板 `tp.split_tag` 而非 DWS 固定 split。产物：matrix URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/matrix_id=s1_cloudrun_taskfanout_smoke_20260605_03__matrix_5294c2780a86`，model URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/model_id=s1_sklearn_s1_cloudrun_taskfanout_smoke_20260605_03__l2_c_10`，report URI `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/backtest_id=bt_s1_cloudrun_taskfanout_smoke_20260605_03`。本次 smoke 证明 task fan-out 执行链路可用；正式替代 BQML 仍需 sklearn parity passed 或 owner 接受新 Cloud Run baseline。
@@ -53,6 +55,67 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01
+相关 issue/PR: Strategy 1 Cloud Run task fan-out formal validation
+
+### 已完成工作
+
+- 将 `strategy1-prepare-matrix-job` 资源从 `4 CPU / 16Gi` 提升到 `8 CPU / 32Gi`，用于解决全量 2019-2025 训练面板 prepare 阶段 16Gi OOM 风险。
+- 为正式验收创建独立 run/backtest：`s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` / `bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01`，不覆盖既有 BQML baseline。
+- 重建该 run 的训练面板，行数 3,055,781（train 1,999,065 / valid 476,346 / test 580,370），注意样本 `p_feature_version` 仍使用 DWS 现有 `strategy1_pv_v0_20260601`，`p_feature_set_id` 使用 `strategy1_pv_fin_quality_v0_20260603`。
+- 执行完整 Cloud Run task fan-out 链路：`cloudrun_prepare_matrix`、5 个 candidate task、`cloudrun_select_register_predict`、`cloudrun_backtest_report` 全部 succeeded。
+- `cloudrun_backtest_report` 内部跑通 `05_build_candidates`、`06_build_portfolio_targets`、`07_build_order_plan`、Python `ledger_exec_v1`、`09_build_metrics_and_report_inputs`、报告上传、`10_qa_runner_outputs.sql`、诊断脚本和 `12_qa_model_diagnosis_outputs.sql`。
+
+### 重要上下文
+
+- `prepare_matrix` execution：`strategy1-prepare-matrix-job-q4zd5`，Cloud Run 侧耗时约 4m10s。
+- candidate fan-out execution：`strategy1-train-candidate-fanout-job-fpk9d`，5 个 task 全部 succeeded。
+- select/register/predict execution：`strategy1-select-register-predict-job-d5kj2`。
+- backtest/report execution：`strategy1-backtest-report-job-4shcl`。
+- selected sklearn candidate 为 `elastic_c_1_l1_0_5`，`score_orientation=reverse_probability`。
+- 报告 URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01/backtest_id=bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01`。
+- 模型诊断 URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01/backtest_id=bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01/model_diagnosis`。
+
+### 测试 / 验证
+
+- orchestrator 全链路返回 `status=succeeded`、`failure_count=0`。
+- `10_qa_runner_outputs.sql` 和 `12_qa_model_diagnosis_outputs.sql` 在 `cloudrun_backtest_report` 内部通过。
+- `16_qa_cloudrun_runner_outputs.sql` 在 `p_require_model_quality_parity_passed=FALSE` 的 smoke/evidence 模式通过。
+- `17_qa_cloudrun_orchestrator_status.sql` 在 `p_require_task_fanout=TRUE` 下通过。
+- 正式 `16_qa_cloudrun_runner_outputs.sql` 在默认 `p_require_model_quality_parity_passed=TRUE` 下未通过，失败点为 `QA-CR-4`。
+
+### 结果摘要
+
+- 回测 total_return `46.29%`、annual_return `21.72%`、Sharpe `1.111`、max_drawdown `-13.94%`。
+- benchmark 为 `000852.SH`，excess_return `17.28%`，information_ratio `0.237`。
+- prediction 行数 1,056,716，日期范围 `2024-01-02` 至 `2025-12-31`，score NULL 行数 0。
+- diagnosis 结论 `usable_signal`，confidence `low`；valid RankIC mean `0.06665`，test RankIC mean `0.03359`。
+- sklearn vs BQML parity 未通过：sklearn valid RankIC `0.06665`，BQML reference `0.09676`，delta `-0.03011`；`model_quality_status=model_quality_not_equivalent`。
+
+### 阻塞项
+
+- 无执行链路阻塞；正式替代 BQML 的模型质量门槛未过。
+
+### 下一步建议
+
+- 不要把本 run 直接标记为 BQML 替代 baseline；它目前只能证明 Cloud Run task fan-out 执行链路可用。
+- 下一步应先做 sklearn parity 提升（候选网格、预处理、模型族或参数）或由 owner 明确接受新的 Cloud Run baseline。
+- 另需补 Python ledger vs SQL ledger 完整等价验收，再考虑让 Cloud Run runner 成为默认执行路径。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
 
 日期: 2026-06-05
 Agent ID: Codex
