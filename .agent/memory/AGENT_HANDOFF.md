@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-005 daily_current 20 日窗口与非交易日口径修复（2026-06-05）**：工作树 `/private/tmp/quant-ashare-oq005-daily-window-hardening`，分支 `codex/oq005-daily-window-hardening`。本分支从最新 `origin/main` 补入本地 `5b62895` 的 daily_current 20 个交易日窗口和 QA-WIN-16/17/18 估值覆盖检查，并进一步硬化非交易日口径：`daily_current` 的 `date_to` / `business_date` 会先归一到不晚于请求日期的最近 SSE 开市日，`backfill` 保持显式日期。已同步 `sql/README.md`、`orchestration/composer/README.md`、`ARCHITECTURE_MEMORY.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`TODO.md` 和 `IMPLEMENTATION_STATUS.md`，将 OQ-005 状态从“尚未部署 / 待 smoke”修正为已完成 Composer DAG/SQL 部署验收、20 日估值缺口回填和 backfill / qa_only / daily_current smoke；OQ-005 仍 open，剩余 Dataform、告警、补跑和运维观测闭环。验证：窗口 SQL / QA 对 `daily_current business_date=2026-06-06` 和 `backfill 2026-06-03..2026-06-04` 的 BigQuery dry-run 均通过；只读窗口计算确认 `2026-06-06` 归一为 `2026-06-05`，窗口起点 `2026-05-11`，开市日数 20。尚未部署本分支到 Composer，合并后需同步 `sql/` 到 Composer bucket。
+**OQ-005 daily_current 20 日窗口与非交易日口径修复（2026-06-05）**：工作树 `/private/tmp/quant-ashare-oq005-daily-window-hardening`，分支 `codex/oq005-daily-window-hardening`。本分支从最新 `origin/main` 补入本地 `5b62895` 的 daily_current 20 个交易日窗口和 QA-WIN-16/17/18 估值覆盖检查，并进一步硬化非交易日口径：`daily_current` 的 `date_to` / `business_date` 会先归一到不晚于请求日期的最近 SSE 开市日，`backfill` 保持显式日期。PR #70 review follow-up 已修复 QA-WIN-18 误以 `pe/pb` 和全量 valuation 行触发的问题，改为在 price-driven feature universe 内按 `total_mv_cny/circ_mv_cny` 检查 `has_valuation_data`；backfill 的估值覆盖 QA 也改为实际写入窗口。已同步 `sql/README.md`、`orchestration/composer/README.md`、`ARCHITECTURE_MEMORY.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`TODO.md` 和 `IMPLEMENTATION_STATUS.md`，将 OQ-005 状态从“尚未部署 / 待 smoke”修正为已完成 Composer DAG/SQL 部署验收、20 日估值缺口回填和 backfill / qa_only / daily_current smoke；OQ-005 仍 open，剩余 Dataform、告警、补跑和运维观测闭环。验证：窗口 SQL / QA 对 `daily_current business_date=2026-06-06` 和 `backfill 2026-06-03..2026-06-04` 的 BigQuery dry-run 均通过；只读窗口计算确认 `2026-06-06` 归一为 `2026-06-05`，窗口起点 `2026-05-11`，`backfill 2026-06-03..2026-06-04` 的估值覆盖起点为 `2026-06-03`。尚未部署本分支到 Composer，合并后需同步 `sql/` 到 Composer bucket。
 
 **策略 1 scikit-learn native 模型实验 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-prd`，分支 `codex/prd-sklearn-native-experiment`。新增 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md`，定义 Cloud Run sklearn backend 在 BQML parity 未通过后的新 baseline 实验方案：固定当前最优交易口径 `pv_fin_quality + 30/5% + biweekly + 5d`，用 task fan-out 并发训练 36 个 sklearn 原生 LogisticRegression 候选，valid-only 选 Top 5 进入完整预测/组合/回测/报告/诊断，并通过 native acceptance gate 决定是否建立 `cloud_run_sklearn_native_baseline_v1`。BQML baseline 保留为历史 reference / fallback；现有 Cloud Run parity gate 不删除，只是不再作为 native baseline 的 hard gate。PR #69 review 后已加固：训练窗口钉死为 `2019-04-03` 至 `2023-12-31`；accepted 候选必须 `valid_signal_status=stable`，valid 弱但 test 过门只能 `needs_more_evidence`；跨模型族复用 2025 test 必须记录 `test_reuse_wave_no` / owner 批准，超过 3 个波次后必须新增最终 holdout 证据。本次只写 PRD 和记忆/TODO，未实现代码、未部署 Cloud Run Job、未执行 BigQuery。
 
@@ -55,6 +55,65 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: PR #70 / OQ-005 daily_current window hardening
+
+### 已完成工作
+
+- 修复 `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 的 `p_date_to` 表达式，改为显式 `CASE` 分支：`daily_current` 才查最近 SSE 开市日，`backfill` 直接使用请求 `date_to`。
+- 修复 `sql/qa/10_windowed_stock_refresh_checks.sql`：估值覆盖 QA 在 `daily_current` 默认使用 20 个交易日窗口，在 `backfill` 使用实际写入窗口。
+- 修复 QA-WIN-18：不再按 `pe/pb` 或所有 DWD valuation 行触发；改为在 price-driven feature universe 内，按 `total_mv_cny/circ_mv_cny` 非空检查最终宽表 `has_valuation_data=TRUE`。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md`、`ARCHITECTURE_MEMORY.md`、`KNOWN_CONSTRAINTS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- PR #70 review comment 的 P1/P2/P3 建议均采纳并修复；当前分支仍未部署到 Composer。
+- 本次只改 SQL 和记忆/TODO，不执行生产 DML，不触碰 Composer bucket，不覆盖 BigQuery/GCS/ADS 产物。
+
+### 改动文件
+
+- `sql/incremental/01_refresh_stock_dwd_dws_window.sql`
+- `sql/qa/10_windowed_stock_refresh_checks.sql`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- BigQuery dry-run：窗口 SQL，`warehouse_mode=daily_current`，`business_date=2026-06-06`。
+- BigQuery dry-run：窗口 QA，`warehouse_mode=daily_current`，`business_date=2026-06-06`。
+- BigQuery dry-run：窗口 SQL，`warehouse_mode=backfill`，`date_from=2026-06-03`，`date_to=2026-06-04`。
+- BigQuery dry-run：窗口 QA，`warehouse_mode=backfill`，`date_from=2026-06-03`，`date_to=2026-06-04`。
+- 只读窗口计算：`2026-06-06` 归一为 `2026-06-05`，daily_current 估值覆盖起点 `2026-05-11`；backfill `2026-06-03..2026-06-04` 估值覆盖起点 `2026-06-03`。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 跑 `git diff --check` 后提交并推送 PR #70 分支。
+- 合并后同步 `sql/` 到 Composer bucket，再按部署流程做需要的 smoke。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
 
 日期: 2026-06-05
 Agent ID: Codex

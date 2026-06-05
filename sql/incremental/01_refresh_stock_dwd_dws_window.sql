@@ -16,17 +16,19 @@ DECLARE p_business_date DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@business_date, '
 DECLARE p_date_from DATE DEFAULT SAFE_CAST(NULLIF(@date_from, '') AS DATE);
 DECLARE p_requested_date_to DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@date_to, '') AS DATE), p_business_date);
 DECLARE p_warehouse_mode STRING DEFAULT LOWER(NULLIF(@warehouse_mode, ''));
-DECLARE p_date_to DATE DEFAULT COALESCE(
-  (
-    SELECT MAX(cal_date)
-    FROM `data-aquarium.ashare_dim.dim_trade_calendar`
-    WHERE p_warehouse_mode = 'daily_current'
-      AND exchange = 'SSE'
-      AND is_open = 1
-      AND cal_date <= p_requested_date_to
-  ),
-  p_requested_date_to
-);
+DECLARE p_date_to DATE DEFAULT CASE
+  WHEN p_warehouse_mode = 'daily_current' THEN COALESCE(
+    (
+      SELECT MAX(cal_date)
+      FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+      WHERE exchange = 'SSE'
+        AND is_open = 1
+        AND cal_date <= p_requested_date_to
+    ),
+    p_requested_date_to
+  )
+  ELSE p_requested_date_to
+END;
 DECLARE p_final_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_fin_feature_version STRING DEFAULT 'fin_default_v0_20260602';
