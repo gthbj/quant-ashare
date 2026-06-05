@@ -114,11 +114,13 @@ python scripts/alerting/check_alerts.py --json
 | 告警名称 | 触发条件 | 严重程度 |
 |---|---|---|
 | Pipeline Run Failed | `pipeline_run.status = 'failed'` | ERROR |
-| Task Failed (QA/Readiness/Transform) | `pipeline_task_status.status = 'failed'` | ERROR |
-| Cloud Run Ingestion Failed | `ingestion_run.status = 'failed'`（不含 empty_return） | WARNING |
+| Task Failed | `pipeline_task_status.status = 'failed'` | ERROR |
+| Ingestion Failed | `ingestion_run.status = 'failed'`（不含 empty_return） | WARNING |
 | Alert Checker Heartbeat Missing | `oq005_alert_checker_heartbeat` 30 分钟无数据 | ERROR |
 
 `Alert Checker Heartbeat Missing` 是告警链路自身的 liveness 监控。`oq005_alert_checker` 每 10 分钟调用 `check_alerts.py --write-heartbeat` 写入一次 heartbeat；若 DAG 被 pause、Composer 调度异常、脚本启动失败或日志写入失败，heartbeat 会停止，Cloud Monitoring 的 absence condition 会触发通知。
+
+`setup_alerts.py` 使用 `user_labels.oq005_policy` 作为告警策略幂等键；旧版 display name 会被迁移到当前命名，避免重复创建新旧两份策略。
 
 ## 观测视图
 

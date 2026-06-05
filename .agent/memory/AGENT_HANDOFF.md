@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-005 告警/观测生产闭环部署与 PR #75 follow-up（2026-06-05）**：工作树 `/private/tmp/oq005-alerts-ops`，分支 `codex/oq005-alerts-ops`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到 3 个策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。PR #75 review follow-up 已修复 README 生产入口、OQ-005 状态矛盾、DAG 意外返回码静默成功、checker liveness 缺失和 10 分钟 lookback 无重叠问题：DAG 只接受 rc `0/1/2`，其他 rc fail-closed；生产 lookback 改 20 分钟；`check_alerts.py` 新增 `--write-heartbeat`；`setup_alerts.py` 新增 `oq005_alert_checker_heartbeat` metric 与 30 分钟 absence policy，并修复 Monitoring API duration / condition enum / condition field 写法。验证通过 py_compile、`setup_alerts.py --dry-run`、只读 `check_alerts.py --json`、Monitoring condition 构造、观测 SQL dry-run、`git diff --check`。该 follow-up 尚未同步 Composer bucket 或应用新增 liveness policy；合并后需部署并验收 checker heartbeat absence 告警。下一步：合并 PR 后继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
+**OQ-005 告警/观测生产闭环部署与 PR #75 follow-up（2026-06-05）**：PR #75 已合并并完成生产部署；后续代码收敛工作树 `/private/tmp/oq005-alerting-deploy-followup`，分支 `codex/oq005-alerting-deploy-followup`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到告警策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。PR #75 follow-up 已部署并验收：Composer bucket 已同步 DAG 与 `check_alerts.py`；新增 `oq005_alert_checker_heartbeat` log-based metric 和 `OQ-005: Alert Checker Heartbeat Missing` 30 分钟 absence policy，策略已启用并绑定 1 个 Email 通知渠道；`check_alerts.py` 显式使用 `resource.type=global` 写业务告警与 heartbeat，避免 Composer 默认 `k8s_container` resource 与现有告警策略不匹配。PR #77 review follow-up 已修复告警策略幂等键：`setup_alerts.py` 使用稳定 `user_labels.oq005_policy` 并兼容旧 display name 迁移，避免旧名环境重复创建新旧两份策略。manual smoke `manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功，随后的 scheduled run 也成功；Cloud Logging 中 heartbeat 为 `resource.type=global`、`lookback_minutes=20`、`alerts_count=0`，Cloud Monitoring global timeSeries 已有点。下一步：继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
 
 **OQ-005 告警/观测 PR #72 review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-alerts-runbook`，分支 `codex/oq005-alerts-runbook`。PR #72 新增 BigQuery 观测视图、Cloud Logging / Cloud Monitoring 告警配置脚本、告警查询脚本和补跑 runbook。本轮按 comment 修复：`setup_alerts.py` 的 `LogMetric` 使用正确 `filter` 字段；`check_alerts.py` 查询失败和缺 `google-cloud-logging` 写日志路径均 fail-closed，默认 lookback 改 10 分钟并用稳定 `insert_id` 降低重复日志；runbook §9 的 `task_failure` / `ingestion_failed` 与 SQL 实现一致；`v_alert_probe` 注释改为固定 24 小时手工健康检查口径。验证通过 Python `py_compile`、观测 SQL BigQuery dry-run、`git diff --check`；本机缺 `google-cloud-logging`，未做真实 log metric API apply。合并后仍需部署视图、配置 Cloud Scheduler/Cloud Run checker、log-based metrics、alert policies，并做生产 smoke。
 
@@ -2131,4 +2131,67 @@ Run ID: N/A
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/ARCHITECTURE_MEMORY.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: manual_oq005_alert_checker_heartbeat_global_20260605_01
+相关 issue/PR: PR #75 / OQ-005 alert checker liveness deployment follow-up
+
+### 已完成工作
+
+- 确认 PR #75 已合并，随后同步 `orchestration/composer/dags/oq005_alert_checker.py` 到 Composer `dags/`，同步 `scripts/alerting/check_alerts.py` 到 Composer `data/scripts/alerting/`。
+- 创建并验证 `oq005_alert_checker_heartbeat` log-based metric。
+- 创建并验证 `OQ-005: Alert Checker Heartbeat Missing` 30 分钟 absence policy；策略已启用并绑定 1 个 Email 通知渠道。
+- 第一次 heartbeat smoke 发现 Composer 默认日志 resource 为 `k8s_container`，与现有 OQ-005 告警策略使用的 `resource.type=global` 不一致。
+- 修复 `check_alerts.py`，让业务告警与 heartbeat 显式写入 Cloud Logging global resource，并重新同步到 Composer。
+- 修复 `setup_alerts.py` 的生产可重复执行问题：正确导入 Logging Metrics client / LogMetric，设置 alert policy combiner，threshold / absence filter 统一加 `resource.type="global"`，使用稳定 `user_labels.oq005_policy` 做幂等键，并兼容旧 display name 迁移。
+- 更新 alerting README、TODO 和 OQ-005 记忆状态，消除“合并后需部署”的旧状态。
+
+### 重要上下文
+
+- 生产 smoke `manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功；随后 scheduled run 也成功。
+- Cloud Logging 中 heartbeat 已确认为 `resource.type=global`、`lookback_minutes=20`、`alerts_count=0`。
+- Cloud Monitoring `logging.googleapis.com/user/oq005_alert_checker_heartbeat` 的 global timeSeries 已有点；旧的 `k8s_container` heartbeat 只来自修复前第一次 smoke。
+- OQ-005 告警主链路和 checker liveness 均已上线；OQ-005 仍 open，剩余 Dataform 生产链路、补跑与完整 ODS→ADS 运维观测闭环。
+
+### 改动文件
+
+- `scripts/alerting/check_alerts.py`
+- `scripts/alerting/setup_alerts.py`
+- `scripts/alerting/README.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- Composer manual smoke：`manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功。
+- Composer scheduled run 成功。
+- Cloud Logging 查询确认 heartbeat 使用 global resource。
+- Cloud Monitoring timeSeries 查询确认 `oq005_alert_checker_heartbeat` global metric 有数据点。
+- Cloud Monitoring alert policies 查询确认 4 个 OQ-005 policy 均启用并绑定通知渠道。
+- 本地 py_compile、`setup_alerts.py --dry-run`、只读 `check_alerts.py --lookback-minutes 20 --json`、观测 SQL dry-run 和 `git diff --check` 均通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提交本 follow-up PR，让仓库脚本与已部署生产状态一致。
+- 继续 OQ-005 Dataform definitions、补跑自动化、生产 DAG 参数化闭环和 ODS→ADS 运行状态观测。
+- 等 `2026-06-05` ODS 到齐后，再跑一次正向 daily_current smoke。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
