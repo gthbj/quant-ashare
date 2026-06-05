@@ -47,10 +47,7 @@ from scripts.strategy1_cloudrun.config import (
     load_runner_config,
     experiment_from_b64,
 )
-from scripts.strategy1_cloudrun.preprocess import (
-    MedianWinsorZScorePreprocessor,
-    feature_frame_from_panel,
-)
+from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
 
 
 def main() -> int:
@@ -142,14 +139,15 @@ def run_train_predict(
 
     train_mask = panel["split_tag"].eq("train") & panel["target_label"].notna()
     valid_mask = panel["split_tag"].eq("valid")
-    predict_mask = panel["split_tag"].isin(["valid", "test"])
+    predict_mask = panel["split_tag"].isin(["valid", "test", "final_holdout"])
     if train_mask.sum() == 0:
         raise RuntimeError("train split has no labeled samples")
     if valid_mask.sum() == 0:
         raise RuntimeError("valid split has no prediction samples")
 
-    preprocessor = MedianWinsorZScorePreprocessor(
-        feature_columns=feature_columns,
+    preprocessor = build_preprocessor(
+        config.preprocess_version,
+        feature_columns,
         winsor_lower=config.winsor_lower,
         winsor_upper=config.winsor_upper,
     ).fit(feature_frame.loc[train_mask])
@@ -181,7 +179,7 @@ def run_train_predict(
         selected.metrics["model_quality_status"] = "model_quality_not_equivalent"
         selected.metrics["model_quality_status_reason"] = "sklearn_vs_bqml_parity_failed"
 
-    model_id = f"s1_sklearn_{run_safe(experiment.run_id)}__{selected.candidate_id}"
+    model_id = model_id_for_candidate(experiment.run_id, selected)
     artifact_local_dir = artifact_dir(config, experiment, model_id)
     artifact_uri = join_gs_uri(
         config.model_artifact_base_uri,
@@ -241,7 +239,11 @@ def load_training_panel(client: bigquery.Client, experiment: Experiment) -> pd.D
         [
             bigquery.ScalarQueryParameter("run_id", "STRING", experiment.run_id),
             bigquery.ScalarQueryParameter("train_start", "DATE", experiment.train_start),
-            bigquery.ScalarQueryParameter("test_end", "DATE", experiment.test_end),
+            bigquery.ScalarQueryParameter(
+                "test_end",
+                "DATE",
+                experiment.final_holdout_end or experiment.predict_end or experiment.test_end,
+            ),
         ],
     )
 
@@ -254,9 +256,10 @@ def train_candidate(
     sample_weight: np.ndarray,
     panel: pd.DataFrame,
     feature_frame: pd.DataFrame,
-    preprocessor: MedianWinsorZScorePreprocessor,
+    preprocessor,
 ) -> CandidateResult:
     valid_mask = panel["split_tag"].eq("valid")
+    train_mask = panel["split_tag"].eq("train") & panel["target_label"].notna()
     x_valid = preprocessor.transform(feature_frame.loc[valid_mask])
     valid_panel = panel.loc[valid_mask, ["trade_date", "sec_code", "target_label", "target_return"]].copy()
     return train_candidate_from_matrices(
@@ -264,6 +267,7 @@ def train_candidate(
         candidate_cfg,
         x_train,
         y_train,
+        panel.loc[train_mask, "target_return"].astype(float).to_numpy(),
         sample_weight,
         valid_panel,
         x_valid,
@@ -275,62 +279,64 @@ def train_candidate_from_matrices(
     candidate_cfg: dict[str, Any],
     x_train: np.ndarray,
     y_train: np.ndarray,
+    train_returns: np.ndarray | None,
     sample_weight: np.ndarray,
     valid_panel: pd.DataFrame,
     x_valid: np.ndarray,
+    *,
+    cv_panel: pd.DataFrame | None = None,
+    x_cv: np.ndarray | None = None,
 ) -> CandidateResult:
-    from sklearn.linear_model import LogisticRegression
     from sklearn.exceptions import ConvergenceWarning
 
     model_family = candidate_cfg.get("model_family", "logistic_regression")
-    if model_family != "logistic_regression":
-        raise ValueError(f"P0 task fan-out only supports logistic_regression, got {model_family!r}")
-    penalty = _normalize_penalty(candidate_cfg.get("penalty"))
-    solver = candidate_cfg.get("solver") or config.logistic_solver
-    class_weight = _normalize_optional_string(
-        candidate_cfg.get("class_weight", config.logistic_class_weight)
-    )
-    max_iter = int(candidate_cfg.get("max_iter") or config.logistic_max_iter)
+    max_iter = int(candidate_cfg.get("max_iter") or candidate_cfg.get("n_estimators") or config.logistic_max_iter)
     random_state = int(candidate_cfg.get("random_state") or config.random_state)
-    params = {
-        "penalty": penalty,
-        "solver": solver,
-        "max_iter": max_iter,
-        "random_state": random_state,
-        "class_weight": class_weight,
-        "n_jobs": None,
-    }
-    if penalty is not None:
-        params["C"] = float(candidate_cfg["C"])
-    if candidate_cfg.get("l1_ratio") is not None:
-        params["l1_ratio"] = float(candidate_cfg["l1_ratio"])
-    model = LogisticRegression(**params)
+    model, params, score_source, reverse_method = build_model(candidate_cfg, config, random_state=random_state)
+    fit_kwargs = build_fit_kwargs(model_family, sample_weight)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", ConvergenceWarning)
-        model.fit(x_train, y_train, sample_weight=sample_weight)
+        model.fit(x_train, training_target(model_family, y_train, train_returns), **fit_kwargs)
     convergence_warnings = [
         str(item.message)
         for item in caught
         if issubclass(item.category, ConvergenceWarning)
     ]
     n_iter_max = int(np.max(getattr(model, "n_iter_", [0])))
-    converged = not convergence_warnings and n_iter_max < max_iter
+    converged = lightgbm_converged(model_family, model) if model_family.startswith("lightgbm_") else (
+        not convergence_warnings and n_iter_max < max_iter
+    )
 
-    raw_score = model.predict_proba(x_valid)[:, 1]
+    raw_score = score_model(model, x_valid, score_source)
 
     raw_metrics = evaluate_scores(valid_panel, raw_score)
-    rev_metrics = evaluate_scores(valid_panel, 1.0 - raw_score)
+    rev_score = reverse_scores(raw_score, reverse_method)
+    rev_metrics = evaluate_scores(valid_panel, rev_score)
     orientation, reason = decide_orientation(raw_metrics, rev_metrics)
-    oriented_score = 1.0 - raw_score if orientation == "reverse_probability" else raw_score
+    oriented_score = reverse_scores(raw_score, reverse_method) if orientation == "reverse_probability" else raw_score
     oriented_metrics = evaluate_scores(valid_panel, oriented_score)
-    class_metrics = evaluate_classification(valid_panel, raw_score)
+    class_metrics = evaluate_classification(valid_panel, raw_score) if score_source.endswith("label_1") else {
+        "roc_auc": math.nan,
+        "log_loss": math.nan,
+    }
+    cv_metrics = evaluate_cv_folds(
+        config=config,
+        candidate_cfg=candidate_cfg,
+        model_family=model_family,
+        cv_panel=cv_panel,
+        x_cv=x_cv,
+        random_state=random_state,
+        score_source=score_source,
+        reverse_method=reverse_method,
+    )
 
     metrics = {
         "candidate_id": candidate_cfg["candidate_id"],
-        "score_source": "sklearn_predict_proba_label_1",
+        "score_source": score_source,
         "score_orientation": orientation,
         "orientation_decision_split": "valid",
         "orientation_decision_reason": reason,
+        "score_reverse_method": reverse_method,
         "raw_valid_rank_ic_mean": raw_metrics["rank_ic_mean"],
         "reverse_valid_rank_ic_mean": rev_metrics["rank_ic_mean"],
         "reversed_valid_rank_ic_mean": rev_metrics["rank_ic_mean"],
@@ -348,11 +354,22 @@ def train_candidate_from_matrices(
         "valid_eval_rows": int(valid_panel["target_return"].notna().sum()),
         "valid_eval_coverage": safe_divide(valid_panel["target_return"].notna().sum(), len(valid_panel)),
         "model_family": model_family,
-        "solver": solver,
-        "penalty": "none" if penalty is None else penalty,
+        "model_library": model_library_for_family(model_family),
+        "model_library_version": model_library_version(model_family),
+        "solver": params.get("solver"),
+        "penalty": params.get("penalty"),
         "C": candidate_cfg.get("C"),
         "l1_ratio": candidate_cfg.get("l1_ratio"),
-        "class_weight": class_weight,
+        "class_weight": params.get("class_weight"),
+        "num_leaves": params.get("num_leaves"),
+        "learning_rate": params.get("learning_rate"),
+        "n_estimators": params.get("n_estimators"),
+        "min_data_in_leaf": params.get("min_child_samples"),
+        "feature_fraction": params.get("colsample_bytree"),
+        "bagging_fraction": params.get("subsample"),
+        "lambda_l1": params.get("reg_alpha"),
+        "lambda_l2": params.get("reg_lambda"),
+        "num_threads": params.get("n_jobs"),
         "max_iter": max_iter,
         "random_state": random_state,
         "n_iter_max": n_iter_max,
@@ -361,6 +378,7 @@ def train_candidate_from_matrices(
         "convergence_warning_count": len(convergence_warnings),
         "convergence_warnings": convergence_warnings[:3],
     }
+    metrics.update(cv_metrics)
     metrics["valid_signal_status"] = classify_valid_signal(metrics)
     metrics["model_complexity_rank"] = model_complexity_rank(metrics)
     return CandidateResult(
@@ -373,6 +391,224 @@ def train_candidate_from_matrices(
         metrics=metrics,
         model_params=params,
     )
+
+
+def build_model(candidate_cfg: dict[str, Any], config: RunnerConfig, *, random_state: int):
+    model_family = candidate_cfg.get("model_family", "logistic_regression")
+    if model_family == "logistic_regression":
+        from sklearn.linear_model import LogisticRegression
+
+        penalty = _normalize_penalty(candidate_cfg.get("penalty"))
+        solver = candidate_cfg.get("solver") or config.logistic_solver
+        class_weight = _normalize_optional_string(
+            candidate_cfg.get("class_weight", config.logistic_class_weight)
+        )
+        params = {
+            "penalty": penalty,
+            "solver": solver,
+            "max_iter": int(candidate_cfg.get("max_iter") or config.logistic_max_iter),
+            "random_state": random_state,
+            "class_weight": class_weight,
+            "n_jobs": None,
+        }
+        if penalty is not None:
+            params["C"] = float(candidate_cfg["C"])
+        if candidate_cfg.get("l1_ratio") is not None:
+            params["l1_ratio"] = float(candidate_cfg["l1_ratio"])
+        return LogisticRegression(**params), params, "sklearn_predict_proba_label_1", "probability_complement"
+
+    if model_family == "lightgbm_gbdt":
+        from lightgbm import LGBMClassifier
+
+        params = lightgbm_params(candidate_cfg, random_state=random_state, objective="binary")
+        return LGBMClassifier(**params), params, "lightgbm_predict_proba_label_1", "probability_complement"
+
+    if model_family == "lightgbm_regression":
+        from lightgbm import LGBMRegressor
+
+        params = lightgbm_params(candidate_cfg, random_state=random_state, objective="regression")
+        return LGBMRegressor(**params), params, "lightgbm_predict", "negate"
+
+    raise ValueError(f"unsupported model_family: {model_family!r}")
+
+
+def lightgbm_params(candidate_cfg: dict[str, Any], *, random_state: int, objective: str) -> dict[str, Any]:
+    params = {
+        "objective": objective,
+        "num_leaves": int(candidate_cfg.get("num_leaves", 31)),
+        "learning_rate": float(candidate_cfg.get("learning_rate", 0.05)),
+        "n_estimators": int(candidate_cfg.get("n_estimators", 300)),
+        "min_child_samples": int(candidate_cfg.get("min_data_in_leaf", candidate_cfg.get("min_child_samples", 300))),
+        "subsample": float(candidate_cfg.get("bagging_fraction", candidate_cfg.get("subsample", 0.9))),
+        "subsample_freq": int(candidate_cfg.get("bagging_freq", 1)),
+        "colsample_bytree": float(candidate_cfg.get("feature_fraction", candidate_cfg.get("colsample_bytree", 0.9))),
+        "reg_alpha": float(candidate_cfg.get("lambda_l1", candidate_cfg.get("reg_alpha", 0.0))),
+        "reg_lambda": float(candidate_cfg.get("lambda_l2", candidate_cfg.get("reg_lambda", 0.0))),
+        "random_state": random_state,
+        "n_jobs": int(candidate_cfg.get("num_threads", 1)),
+        "verbosity": int(candidate_cfg.get("verbosity", -1)),
+    }
+    if candidate_cfg.get("is_unbalance") is not None:
+        params["is_unbalance"] = bool(candidate_cfg.get("is_unbalance"))
+    if candidate_cfg.get("scale_pos_weight") is not None:
+        params["scale_pos_weight"] = float(candidate_cfg["scale_pos_weight"])
+    return params
+
+
+def build_fit_kwargs(model_family: str, sample_weight: np.ndarray | None) -> dict[str, Any]:
+    if sample_weight is None:
+        return {}
+    if model_family in {"logistic_regression", "lightgbm_gbdt", "lightgbm_regression"}:
+        return {"sample_weight": sample_weight}
+    return {}
+
+
+def training_target(model_family: str, labels: np.ndarray, returns: np.ndarray | None) -> np.ndarray:
+    if model_family == "lightgbm_regression":
+        if returns is None:
+            raise ValueError("lightgbm_regression requires train target_return")
+        return returns.astype(np.float32)
+    return labels.astype(int)
+
+
+def score_model(model: Any, x: np.ndarray, score_source: str) -> np.ndarray:
+    if score_source.endswith("predict_proba_label_1"):
+        return model.predict_proba(x)[:, 1]
+    return np.asarray(model.predict(x), dtype=np.float64)
+
+
+def reverse_scores(scores: np.ndarray, reverse_method: str) -> np.ndarray:
+    if reverse_method == "probability_complement":
+        return 1.0 - scores
+    if reverse_method == "negate":
+        return -scores
+    raise ValueError(f"unsupported reverse method: {reverse_method}")
+
+
+def lightgbm_converged(model_family: str, model: Any) -> bool:
+    if not model_family.startswith("lightgbm_"):
+        return False
+    return getattr(model, "booster_", None) is not None
+
+
+def evaluate_cv_folds(
+    *,
+    config: RunnerConfig,
+    candidate_cfg: dict[str, Any],
+    model_family: str,
+    cv_panel: pd.DataFrame | None,
+    x_cv: np.ndarray | None,
+    random_state: int,
+    score_source: str,
+    reverse_method: str,
+) -> dict[str, Any]:
+    if cv_panel is None or x_cv is None or cv_panel.empty:
+        return {
+            "cv_confirmation_status": "missing",
+            "cv_fold_count": 0,
+        }
+    folds = [
+        ("cv_2021", "2019-04-03", "2020-12-31", "2021-01-01", "2021-12-31"),
+        ("cv_2022", "2019-04-03", "2021-12-31", "2022-01-01", "2022-12-31"),
+        ("cv_2023", "2019-04-03", "2022-12-31", "2023-01-01", "2023-12-31"),
+    ]
+    panel = cv_panel.copy()
+    panel["trade_date"] = pd.to_datetime(panel["trade_date"])
+    all_dates = sorted(panel["trade_date"].dropna().unique())
+    rows = []
+    for fold_id, train_start, train_end, eval_start, eval_end in folds:
+        embargoed_train_end = embargo_end_date(all_dates, pd.Timestamp(eval_start), int(candidate_cfg.get("label_horizon") or 5))
+        effective_train_end = min(pd.Timestamp(train_end), embargoed_train_end)
+        train_mask = (
+            panel["trade_date"].between(pd.Timestamp(train_start), effective_train_end)
+            & panel["target_label"].notna()
+            & (panel["target_return"].notna() if model_family == "lightgbm_regression" else True)
+        )
+        eval_mask = panel["trade_date"].between(pd.Timestamp(eval_start), pd.Timestamp(eval_end))
+        if int(train_mask.sum()) == 0 or int(eval_mask.sum()) == 0:
+            rows.append({"fold_id": fold_id, "status": "missing", "rank_ic_mean": math.nan, "top_minus_bottom": math.nan})
+            continue
+        model, _, _, _ = build_model(candidate_cfg, config, random_state=random_state)
+        y_fold = training_target(
+            model_family,
+            panel.loc[train_mask, "target_label"].astype(int).to_numpy(),
+            panel.loc[train_mask, "target_return"].astype(float).to_numpy(),
+        )
+        weights = panel.loc[train_mask, "sample_weight"].fillna(1.0).astype(float).to_numpy()
+        model.fit(x_cv[train_mask.to_numpy()], y_fold, **build_fit_kwargs(model_family, weights))
+        raw_score = score_model(model, x_cv[eval_mask.to_numpy()], score_source)
+        raw_metrics = evaluate_scores(panel.loc[eval_mask, ["trade_date", "sec_code", "target_label", "target_return"]], raw_score)
+        rev_metrics = evaluate_scores(
+            panel.loc[eval_mask, ["trade_date", "sec_code", "target_label", "target_return"]],
+            reverse_scores(raw_score, reverse_method),
+        )
+        orientation, _ = decide_orientation(raw_metrics, rev_metrics)
+        oriented = reverse_scores(raw_score, reverse_method) if orientation == "reverse_probability" else raw_score
+        metrics = evaluate_scores(panel.loc[eval_mask, ["trade_date", "sec_code", "target_label", "target_return"]], oriented)
+        rows.append({
+            "fold_id": fold_id,
+            "status": "succeeded",
+            "score_orientation": orientation,
+            "rank_ic_mean": metrics["rank_ic_mean"],
+            "top_minus_bottom": metrics["top_minus_bottom"],
+            "topn_fwd_ret_mean": metrics["topn_fwd_ret_mean"],
+            "rank_ic_days": metrics["rank_ic_days"],
+        })
+    ok_rows = [row for row in rows if row["status"] == "succeeded"]
+    rank_values = [float(row["rank_ic_mean"]) for row in ok_rows if math.isfinite(safe_metric(row["rank_ic_mean"]))]
+    spread_values = [float(row["top_minus_bottom"]) for row in ok_rows if math.isfinite(safe_metric(row["top_minus_bottom"]))]
+    rank_mean = _mean_or_nan(rank_values)
+    spread_mean = _mean_or_nan(spread_values)
+    passed = len(ok_rows) == 3 and _nan_to_zero(rank_mean) > 0 and _nan_to_zero(spread_mean) > 0
+    return {
+        "cv_confirmation_status": "passed" if passed else "failed",
+        "cv_fold_count": len(ok_rows),
+        "cv_rank_ic_mean": rank_mean,
+        "cv_rank_ic_std": _std_or_nan(rank_values),
+        "cv_top_minus_bottom_fwd_ret_mean": spread_mean,
+        "cv_topn_fwd_ret_mean": _mean_or_nan([
+            float(row["topn_fwd_ret_mean"])
+            for row in ok_rows
+            if math.isfinite(safe_metric(row["topn_fwd_ret_mean"]))
+        ]),
+        "cv_fold_metrics": rows,
+    }
+
+
+def safe_metric(value: Any) -> float:
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return math.nan
+    return value if math.isfinite(value) else math.nan
+
+
+def embargo_end_date(all_dates: list[pd.Timestamp], eval_start: pd.Timestamp, embargo_days: int) -> pd.Timestamp:
+    prior = [date for date in all_dates if date < eval_start]
+    if not prior:
+        return eval_start - pd.Timedelta(days=embargo_days)
+    index = max(0, len(prior) - embargo_days)
+    return pd.Timestamp(prior[index - 1 if index > 0 else 0])
+
+
+def model_library_for_family(model_family: str) -> str:
+    if model_family.startswith("lightgbm_"):
+        return "lightgbm"
+    if model_family == "logistic_regression":
+        return "sklearn"
+    return model_family
+
+
+def model_library_version(model_family: str) -> str | None:
+    try:
+        from importlib.metadata import version
+        if model_family.startswith("lightgbm_"):
+            return version("lightgbm")
+        if model_family == "logistic_regression":
+            return version("scikit-learn")
+    except Exception:
+        return None
+    return None
 
 
 def _normalize_penalty(value: Any) -> str | None:
@@ -406,6 +642,15 @@ def classify_valid_signal(metrics: dict[str, Any]) -> str:
 
 
 def model_complexity_rank(metrics_or_params: dict[str, Any]) -> int:
+    model_family = metrics_or_params.get("model_family")
+    if model_family == "lightgbm_gbdt":
+        leaves = int(metrics_or_params.get("num_leaves") or 31)
+        estimators = int(metrics_or_params.get("n_estimators") or 300)
+        return 10 + leaves + estimators // 100
+    if model_family == "lightgbm_regression":
+        leaves = int(metrics_or_params.get("num_leaves") or 31)
+        estimators = int(metrics_or_params.get("n_estimators") or 300)
+        return 20 + leaves + estimators // 100
     penalty = _normalize_penalty(metrics_or_params.get("penalty"))
     if penalty is None:
         return 0
@@ -565,7 +810,8 @@ def materialize_artifacts(
             "score_orientation": selected.score_orientation,
             "orientation_decision_reason": selected.orientation_reason,
             "orientation_decision_split": "valid",
-            "score_source": "sklearn_predict_proba_label_1",
+            "score_source": selected.metrics.get("score_source"),
+            "score_reverse_method": selected.metrics.get("score_reverse_method"),
         },
     )
     write_json(
@@ -614,7 +860,7 @@ def write_registry(
     git_commit = get_git_commit()
     for candidate in candidates:
         is_selected = candidate.candidate_id == selected.candidate_id
-        model_id = selected_model_id if is_selected else f"s1_sklearn_{run_safe(experiment.run_id)}__{candidate.candidate_id}"
+        model_id = selected_model_id if is_selected else model_id_for_candidate(experiment.run_id, candidate)
         model_uri = join_gs_uri(
             config.model_artifact_base_uri,
             "ml_pv_clf_v0",
@@ -627,17 +873,29 @@ def write_registry(
             "prediction_run_id": experiment.prediction_run_id,
             "execution_backend": config.execution_backend,
             "candidate_id": candidate.candidate_id,
-            "estimator": "sklearn.linear_model.LogisticRegression",
+            "estimator": candidate.metrics.get("model_family"),
             "estimator_params": candidate.model_params,
             "label_horizon": experiment.label_horizon,
             "feature_set_id": experiment.feature_set_id,
             "preprocess_version": config.preprocess_version,
             "class_weight": candidate.metrics.get("class_weight"),
+            "train_start_date": experiment.train_start,
+            "train_end_date": experiment.train_end,
+            "valid_start_date": experiment.valid_start,
+            "valid_end_date": experiment.valid_end,
+            "test_start_date": experiment.test_start,
+            "test_end_date": experiment.test_end,
+            "final_holdout_start_date": experiment.final_holdout_start,
+            "final_holdout_end_date": experiment.final_holdout_end,
+            "predict_start_date": experiment.predict_start,
+            "predict_end_date": experiment.predict_end,
         }
         for key in (
             "search_id", "source_run_id", "sklearn_native_mode",
             "candidate_run_id", "candidate_backtest_id", "shortlist_rank_valid_only",
             "test_reuse_wave_no", "test_reuse_approval_ref", "final_holdout_status",
+            "model_backend", "model_library", "model_library_version", "model_search_wave_no",
+            "acceptance_contract_version", "cv_confirmation_status", "holdout_watch_flag",
         ):
             if candidate.metrics.get(key) is not None:
                 params_json[key] = candidate.metrics.get(key)
@@ -649,7 +907,7 @@ def write_registry(
         rows.append({
             "model_id": model_id,
             "strategy_id": config.strategy_id,
-            "model_family": "sklearn_logistic_regression",
+            "model_family": str(candidate.metrics.get("model_family") or "logistic_regression"),
             "horizon": experiment.label_horizon,
             "feature_version": experiment.feature_version,
             "label_version": "open_to_close_h1_5_10_20_v20260601",
@@ -691,8 +949,9 @@ def write_predictions_from_preprocessed(
     selected: CandidateResult,
     model_id: str,
 ) -> None:
-    raw_score = selected.model.predict_proba(x_pred)[:, 1]
-    oriented = 1.0 - raw_score if selected.score_orientation == "reverse_probability" else raw_score
+    raw_score = score_model(selected.model, x_pred, str(selected.metrics.get("score_source") or "sklearn_predict_proba_label_1"))
+    reverse_method = str(selected.metrics.get("score_reverse_method") or "probability_complement")
+    oriented = reverse_scores(raw_score, reverse_method) if selected.score_orientation == "reverse_probability" else raw_score
     out = predict_panel[["trade_date", "sec_code"]].copy()
     out["model_id"] = model_id
     out["predict_date"] = pd.to_datetime(out["trade_date"]).dt.date
@@ -719,7 +978,7 @@ def clear_train_predict_outputs(client: bigquery.Client, experiment: Experiment)
     params = [
         bigquery.ScalarQueryParameter("run_id", "STRING", experiment.run_id),
         bigquery.ScalarQueryParameter("start_date", "DATE", experiment.valid_start),
-        bigquery.ScalarQueryParameter("end_date", "DATE", experiment.test_end),
+        bigquery.ScalarQueryParameter("end_date", "DATE", experiment.final_holdout_end or experiment.predict_end or experiment.test_end),
     ]
     execute_query(
         client,
@@ -739,13 +998,31 @@ def artifact_dir(config: RunnerConfig, experiment: Experiment, model_id: str) ->
 def requirements_snapshot() -> str:
     try:
         import sklearn
+        extras = []
+        try:
+            import lightgbm
+            extras.append(f"lightgbm=={lightgbm.__version__}")
+        except Exception:
+            pass
         return "\n".join([
             f"scikit-learn=={sklearn.__version__}",
             f"numpy=={np.__version__}",
             f"pandas=={pd.__version__}",
+            *extras,
         ]) + "\n"
     except Exception:
         return "requirements snapshot unavailable\n"
+
+
+def model_id_for_candidate(run_id: str, candidate: CandidateResult) -> str:
+    family = str(candidate.metrics.get("model_family") or "logistic_regression")
+    if family.startswith("lightgbm_"):
+        prefix = "s1_lgbm"
+    elif family == "logistic_regression":
+        prefix = "s1_sklearn"
+    else:
+        prefix = "s1_python"
+    return f"{prefix}_{run_safe(run_id)}__{candidate.candidate_id}"
 
 
 def _mean_or_nan(values: list[float]) -> float:

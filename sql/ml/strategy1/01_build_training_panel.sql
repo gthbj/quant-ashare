@@ -28,7 +28,10 @@ DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_valid_end DATE DEFAULT DATE '2024-12-31';
 DECLARE p_test_start DATE DEFAULT DATE '2025-01-01';
 DECLARE p_test_end DATE DEFAULT DATE '2025-12-31';
+DECLARE p_final_holdout_start DATE DEFAULT NULL;
+DECLARE p_final_holdout_end DATE DEFAULT NULL;
 DECLARE p_force_replace BOOL DEFAULT FALSE;
+DECLARE p_panel_end DATE DEFAULT COALESCE(p_final_holdout_end, p_test_end);
 
 IF p_label_horizon NOT IN (5, 10, 20) THEN
   RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
@@ -43,7 +46,7 @@ IF NOT p_force_replace THEN
   IF (SELECT COUNT(*) > 0
       FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
       WHERE tp.run_id = p_run_id
-        AND tp.trade_date BETWEEN p_train_start AND p_test_end) THEN
+        AND tp.trade_date BETWEEN p_train_start AND p_panel_end) THEN
     RAISE USING MESSAGE = CONCAT('run_id ', p_run_id, ' already exists. Set p_force_replace=TRUE to overwrite.');
   END IF;
 END IF;
@@ -51,7 +54,7 @@ END IF;
 IF p_force_replace THEN
   DELETE FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
   WHERE tp.run_id = p_run_id
-    AND tp.trade_date BETWEEN p_train_start AND p_test_end;
+    AND tp.trade_date BETWEEN p_train_start AND p_panel_end;
 END IF;
 
 -- ── 写入训练面板（特征进 JSON，target 进物理列）──
@@ -76,6 +79,9 @@ SELECT
     WHEN s.trade_date BETWEEN p_train_start AND p_train_end THEN 'train'
     WHEN s.trade_date BETWEEN p_valid_start AND p_valid_end THEN 'valid'
     WHEN s.trade_date BETWEEN p_test_start AND p_test_end THEN 'test'
+    WHEN p_final_holdout_start IS NOT NULL
+      AND p_final_holdout_end IS NOT NULL
+      AND s.trade_date BETWEEN p_final_holdout_start AND p_final_holdout_end THEN 'final_holdout'
     ELSE 'live'
   END,
   1.0,
@@ -153,8 +159,8 @@ LEFT JOIN `data-aquarium.ashare_dws.dws_stock_feature_fin_daily` AS fin
   ON fin.trade_date = s.trade_date
  AND fin.sec_code = s.sec_code
  AND fin.feature_version = p_fin_feature_version
- AND fin.trade_date BETWEEN p_train_start AND p_test_end
-WHERE s.trade_date BETWEEN p_train_start AND p_test_end
+ AND fin.trade_date BETWEEN p_train_start AND p_panel_end
+WHERE s.trade_date BETWEEN p_train_start AND p_panel_end
   AND s.feature_version = p_feature_version
   AND s.label_version = p_label_version
   AND (
@@ -171,7 +177,7 @@ WHERE s.trade_date BETWEEN p_train_start AND p_test_end
       END)
     OR
     -- valid/test: live-available prediction pool（t 日已知条件，不含未来标签/可交易性）
-    (s.trade_date BETWEEN p_valid_start AND p_test_end
+    (s.trade_date BETWEEN p_valid_start AND p_panel_end
       AND COALESCE(s.in_universe_default, FALSE)
       AND COALESCE(s.has_full_history_60d, FALSE)
       AND COALESCE(s.has_valuation_data, FALSE))

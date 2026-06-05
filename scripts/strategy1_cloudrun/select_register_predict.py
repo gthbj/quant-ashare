@@ -50,6 +50,7 @@ from scripts.strategy1_cloudrun.train_predict import (
     compute_model_quality_parity,
     model_complexity_rank,
     requirements_snapshot,
+    model_id_for_candidate,
     write_predictions_from_preprocessed,
     write_registry,
 )
@@ -204,6 +205,9 @@ def select_register_predict(
         "candidate_task_bq_max_bytes_threshold": int(candidate_task_bq_audit["candidate_task_bq_max_bytes_threshold"]),
         "candidate_task_bq_forbidden_tables": candidate_task_bq_audit["candidate_task_bq_forbidden_tables"],
         "candidate_task_bq_audit_run_id": source_run_id,
+        "data_end_date": manifest.get("data_end_date"),
+        "final_holdout_start_date": manifest.get("final_holdout_start_date"),
+        "final_holdout_end_date": manifest.get("final_holdout_end_date"),
     })
     if native_search:
         selected.metrics.update(native_search_metrics(
@@ -219,7 +223,7 @@ def select_register_predict(
             native_acceptance_status=native_acceptance_status,
         ))
 
-    model_id = f"s1_sklearn_{run_safe(experiment.run_id)}__{selected.candidate_id}"
+    model_id = model_id_for_candidate(experiment.run_id, selected)
     artifact_local_dir = (
         Path(config.local_mirror_root)
         / "models"
@@ -378,9 +382,18 @@ def rank_candidates(candidates: list[CandidateResult], *, top_k: int = 5) -> lis
             metrics["valid_signal_status"] = classify_valid_signal(metrics)
         metrics["model_complexity_rank"] = int(metrics.get("model_complexity_rank", model_complexity_rank(metrics)))
         rank_ic = _float_or_nan(metrics.get("oriented_valid_rank_ic_mean"))
+        cv_status = metrics.get("cv_confirmation_status")
+        cv_rank_ic = _float_or_nan(metrics.get("cv_rank_ic_mean"))
+        cv_spread = _float_or_nan(metrics.get("cv_top_minus_bottom_fwd_ret_mean"))
         coverage = _float_or_nan(metrics.get("valid_eval_coverage"))
         hard_reasons = []
         rank_reasons = []
+        if cv_status is not None and cv_status != "passed":
+            hard_reasons.append(f"cv_confirmation_status={cv_status}")
+        if cv_status is not None and not cv_rank_ic > 0:
+            rank_reasons.append("cv_rank_ic_not_positive")
+        if cv_status is not None and not cv_spread > 0:
+            rank_reasons.append("cv_top_minus_bottom_not_positive")
         if not rank_ic > 0:
             rank_reasons.append("valid_rank_ic_not_positive")
         if math.isfinite(median_coverage) and math.isfinite(coverage) and coverage < median_coverage - 0.05:
@@ -398,6 +411,10 @@ def rank_candidates(candidates: list[CandidateResult], *, top_k: int = 5) -> lis
             "eligible_for_shortlist": eligible,
             "eligible_after_hard_filters": not hard_reasons,
             "shortlist_filter_reason": ";".join(reasons),
+            "cv_confirmation_status": cv_status,
+            "cv_rank_ic_mean": cv_rank_ic,
+            "cv_top_minus_bottom_fwd_ret_mean": cv_spread,
+            "cv_fold_count": metrics.get("cv_fold_count"),
             "valid_oriented_rank_ic_mean": rank_ic,
             "valid_oriented_rank_ic_icir": _float_or_nan(metrics.get("oriented_valid_rank_ic_icir")),
             "valid_topn_fwd_ret_mean": _float_or_nan(metrics.get("valid_topn_fwd_ret_mean")),
@@ -436,12 +453,14 @@ def rank_candidates(candidates: list[CandidateResult], *, top_k: int = 5) -> lis
     return rows
 
 
-def ranking_sort_key(row: dict[str, Any]) -> tuple[float, float, float, float, float, float]:
+def ranking_sort_key(row: dict[str, Any]) -> tuple[float, float, float, float, float, float, float, float]:
     return (
         1.0 if row.get("eligible_for_shortlist") else 0.0,
+        _neg_inf_if_nan(row.get("cv_rank_ic_mean")),
+        _neg_inf_if_nan(row.get("cv_top_minus_bottom_fwd_ret_mean")),
         _neg_inf_if_nan(row.get("valid_oriented_rank_ic_mean")),
-        _neg_inf_if_nan(row.get("valid_topn_fwd_ret_mean")),
         _neg_inf_if_nan(row.get("valid_top_minus_bottom_fwd_ret_mean")),
+        _neg_inf_if_nan(row.get("valid_topn_fwd_ret_mean")),
         _neg_inf_if_nan(row.get("valid_roc_auc")),
         -float(row.get("model_complexity_rank") or 0),
     )
@@ -484,6 +503,9 @@ def native_search_metrics(
         "candidate_run_id": experiment.run_id,
         "candidate_backtest_id": experiment.backtest_id,
         "sklearn_native_mode": True,
+        "cloudrun_python_baseline_candidate": True,
+        "model_backend": "cloud_run_python",
+        "model_search_wave_no": int(test_reuse_wave_no),
         "native_acceptance_status": status,
         "native_acceptance_reason": "pending_top5_backtest" if status == "candidate" else status,
         "shortlist_rank_valid_only": shortlist_rank_valid_only,
@@ -509,18 +531,19 @@ def copy_training_panel_alias(
 ) -> None:
     if source_run_id == target_run_id:
         return
+    panel_end = experiment.final_holdout_end or experiment.predict_end or experiment.test_end
     if force_replace:
         execute_query(
             client,
             f"""
             DELETE FROM `{ADS}.ads_ml_training_panel_daily`
             WHERE run_id = @target_run_id
-              AND trade_date BETWEEN @train_start AND @test_end
+              AND trade_date BETWEEN @train_start AND @panel_end
             """,
             [
                 bigquery.ScalarQueryParameter("target_run_id", "STRING", target_run_id),
                 bigquery.ScalarQueryParameter("train_start", "DATE", experiment.train_start),
-                bigquery.ScalarQueryParameter("test_end", "DATE", experiment.test_end),
+                bigquery.ScalarQueryParameter("panel_end", "DATE", panel_end),
             ],
         )
     existing = query_dataframe(
@@ -529,12 +552,12 @@ def copy_training_panel_alias(
         SELECT COUNT(*) AS n
         FROM `{ADS}.ads_ml_training_panel_daily`
         WHERE run_id = @target_run_id
-          AND trade_date BETWEEN @train_start AND @test_end
+          AND trade_date BETWEEN @train_start AND @panel_end
         """,
         [
             bigquery.ScalarQueryParameter("target_run_id", "STRING", target_run_id),
             bigquery.ScalarQueryParameter("train_start", "DATE", experiment.train_start),
-            bigquery.ScalarQueryParameter("test_end", "DATE", experiment.test_end),
+            bigquery.ScalarQueryParameter("panel_end", "DATE", panel_end),
         ],
     )
     if int(existing.iloc[0]["n"] or 0) > 0:
@@ -570,14 +593,14 @@ def copy_training_panel_alias(
           CURRENT_TIMESTAMP() AS created_at
         FROM `{ADS}.ads_ml_training_panel_daily`
         WHERE run_id = @source_run_id
-          AND trade_date BETWEEN @train_start AND @test_end
+          AND trade_date BETWEEN @train_start AND @panel_end
         """,
         [
             bigquery.ScalarQueryParameter("target_run_id", "STRING", target_run_id),
             bigquery.ScalarQueryParameter("source_run_id", "STRING", source_run_id),
             bigquery.ScalarQueryParameter("model_id", "STRING", model_id),
             bigquery.ScalarQueryParameter("train_start", "DATE", experiment.train_start),
-            bigquery.ScalarQueryParameter("test_end", "DATE", experiment.test_end),
+            bigquery.ScalarQueryParameter("panel_end", "DATE", panel_end),
         ],
     )
 
@@ -663,7 +686,8 @@ def materialize_selected_artifact(
         "score_orientation": selected.score_orientation,
         "orientation_decision_reason": selected.orientation_reason,
         "orientation_decision_split": "valid",
-        "score_source": "sklearn_predict_proba_label_1",
+        "score_source": selected.metrics.get("score_source"),
+        "score_reverse_method": selected.metrics.get("score_reverse_method"),
     })
     write_json(
         artifact_local_dir / "model_quality_parity.json",
@@ -671,7 +695,7 @@ def materialize_selected_artifact(
     )
     write_json(artifact_local_dir / "manifest_resolved.json", {
         "experiment": experiment.to_params(),
-        "execution_backend": "cloud_run_sklearn_ledger_v1",
+        "execution_backend": selected.metrics.get("execution_backend") or "cloud_run_sklearn_ledger_v1",
         "artifact_uri": artifact_uri,
         "runner_version": __version__,
         "task_fanout_mode": "task_fanout",

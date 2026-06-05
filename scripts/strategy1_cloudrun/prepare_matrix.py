@@ -34,7 +34,7 @@ from scripts.strategy1_cloudrun.config import (
     load_manifest,
     load_runner_config,
 )
-from scripts.strategy1_cloudrun.preprocess import MedianWinsorZScorePreprocessor, feature_frame_from_panel
+from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
 from scripts.strategy1_cloudrun.task_fanout import (
     MATRIX_MANIFEST_VERSION,
     build_work_units,
@@ -150,7 +150,8 @@ def prepare_matrix(
     }
     train_mask = panel["split_tag"].eq("train") & panel["target_label"].notna()
     valid_mask = panel["split_tag"].eq("valid")
-    predict_mask = panel["split_tag"].isin(["valid", "test"])
+    cv_mask = panel["split_tag"].isin(["train", "valid"])
+    predict_mask = panel["split_tag"].isin(["valid", "test", "final_holdout"])
     if int(train_mask.sum()) == 0:
         raise RuntimeError("train split has no labeled samples")
     if int(valid_mask.sum()) == 0:
@@ -158,8 +159,9 @@ def prepare_matrix(
     if int(predict_mask.sum()) == 0:
         raise RuntimeError("valid/test predict split has no samples")
 
-    preprocessor = MedianWinsorZScorePreprocessor(
-        feature_columns=feature_columns,
+    preprocessor = build_preprocessor(
+        config.preprocess_version,
+        feature_columns,
         winsor_lower=config.winsor_lower,
         winsor_upper=config.winsor_upper,
     ).fit(feature_frame.loc[train_mask])
@@ -169,15 +171,19 @@ def prepare_matrix(
     local_dir.mkdir(parents=True, exist_ok=True)
     x_train = pd.DataFrame(preprocessor.transform(feature_frame.loc[train_mask]), columns=feature_columns)
     x_valid = pd.DataFrame(preprocessor.transform(feature_frame.loc[valid_mask]), columns=feature_columns)
+    x_cv = pd.DataFrame(preprocessor.transform(feature_frame.loc[cv_mask]), columns=feature_columns)
     x_predict = pd.DataFrame(preprocessor.transform(feature_frame.loc[predict_mask]), columns=feature_columns)
     train_labels = label_frame(panel.loc[train_mask])
     valid_labels = label_frame(panel.loc[valid_mask])
+    cv_labels = label_frame(panel.loc[cv_mask])
     predict_index = predict_index_frame(panel.loc[predict_mask])
 
     write_parquet(x_train, local_dir / "train_features.parquet")
     write_parquet(train_labels, local_dir / "train_labels.parquet")
     write_parquet(x_valid, local_dir / "valid_features.parquet")
     write_parquet(valid_labels, local_dir / "valid_labels.parquet")
+    write_parquet(x_cv, local_dir / "cv_features.parquet")
+    write_parquet(cv_labels, local_dir / "cv_labels.parquet")
     write_parquet(x_predict, local_dir / "predict_features.parquet")
     write_parquet(predict_index, local_dir / "predict_index.parquet")
     write_json(local_dir / "feature_schema.json", feature_schema)
@@ -209,7 +215,11 @@ def prepare_matrix(
         "source_row_count": int(len(panel)),
         "train_row_count": int(train_mask.sum()),
         "valid_row_count": int(valid_mask.sum()),
+        "cv_row_count": int(cv_mask.sum()),
         "predict_row_count": int(predict_mask.sum()),
+        "final_holdout_start_date": experiment.final_holdout_start,
+        "final_holdout_end_date": experiment.final_holdout_end,
+        "data_end_date": experiment.final_holdout_end or experiment.predict_end,
         "feature_order_sha256": feature_schema["feature_order_sha256"],
         "preprocess_stats_sha256": preprocess_stats["preprocess_stats_sha256"],
         "work_units_sha256": work_units["work_units_sha256"],
@@ -224,6 +234,8 @@ def prepare_matrix(
             "train_labels.parquet": file_sha256(local_dir / "train_labels.parquet"),
             "valid_features.parquet": file_sha256(local_dir / "valid_features.parquet"),
             "valid_labels.parquet": file_sha256(local_dir / "valid_labels.parquet"),
+            "cv_features.parquet": file_sha256(local_dir / "cv_features.parquet"),
+            "cv_labels.parquet": file_sha256(local_dir / "cv_labels.parquet"),
             "predict_features.parquet": file_sha256(local_dir / "predict_features.parquet"),
             "predict_index.parquet": file_sha256(local_dir / "predict_index.parquet"),
             "feature_schema.json": file_sha256(local_dir / "feature_schema.json"),
@@ -282,7 +294,11 @@ def load_training_panel_with_job(
         [
             bigquery.ScalarQueryParameter("run_id", "STRING", experiment.run_id),
             bigquery.ScalarQueryParameter("train_start", "DATE", experiment.train_start),
-            bigquery.ScalarQueryParameter("test_end", "DATE", experiment.test_end),
+            bigquery.ScalarQueryParameter(
+                "test_end",
+                "DATE",
+                experiment.final_holdout_end or experiment.predict_end or experiment.test_end,
+            ),
         ],
         labels=labels,
     )

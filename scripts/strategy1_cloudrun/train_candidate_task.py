@@ -50,6 +50,8 @@ def main() -> int:
             "train_labels.parquet",
             "valid_features.parquet",
             "valid_labels.parquet",
+            "cv_features.parquet",
+            "cv_labels.parquet",
         ] if not args.dry_run else ["work_units.json"],
     )
     task_index = resolve_task_index(args.task_index)
@@ -117,9 +119,13 @@ def train_candidate_unit(
     train_labels = pd.read_parquet(matrix_local / "train_labels.parquet")
     x_valid = pd.read_parquet(matrix_local / "valid_features.parquet").to_numpy(dtype=np.float32)
     valid_labels = pd.read_parquet(matrix_local / "valid_labels.parquet")
+    x_cv = pd.read_parquet(matrix_local / "cv_features.parquet").to_numpy(dtype=np.float32)
+    cv_labels = pd.read_parquet(matrix_local / "cv_labels.parquet")
     y_train = train_labels["target_label"].astype(int).to_numpy()
+    train_returns = train_labels["target_return"].astype(float).to_numpy()
     sample_weight = train_labels["sample_weight"].fillna(1.0).astype(float).to_numpy()
     valid_panel = valid_labels[["trade_date", "sec_code", "target_label", "target_return"]].copy()
+    cv_panel = cv_labels[["trade_date", "sec_code", "target_label", "target_return", "sample_weight"]].copy()
 
     started_at = datetime.now(timezone.utc)
     result = train_candidate_from_matrices(
@@ -127,9 +133,12 @@ def train_candidate_unit(
         unit["model_params"],
         x_train,
         y_train,
+        train_returns,
         sample_weight,
         valid_panel,
         x_valid,
+        cv_panel=cv_panel,
+        x_cv=x_cv,
     )
     ended_at = datetime.now(timezone.utc)
 

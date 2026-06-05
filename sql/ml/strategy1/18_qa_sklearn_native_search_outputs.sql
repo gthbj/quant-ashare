@@ -7,6 +7,7 @@ DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_expected_candidate_count INT64 DEFAULT 36;
 DECLARE p_top_k INT64 DEFAULT 5;
 DECLARE p_test_reuse_wave_no INT64 DEFAULT 1;
+DECLARE p_acceptance_contract_version STRING DEFAULT 'model_acceptance_contract_v1';
 
 -- QA-SKN-1: search_id 下 Top-K registry 记录能追溯完整 candidate_count / source_run_id。
 ASSERT (
@@ -167,3 +168,13 @@ ASSERT (
     AND reg.status = 'selected'
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
 ) AS 'QA-SKN-14: registry test_reuse_wave_no must match QA parameter';
+
+-- QA-SKN-15: sklearn native search acceptance 必须追溯共享验收契约版本。
+ASSERT (
+  SELECT COUNT(*) = p_top_k
+    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.acceptance_contract_version') != p_acceptance_contract_version) = 0
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.strategy_id = p_strategy_id
+    AND reg.status = 'selected'
+    AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
+) AS 'QA-SKN-15: sklearn native search must record shared acceptance_contract_version';

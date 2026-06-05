@@ -27,6 +27,7 @@ DEFAULT_LOCAL_MIRROR_ROOT = "reports/strategy1_cloudrun"
 DEFAULT_EXECUTION_BACKEND = "cloud_run_sklearn_ledger_v1"
 DEFAULT_LOCK_BUCKET = "ashare-artifacts"
 DEFAULT_LOCK_PREFIX = "locks/strategy1/cloudrun"
+DEFAULT_ACCEPTANCE_CONTRACT_PATH = "configs/strategy1/model_acceptance_contract_v1.yml"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -72,6 +73,7 @@ class RunnerConfig:
     logistic_class_weight: str | None = None
     random_state: int = 20260604
     bqml_reference_run_id: str = "s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01"
+    acceptance_contract_path: str = DEFAULT_ACCEPTANCE_CONTRACT_PATH
 
 
 @dataclasses.dataclass(frozen=True)
@@ -101,6 +103,8 @@ class Experiment:
     valid_end: str = "2024-12-31"
     test_start: str = "2025-01-01"
     test_end: str = "2025-12-31"
+    final_holdout_start: str | None = None
+    final_holdout_end: str | None = None
     predict_start: str = "2024-01-01"
     predict_end: str = "2025-12-31"
     raw: dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -142,6 +146,8 @@ class Experiment:
             "valid_end": self.valid_end,
             "test_start": self.test_start,
             "test_end": self.test_end,
+            "final_holdout_start": self.final_holdout_start,
+            "final_holdout_end": self.final_holdout_end,
             "predict_start": self.predict_start,
             "predict_end": self.predict_end,
         }
@@ -286,6 +292,8 @@ def experiment_from_b64(value: str) -> Experiment:
         valid_end=raw.get("valid_end", "2024-12-31"),
         test_start=raw.get("test_start", "2025-01-01"),
         test_end=raw.get("test_end", "2025-12-31"),
+        final_holdout_start=raw.get("final_holdout_start"),
+        final_holdout_end=raw.get("final_holdout_end"),
         predict_start=raw.get("predict_start", "2024-01-01"),
         predict_end=raw.get("predict_end", "2025-12-31"),
         raw=raw,
@@ -340,6 +348,8 @@ def _experiment_from_mapping(
         valid_end=value("valid_end", "2024-12-31"),
         test_start=value("test_start", "2025-01-01"),
         test_end=value("test_end", "2025-12-31"),
+        final_holdout_start=value("final_holdout_start"),
+        final_holdout_end=value("final_holdout_end"),
         predict_start=value("predict_start", "2024-01-01"),
         predict_end=value("predict_end", "2025-12-31"),
         raw=dict(raw_exp),

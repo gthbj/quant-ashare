@@ -1,4 +1,4 @@
-"""Preprocessing for the sklearn Strategy 1 runner."""
+"""Preprocessing for the Strategy 1 Cloud Run Python runner."""
 
 from __future__ import annotations
 
@@ -69,6 +69,76 @@ class MedianWinsorZScorePreprocessor:
             "means": self.means_,
             "stds": self.stds_,
         }
+
+
+@dataclasses.dataclass
+class TreeWinsorMissingPassthroughPreprocessor:
+    """Train-split-only winsorization; missing values remain NaN for tree models."""
+
+    feature_columns: list[str]
+    winsor_lower: float = 0.001
+    winsor_upper: float = 0.999
+    lower_: dict[str, float] = dataclasses.field(default_factory=dict)
+    upper_: dict[str, float] = dataclasses.field(default_factory=dict)
+
+    def fit(self, frame: pd.DataFrame) -> "TreeWinsorMissingPassthroughPreprocessor":
+        numeric = _coerce_numeric(frame, self.feature_columns)
+        for col in self.feature_columns:
+            series = numeric[col].astype("float64")
+            non_null = series.dropna()
+            if non_null.empty:
+                self.lower_[col] = -np.inf
+                self.upper_[col] = np.inf
+                continue
+            self.lower_[col] = float(non_null.quantile(self.winsor_lower))
+            self.upper_[col] = float(non_null.quantile(self.winsor_upper))
+        return self
+
+    def transform(self, frame: pd.DataFrame) -> np.ndarray:
+        numeric = _coerce_numeric(frame, self.feature_columns)
+        cols = []
+        for col in self.feature_columns:
+            series = numeric[col].astype("float64")
+            series = series.clip(
+                lower=self.lower_.get(col, -np.inf),
+                upper=self.upper_.get(col, np.inf),
+            )
+            cols.append(series.to_numpy(dtype=np.float32))
+        return np.column_stack(cols).astype(np.float32)
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "preprocess_version": "tree_winsor_missing_passthrough_v1",
+            "feature_columns": self.feature_columns,
+            "winsor_lower": self.winsor_lower,
+            "winsor_upper": self.winsor_upper,
+            "lower": self.lower_,
+            "upper": self.upper_,
+            "missing_policy": "passthrough_nan",
+            "scaling": "none",
+        }
+
+
+def build_preprocessor(
+    preprocess_version: str,
+    feature_columns: list[str],
+    *,
+    winsor_lower: float,
+    winsor_upper: float,
+):
+    if preprocess_version == "tree_winsor_missing_passthrough_v1":
+        return TreeWinsorMissingPassthroughPreprocessor(
+            feature_columns=feature_columns,
+            winsor_lower=winsor_lower,
+            winsor_upper=winsor_upper,
+        )
+    if preprocess_version == "sklearn_median_winsor_zscore_v1":
+        return MedianWinsorZScorePreprocessor(
+            feature_columns=feature_columns,
+            winsor_lower=winsor_lower,
+            winsor_upper=winsor_upper,
+        )
+    raise ValueError(f"unsupported preprocess_version: {preprocess_version}")
 
 
 def feature_frame_from_panel(panel: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
