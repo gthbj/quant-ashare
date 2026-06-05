@@ -8,13 +8,9 @@
 
 **OQ-005 PR #70 部署/smoke 与 OQ-012 读层复核（2026-06-05）**：当前处理工作树为 `/Users/luna/Desktop/git/quant-ashare`（`main`，干净起点）；PR #70 实现工作树是 `/private/tmp/quant-ashare-oq005-daily-window-hardening`、分支 `codex/oq005-daily-window-hardening`，已在 PR #70 合并后清理。PR #70 合并后已只读复核 Composer bucket：`data/sql/` 下 `01_refresh_stock_dwd_dws_window.sql` 与 `10_windowed_stock_refresh_checks.sql` 哈希均与当前 `main` 一致；Airflow backfill smoke `manual_oq005_backfill_smoke_pr70_20260605_01`（`2026-06-03..2026-06-04`）成功；非交易日 daily_current smoke `manual_oq005_daily_current_nontd_20260606_01` 归一到 `2026-06-05` 后因 ODS 未采集在 `ods_daily_partition_readiness` 以 `QA-ODS-DAILY-2` 阻断，窗口写入未执行，符合门禁预期。OQ-012 只读复核中 `sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过，当前 BigQuery 读层未再暴露 schema mismatch；待 owner 决定是否关闭/归档 OQ-012 或保留防复发任务。
 
-**sklearn native search 真实运行修复（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-native-search-orchestrator-fix`，分支 `codex/fix-native-search-orchestrator-metrics`。`main` 部署镜像后首次真实跑 `search_id=sklearn_native_pvfq_n30_bw_h5_20260605_01`：训练面板已补建 3,055,781 行，`prepare_matrix` execution `strategy1-prepare-matrix-job-d697c` 成功，36-task candidate fan-out execution `strategy1-train-candidate-fanout-job-tpl9v` 全部成功。Top5 后处理暴露两个工程问题：orchestrator 排名阶段不必要下载/反序列化 36 个 `model.joblib`；Top5 select/register/predict 并发写 `ads_model_registry` 时 2 个 execution 因 BigQuery 429 table update 限流失败。当前分支已修复：ranking 阶段只下载 JSON metrics/status 且 `load_models=False` 不要求/不加载模型；`load_dataframe` 对 BigQuery `TooManyRequests` 做退避重试。已取消不完整的 3 个 backtest execution；待合并、重建镜像后用同一 search_id `--resume --force-replace` 重跑 Top5。
-
-**PR #71 sklearn native search review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-search`，分支 `codex/implement-sklearn-native-search`。已按 PR #71 comment 修复 6 类问题：native acceptance / `18` QA 补 valid/test `top_minus_bottom_fwd_ret_mean` 不能同时为负的 hard gate；QA-SKN-13 修复 `final_holdout_status` NULL 漏洞；Python/QA 的 test RankIC 边界统一为严格 `>0`；`rank_candidates` fallback 仅限“全员 valid RankIC 非正”且 hard filter 不可绕过，并排除 `not_converged`；Top5 单候选失败改为 fail-soft、其他候选继续跑但最终 `18` 仍要求完整 Top5；额外修复 `fetch_topk_ads_outputs` runtime SQL 中无 `predict_date` 分区过滤的多余 prediction distinct join；最终 follow-up 已将 test 侧 `top_minus_bottom_fwd_ret_mean` 从 10 分桶改为 5 分桶，和 valid 侧 `q=5` 口径一致。验证：Python `py_compile`、ranking fallback 小样例、36-task dry-run、runtime fetch SQL dry-run、`18` BigQuery dry-run、`git diff --check`。尚未部署镜像、未实跑 36 候选。
+**sklearn native search 首轮真实执行收口（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-native-search-orchestrator-fix`，当前分支 `codex/sync-sklearn-native-search-results`。PR #73 已合并并部署镜像 `sklearn-native-topk-fix-6856a46-20260605154227`；没有从头重训，复用 `search_id=sklearn_native_pvfq_n30_bw_h5_20260605_01` 已成功的训练面板、`prepare_matrix` execution `strategy1-prepare-matrix-job-d697c` 和 36-task candidate fan-out execution `strategy1-train-candidate-fanout-job-tpl9v`。Top5 select/register/predict 与 backtest/report/diagnosis 已全部完成；3 个因本地 orchestrator 中断停在 `cancelled` 的 backtest 状态已在核对 Cloud Run execution 成功后修正，stale GCS locks 已清理。comparison artifacts 已刷新到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/search_id=sklearn_native_pvfq_n30_bw_h5_20260605_01`，`18_qa_sklearn_native_search_outputs.sql` 通过。结论：Top5 均因 `test_year_excess_return<=0.0` 被 native acceptance 拒绝；本轮不建立 `cloud_run_sklearn_native_baseline_v1`，继续保留 BQML baseline。
 
 **OQ-005 daily_current 20 日窗口与非交易日口径修复（2026-06-05）**：工作树 `/private/tmp/quant-ashare-oq005-daily-window-hardening`，分支 `codex/oq005-daily-window-hardening`。本分支从最新 `origin/main` 补入本地 `5b62895` 的 daily_current 20 个交易日窗口和 QA-WIN-16/17/18 估值覆盖检查，并进一步硬化非交易日口径：`daily_current` 的 `date_to` / `business_date` 会先归一到不晚于请求日期的最近 SSE 开市日，`backfill` 保持显式日期。PR #70 review follow-up 已修复 QA-WIN-18 误以 `pe/pb` 和全量 valuation 行触发的问题，改为在 price-driven feature universe 内按 `total_mv_cny/circ_mv_cny` 检查 `has_valuation_data`；backfill 的估值覆盖 QA 也改为实际写入窗口。已同步 `sql/README.md`、`orchestration/composer/README.md`、`ARCHITECTURE_MEMORY.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`TODO.md` 和 `IMPLEMENTATION_STATUS.md`，将 OQ-005 状态从“尚未部署 / 待 smoke”修正为已完成 Composer DAG/SQL 部署验收、20 日估值缺口回填和 backfill / qa_only / daily_current smoke；OQ-005 仍 open，剩余 Dataform、告警、补跑和运维观测闭环。验证：窗口 SQL / QA 对 `daily_current business_date=2026-06-06` 和 `backfill 2026-06-03..2026-06-04` 的 BigQuery dry-run 均通过；只读窗口计算确认 `2026-06-06` 归一为 `2026-06-05`，窗口起点 `2026-05-11`，`backfill 2026-06-03..2026-06-04` 的估值覆盖起点为 `2026-06-03`。该分支随后通过 PR #70 合并；Composer 同步与生产 smoke 见上方 OQ-005 PR #70 部署/smoke 摘要。
-
-**策略 1 sklearn native search 实现分支（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-search`，分支 `codex/implement-sklearn-native-search`。已按 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md` 完成 P0 本地可验证实现：新增 36 候选 manifest `configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml`，扩展 sklearn candidate 级参数训练 / convergence metadata / valid_signal_status，新增 valid-only Top 5 ranking、Top5 独立 select/predict/backtest/report/diagnosis orchestrator `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`，新增 `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`。已验证 Python `py_compile`、36-task search dry-run、通用 task-fanout dry-run、配置候选唯一性、`18` BigQuery dry-run 和 `git diff --check`。尚未部署 Cloud Run 镜像、未实跑 36 个候选、未写 ADS/GCS 正式产物；下一步是 review/merge 后部署镜像并执行真实 search。
 
 **策略 1 scikit-learn native 模型实验 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-prd`，分支 `codex/prd-sklearn-native-experiment`。新增 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md`，定义 Cloud Run sklearn backend 在 BQML parity 未通过后的新 baseline 实验方案：固定当前最优交易口径 `pv_fin_quality + 30/5% + biweekly + 5d`，用 task fan-out 并发训练 36 个 sklearn 原生 LogisticRegression 候选，valid-only 选 Top 5 进入完整预测/组合/回测/报告/诊断，并通过 native acceptance gate 决定是否建立 `cloud_run_sklearn_native_baseline_v1`。BQML baseline 保留为历史 reference / fallback；现有 Cloud Run parity gate 不删除，只是不再作为 native baseline 的 hard gate。PR #69 review 后已加固：训练窗口钉死为 `2019-04-03` 至 `2023-12-31`；accepted 候选必须 `valid_signal_status=stable`，valid 弱但 test 过门只能 `needs_more_evidence`；跨模型族复用 2025 test 必须记录 `test_reuse_wave_no` / owner 批准，超过 3 个波次后必须新增最终 holdout 证据。本次只写 PRD 和记忆/TODO，未实现代码、未部署 Cloud Run Job、未执行 BigQuery。
 
@@ -125,6 +121,61 @@ Run ID: sklearn_native_pvfq_n30_bw_h5_20260605_01
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: sklearn_native_pvfq_n30_bw_h5_20260605_01
+相关 issue/PR: PR #73 / sklearn native search result closeout
+
+### 已完成工作
+
+- 合并 PR #73 后构建并部署镜像 `sklearn-native-topk-fix-6856a46-20260605154227` 到策略 1 Cloud Run Jobs。
+- 未从头重跑 `prepare_matrix` 或 36 个 candidate fan-out；复用已完成的 `strategy1-prepare-matrix-job-d697c` 和 `strategy1-train-candidate-fanout-job-tpl9v`。
+- 补跑并完成 Top5 select/register/predict 与 backtest/report/diagnosis；5 个 Top5 backtest/report execution 均成功。
+- 修正 3 条因本地 orchestrator 中断而遗留为 `cancelled` 的 backtest 状态，并清理对应 stale GCS locks。
+- 重新生成并上传 sklearn native comparison artifacts 到 GCS，执行 `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql` 且通过。
+- 按 PR #74 comment 清理当前交接摘要中已被收口结论取代的 PR #71 / 实现分支旧块，并把 `IMPLEMENTATION_STATUS.md` 中对应 dry-run 记录标为历史补充，避免当前摘要区残留“未实跑”断言。
+
+### 重要上下文
+
+- 最终 comparison URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/search_id=sklearn_native_pvfq_n30_bw_h5_20260605_01`。
+- Top5 全部 `native_acceptance_status=rejected`，拒绝原因为 `test_year_excess_return<=0.0`。
+- Top1 `elastic_saga_c_0_1_l1_0_5_balanced` full-period total_return 45.31%、excess_return 16.30%、Sharpe 1.089、test RankIC 0.034，但 2025 test-year excess_return -14.92%。
+- 本轮不建立 `cloud_run_sklearn_native_baseline_v1`；BQML baseline 仍是当前正式 baseline / fallback。
+
+### 改动文件
+
+- `TODO.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- Cloud Run execution 核对：Top5 backtest/report 5/5 succeeded。
+- `gsutil ls gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/search_id=sklearn_native_pvfq_n30_bw_h5_20260605_01` 返回 7 个 comparison artifacts。
+- `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql` 执行通过。
+- 本地 comparison JSON / CSV 与 GCS 上传结果一致。
+
+### 阻塞项
+
+- 无执行阻塞；结果层面 sklearn native 首轮未达到 acceptance，不能接受为新 baseline。
+
+### 下一步建议
+
+- 不再重复跑本轮 search；下一步先回到 BQML baseline / Ledger P1+P2 / 2026 扩展验证，或另开新一波 sklearn native 实验并按 `test_reuse_wave_no` 规则记录。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
 
 日期: 2026-06-05
 Agent ID: Codex
