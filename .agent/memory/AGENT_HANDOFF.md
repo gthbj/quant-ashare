@@ -6,11 +6,17 @@
 
 ## 当前交接摘要
 
+**PR #71 sklearn native search review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-search`，分支 `codex/implement-sklearn-native-search`。已按 PR #71 comment 修复 6 类问题：native acceptance / `18` QA 补 valid/test `top_minus_bottom_fwd_ret_mean` 不能同时为负的 hard gate；QA-SKN-13 修复 `final_holdout_status` NULL 漏洞；Python/QA 的 test RankIC 边界统一为严格 `>0`；`rank_candidates` fallback 仅限“全员 valid RankIC 非正”且 hard filter 不可绕过，并排除 `not_converged`；Top5 单候选失败改为 fail-soft、其他候选继续跑但最终 `18` 仍要求完整 Top5；额外修复 `fetch_topk_ads_outputs` runtime SQL 中无 `predict_date` 分区过滤的多余 prediction distinct join；最终 follow-up 已将 test 侧 `top_minus_bottom_fwd_ret_mean` 从 10 分桶改为 5 分桶，和 valid 侧 `q=5` 口径一致。验证：Python `py_compile`、ranking fallback 小样例、36-task dry-run、runtime fetch SQL dry-run、`18` BigQuery dry-run、`git diff --check`。尚未部署镜像、未实跑 36 候选。
+
 **OQ-005 daily_current 20 日窗口与非交易日口径修复（2026-06-05）**：工作树 `/private/tmp/quant-ashare-oq005-daily-window-hardening`，分支 `codex/oq005-daily-window-hardening`。本分支从最新 `origin/main` 补入本地 `5b62895` 的 daily_current 20 个交易日窗口和 QA-WIN-16/17/18 估值覆盖检查，并进一步硬化非交易日口径：`daily_current` 的 `date_to` / `business_date` 会先归一到不晚于请求日期的最近 SSE 开市日，`backfill` 保持显式日期。PR #70 review follow-up 已修复 QA-WIN-18 误以 `pe/pb` 和全量 valuation 行触发的问题，改为在 price-driven feature universe 内按 `total_mv_cny/circ_mv_cny` 检查 `has_valuation_data`；backfill 的估值覆盖 QA 也改为实际写入窗口。已同步 `sql/README.md`、`orchestration/composer/README.md`、`ARCHITECTURE_MEMORY.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`TODO.md` 和 `IMPLEMENTATION_STATUS.md`，将 OQ-005 状态从“尚未部署 / 待 smoke”修正为已完成 Composer DAG/SQL 部署验收、20 日估值缺口回填和 backfill / qa_only / daily_current smoke；OQ-005 仍 open，剩余 Dataform、告警、补跑和运维观测闭环。验证：窗口 SQL / QA 对 `daily_current business_date=2026-06-06` 和 `backfill 2026-06-03..2026-06-04` 的 BigQuery dry-run 均通过；只读窗口计算确认 `2026-06-06` 归一为 `2026-06-05`，窗口起点 `2026-05-11`，`backfill 2026-06-03..2026-06-04` 的估值覆盖起点为 `2026-06-03`。尚未部署本分支到 Composer，合并后需同步 `sql/` 到 Composer bucket。
+
+**策略 1 sklearn native search 实现分支（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-search`，分支 `codex/implement-sklearn-native-search`。已按 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md` 完成 P0 本地可验证实现：新增 36 候选 manifest `configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml`，扩展 sklearn candidate 级参数训练 / convergence metadata / valid_signal_status，新增 valid-only Top 5 ranking、Top5 独立 select/predict/backtest/report/diagnosis orchestrator `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`，新增 `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`。已验证 Python `py_compile`、36-task search dry-run、通用 task-fanout dry-run、配置候选唯一性、`18` BigQuery dry-run 和 `git diff --check`。尚未部署 Cloud Run 镜像、未实跑 36 个候选、未写 ADS/GCS 正式产物；下一步是 review/merge 后部署镜像并执行真实 search。
 
 **策略 1 scikit-learn native 模型实验 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-prd`，分支 `codex/prd-sklearn-native-experiment`。新增 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md`，定义 Cloud Run sklearn backend 在 BQML parity 未通过后的新 baseline 实验方案：固定当前最优交易口径 `pv_fin_quality + 30/5% + biweekly + 5d`，用 task fan-out 并发训练 36 个 sklearn 原生 LogisticRegression 候选，valid-only 选 Top 5 进入完整预测/组合/回测/报告/诊断，并通过 native acceptance gate 决定是否建立 `cloud_run_sklearn_native_baseline_v1`。BQML baseline 保留为历史 reference / fallback；现有 Cloud Run parity gate 不删除，只是不再作为 native baseline 的 hard gate。PR #69 review 后已加固：训练窗口钉死为 `2019-04-03` 至 `2023-12-31`；accepted 候选必须 `valid_signal_status=stable`，valid 弱但 test 过门只能 `needs_more_evidence`；跨模型族复用 2025 test 必须记录 `test_reuse_wave_no` / owner 批准，超过 3 个波次后必须新增最终 holdout 证据。本次只写 PRD 和记忆/TODO，未实现代码、未部署 Cloud Run Job、未执行 BigQuery。
 
 **策略 1 Cloud Run task fan-out 正式全量验收（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-p1`，`main` 分支。已先将 `strategy1-prepare-matrix-job` 从 `4 CPU / 16Gi` 提升到 `8 CPU / 32Gi`，再用正式全量 run `s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` / `bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01` 跑完整 Cloud Run task fan-out 链路。训练面板 3,055,781 行（train 1,999,065 / valid 476,346 / test 580,370）；`cloudrun_prepare_matrix` 4m10s 成功，5 个 candidate task 全部 succeeded，`cloudrun_select_register_predict`、`cloudrun_backtest_report` succeeded；`backtest_report` 内部完成 `05-09`、Python `ledger_exec_v1`、报告上传、`10`、diagnosis 和 `12`。`16_qa_cloudrun_runner_outputs.sql` 在 smoke/evidence 模式通过，`17_qa_cloudrun_orchestrator_status.sql` 通过；正式 `16` parity 在 `QA-CR-4` 失败，sklearn selected model `elastic_c_1_l1_0_5` valid RankIC `0.06665` 低于 BQML reference `0.09676`，`model_quality_status=model_quality_not_equivalent`。回测结果 total_return `46.29%`、excess_return `17.28%` vs `000852.SH`、Sharpe `1.111`、max_drawdown `-13.94%`，报告 URI `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01/backtest_id=bt_s1_cloudrun_taskfanout_pvfq_n30_bw_h5_20260605_01`。结论：Cloud Run 执行链路和 full-panel prepare OOM 已收口，但不能声明 sklearn 正式等价替代 BQML。
+
+**OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新 hotfix（2026-06-05）**：PR #65 已合并后，部署 Composer 与生产 DML 前，在工作树 `/private/tmp/quant-ashare-oq005-window-prod`、分支 `codex/fix-windowed-refresh-equivalence` 做真实 scratch full-vs-window 等价 QA。首次真实 QA 发现两个阻断：`scripts/qa/run_windowed_refresh_equivalence.py` 复制 canonical `_full` 表到 `_window` seed 时缺少 `trade_date` 分区过滤，遇到 `require_partition_filter=true` 失败；`dws_stock_feature_valuation_daily.turnover_rate_zscore_60d` 在 `daily_basic` 稀疏股票上需要超过固定交易日读取窗口才能取满 60 条估值观测。hotfix 已修复：复制 seed 限定 `trade_date BETWEEN build_start_date AND full_end_date`；估值特征按每只股票写入窗口首日前的实际 60 条估值观测推导读取边界；QA runner 新增生产 DWD build-start guard，避免 full/window shadow 被同样截断后假通过。修复后真实 scratch QA 的 9 张目标表 full-vs-window mismatch 均为 0，guard 结果为 `required_build_start_date<=2025-01-23`、`sec_code_count=5407`、`less_than_60_obs=32`；窗口 SQL backfill/daily_current dry-run 和 QA runner dry-run/py_compile 通过。仍未部署 Composer，未执行生产 DML，未写生产 BigQuery/GCS/ADS 产物；下一步是合并 hotfix 后再做 `skip_ingestion=true` + `warehouse_mode=backfill` 小窗口生产 smoke、`daily_current` scheduler smoke 和 `qa_only` 验收。
 
 **策略 1 Cloud Run task fan-out 真实 smoke（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-p1`，分支 `codex/fix-task-fanout-force-replace`。已构建并部署修复镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:8cc8470014cb3b54272d4c7f47afb396d91cf7b97967f0c3ffab947f7432c38a` 到 `strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。当前资源：prepare/select/backtest `4 CPU / 16Gi`，candidate task `1 CPU / 4Gi`；因 `asia-east2` 当前 20 vCPU / 40Gi 配额，candidate job 设置 `parallelism=10`。低成本 smoke `run_id=s1_cloudrun_taskfanout_smoke_20260605_03` / `backtest_id=bt_s1_cloudrun_taskfanout_smoke_20260605_03` 已跑通：`cloudrun_prepare_matrix`、5 个 candidate task、`cloudrun_select_register_predict`、`cloudrun_backtest_report` 全部 succeeded，`10`/`12`/`16`/`17` QA 全部通过。修复内容：orchestrator 不再把 `--force-replace` 传给 `prepare_matrix`；`10` QA 的 split 边界改为参数化；`12` QA-DIAG-6 改用训练面板 `tp.split_tag` 而非 DWS 固定 split。产物：matrix URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/matrix_id=s1_cloudrun_taskfanout_smoke_20260605_03__matrix_5294c2780a86`，model URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/model_id=s1_sklearn_s1_cloudrun_taskfanout_smoke_20260605_03__l2_c_10`，report URI `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/backtest_id=bt_s1_cloudrun_taskfanout_smoke_20260605_03`。本次 smoke 证明 task fan-out 执行链路可用；正式替代 BQML 仍需 sklearn parity passed 或 owner 接受新 Cloud Run baseline。
 
@@ -19,6 +25,8 @@
 **策略 1 Cloud Run 轻量 Task 并发 PRD（2026-06-05）**：新增 `docs/prd/PRD_20260605_02_策略1CloudRun轻量Task并发.md`，作为 Cloud Run 训练回测执行器的训练侧并发补充方案。PRD 固化 `prepare_matrix -> train_candidate_fanout --tasks=N --candidate-parallelism=M -> select_register_predict -> backtest_report` 链路：`prepare_matrix` 只做一次 BigQuery 训练面板读取并在 GCS 生成 frozen matrix / work units / feature schema / preprocess stats；`strategy1-train-candidate-fanout-job` 使用 Cloud Run Jobs task 原生机制，每个 task 通过 `CLOUD_RUN_TASK_INDEX` 训练一个 candidate / experiment work unit；`select_register_predict` 汇总全部候选、校验 hash、选型并统一写 registry / prediction。默认并发语义为 owner 不设限时单批全并发，35/100 个 work units 就启动 35/100 个并发 task；owner 可通过显式 `--candidate-parallelism` 让 orchestrator 分批限流。PR #63 review follow-up 已采纳：frozen features 明确为 `prepare_matrix` 输出的已预处理矩阵，candidate task 不重新预处理；QA-TASK-8 补 BigQuery job labels / audit 机制；candidate task 只读 train/valid，不读 predict features。候选 task 默认小规格 1 vCPU / 2-4Gi，避免用 4CPU/16Gi 高配 execution 跑单候选造成 CPU 浪费。本次只写 PRD，未实现代码、未部署 Cloud Run Job、未执行 BigQuery。
 
 **策略 1 Cloud Run 真实 smoke（2026-06-05）**：Cloud Run runner 与 orchestrator 状态/锁增强已进入 `main` 后，完成真实 Cloud Run/BQ smoke。已部署镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:6564434f9f216aec6c86cae3923bc44450c3ca26ead14a248b05ca77087d8ead` 到 `strategy1-train-predict-job` / `strategy1-backtest-report-job`，job 配置 16Gi/4CPU/`--max-retries=0`；runtime service account 已具备 `ashare_ads` 写权限。smoke `cloudrun_smoke_pvfq_n30_bw_h5` 跑通 `run_id=s1_cloudrun_sklearn_smoke_20260604_02` / `backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`，train/predict execution `strategy1-train-predict-job-s5725`、backtest/report execution `strategy1-backtest-report-job-6fzvr` 均成功，prediction 1,056,716 行，报告 uploaded 到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_sklearn_smoke_20260604_02/backtest_id=bt_s1_cloudrun_sklearn_smoke_20260604_02`，`16_qa_cloudrun_runner_outputs.sql`（smoke 模式 `p_require_model_quality_parity_passed=FALSE`）和 `17_qa_cloudrun_orchestrator_status.sql` 通过。回测指标：total_return 46.29%、Sharpe 1.111、max_drawdown -13.94%、excess_return 17.28% vs `000852.SH`。注意：sklearn vs BQML parity 未通过，当前 `model_quality_status=model_quality_not_equivalent`，只能证明 Cloud Run 链路可运行，不能声明 sklearn 已等价替代 BQML baseline。
+
+**OQ-005 Phase 2.0 实现分支（2026-06-05）**：工作树 `/private/tmp/quant-ashare-oq005-scheduler-phase2`，分支 `codex/oq005-scheduler-phase2`，PR #61 已创建并跟进 review comment。Phase 2.0 BigQuery SQL 兼容路径已实现：`ashare_daily_pipeline_v0` 新增 `pipeline_run` / `pipeline_task_status` 状态回写、task callback、`warehouse_mode` 分支、legacy `ashare_enable_full_refresh=true` 到 `full_rebuild_compat` 的记录映射、`skip_ingestion` 跳过采集 smoke、`qa_only` 只读 QA、ADS 契约手工初始化隔离；已移除模块顶层 `Variable.get()`，支持单次 DAG run 用 `pipeline_dry_run` / `dry_run` 覆盖 Cloud Run dry/write 分支，`09_ods_daily_partition_readiness.sql` 按运行期 dry-run 参数推导分区门禁；`qa` / `qa_only` 复用 `_build_qa_chain`；冗余 `ods_daily_partition_readiness >> finish` 依赖已删除；`sql/meta/01_create_meta_tables.sql` 扩展 pipeline 状态表与 task/job/execution URL 字段；OQ-006 单位映射脚本已从 `sql/meta/01_ods_field_unit_map.sql` 整理为 `sql/meta/04_ods_field_unit_map.sql` 并同步引用。验证已通过 Python py_compile、meta DDL / 单位映射 / `09` readiness BigQuery dry-run 和 `git diff --check`。尚未部署 Composer、未执行生产 BigQuery 转换、未关闭 OQ-005。
 
 **OQ-005 生产采集状态（2026-06-05）**：当前每日生产采集只覆盖 SQL 实际消费的 14 张 ODS；`ashare-ingest-current-scope` 单 execution 入口已部署，Cloud Run Jobs 走 Direct VPC egress + Cloud NAT + 区域静态 IP 固定出口，Composer DAG 使用 default Celery queue。纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 成功；`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填全部成功并逐日通过 `sql/qa/09_ods_daily_partition_readiness.sql`；`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness。OQ-005 仍未关闭，因为 Phase 2.0 仍需部署 smoke / `skip_ingestion`、`qa_only`、`full_rebuild_compat` 验收，后续还需 Dataform 生产链路、增量影响窗口、告警、补跑和运维观测闭环。
 
@@ -55,6 +63,123 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: PR #71 final follow-up
+
+### 已完成工作
+
+- 接受 PR #71 非阻断观察：valid 侧 `top_minus_bottom_fwd_ret_mean` 用 5 分桶，test 侧之前用 10 分桶，指标同名但粒度不一致。
+- 将 `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py` 中 test 侧分桶从 `NTILE(10)` 改为 `NTILE(5)`，高分桶从 `score_bucket=10` 改为 `score_bucket=5`。
+- 在 `sql/ml/strategy1/README.md` 标明 valid/test 的 `top_minus_bottom` 均按 5 分桶计算。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 这次只统一指标口径，不改变 native acceptance 的业务门槛，也不部署镜像、不执行真实 36 候选 search。
+- 后续仍需部署 Cloud Run 镜像并执行真实 sklearn native search，才能决定是否接受 `cloud_run_sklearn_native_baseline_v1`。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `sql/ml/strategy1/README.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py scripts/strategy1_cloudrun/select_register_predict.py scripts/strategy1_cloudrun/train_predict.py scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `python3 -m compileall -q scripts/strategy1_cloudrun`
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search ... --candidate-parallelism 0 --top-k-backtest 5 --dry-run`
+- `fetch_topk_ads_outputs` runtime SQL BigQuery dry-run
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 合并 PR #71 后构建 / 部署 Cloud Run 镜像。
+- 执行真实 36 候选 sklearn native search、Top5 完整回测和 `18` QA。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: PR #71 review follow-up
+
+### 已完成工作
+
+- 查看 PR #71 comment，认可全部 6 条 review 发现并在分支 `codex/implement-sklearn-native-search` 修复。
+- `fetch_topk_ads_outputs` 新增 test 期分层高低差 `test_top_minus_bottom_fwd_ret_mean`，并写回 registry / summary metrics。
+- `decide_acceptance` 和 `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql` 现在都要求 accepted 候选满足 valid/test top-minus-bottom 不能同时为负。
+- QA-SKN-13 改为 `IFNULL(final_holdout_status, '') != 'passed'`，修复 wave>3 accepted 但无 final holdout 证据时被 SQL 三值逻辑放过的问题。
+- Python acceptance 的 `test_rank_ic_mean` 与 QA 统一为严格 `> 0`。
+- `rank_candidates` 的 fallback 仅限“全员 valid RankIC 非正”，且只允许通过 coverage/orientation/convergence hard filters 的候选 fallback；fallback 候选写 `failed_no_positive_valid_signal`。`convergence_status != 'converged'` 的候选不再能进 Top5。
+- Top5 单候选 select/backtest 失败改为 fail-soft：记录该候选失败并等待其余 Top5；最终 `18` QA 仍要求完整 Top5，避免部分成功被误判为验收通过。
+- 额外修复 runtime fetch SQL 中无 `predict_date` 分区过滤的多余 `ads_model_prediction_daily` distinct join。
+- 同步运行手册、README、TODO 和记忆。
+
+### 重要上下文
+
+- 本轮仍未部署 Cloud Run 镜像，未实跑 36 个候选，未写 ADS/GCS 正式产物。
+- 所有 review 点均采纳并修复；没有不认可项。
+- Top5 fail-soft 只提高诊断和对比产物完整性；最终通过与否仍由 `18` QA 的完整 Top5 断言决定。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1_cloudrun/select_register_predict.py`
+- `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `sql/ml/strategy1/README.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py scripts/strategy1_cloudrun/select_register_predict.py scripts/strategy1_cloudrun/train_predict.py scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- ranking fallback 小样例：全员 RankIC 非正、全员 hard fail、正/负混合三类分支均符合预期。
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search ... --candidate-parallelism 0 --top-k-backtest 5 --dry-run`
+- `fetch_topk_ads_outputs` runtime SQL BigQuery dry-run
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
+- `git diff --check`
+
+### 阻塞项
+
+- 无代码阻塞；真实 36 候选尚未执行。
+
+### 下一步建议
+
+- 推送 PR #71 follow-up commit。
+- 复核通过后合并 PR #71，构建/部署 Cloud Run 镜像并执行真实 36 候选 search。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
 
 日期: 2026-06-05
 Agent ID: Codex
@@ -110,6 +235,77 @@ Run ID: N/A
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: OQ-010 / Strategy 1 sklearn native search implementation
+
+### 已完成工作
+
+- 在工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-search`、分支 `codex/implement-sklearn-native-search` 实现 `docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md` 的 P0 代码路径。
+- 新增 `configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml`，固定当前最优交易参数 `pv_fin_quality + 30/5% + biweekly + 5d`、训练窗口 `2019-04-03` 至 `2023-12-31`、valid 2024、test/predict 2025，并定义 36 个 sklearn LogisticRegression 原生候选。
+- 扩展 `train_predict.py`：candidate 级 `penalty` / `solver` / `C` / `l1_ratio` / `class_weight` / `max_iter` / `random_state`，记录 convergence warning、`n_iter_max`、`valid_signal_status`、valid RankIC ICIR、valid top-minus-bottom 等元数据。
+- 扩展 `select_register_predict.py`：支持强选 candidate、valid-only ranking、Top5 metadata、training panel alias、native search 初始状态、candidate ranking artifact。
+- 新增 `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`：一次 prepare matrix、36-task candidate fan-out、valid-only Top5、Top5 独立 select/predict/backtest/report/diagnosis、native acceptance 回写、comparison artifact 和 `18` QA。
+- 新增 `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`，覆盖 search_id/source_run_id、candidate_count、task fan-out metadata、valid-only ranking、TopK 独立 run/backtest、report/diagnosis uploaded、accepted gates、BQML reference、test reuse/final holdout 等断言。
+- 修复 `orchestrate_experiments.py` 的配置透传：candidate task 命令现在包含 `--config=...`，避免容器端回退默认 5 候选。
+- 同步 Cloud Run 运行手册、runner README、TODO 和项目记忆。
+
+### 重要上下文
+
+- 这只是实现分支和 dry-run 验证，尚未部署 Cloud Run 镜像、未实跑 36 个候选、未写 ADS/GCS 正式产物。
+- 当前真实执行建议在 PR review/merge 后进行：重新构建/部署包含新脚本的镜像，再运行 `orchestrate_sklearn_native_search.py`。
+- 已知 `asia-east2` Cloud Run 配额提升到约 40 vCPU / 160Gi，第一轮 36 个 candidate task 可按 `1 CPU / 4Gi`、`--tasks=36` 并发尝试。
+- 新 native baseline path 不要求 BQML parity passed，但必须保留 BQML reference 证据，并按 PRD 的 native acceptance gate 决定 accepted / rejected / needs_more_evidence。
+
+### 改动文件
+
+- `configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1_cloudrun/train_predict.py`
+- `scripts/strategy1_cloudrun/select_register_predict.py`
+- `scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
+- `sql/ml/strategy1/README.md`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py scripts/strategy1_cloudrun/select_register_predict.py scripts/strategy1_cloudrun/train_predict.py scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search ... --candidate-parallelism 0 --top-k-backtest 5 --dry-run`
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_experiments ... --train-mode task_fanout --candidate-parallelism 0 --dry-run`
+- 配置校验：36 个 candidate_id 全部唯一，manifest 只含 1 个 search experiment。
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
+- `git diff --check`
+
+### 阻塞项
+
+- 无代码阻塞；真实 36 候选尚未执行。
+
+### 下一步建议
+
+- 创建 PR 并 review。
+- 合并后构建/部署 Cloud Run 镜像到 `strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。
+- 执行真实 sklearn native search：36 候选并发训练、Top5 完整回测、`18` QA，通过 comparison artifact 决定是否接受 `cloud_run_sklearn_native_baseline_v1`。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 
@@ -742,71 +938,6 @@ Run ID: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
 
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/OPEN_QUESTIONS.md`
-- `TODO.md`
-
----
-
-## 交接条目
-
-日期: 2026-06-05
-Agent ID: Codex
-Agent 实例 ID: Codex desktop session
-模型: GPT-5
-运行环境: Codex desktop
-Run ID: —
-相关 issue/PR: OQ-005 / daily_current 20 日窗口与非交易日口径 hardening
-
-### 已完成工作
-
-- 创建独立工作树 `/private/tmp/quant-ashare-oq005-daily-window-hardening` 和分支 `codex/oq005-daily-window-hardening`，不触碰主目录脏工作树。
-- 从最新 `origin/main` 补入本地 `5b62895` 的 daily_current 20 个交易日窗口与 QA-WIN-16/17/18 估值覆盖检查。
-- 将 `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 和 `sql/qa/10_windowed_stock_refresh_checks.sql` 的 `daily_current` `date_to` / `business_date` 口径硬化为不晚于请求日期的最近 SSE 开市日；`backfill` 继续保持显式 `date_from` / `date_to`。
-- 同步 `sql/README.md`、`orchestration/composer/README.md`、`ARCHITECTURE_MEMORY.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`TODO.md` 和 `IMPLEMENTATION_STATUS.md`，修正 OQ-005 “尚未部署 Composer / 待 smoke”的过期状态。
-
-### 重要上下文
-
-- 2026-06-05 的独立验收已确认 Composer DAG / SQL 部署和 backfill / qa_only / daily_current smoke 成功；20 日估值窗口 `2026-05-08..2026-06-04` 中 ODS `daily_basic`、DWD valuation、DWS valuation 键数均为 110,012，缺失为 0。
-- 本分支尚未部署到 Composer；合并后需要同步 `sql/` 到 Composer bucket，确保生产 DAG 读取新 SQL。
-- OQ-005 仍保持 open，剩余 Dataform 生产链路、告警、补跑和完整 ODS→ADS 运维观测闭环。
-
-### 改动文件
-
-- `sql/incremental/01_refresh_stock_dwd_dws_window.sql`
-- `sql/qa/10_windowed_stock_refresh_checks.sql`
-- `sql/README.md`
-- `orchestration/composer/README.md`
-- `TODO.md`
-- `.agent/memory/ARCHITECTURE_MEMORY.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/OPEN_QUESTIONS.md`
-
-### 测试 / 验证
-
-- `bq query --dry_run`：窗口 SQL，`warehouse_mode=daily_current`、`business_date=2026-06-06`。
-- `bq query --dry_run`：窗口 QA，`warehouse_mode=daily_current`、`business_date=2026-06-06`。
-- `bq query --dry_run`：窗口 SQL，`warehouse_mode=backfill`、`date_from=2026-06-03`、`date_to=2026-06-04`。
-- `bq query --dry_run`：窗口 QA，`warehouse_mode=backfill`、`date_from=2026-06-03`、`date_to=2026-06-04`。
-- 只读 BigQuery 计算确认 `business_date=2026-06-06` 时 `effective_date_to=2026-06-05`、`dwd_write_start_date=2026-05-11`、窗口内开市日数为 20。
-
-### 阻塞项
-
-- 无代码阻塞；生产部署需在合并后同步 SQL 到 Composer bucket。
-
-### 下一步建议
-
-- Review / merge 本分支。
-- 合并后同步 `sql/` 到 Composer bucket，并用 `skip_ingestion=true` 的非交易日 `daily_current` smoke 验证线上 SQL 读取新口径。
-- 继续推进 OQ-005 剩余 Dataform definitions、告警、补跑和状态观测闭环。
-
-### 已更新记忆文件
-
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/ARCHITECTURE_MEMORY.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `TODO.md`
 

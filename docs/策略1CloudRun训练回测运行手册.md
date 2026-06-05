@@ -1,4 +1,4 @@
-> 文档维护：GPT-5（最近更新 2026-06-04）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-05）
 
 # 策略 1 Cloud Run 训练回测运行手册
 
@@ -12,8 +12,10 @@
 2. `scripts/strategy1_cloudrun/backtest_report.py`：复用现有 `05-07` SQL 生成候选 / 组合 / 订单，默认使用 Cloud Run Python `ledger_exec_v1` fresh-start 回测，随后跑 `09`、报告、诊断和 QA。
 3. `scripts/strategy1_cloudrun/orchestrate_experiments.py`：按 manifest 启动 Cloud Run Jobs，并写 `ashare_meta.strategy1_experiment_run_status`、使用 GCS generation-guarded lock。未设置 `--max-parallel-experiments` 或传 `0` 时，resolved 并发数等于本次可执行实验数。
 4. `scripts/strategy1_cloudrun/prepare_matrix.py`、`train_candidate_task.py`、`select_register_predict.py`：task fan-out 训练路径。`prepare_matrix` 一次性读取 BigQuery 训练面板并生成 GCS frozen matrix；每个 Cloud Run task 只训练一个 candidate；reducer 统一选型、登记模型并写预测。
-5. `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`：校验 Cloud Run backend、sklearn artifact、prediction orientation、model-quality parity、resolved 并发契约，以及 task fan-out matrix/work-unit 审计字段。
-6. `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`：校验 Cloud Run orchestrator 状态表、锁元数据、execution id 和 task fan-out 状态行。
+5. `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`：按 sklearn native PRD 执行 36 候选 search，valid-only 选 Top5，再为 Top5 生成独立 prediction / backtest / report / diagnosis。
+6. `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`：校验 Cloud Run backend、sklearn artifact、prediction orientation、model-quality parity、resolved 并发契约，以及 task fan-out matrix/work-unit 审计字段。
+7. `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`：校验 Cloud Run orchestrator 状态表、锁元数据、execution id 和 task fan-out 状态行。
+8. `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`：校验 sklearn native TopK 产物、valid-only 排名、uploaded 报告/诊断、native acceptance gate 和 test 复用记录。
 
 当前限制：
 
@@ -60,6 +62,27 @@ python -m scripts.strategy1_cloudrun.orchestrate_experiments \
 1. 输出 `cloudrun_prepare_matrix`、`cloudrun_train_candidate_fanout`、`cloudrun_select_register_predict`、`cloudrun_backtest_report` 四类 step。
 2. `--candidate-parallelism 0` 表示候选 work unit 默认全并发；若 owner 显式传 `N > 0`，orchestrator 按 N 个 task 一批分批执行。
 3. candidate task 命令只读取 `matrix_uri`，不直接查询 BigQuery 训练面板。
+
+sklearn native search dry-run：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml \
+  --manifest configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml \
+  --search-id sklearn_native_pvfq_n30_bw_h5_20260605_01 \
+  --candidate-parallelism 0 \
+  --top-k-backtest 5 \
+  --dry-run
+```
+
+期望：
+
+1. 输出 `candidate_count=36`。
+2. `cloudrun_train_candidate_fanout` 命令包含 `--tasks=36`。
+3. TopK 模板使用 `s1_<search_id>__<candidate_id>` / `bt_s1_<search_id>__<candidate_id>`，不出现重复前缀。
+4. 子 Job 命令必须带 `--config configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml`，避免 Cloud Run 内退回默认 5 候选。
 
 多实验 dry-run：
 
@@ -294,6 +317,34 @@ python -m scripts.strategy1_cloudrun.orchestrate_experiments \
 13. 如需从状态表恢复，使用 `--resume` 跳过已 `succeeded` 的 step；或用 `--resume-from-step cloudrun_backtest_report` 从指定 step 重跑。
 14. 如果 GCP quota 不足，失败实验必须以 Cloud Run execution 和日志追踪，不允许 runner 静默降到内部默认 2 或 1。
 
+## 7.1 sklearn native search
+
+执行入口：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml \
+  --manifest configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml \
+  --search-id sklearn_native_pvfq_n30_bw_h5_20260605_01 \
+  --candidate-parallelism 0 \
+  --top-k-backtest 5 \
+  --force-replace
+```
+
+执行语义：
+
+1. `prepare_matrix` 只跑一次，source run 为 manifest 中的 search run。
+2. `--candidate-parallelism 0` 表示 36 个 candidate task 同批并发；显式传 `N > 0` 才分批。
+3. 候选训练完成后，orchestrator 只下载 `matrix_manifest.json`、`work_units.json` 和每个候选的 `candidate_metrics.json` / `task_status.json` / `model.joblib`，不下载完整 frozen matrix。
+4. Top5 排名只使用 valid 指标；test 指标只在 Top5 完整回测后用于验收。
+5. 每个 Top5 候选会生成独立 `candidate_run_id` / `candidate_backtest_id`，并复制一份同 run_id 的 `ads_ml_training_panel_daily` 别名，保证 `10` / `12` QA 和诊断可按独立 run_id join。
+6. Top5 select/register/predict 与 backtest/report 仍使用 GCS lock 和状态表 step，避免同一 run/backtest 被两个 writer 同时写。
+7. 单个 Top5 候选失败时，orchestrator 记录该候选失败并继续等待其他 Top5；最终 `18` QA 仍要求完整 Top5 产物，避免部分成功被误判为通过。
+8. 搜索报告写入 `reports/strategy1_cloudrun/sklearn_native_search/search_id=<search_id>/`，uploaded 模式同步到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/search_id=<search_id>/`。
+9. 完成后运行 `18_qa_sklearn_native_search_outputs.sql`；该 QA 不要求 BQML parity passed，而是检查 native acceptance gate。
+
 ## 8. QA
 
 Cloud Run smoke 后执行：
@@ -303,11 +354,13 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_r
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql
 ```
 
 `16` 需要按实际 `p_run_id` / `p_prediction_run_id` / `p_backtest_id` 修改脚本顶部参数，或由后续调度器注入参数。
 task fan-out 路径还需把 `16` 的 `p_require_task_fanout` 设为 `TRUE`。`16` 会同时断言 selected registry 已写入 matrix/work-unit 审计字段、所有 candidate task 成功、reducer 写入的 `candidate_task_bq_*` 审计计数为 0，并直接查询 `JOBS_BY_PROJECT` 兜底确认 candidate task 未读取 BigQuery 训练面板。
 `17` 需要按实际 `p_experiment_id` / `p_run_id` / `p_backtest_id` 修改脚本顶部参数；task fan-out 路径需把 `p_require_train_step=FALSE`、`p_require_task_fanout=TRUE`。如果单独直接运行 train/backtest job、没有经过 orchestrator，则不运行 `17`。
+`18` 只用于 sklearn native search。它需要按实际 `p_search_id` / `p_source_run_id` 修改脚本顶部参数，或由 `orchestrate_sklearn_native_search.py` 注入参数执行。
 
 ## 9. 安全
 

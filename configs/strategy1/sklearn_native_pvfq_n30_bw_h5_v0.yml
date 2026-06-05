@@ -1,0 +1,402 @@
+# Strategy 1 sklearn native search manifest and runner config.
+# 文档维护：GPT-5 Codex（最近更新 2026-06-05）
+
+project: data-aquarium
+region: asia-east2
+strategy_id: ml_pv_clf_v0
+execution_backend: cloud_run_sklearn_ledger_v1
+
+artifact_base_uri: gs://ashare-artifacts/reports/strategy1
+model_artifact_base_uri: gs://ashare-artifacts/models/strategy1
+local_mirror_root: reports/strategy1_cloudrun
+
+train_predict_job: strategy1-train-predict-job
+prepare_matrix_job: strategy1-prepare-matrix-job
+train_candidate_fanout_job: strategy1-train-candidate-fanout-job
+select_register_predict_job: strategy1-select-register-predict-job
+backtest_report_job: strategy1-backtest-report-job
+lock_bucket: ashare-artifacts
+lock_prefix: locks/strategy1/cloudrun
+lock_ttl_minutes: 30
+heartbeat_interval_seconds: 60
+
+search_id: sklearn_native_pvfq_n30_bw_h5_20260605_01
+top_k_backtest: 5
+bqml_reference_run_id: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
+bqml_reference_backtest_id: bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
+
+preprocess_version: sklearn_median_winsor_zscore_v1
+winsor_lower: 0.01
+winsor_upper: 0.99
+logistic_solver: saga
+logistic_max_iter: 400
+logistic_class_weight:
+random_state: 20260605
+
+default_windows:
+  train_start: "2019-04-03"
+  train_end: "2023-12-31"
+  valid_start: "2024-01-01"
+  valid_end: "2024-12-31"
+  test_start: "2025-01-01"
+  test_end: "2025-12-31"
+  predict_start: "2024-01-01"
+  predict_end: "2025-12-31"
+
+native_acceptance:
+  min_valid_rank_ic: 0.0
+  min_test_rank_ic: 0.0
+  weak_valid_rank_ic_threshold: 0.01
+  min_test_excess_return: 0.0
+  min_full_period_sharpe: 0.70
+  max_full_period_drawdown: -0.25
+
+test_reuse:
+  wave_no: 1
+  approval_ref:
+  final_holdout_required_after_wave: 3
+  final_holdout_status:
+
+experiments:
+  - experiment_id: sklearn_native_pvfq_n30_bw_h5_search_v0
+    stage_id: sklearn_native_p0
+    experiment_group: sklearn_native_logistic_regression_search
+    run_id: s1_sklearn_native_pvfq_n30_bw_h5_20260605_01
+    prediction_run_id: s1_sklearn_native_pvfq_n30_bw_h5_20260605_01
+    backtest_id: bt_s1_sklearn_native_pvfq_n30_bw_h5_20260605_01_search
+    baseline_experiment_id: oq010_bqml_baseline_pvfq_n30_bw_h5
+    parent_experiment_id: oq010_bqml_baseline_pvfq_n30_bw_h5
+    parent_run_id: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
+    rebalance_frequency: biweekly
+    target_holdings: 30
+    max_single_weight: 0.05
+    label_horizon: 5
+    horizon_natural_frequency: weekly
+    feature_set_id: strategy1_pv_fin_quality_v0_20260603
+    feature_version: strategy1_pv_fin_quality_v0_20260603
+    requires_retrain: true
+    status: planned
+
+candidate_grid:
+  - candidate_id: none_lbfgs_none
+    model_family: logistic_regression
+    penalty:
+    solver: lbfgs
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: none_lbfgs_balanced
+    model_family: logistic_regression
+    penalty:
+    solver: lbfgs
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+
+  - candidate_id: l2_saga_c_0_03_none
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 0.03
+    l1_ratio:
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_0_03_balanced
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 0.03
+    l1_ratio:
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_0_1_none
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 0.1
+    l1_ratio:
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_0_1_balanced
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 0.1
+    l1_ratio:
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_0_3_none
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 0.3
+    l1_ratio:
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_0_3_balanced
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 0.3
+    l1_ratio:
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_1_none
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 1.0
+    l1_ratio:
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_1_balanced
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 1.0
+    l1_ratio:
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_3_none
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 3.0
+    l1_ratio:
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_3_balanced
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 3.0
+    l1_ratio:
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_10_none
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 10.0
+    l1_ratio:
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_10_balanced
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 10.0
+    l1_ratio:
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_30_none
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 30.0
+    l1_ratio:
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: l2_saga_c_30_balanced
+    model_family: logistic_regression
+    penalty: l2
+    solver: saga
+    C: 30.0
+    l1_ratio:
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+
+  - candidate_id: elastic_saga_c_0_1_l1_0_15_none
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 0.1
+    l1_ratio: 0.15
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_0_1_l1_0_15_balanced
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 0.1
+    l1_ratio: 0.15
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_0_1_l1_0_5_none
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 0.1
+    l1_ratio: 0.5
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_0_1_l1_0_5_balanced
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 0.1
+    l1_ratio: 0.5
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_0_3_l1_0_15_none
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 0.3
+    l1_ratio: 0.15
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_0_3_l1_0_15_balanced
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 0.3
+    l1_ratio: 0.15
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_0_3_l1_0_5_none
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 0.3
+    l1_ratio: 0.5
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_0_3_l1_0_5_balanced
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 0.3
+    l1_ratio: 0.5
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_1_l1_0_15_none
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 1.0
+    l1_ratio: 0.15
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_1_l1_0_15_balanced
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 1.0
+    l1_ratio: 0.15
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_1_l1_0_5_none
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 1.0
+    l1_ratio: 0.5
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_1_l1_0_5_balanced
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 1.0
+    l1_ratio: 0.5
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_3_l1_0_15_none
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 3.0
+    l1_ratio: 0.15
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_3_l1_0_15_balanced
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 3.0
+    l1_ratio: 0.15
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_3_l1_0_5_none
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 3.0
+    l1_ratio: 0.5
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_3_l1_0_5_balanced
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 3.0
+    l1_ratio: 0.5
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_10_l1_0_15_none
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 10.0
+    l1_ratio: 0.15
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_10_l1_0_15_balanced
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 10.0
+    l1_ratio: 0.15
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_10_l1_0_5_none
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 10.0
+    l1_ratio: 0.5
+    class_weight:
+    max_iter: 400
+    random_state: 20260605
+  - candidate_id: elastic_saga_c_10_l1_0_5_balanced
+    model_family: logistic_regression
+    penalty: elasticnet
+    solver: saga
+    C: 10.0
+    l1_ratio: 0.5
+    class_weight: balanced
+    max_iter: 400
+    random_state: 20260605

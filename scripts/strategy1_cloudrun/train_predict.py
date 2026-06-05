@@ -16,6 +16,7 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -279,20 +280,41 @@ def train_candidate_from_matrices(
     x_valid: np.ndarray,
 ) -> CandidateResult:
     from sklearn.linear_model import LogisticRegression
+    from sklearn.exceptions import ConvergenceWarning
 
+    model_family = candidate_cfg.get("model_family", "logistic_regression")
+    if model_family != "logistic_regression":
+        raise ValueError(f"P0 task fan-out only supports logistic_regression, got {model_family!r}")
+    penalty = _normalize_penalty(candidate_cfg.get("penalty"))
+    solver = candidate_cfg.get("solver") or config.logistic_solver
+    class_weight = _normalize_optional_string(
+        candidate_cfg.get("class_weight", config.logistic_class_weight)
+    )
+    max_iter = int(candidate_cfg.get("max_iter") or config.logistic_max_iter)
+    random_state = int(candidate_cfg.get("random_state") or config.random_state)
     params = {
-        "penalty": candidate_cfg["penalty"],
-        "C": float(candidate_cfg["C"]),
-        "solver": config.logistic_solver,
-        "max_iter": config.logistic_max_iter,
-        "random_state": config.random_state,
-        "class_weight": config.logistic_class_weight,
+        "penalty": penalty,
+        "solver": solver,
+        "max_iter": max_iter,
+        "random_state": random_state,
+        "class_weight": class_weight,
         "n_jobs": None,
     }
+    if penalty is not None:
+        params["C"] = float(candidate_cfg["C"])
     if candidate_cfg.get("l1_ratio") is not None:
         params["l1_ratio"] = float(candidate_cfg["l1_ratio"])
     model = LogisticRegression(**params)
-    model.fit(x_train, y_train, sample_weight=sample_weight)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ConvergenceWarning)
+        model.fit(x_train, y_train, sample_weight=sample_weight)
+    convergence_warnings = [
+        str(item.message)
+        for item in caught
+        if issubclass(item.category, ConvergenceWarning)
+    ]
+    n_iter_max = int(np.max(getattr(model, "n_iter_", [0])))
+    converged = not convergence_warnings and n_iter_max < max_iter
 
     raw_score = model.predict_proba(x_valid)[:, 1]
 
@@ -313,15 +335,34 @@ def train_candidate_from_matrices(
         "reverse_valid_rank_ic_mean": rev_metrics["rank_ic_mean"],
         "reversed_valid_rank_ic_mean": rev_metrics["rank_ic_mean"],
         "oriented_valid_rank_ic_mean": oriented_metrics["rank_ic_mean"],
+        "oriented_valid_rank_ic_std": oriented_metrics["rank_ic_std"],
+        "oriented_valid_rank_ic_icir": safe_divide(oriented_metrics["rank_ic_mean"], oriented_metrics["rank_ic_std"]),
+        "oriented_valid_rank_ic_days": oriented_metrics["rank_ic_days"],
         "raw_valid_top_minus_bottom": raw_metrics["top_minus_bottom"],
         "reversed_valid_top_minus_bottom": rev_metrics["top_minus_bottom"],
+        "valid_top_minus_bottom_fwd_ret_mean": oriented_metrics["top_minus_bottom"],
         "valid_topn_fwd_ret_mean": oriented_metrics["topn_fwd_ret_mean"],
         "roc_auc": class_metrics["roc_auc"],
         "log_loss": class_metrics["log_loss"],
         "valid_prediction_rows": int(len(valid_panel)),
         "valid_eval_rows": int(valid_panel["target_return"].notna().sum()),
         "valid_eval_coverage": safe_divide(valid_panel["target_return"].notna().sum(), len(valid_panel)),
+        "model_family": model_family,
+        "solver": solver,
+        "penalty": "none" if penalty is None else penalty,
+        "C": candidate_cfg.get("C"),
+        "l1_ratio": candidate_cfg.get("l1_ratio"),
+        "class_weight": class_weight,
+        "max_iter": max_iter,
+        "random_state": random_state,
+        "n_iter_max": n_iter_max,
+        "converged": converged,
+        "convergence_status": "converged" if converged else "not_converged",
+        "convergence_warning_count": len(convergence_warnings),
+        "convergence_warnings": convergence_warnings[:3],
     }
+    metrics["valid_signal_status"] = classify_valid_signal(metrics)
+    metrics["model_complexity_rank"] = model_complexity_rank(metrics)
     return CandidateResult(
         candidate_id=candidate_cfg["candidate_id"],
         model=model,
@@ -332,6 +373,49 @@ def train_candidate_from_matrices(
         metrics=metrics,
         model_params=params,
     )
+
+
+def _normalize_penalty(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {"", "none", "null"}:
+        return None
+    return text
+
+
+def _normalize_optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text.lower() in {"", "none", "null"}:
+        return None
+    return text
+
+
+def classify_valid_signal(metrics: dict[str, Any]) -> str:
+    rank_ic = _nan_to_zero(float(metrics.get("oriented_valid_rank_ic_mean") or math.nan))
+    icir = _nan_to_zero(float(metrics.get("oriented_valid_rank_ic_icir") or math.nan))
+    topn = _nan_to_zero(float(metrics.get("valid_topn_fwd_ret_mean") or math.nan))
+    spread = _nan_to_zero(float(metrics.get("valid_top_minus_bottom_fwd_ret_mean") or math.nan))
+    if rank_ic <= 0:
+        return "failed"
+    if rank_ic <= 0.01 or icir <= 0 or (topn <= 0 and spread <= 0):
+        return "weak"
+    return "stable"
+
+
+def model_complexity_rank(metrics_or_params: dict[str, Any]) -> int:
+    penalty = _normalize_penalty(metrics_or_params.get("penalty"))
+    if penalty is None:
+        return 0
+    if penalty == "l2":
+        return 1
+    if penalty == "l1":
+        return 2
+    if penalty == "elasticnet":
+        return 3
+    return 9
 
 
 def evaluate_scores(valid_panel: pd.DataFrame, scores: np.ndarray, topn: int = 30) -> dict[str, float]:
@@ -548,8 +632,15 @@ def write_registry(
             "label_horizon": experiment.label_horizon,
             "feature_set_id": experiment.feature_set_id,
             "preprocess_version": config.preprocess_version,
-            "class_weight": config.logistic_class_weight,
+            "class_weight": candidate.metrics.get("class_weight"),
         }
+        for key in (
+            "search_id", "source_run_id", "sklearn_native_mode",
+            "candidate_run_id", "candidate_backtest_id", "shortlist_rank_valid_only",
+            "test_reuse_wave_no", "test_reuse_approval_ref", "final_holdout_status",
+        ):
+            if candidate.metrics.get(key) is not None:
+                params_json[key] = candidate.metrics.get(key)
         metrics_json = dict(candidate.metrics)
         metrics_json["model_artifact_uri"] = model_uri
         metrics_json["preprocess_artifact_uri"] = join_gs_uri(model_uri, "preprocess.joblib") if model_uri else None
