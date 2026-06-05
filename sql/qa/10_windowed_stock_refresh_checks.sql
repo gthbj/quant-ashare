@@ -7,16 +7,62 @@
 --   @date_from: STRING, optional YYYY-MM-DD
 --   @date_to: STRING, optional YYYY-MM-DD
 --   @warehouse_mode: STRING, daily_current / backfill
+--
+-- 新增估值覆盖检查（QA-WIN-16/17/18）：
+-- - 最近 20 个交易日，ODS daily_basic 有数据时 dwd_stock_eod_valuation 必须有对应行。
+-- - dwd_stock_eod_valuation 有数据时 dws_stock_feature_valuation_daily 必须有对应行。
+-- - dws_stock_feature_daily_v0.has_valuation_data 覆盖不能出现异常空窗。
 
 DECLARE p_business_date DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@business_date, '') AS DATE), CURRENT_DATE('Asia/Shanghai'));
 DECLARE p_date_from DATE DEFAULT SAFE_CAST(NULLIF(@date_from, '') AS DATE);
-DECLARE p_date_to DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@date_to, '') AS DATE), p_business_date);
+DECLARE p_requested_date_to DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@date_to, '') AS DATE), p_business_date);
 DECLARE p_warehouse_mode STRING DEFAULT LOWER(COALESCE(NULLIF(@warehouse_mode, ''), 'daily_current'));
+DECLARE p_date_to DATE DEFAULT CASE
+  WHEN p_warehouse_mode = 'daily_current' THEN COALESCE(
+    (
+      SELECT MAX(cal_date)
+      FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+      WHERE exchange = 'SSE'
+        AND is_open = 1
+        AND cal_date <= p_requested_date_to
+    ),
+    p_requested_date_to
+  )
+  ELSE p_requested_date_to
+END;
 DECLARE p_final_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_fin_feature_version STRING DEFAULT 'fin_default_v0_20260602';
 DECLARE p_label_version STRING DEFAULT 'open_to_close_h1_5_10_20_v20260601';
-DECLARE p_dwd_write_start_date DATE DEFAULT GREATEST(COALESCE(p_date_from, p_date_to), p_final_start_date);
+DECLARE p_daily_current_lookback_td INT64 DEFAULT 20;
+
+-- 与 01_refresh_stock_dwd_dws_window.sql 保持一致的窗口计算逻辑
+DECLARE p_end_date_seq INT64 DEFAULT (
+  SELECT trade_date_seq
+  FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+  WHERE exchange = 'SSE'
+    AND is_open = 1
+    AND cal_date = p_date_to
+  LIMIT 1
+);
+DECLARE p_daily_current_start_date DATE DEFAULT COALESCE(
+  (
+    SELECT MAX(cal_date)
+    FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+    WHERE exchange = 'SSE'
+      AND is_open = 1
+      AND trade_date_seq <= p_end_date_seq - p_daily_current_lookback_td + 1
+  ),
+  p_date_to
+);
+DECLARE p_dwd_write_start_date DATE DEFAULT GREATEST(
+  CASE
+    WHEN p_warehouse_mode = 'daily_current' AND p_date_from IS NULL
+      THEN p_daily_current_start_date
+    ELSE COALESCE(p_date_from, p_date_to)
+  END,
+  p_final_start_date
+);
 DECLARE p_write_end_date DATE DEFAULT p_date_to;
 DECLARE p_anchor_seq INT64 DEFAULT (
   SELECT MIN(trade_date_seq)
@@ -36,6 +82,14 @@ DECLARE p_label_write_start_date DATE DEFAULT GREATEST(
     ),
     DATE_SUB(p_dwd_write_start_date, INTERVAL 35 DAY)
   ),
+  p_final_start_date
+);
+DECLARE p_valuation_coverage_start_date DATE DEFAULT GREATEST(
+  CASE
+    WHEN p_warehouse_mode = 'daily_current' AND p_date_from IS NULL
+      THEN p_daily_current_start_date
+    ELSE p_dwd_write_start_date
+  END,
   p_final_start_date
 );
 
@@ -248,9 +302,102 @@ ASSERT (
     AND rank_pct_5d IS NULL
 ) AS 'QA-WIN-15: default trainable samples in label window must have rank_pct_5d';
 
+-- ────────────────────────────────────────────────────────────────────────────
+-- 估值覆盖检查：daily_current 默认最近 20 个交易日；backfill 使用实际写入窗口。
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- QA-WIN-16: 覆盖窗口内，ODS daily_basic 有数据时 dwd_stock_eod_valuation 必须有对应行
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT
+      o.sec_code,
+      o.trade_date
+    FROM (
+      SELECT
+        ts_code AS sec_code,
+        SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date
+      FROM `data-aquarium.ashare_ods.ods_tushare_daily_basic`
+      WHERE endpoint = 'daily_basic'
+        AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', p_valuation_coverage_start_date) AND FORMAT_DATE('%Y%m%d', p_write_end_date)
+        AND SAFE.PARSE_DATE('%Y%m%d', trade_date) BETWEEN p_valuation_coverage_start_date AND p_write_end_date
+      GROUP BY ts_code, trade_date
+    ) AS o
+    LEFT JOIN (
+      SELECT sec_code, trade_date
+      FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
+      WHERE trade_date BETWEEN p_valuation_coverage_start_date AND p_write_end_date
+    ) AS v
+      ON o.sec_code = v.sec_code AND o.trade_date = v.trade_date
+    WHERE v.sec_code IS NULL
+  )
+) AS 'QA-WIN-16: ODS daily_basic rows in valuation coverage window must have dwd_stock_eod_valuation match';
+
+-- QA-WIN-17: dwd_stock_eod_valuation 有数据时 dws_stock_feature_valuation_daily 必须有对应行
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT
+      v.sec_code,
+      v.trade_date
+    FROM (
+      SELECT sec_code, trade_date
+      FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
+      WHERE trade_date BETWEEN p_valuation_coverage_start_date AND p_write_end_date
+    ) AS v
+    LEFT JOIN (
+      SELECT sec_code, trade_date
+      FROM `data-aquarium.ashare_dws.dws_stock_feature_valuation_daily`
+      WHERE trade_date BETWEEN p_valuation_coverage_start_date AND p_write_end_date
+        AND feature_version = p_feature_version
+    ) AS f
+      ON v.sec_code = f.sec_code AND v.trade_date = f.trade_date
+    WHERE f.sec_code IS NULL
+  )
+) AS 'QA-WIN-17: dwd_stock_eod_valuation rows in valuation coverage window must have dws valuation feature match';
+
+-- QA-WIN-18: dws_stock_feature_daily_v0.has_valuation_data 覆盖不能出现异常空窗
+-- 检查：price-driven feature universe 中有 total_mv_cny/circ_mv_cny 的估值行，
+-- 在 feature_daily_v0 中 has_valuation_data 必须为 TRUE。
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT
+      p.sec_code,
+      p.trade_date
+    FROM `data-aquarium.ashare_dws.dws_stock_feature_price_daily` AS p
+    JOIN `data-aquarium.ashare_dws.dws_stock_universe_daily` AS u
+      ON p.trade_date = u.trade_date
+     AND p.sec_code = u.sec_code
+    JOIN `data-aquarium.ashare_dws.dws_stock_feature_valuation_daily` AS v
+      ON p.trade_date = v.trade_date
+     AND p.sec_code = v.sec_code
+     AND p.feature_version = v.feature_version
+    WHERE p.trade_date BETWEEN p_valuation_coverage_start_date AND p_write_end_date
+      AND p.feature_version = p_feature_version
+      AND v.trade_date BETWEEN p_valuation_coverage_start_date AND p_write_end_date
+      AND v.feature_version = p_feature_version
+      AND v.total_mv_cny IS NOT NULL
+      AND v.circ_mv_cny IS NOT NULL
+  ) AS expected
+    LEFT JOIN (
+      SELECT sec_code, trade_date, has_valuation_data
+      FROM `data-aquarium.ashare_dws.dws_stock_feature_daily_v0`
+      WHERE trade_date BETWEEN p_valuation_coverage_start_date AND p_write_end_date
+        AND feature_version = p_feature_version
+    ) AS f
+      ON expected.sec_code = f.sec_code AND expected.trade_date = f.trade_date
+    WHERE f.sec_code IS NULL
+      OR f.has_valuation_data IS NULL
+      OR f.has_valuation_data = FALSE
+) AS 'QA-WIN-18: has_valuation_data must be TRUE where price-driven feature universe has valuation market-cap data in coverage window';
+
 SELECT
   p_business_date AS business_date,
+  p_requested_date_to AS requested_date_to,
+  p_date_to AS effective_date_to,
   p_warehouse_mode AS warehouse_mode,
   p_dwd_write_start_date AS dwd_write_start_date,
   p_label_write_start_date AS label_write_start_date,
+  p_valuation_coverage_start_date AS valuation_coverage_start_date,
   p_write_end_date AS write_end_date;

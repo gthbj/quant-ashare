@@ -17,7 +17,7 @@ Composer 负责串联全流程：
 - 单次手工 DAG run 可用 `pipeline_dry_run` 或 `dry_run` 覆盖 `ashare_pipeline_dry_run`；dry-run 会让 ODS readiness 默认检查近期可读分区，真实写入会默认要求精确业务日/交易日分区。
 - 不直接保存 token。
 - 每日默认主链只执行单个 Cloud Run ingestion（`ashare-ingest-current-scope`）和 `sql/qa/09_ods_daily_partition_readiness.sql`；该检查只读业务日分区或近期小窗口，不扫描 2019+ 全历史。
-- `ashare_warehouse_mode=daily_current` 且 `ashare_pipeline_dry_run=false` 时，DAG 在采集和 ODS readiness 后刷新 DIM 小表、恢复 P0 metadata，并执行 `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 与 `sql/qa/10_windowed_stock_refresh_checks.sql`，按业务日期窗口刷新股票 DWD 与策略 1 DWS。
+- `ashare_warehouse_mode=daily_current` 且 `ashare_pipeline_dry_run=false` 时，DAG 在采集和 ODS readiness 后刷新 DIM 小表、恢复 P0 metadata，并执行 `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 与 `sql/qa/10_windowed_stock_refresh_checks.sql`，按业务日期窗口刷新股票 DWD 与策略 1 DWS；窗口 SQL 会把非交易日 `date_to` / `business_date` 归一到不晚于请求日期的最近 SSE 开市日。
 - `warehouse_mode=backfill` 且 `ashare_pipeline_dry_run=false` 时，DAG 按 `date_from` / `date_to` 执行同一窗口刷新链路；未传 `date_from` 时只刷新 `date_to` 或 `business_date`。
 - `warehouse_mode=full_rebuild` 或 `warehouse_mode=full_rebuild_compat` 时，DAG 在每日 readiness 之后进入 BigQuery SQL 兼容转换分支，执行 schema P0、DIM、DWD、DWS、metadata、QA 节点。
 - 兼容变量 `ashare_enable_full_refresh=true` 会把 `daily_current` 映射为 `full_rebuild_compat` 记录，避免把现有 CTAS 全量重建标记成增量。

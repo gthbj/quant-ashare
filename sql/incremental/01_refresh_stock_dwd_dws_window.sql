@@ -6,14 +6,29 @@
 -- - 目标表必须已由全量 CTAS 路径初始化。
 -- - 本脚本只刷新股票日频 DWD 与策略 1 DWS，不写 ADS run/backtest 产物。
 -- - DWD 写入窗口由 date_from/date_to 或 business_date 控制。
+-- - daily_current 模式：默认刷新最近 20 个交易日（含当天），确保估值缺口自动修复。
+-- - backfill 模式：显式 date_from/date_to，不做自动扩展。
 -- - 价格特征读取窗口按 SSE 交易日历往前推 60 个交易日。
 -- - 估值特征读取窗口按每只股票写入窗口首日前的实际 60 条估值观测推导，覆盖 daily_basic 缺口。
 -- - 标签写入窗口按 SSE 交易日历往前推 20 个交易日，避免 t+H forward label 受 late data/生命周期变更影响后未回填。
 
 DECLARE p_business_date DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@business_date, '') AS DATE), CURRENT_DATE('Asia/Shanghai'));
 DECLARE p_date_from DATE DEFAULT SAFE_CAST(NULLIF(@date_from, '') AS DATE);
-DECLARE p_date_to DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@date_to, '') AS DATE), p_business_date);
+DECLARE p_requested_date_to DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@date_to, '') AS DATE), p_business_date);
 DECLARE p_warehouse_mode STRING DEFAULT LOWER(NULLIF(@warehouse_mode, ''));
+DECLARE p_date_to DATE DEFAULT CASE
+  WHEN p_warehouse_mode = 'daily_current' THEN COALESCE(
+    (
+      SELECT MAX(cal_date)
+      FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+      WHERE exchange = 'SSE'
+        AND is_open = 1
+        AND cal_date <= p_requested_date_to
+    ),
+    p_requested_date_to
+  )
+  ELSE p_requested_date_to
+END;
 DECLARE p_final_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_fin_feature_version STRING DEFAULT 'fin_default_v0_20260602';
@@ -25,7 +40,37 @@ DECLARE p_min_close_price FLOAT64 DEFAULT 3.0;
 DECLARE p_board_allowlist ARRAY<STRING> DEFAULT ['SSE_MAIN', 'SZSE_MAIN'];
 DECLARE p_asof_lookback_days INT64 DEFAULT 900;
 DECLARE p_valuation_observation_window INT64 DEFAULT 60;
-DECLARE p_dwd_write_start_date DATE DEFAULT GREATEST(COALESCE(p_date_from, p_date_to), p_final_start_date);
+DECLARE p_daily_current_lookback_td INT64 DEFAULT 20;
+
+-- daily_current 模式：若 date_from 未显式指定，先将 date_to/business_date 归一为
+-- 不晚于请求日期的最近 SSE 开市日，再自动往前推 20 个交易日。
+-- backfill 模式：保持显式 date_from/date_to 不变。
+DECLARE p_end_date_seq INT64 DEFAULT (
+  SELECT trade_date_seq
+  FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+  WHERE exchange = 'SSE'
+    AND is_open = 1
+    AND cal_date = p_date_to
+  LIMIT 1
+);
+DECLARE p_daily_current_start_date DATE DEFAULT COALESCE(
+  (
+    SELECT MAX(cal_date)
+    FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+    WHERE exchange = 'SSE'
+      AND is_open = 1
+      AND trade_date_seq <= p_end_date_seq - p_daily_current_lookback_td + 1
+  ),
+  p_date_to
+);
+DECLARE p_dwd_write_start_date DATE DEFAULT GREATEST(
+  CASE
+    WHEN p_warehouse_mode = 'daily_current' AND p_date_from IS NULL
+      THEN p_daily_current_start_date
+    ELSE COALESCE(p_date_from, p_date_to)
+  END,
+  p_final_start_date
+);
 DECLARE p_write_end_date DATE DEFAULT p_date_to;
 DECLARE p_anchor_seq INT64 DEFAULT (
   SELECT MIN(trade_date_seq)
@@ -1683,6 +1728,8 @@ COMMIT TRANSACTION;
 CREATE TEMP TABLE refresh_window AS
 SELECT
   p_business_date AS business_date,
+  p_requested_date_to AS requested_date_to,
+  p_date_to AS effective_date_to,
   p_warehouse_mode AS warehouse_mode,
   p_dwd_write_start_date AS dwd_write_start_date,
   p_feature_read_start_date AS feature_read_start_date,
