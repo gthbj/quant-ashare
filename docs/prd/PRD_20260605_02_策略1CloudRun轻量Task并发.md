@@ -113,7 +113,7 @@ owner 设置 --candidate-parallelism M 且 M > 0
 
 项目代码不得把默认候选并发静默降到 2、4 或其他保守值。若 GCP quota 或预算不足，由 owner 设置显式并发上限。
 
-实现注意：当前 `gcloud run jobs execute` 支持按 execution 覆盖 `--tasks`，但不支持按 execution 覆盖 `--parallelism`。因此 P0 不要求运行时修改共享 Job 的 `parallelism` 配置。推荐将 `strategy1-train-candidate-fanout-job` 的 Job spec `parallelism` 预设为 owner 允许的最大值（例如 100），默认全并发时单次执行 `--tasks=N`；owner 显式限流时，orchestrator 通过分批执行实现 cap，每批 `--tasks<=M`，并通过 batch manifest 或 `TASK_INDEX_OFFSET` 映射到原始 work unit。不得在多个 run 共享同一个 Job 时无锁执行 `gcloud run jobs update --parallelism`，避免并发 run 互相改配置。
+实现注意：当前 `gcloud run jobs execute` 支持按 execution 覆盖 `--tasks`，但不支持按 execution 覆盖 `--parallelism`。因此 P0 不要求运行时修改共享 Job 的 `parallelism` 配置。推荐将 `strategy1-train-candidate-fanout-job` 的 Job spec `parallelism` 预设为 owner 允许的最大值；截至 OQ-010 Cloud Run Python baseline search，owner 确认的当前最大值为 40，对应 `candidate_count=40` / `candidate_parallelism=40`。默认全并发时单次执行 `--tasks=N`；owner 显式限流时，orchestrator 通过分批执行实现 cap，每批 `--tasks<=M`，并通过 batch manifest 或 `TASK_INDEX_OFFSET` 映射到原始 work unit。不得在多个 run 共享同一个 Job 时无锁执行 `gcloud run jobs update --parallelism`，避免并发 run 互相改配置。
 
 ## 5. Work Unit 定义
 
