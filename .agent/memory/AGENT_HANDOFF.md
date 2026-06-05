@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-cloudrun-python-baseline`，分支 `codex/implement-prd04-cloudrun-python-baseline`。实现已新增共享验收契约、LightGBM binary wave 2 40 候选 manifest、LightGBM regression wave 3 12 候选 manifest、tree 预处理、LightGBM classifier/regressor 训练与打分、2021/2022/2023 purged walk-forward CV ranking、Top5 orchestration、`needs_more_evidence` 自动下一波、sklearn `18_qa` 契约版本追溯和 `19_qa_cloudrun_python_baseline_search_outputs.sql`。本地验证已通过 Python py_compile、两个 LightGBM manifest dry-run、`01/10/18/19` SQL dry-run 和 `git diff --check`；尚未构建/部署新镜像，尚未执行真实 40 候选 Cloud Run search。合并后下一步：部署镜像，先跑 wave 2；若 Top5 无 accepted 且出现 `needs_more_evidence`，按配置进入 `lightgbm_regression` wave 3。
+
 **项目记忆瘦身归档（2026-06-05）**：`AGENT_HANDOFF.md` 已按 owner 要求整理，当前文件只保留启动摘要、归档清理交接和最近 3 条交接；较早的 30 条交接已追加到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动优先读本文件；需要审计历史时再读 archive。
 
 **OQ-005 PR #80 readiness warning follow-up（2026-06-06）**：工作树 `/private/tmp/oq005-scheduler-fix`，分支 `codex/oq005-scheduler-daily-fix`。已按 PR #80 comment 修复 `sql/qa/09_ods_daily_partition_readiness.sql`：warning MERGE 前置到阻断 ASSERT 前；`pipeline_dry_run=true` 不写 `pipeline_task_status` warning；非交易日 weak endpoint 缺失不写 warning。实际验证：`manual_verify_oq005_warning_before_assert_20260606_01` 在 `2026-06-05` strong 缺失失败前写入 4 条 weak warning；`manual_verify_oq005_dryrun_no_warning_20260606_01` 和 `manual_verify_oq005_nontd_weak_suppressed_20260606_01` 均确认 warning 行数为 0。同步更新 runbook、KNOWN_CONSTRAINTS、TODO、OPEN_QUESTIONS、IMPLEMENTATION_STATUS。尚未重新同步 Composer bucket，待 PR 合并后按生产部署流程同步。
@@ -585,6 +587,80 @@ Run ID: manual_oq005_alert_checker_heartbeat_global_20260605_01
 ### 已更新记忆文件
 
 - `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: OQ-010 / PRD04 Cloud Run Python baseline search implementation
+
+### 已完成工作
+
+- 在工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-cloudrun-python-baseline`、分支 `codex/implement-prd04-cloudrun-python-baseline` 实现 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md` 的 P0 代码路径。
+- 新增共享验收契约 `configs/strategy1/model_acceptance_contract_v1.yml`，并让 sklearn native `18_qa` 追溯同一契约版本。
+- 新增 LightGBM binary wave 2 manifest（40 候选、默认 40 task）和 LightGBM regression wave 3 manifest（12 候选、默认 12 task）。
+- 扩展 Cloud Run Python task fan-out：tree 预处理、LightGBM classifier/regressor、raw/oriented score、CV folds、Top5 ranking、final_holdout 指标、shared acceptance、`needs_more_evidence` 自动进入下一波。
+- 新增 `scripts/strategy1_cloudrun/orchestrate_cloudrun_python_baseline_search.py` 入口和 `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`。
+- 同步运行手册、SQL README、TODO、PROJECT_CONTEXT、IMPLEMENTATION_STATUS、OPEN_QUESTIONS 和本交接。
+
+### 重要上下文
+
+- 本次只完成代码实现和本地/dry-run 验证，未构建/部署新 Cloud Run 镜像，未执行真实 40 候选 search，未生成新的 ADS/GCS search 产物。
+- 若真实 LightGBM CV smoke 证明单 task `1 vCPU / 4Gi` 不够，应提高 candidate task 内存并降低并发；运行手册已给出 `8Gi / parallelism=20` 示例。
+- 若 wave 2 Top5 无 accepted 且存在 `needs_more_evidence`，orchestrator 会按 manifest 进入 `lightgbm_regression` wave 3。
+
+### 改动文件
+
+- `configs/strategy1/model_acceptance_contract_v1.yml`
+- `configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml`
+- `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml`
+- `scripts/strategy1_cloudrun/*.py`
+- `sql/ml/strategy1/01_build_training_panel.sql`
+- `sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
+- `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`
+- `scripts/strategy1/requirements.txt`
+- `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `sql/ml/strategy1/README.md`
+- `TODO.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python -m py_compile scripts/strategy1_cloudrun/*.py`
+- `python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search --config configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml --manifest configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml --build-training-panel --dry-run`
+- `python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search --config configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml --manifest configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml --build-training-panel --dry-run`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/01_build_training_panel.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`
+- `git diff --check`
+
+### 阻塞项
+
+- 无代码阻塞；真实 search 需合并后构建/部署新镜像再执行。
+
+### 下一步建议
+
+- 合并 PR 后构建并部署 `strategy1-cloudrun-runner` 镜像到 prepare / candidate / select / backtest jobs。
+- 执行 PRD04 wave 2 真实 search；若 candidate task 内存不足，按运行手册升内存并降低并发。
+- 根据 Top5 acceptance 结论决定是否建立 `cloud_run_python_baseline_v1` 或进入 `lightgbm_regression` wave 3。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`

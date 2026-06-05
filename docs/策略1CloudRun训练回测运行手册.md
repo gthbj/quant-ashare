@@ -12,10 +12,12 @@
 2. `scripts/strategy1_cloudrun/backtest_report.py`：复用现有 `05-07` SQL 生成候选 / 组合 / 订单，默认使用 Cloud Run Python `ledger_exec_v1` fresh-start 回测，随后跑 `09`、报告、诊断和 QA。
 3. `scripts/strategy1_cloudrun/orchestrate_experiments.py`：按 manifest 启动 Cloud Run Jobs，并写 `ashare_meta.strategy1_experiment_run_status`、使用 GCS generation-guarded lock。未设置 `--max-parallel-experiments` 或传 `0` 时，resolved 并发数等于本次可执行实验数。
 4. `scripts/strategy1_cloudrun/prepare_matrix.py`、`train_candidate_task.py`、`select_register_predict.py`：task fan-out 训练路径。`prepare_matrix` 一次性读取 BigQuery 训练面板并生成 GCS frozen matrix；每个 Cloud Run task 只训练一个 candidate；reducer 统一选型、登记模型并写预测。
-5. `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`：按 sklearn native PRD 执行 36 候选 search，valid-only 选 Top5，再为 Top5 生成独立 prediction / backtest / report / diagnosis。
-6. `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`：校验 Cloud Run backend、sklearn artifact、prediction orientation、model-quality parity、resolved 并发契约，以及 task fan-out matrix/work-unit 审计字段。
-7. `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`：校验 Cloud Run orchestrator 状态表、锁元数据、execution id 和 task fan-out 状态行。
-8. `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`：校验 sklearn native TopK 产物、valid-only 排名、uploaded 报告/诊断、native acceptance gate 和 test 复用记录。
+5. `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`：按 sklearn native PRD 执行 36 候选 search，valid-only 选 Top5，再为 Top5 生成独立 prediction / backtest / report / diagnosis；同一 orchestrator 也承载 Cloud Run Python baseline search 的通用 TopK 流程。
+6. `scripts/strategy1_cloudrun/orchestrate_cloudrun_python_baseline_search.py`：Cloud Run Python baseline search 入口，当前用于 PRD04 LightGBM wave 2 / wave 3。
+7. `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`：校验 Cloud Run backend、sklearn artifact、prediction orientation、model-quality parity、resolved 并发契约，以及 task fan-out matrix/work-unit 审计字段。
+8. `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`：校验 Cloud Run orchestrator 状态表、锁元数据、execution id 和 task fan-out 状态行。
+9. `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`：校验 sklearn native TopK 产物、valid-only 排名、uploaded 报告/诊断、native acceptance gate 和 test 复用记录。
+10. `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`：校验 Cloud Run Python LightGBM baseline search 的 TopK、CV 证据、共享验收契约、test reuse 和 final_holdout watch。
 
 当前限制：
 
@@ -83,6 +85,39 @@ python -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search \
 2. `cloudrun_train_candidate_fanout` 命令包含 `--tasks=36`。
 3. TopK 模板使用 `s1_<search_id>__<candidate_id>` / `bt_s1_<search_id>__<candidate_id>`，不出现重复前缀。
 4. 子 Job 命令必须带 `--config configs/strategy1/sklearn_native_pvfq_n30_bw_h5_v0.yml`，避免 Cloud Run 内退回默认 5 候选。
+
+Cloud Run Python LightGBM baseline search dry-run：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml \
+  --manifest configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml \
+  --build-training-panel \
+  --dry-run
+```
+
+期望：
+
+1. 输出 `candidate_count=40`。
+2. `cloudrun_train_candidate_fanout` 命令包含 `--tasks=40`。
+3. `expected_model_family=lightgbm_gbdt`、`expected_model_search_wave_no=2`。
+4. `next_wave_manifest=configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml`，且 `auto_next_wave_on_needs_more_evidence=true`。若 Top5 全部没有 accepted 且存在 `needs_more_evidence`，orchestrator 会进入下一波 `lightgbm_regression`。
+
+Wave 3 regression dry-run：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml \
+  --manifest configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml \
+  --build-training-panel \
+  --dry-run
+```
+
+期望输出 `candidate_count=12`、`--tasks=12`、`expected_model_family=lightgbm_regression`、`expected_model_search_wave_no=3`。
 
 多实验 dry-run：
 
@@ -212,8 +247,8 @@ gcloud run jobs deploy strategy1-prepare-matrix-job \
   --image asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:latest \
   --command python \
   --args="-m,scripts.strategy1_cloudrun.prepare_matrix" \
-  --memory 16Gi \
-  --cpu 4 \
+  --memory 32Gi \
+  --cpu 8 \
   --task-timeout 3600 \
   --max-retries 0
 
@@ -230,6 +265,19 @@ gcloud run jobs deploy strategy1-train-candidate-fanout-job \
   --max-retries 0
 
 当前 OQ-010 Cloud Run Python baseline search 的 P0 口径固定为 40 个候选、40 并发。`strategy1-train-candidate-fanout-job` 的共享 Job spec 应保持 `parallelism=40`；若后续扩到 60 / 80 / 100 个候选，需要先更新对应 PRD、Cloud Run 区域配额和本部署命令。
+
+若 LightGBM CV smoke 发现单个 candidate task 的 `1 vCPU / 4Gi` 不足，先提高单 task 内存并降低并发，而不是直接维持 40 并发：
+
+```bash
+gcloud run jobs update strategy1-train-candidate-fanout-job \
+  --project data-aquarium \
+  --region asia-east2 \
+  --cpu 1 \
+  --memory 8Gi \
+  --parallelism 20
+```
+
+调整后，执行 search 时显式传 `--candidate-parallelism 20`，并在 PR / 交接中记录 smoke 证据。若 8Gi 仍不够，继续提高单 task 内存并按区域内存配额反向计算并发。
 
 gcloud run jobs deploy strategy1-select-register-predict-job \
   --project data-aquarium \

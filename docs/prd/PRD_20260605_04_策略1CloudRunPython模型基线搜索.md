@@ -2,8 +2,8 @@
 
 # PRD: 策略 1 Cloud Run Python 模型基线搜索
 
-> 状态：草案，待 review / 合并。
-> 范围声明：本文只定义策略 1 在放弃 BQML / SQL runner 作为未来执行路径后的 Cloud Run Python 模型基线搜索方案；不实现代码、不部署 Cloud Run Job、不执行 BigQuery、不生成或覆盖 ADS / GCS 产物。
+> 状态：实现中；本 PR 落地 Cloud Run Python LightGBM baseline search 代码、配置和 QA，完整真实 search 待合并部署后执行。
+> 范围声明：本文定义策略 1 在放弃 BQML / SQL runner 作为未来执行路径后的 Cloud Run Python 模型基线搜索方案；实现阶段允许新增 Python runner、manifest、共享验收契约和 QA，但完整候选训练 / Top5 回测 / ADS 与 GCS 产物生成必须在单独执行窗口中完成。
 > 关联：`docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`、`docs/prd/PRD_20260605_02_策略1CloudRun轻量Task并发.md`、`docs/prd/PRD_20260605_03_策略1Sklearn模型实验.md`、`docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`、`docs/prd/PRD_20260604_02_策略1月度滚动重训.md`、`.agent/memory/OPEN_QUESTIONS.md` OQ-010。
 
 ---
