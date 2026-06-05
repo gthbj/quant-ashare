@@ -1,6 +1,6 @@
 # OQ-005 Pipeline 告警与观测
 
-> 文档维护：opencode（最近更新 2026-06-05）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-05）
 
 ## 概述
 
@@ -9,7 +9,10 @@
 ## 告警链路
 
 ```
-check_alerts.py (Cloud Scheduler, */5 * * * *)
+oq005_alert_checker (Cloud Composer DAG, */10 * * * *)
+    |
+    v
+check_alerts.py --write-log --write-heartbeat --lookback-minutes 20
     |
     v
 v_alert_summary (BigQuery view)
@@ -25,9 +28,13 @@ Alert Policy --> Notification Channel (Email/Slack/PagerDuty)
 ```
 
 关键点：
+- 生产定时入口是 Composer DAG `oq005_alert_checker`，每 10 分钟执行一次
+- checker 查询窗口为 20 分钟，和 10 分钟调度形成重叠，避免调度延迟时漏报
 - `check_alerts.py` 查询 BigQuery 视图，将异常写入 Cloud Logging
+- `check_alerts.py` 每次成功查询后写入 checker heartbeat
 - Cloud Monitoring 日志指标匹配这些 JSON 条目
 - 告警策略在指标 > 0 时触发通知
+- checker heartbeat 30 分钟缺失会触发 dead-man's-switch 告警
 - `empty_return` 不触发 ingestion 告警，需按 endpoint/date 判断
 
 ## 目录结构
@@ -37,6 +44,9 @@ scripts/alerting/
 ├── setup_alerts.py      # 告警规则配置脚本（Cloud Monitoring）
 ├── check_alerts.py      # 告警查询脚本（定期检查 + 写入 Cloud Logging）
 └── README.md            # 本文件
+
+orchestration/composer/dags/
+└── oq005_alert_checker.py  # 生产定时 checker DAG
 
 sql/observability/
 └── 01_pipeline_status_views.sql  # 观测视图定义
@@ -69,27 +79,31 @@ python scripts/alerting/setup_alerts.py --notification-channels "projects/xxx/no
 ### 3. 部署定期检查
 
 ```bash
-# 方式 1：Cloud Scheduler + Cloud Run
-gcloud scheduler jobs create http oq005-alert-check \
-  --schedule='*/5 * * * *' \
-  --uri='https://<cloud-run-url>/check-alerts' \
-  --http-method=POST
+# 生产路径：同步 checker 脚本与 DAG 到 Composer bucket
+gcloud storage cp scripts/alerting/check_alerts.py \
+  gs://asia-east2-ashare-composer-b2629133-bucket/data/scripts/alerting/check_alerts.py
 
-# 方式 2：本机 cron
-*/5 * * * * python /path/to/check_alerts.py --write-log --lookback-minutes 10
+gcloud storage cp orchestration/composer/dags/oq005_alert_checker.py \
+  gs://asia-east2-ashare-composer-b2629133-bucket/dags/oq005_alert_checker.py
+
+# 验证 DAG 已被 Airflow 识别
+gcloud composer environments run ashare-composer \
+  --location=asia-east2 dags list -- --output json
 ```
+
+Cloud Scheduler 或本机 cron 仅作为非生产替代入口，不能作为当前生产部署口径记录。
 
 ### 4. 查询异常
 
 ```bash
-# 查询最近 10 分钟异常
+# 查询最近 10 分钟异常（脚本默认窗口）
 python scripts/alerting/check_alerts.py
 
-# 查询最近 10 分钟异常
-python scripts/alerting/check_alerts.py --lookback-minutes 10
+# 按生产窗口查询最近 20 分钟异常
+python scripts/alerting/check_alerts.py --lookback-minutes 20
 
 # 写入 Cloud Logging（供告警链路使用）
-python scripts/alerting/check_alerts.py --write-log
+python scripts/alerting/check_alerts.py --write-log --write-heartbeat --lookback-minutes 20
 
 # JSON 格式输出
 python scripts/alerting/check_alerts.py --json
@@ -102,6 +116,9 @@ python scripts/alerting/check_alerts.py --json
 | Pipeline Run Failed | `pipeline_run.status = 'failed'` | ERROR |
 | Task Failed (QA/Readiness/Transform) | `pipeline_task_status.status = 'failed'` | ERROR |
 | Cloud Run Ingestion Failed | `ingestion_run.status = 'failed'`（不含 empty_return） | WARNING |
+| Alert Checker Heartbeat Missing | `oq005_alert_checker_heartbeat` 30 分钟无数据 | ERROR |
+
+`Alert Checker Heartbeat Missing` 是告警链路自身的 liveness 监控。`oq005_alert_checker` 每 10 分钟调用 `check_alerts.py --write-heartbeat` 写入一次 heartbeat；若 DAG 被 pause、Composer 调度异常、脚本启动失败或日志写入失败，heartbeat 会停止，Cloud Monitoring 的 absence condition 会触发通知。
 
 ## 观测视图
 
@@ -122,4 +139,5 @@ python scripts/alerting/check_alerts.py --json
 2. 已配置 ADC：`gcloud auth application-default login`
 3. 已启用 Cloud Monitoring API + Cloud Logging API
 4. 已配置通知渠道（Email/Slack/PagerDuty）
-5. `check_alerts.py` 已部署为定期任务（Cloud Scheduler 或 cron）
+5. Composer DAG `oq005_alert_checker` 已部署并处于 unpaused 状态
+6. 已配置 `oq005_alert_checker_heartbeat` log-based metric 与 absence alert policy
