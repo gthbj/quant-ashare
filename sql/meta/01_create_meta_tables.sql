@@ -87,21 +87,11 @@ OPTIONS(
 );
 
 ALTER TABLE `data-aquarium.ashare_meta.pipeline_run`
-ADD COLUMN IF NOT EXISTS date_from STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_run`
-ADD COLUMN IF NOT EXISTS date_to STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_run`
-ADD COLUMN IF NOT EXISTS run_label STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_run`
-ADD COLUMN IF NOT EXISTS warehouse_mode STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_run`
-ADD COLUMN IF NOT EXISTS transform_backend STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_run`
+ADD COLUMN IF NOT EXISTS date_from STRING,
+ADD COLUMN IF NOT EXISTS date_to STRING,
+ADD COLUMN IF NOT EXISTS run_label STRING,
+ADD COLUMN IF NOT EXISTS warehouse_mode STRING,
+ADD COLUMN IF NOT EXISTS transform_backend STRING,
 ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
 
 ALTER TABLE `data-aquarium.ashare_meta.pipeline_run`
@@ -151,33 +141,15 @@ OPTIONS(
 );
 
 ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
-ADD COLUMN IF NOT EXISTS business_date STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
-ADD COLUMN IF NOT EXISTS date_from STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
-ADD COLUMN IF NOT EXISTS date_to STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
-ADD COLUMN IF NOT EXISTS run_label STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
-ADD COLUMN IF NOT EXISTS warehouse_mode STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
-ADD COLUMN IF NOT EXISTS transform_backend STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
-ADD COLUMN IF NOT EXISTS airflow_log_url STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
-ADD COLUMN IF NOT EXISTS bigquery_job_url STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
-ADD COLUMN IF NOT EXISTS cloud_run_execution_url STRING;
-
-ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`
+ADD COLUMN IF NOT EXISTS business_date STRING,
+ADD COLUMN IF NOT EXISTS date_from STRING,
+ADD COLUMN IF NOT EXISTS date_to STRING,
+ADD COLUMN IF NOT EXISTS run_label STRING,
+ADD COLUMN IF NOT EXISTS warehouse_mode STRING,
+ADD COLUMN IF NOT EXISTS transform_backend STRING,
+ADD COLUMN IF NOT EXISTS airflow_log_url STRING,
+ADD COLUMN IF NOT EXISTS bigquery_job_url STRING,
+ADD COLUMN IF NOT EXISTS cloud_run_execution_url STRING,
 ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
 
 ALTER TABLE `data-aquarium.ashare_meta.pipeline_task_status`

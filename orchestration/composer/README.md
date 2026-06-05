@@ -10,14 +10,15 @@ Composer 负责串联全流程：
 4. 全量 schema 检查、P0 QA、策略 1 QA 和报告产物检查。
 5. 失败重试、告警和运行状态追踪。
 
-当前 DAG 是 Phase 2.0 BigQuery SQL 兼容路径入口，采集写入、ODS readiness、可选转换、可选只读 QA、ADS 契约初始化和状态表回写由 Airflow Variables / DAG run conf 控制：
+当前 DAG 是 Phase 2.2 BigQuery SQL 兼容路径入口，采集写入、ODS readiness、窗口转换、可选全量转换、可选只读 QA、ADS 契约初始化和状态表回写由 Airflow Variables / DAG run conf 控制：
 
 - `ashare_pipeline_dry_run=true` 时，Cloud Run Job 只执行采集计划展开，不写 GCS。
 - `ashare_pipeline_dry_run=false` 时，DAG 会向 Cloud Run Job 传入 `--allow-gcs-write`，按业务日期写入当前范围 ODS 分区。
 - 单次手工 DAG run 可用 `pipeline_dry_run` 或 `dry_run` 覆盖 `ashare_pipeline_dry_run`；dry-run 会让 ODS readiness 默认检查近期可读分区，真实写入会默认要求精确业务日/交易日分区。
 - 不直接保存 token。
 - 每日默认主链只执行单个 Cloud Run ingestion（`ashare-ingest-current-scope`）和 `sql/qa/09_ods_daily_partition_readiness.sql`；该检查只读业务日分区或近期小窗口，不扫描 2019+ 全历史。
-- `ashare_warehouse_mode=daily_current` 时，DAG 执行采集、ODS readiness 和状态表回写；Phase 2.2 增量影响窗口完成前不进入 CTAS 转换分支。
+- `ashare_warehouse_mode=daily_current` 且 `ashare_pipeline_dry_run=false` 时，DAG 在采集和 ODS readiness 后刷新 DIM 小表、恢复 P0 metadata，并执行 `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 与 `sql/qa/10_windowed_stock_refresh_checks.sql`，按业务日期窗口刷新股票 DWD 与策略 1 DWS。
+- `warehouse_mode=backfill` 且 `ashare_pipeline_dry_run=false` 时，DAG 按 `date_from` / `date_to` 执行同一窗口刷新链路；未传 `date_from` 时只刷新 `date_to` 或 `business_date`。
 - `warehouse_mode=full_rebuild` 或 `warehouse_mode=full_rebuild_compat` 时，DAG 在每日 readiness 之后进入 BigQuery SQL 兼容转换分支，执行 schema P0、DIM、DWD、DWS、metadata、QA 节点。
 - 兼容变量 `ashare_enable_full_refresh=true` 会把 `daily_current` 映射为 `full_rebuild_compat` 记录，避免把现有 CTAS 全量重建标记成增量。
 - `warehouse_mode=qa_only` 时，DAG 只执行 ODS readiness 之后的 `01-05` 只读 QA，不改生产表。
@@ -76,7 +77,7 @@ ashare_enable_ads_contract_init=false
 
 将 `orchestration/composer/dags/ashare_daily_pipeline_v0.py` 上传到 Composer 环境的 DAG bucket，并同步仓库 `sql/` 目录到 Composer bucket 下的 `data/sql/`。Composer 3 worker 会把该路径挂载为 `/home/airflow/gcs/data/sql`；当前 DAG 会在运行时读取这些 SQL 文件，缺少文件时对应 BigQuery task 会失败。
 
-Cloud Run Job image 更新后，先用手工 DAG run 或临时变量做调度 smoke；确认 Cloud Run execution、每日 ODS readiness、状态表回写通过后，生产每日采集保持 `ashare_pipeline_dry_run=false`、`ashare_warehouse_mode=daily_current`。完整 ODS→DIM/DWD/DWS 刷新使用手工 DAG run 参数 `warehouse_mode=full_rebuild_compat` 或 `warehouse_mode=full_rebuild`。
+Cloud Run Job image 更新后，先用手工 DAG run 或临时变量做调度 smoke；确认 Cloud Run execution、每日 ODS readiness、窗口刷新、窗口 QA 和状态表回写通过后，生产每日采集保持 `ashare_pipeline_dry_run=false`、`ashare_warehouse_mode=daily_current`。完整 ODS→DIM/DWD/DWS 刷新使用手工 DAG run 参数 `warehouse_mode=full_rebuild_compat` 或 `warehouse_mode=full_rebuild`。
 
 部署命令：
 
@@ -173,6 +174,20 @@ gcloud composer environments run ashare-composer \
   "skip_ingestion": true,
   "warehouse_mode": "full_rebuild_compat",
   "run_label": "maintenance"
+}
+```
+
+手工执行股票 DWD/DWS 窗口补跑：
+
+```json
+{
+  "business_date": "2026-06-04",
+  "date_from": "2026-06-03",
+  "date_to": "2026-06-04",
+  "skip_ingestion": true,
+  "pipeline_dry_run": false,
+  "warehouse_mode": "backfill",
+  "run_label": "windowed_stock_backfill"
 }
 ```
 

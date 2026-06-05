@@ -68,6 +68,50 @@ python scripts/strategy1/render_report.py --project data-aquarium --backtest-id 
 - `dws_stock_feature_fin_daily`：把 `dwd_fin_indicator` 与三大报表 PIT as-of 到每个 universe 交易日，主键 `(sec_code, trade_date, feature_version='fin_default_v0_20260602')`。as-of 限制 `visible_trade_date` 在 `[trade_date - asof_lookback_days, trade_date]`（默认 `asof_lookback_days = 900` 日 ≈ 2.5 年）以约束扇出；超窗未更新财报视为缺失（`has_fin_*=FALSE`）。`report_caliber`/`is_default_report_caliber` 为消费口径契约（恒 consolidated/TRUE），实际可用性见 `has_fin_*` 与各来源 `*_report_period`。
 - 维度/日历：使用最新快照或全量历史事件，不按 2019 分区截断。
 
+## 窗口刷新
+
+`sql/incremental/01_refresh_stock_dwd_dws_window.sql` 用于生产每日或区间补跑。目标表必须已由全量 CTAS 路径初始化；脚本只刷新股票日频 DWD 与策略 1 DWS，不写 ADS run/backtest 产物。
+
+- DWD 写入窗口：`date_from` / `date_to`，未传 `date_from` 时只写 `date_to` 或 `business_date`。
+- 价格/估值特征读取窗口：按 SSE 交易日历向前读取 60 个交易日。
+- 标签、特征宽表、样本表写入窗口：按 SSE 交易日历向前回补 20 个交易日，覆盖 forward label 受新增价格影响的历史样本。
+- 窗口 DML 使用 BigQuery transaction 包裹，日常小窗口失败时整体回滚；大区间 backfill 按年/季/月拆分执行。
+
+```bash
+bq query \
+  --use_legacy_sql=false \
+  --location=asia-east2 \
+  --parameter=business_date:STRING:2026-06-04 \
+  --parameter=date_from:STRING:2026-06-03 \
+  --parameter=date_to:STRING:2026-06-04 \
+  --parameter=warehouse_mode:STRING:backfill \
+  < sql/incremental/01_refresh_stock_dwd_dws_window.sql
+
+bq query \
+  --use_legacy_sql=false \
+  --location=asia-east2 \
+  --parameter=business_date:STRING:2026-06-04 \
+  --parameter=date_from:STRING:2026-06-03 \
+  --parameter=date_to:STRING:2026-06-04 \
+  --parameter=warehouse_mode:STRING:backfill \
+  < sql/qa/10_windowed_stock_refresh_checks.sql
+```
+
+窗口刷新和全量 CTAS 逻辑并存期间，定期或发布前运行等价 QA，防止两条路径静默漂移。该 QA 会把 canonical full SQL 渲染到 scratch `_full` 表，再把 `_full` 复制为 `_window` 表，重写窗口 SQL 刷 `_window`，最后逐列比较受影响窗口内 `_window` 与 `_full` 的数值。
+
+```bash
+python3 scripts/qa/run_windowed_refresh_equivalence.py --dry-run
+
+python3 scripts/qa/run_windowed_refresh_equivalence.py \
+  --project data-aquarium \
+  --location asia-east2 \
+  --scratch-dataset ashare_qa_windowed_equivalence \
+  --build-start-date 2024-01-01 \
+  --lookback-start-date 2023-01-01 \
+  --date-from 2025-06-02 \
+  --date-to 2025-06-13
+```
+
 ## 产出表
 
 - `data-aquarium.ashare_dim.dim_trade_calendar`
