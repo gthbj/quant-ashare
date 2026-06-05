@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新分支（2026-06-05）**：工作树 `/private/tmp/quant-ashare-windowed-refresh`，分支 `codex/windowed-dwd-dws-refresh`。已新增 `sql/incremental/01_refresh_stock_dwd_dws_window.sql`，按 `business_date` / `date_from` / `date_to` 参数窗口化刷新 `dwd_stock_eod_price`、`dwd_stock_eod_valuation` 和策略 1 DWS（universe、价格/估值/财务特征、label、feature wide、sample）；标签、宽表和样本按 SSE 交易日历向前回补 20 个交易日，价格/估值特征向前读取 60 个交易日；不写 ADS runner/backtest/report 产物。新增 `sql/qa/10_windowed_stock_refresh_checks.sql` 做窗口轻量 QA。Composer DAG 的 `daily_current/backfill` 真实写入分支现在会刷新 DIM 小表、恢复 P0 metadata、执行股票 DWD/DWS 窗口刷新和窗口 QA；`pipeline_dry_run=true` 不写 DIM/DWD/DWS，`full_rebuild/full_rebuild_compat` 仍走原全量兼容链路，`qa_only` 仍只读。同步纳入静态 project/region/location 热修复和 meta DDL 多列 `ADD COLUMN` 合并。验证已通过 DAG py_compile、窗口 SQL/QA BigQuery dry-run（backfill 与 daily_current 参数）、meta DDL dry-run、P0 metadata dry-run；未部署 Composer、未执行生产 DML、未写 BigQuery/GCS/ADS 产物。
+**OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新分支（2026-06-05）**：工作树 `/private/tmp/quant-ashare-windowed-refresh`，分支 `codex/windowed-dwd-dws-refresh`。已新增 `sql/incremental/01_refresh_stock_dwd_dws_window.sql`，按 `business_date` / `date_from` / `date_to` 参数窗口化刷新 `dwd_stock_eod_price`、`dwd_stock_eod_valuation` 和策略 1 DWS（universe、价格/估值/财务特征、label、feature wide、sample）；标签、宽表和样本按 SSE 交易日历向前回补 20 个交易日，价格/估值特征向前读取 60 个交易日；不写 ADS runner/backtest/report 产物。新增 `sql/qa/10_windowed_stock_refresh_checks.sql` 做窗口轻量 QA。PR #65 review follow-up 已补目标表存在性 ASSERT、9 张目标表窗口 DML BigQuery transaction，以及 `scripts/qa/run_windowed_refresh_equivalence.py` full-vs-window 等价 QA runner；日常小窗口失败会整体回滚，大区间 backfill 按年/季/月拆分执行。Composer DAG 的 `daily_current/backfill` 真实写入分支现在会刷新 DIM 小表、恢复 P0 metadata、执行股票 DWD/DWS 窗口刷新和窗口 QA；`pipeline_dry_run=true` 不写 DIM/DWD/DWS，`full_rebuild/full_rebuild_compat` 仍走原全量兼容链路，`qa_only` 仍只读。同步纳入静态 project/region/location 热修复和 meta DDL 多列 `ADD COLUMN` 合并。验证已通过 DAG py_compile、窗口 SQL/QA BigQuery dry-run（backfill 与 daily_current 参数）、meta DDL dry-run、P0 metadata dry-run、等价 QA runner `--dry-run` 和 `git diff --check`；未部署 Composer、未执行生产 DML、未写 BigQuery/GCS/ADS 产物。
 
 **策略 1 Cloud Run task fan-out 真实 smoke（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-ledger-p1`，分支 `codex/fix-task-fanout-force-replace`。已构建并部署修复镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:8cc8470014cb3b54272d4c7f47afb396d91cf7b97967f0c3ffab947f7432c38a` 到 `strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。当前资源：prepare/select/backtest `4 CPU / 16Gi`，candidate task `1 CPU / 4Gi`；因 `asia-east2` 当前 20 vCPU / 40Gi 配额，candidate job 设置 `parallelism=10`。低成本 smoke `run_id=s1_cloudrun_taskfanout_smoke_20260605_03` / `backtest_id=bt_s1_cloudrun_taskfanout_smoke_20260605_03` 已跑通：`cloudrun_prepare_matrix`、5 个 candidate task、`cloudrun_select_register_predict`、`cloudrun_backtest_report` 全部 succeeded，`10`/`12`/`16`/`17` QA 全部通过。修复内容：orchestrator 不再把 `--force-replace` 传给 `prepare_matrix`；`10` QA 的 split 边界改为参数化；`12` QA-DIAG-6 改用训练面板 `tp.split_tag` 而非 DWS 固定 split。产物：matrix URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/matrix_id=s1_cloudrun_taskfanout_smoke_20260605_03__matrix_5294c2780a86`，model URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/model_id=s1_sklearn_s1_cloudrun_taskfanout_smoke_20260605_03__l2_c_10`，report URI `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/run_id=s1_cloudrun_taskfanout_smoke_20260605_03/backtest_id=bt_s1_cloudrun_taskfanout_smoke_20260605_03`。本次 smoke 证明 task fan-out 执行链路可用；正式替代 BQML 仍需 sklearn parity passed 或 owner 接受新 Cloud Run baseline。
 
@@ -564,6 +564,67 @@ Run ID: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
 
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5
+运行环境: Codex desktop
+Run ID: —
+相关 issue/PR: PR #65 / OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新
+
+### 已完成工作
+
+- 将分支 `codex/windowed-dwd-dws-refresh` rebase 到 `origin/main` 最新提交 `96861b5`。
+- 跟进 PR #65 review comment：`sql/incremental/01_refresh_stock_dwd_dws_window.sql` 增加目标表存在性 ASSERT，并用 BigQuery transaction 包住 9 张 DWD/DWS 目标表的窗口 DELETE/INSERT。
+- 新增 `scripts/qa/run_windowed_refresh_equivalence.py`，用于发布前/定期在 scratch 表中对比 canonical full SQL 与 window SQL 的窗口内逐列数值等价。
+- 同步 `sql/README.md`、`TODO.md` 和 OQ-005 相关记忆，明确大区间 backfill 按年/季/月分块执行，窗口 SQL 与 canonical full SQL 双实现并存期间必须跑等价 QA。
+
+### 重要上下文
+
+- 本次只修改 PR #65 分支内容，未部署 Composer，未执行生产 DML，未写 BigQuery/GCS/ADS 产物。
+- 等价 QA runner 默认 scratch dataset 为 `ashare_qa_windowed_equivalence`；真实执行会创建 `_full` / `_window` shadow 表，不应修改生产 DWD/DWS 表。
+- `git stash pop` 后的冲突已解决；本次 rebase 前安全备份 stash 已删除，仓库里剩余的 `stash@{0}: autostash` 不是本次 PR #65 follow-up 备份。
+
+### 改动文件
+
+- `sql/incremental/01_refresh_stock_dwd_dws_window.sql`
+- `scripts/qa/run_windowed_refresh_equivalence.py`
+- `sql/README.md`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile orchestration/composer/dags/ashare_daily_pipeline_v0.py scripts/qa/run_windowed_refresh_equivalence.py`
+- `python3 scripts/qa/run_windowed_refresh_equivalence.py --dry-run`
+- `bq query --dry_run`：窗口 SQL `backfill` / `daily_current` 参数各一次。
+- `bq query --dry_run`：`sql/qa/10_windowed_stock_refresh_checks.sql` `backfill` / `daily_current` 参数各一次。
+- `git diff --check --cached`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提交并 force-with-lease 推送 rebase 后的 PR #65 分支。
+- PR 合并后先做 `skip_ingestion=true` + `warehouse_mode=backfill` 小窗口 Composer smoke，再做 `daily_current` scheduler smoke 和 `qa_only` 验收。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `TODO.md`
 

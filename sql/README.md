@@ -75,6 +75,7 @@ python scripts/strategy1/render_report.py --project data-aquarium --backtest-id 
 - DWD 写入窗口：`date_from` / `date_to`，未传 `date_from` 时只写 `date_to` 或 `business_date`。
 - 价格/估值特征读取窗口：按 SSE 交易日历向前读取 60 个交易日。
 - 标签、特征宽表、样本表写入窗口：按 SSE 交易日历向前回补 20 个交易日，覆盖 forward label 受新增价格影响的历史样本。
+- 窗口 DML 使用 BigQuery transaction 包裹，日常小窗口失败时整体回滚；大区间 backfill 按年/季/月拆分执行。
 
 ```bash
 bq query \
@@ -94,6 +95,21 @@ bq query \
   --parameter=date_to:STRING:2026-06-04 \
   --parameter=warehouse_mode:STRING:backfill \
   < sql/qa/10_windowed_stock_refresh_checks.sql
+```
+
+窗口刷新和全量 CTAS 逻辑并存期间，定期或发布前运行等价 QA，防止两条路径静默漂移。该 QA 会把 canonical full SQL 渲染到 scratch `_full` 表，再把 `_full` 复制为 `_window` 表，重写窗口 SQL 刷 `_window`，最后逐列比较受影响窗口内 `_window` 与 `_full` 的数值。
+
+```bash
+python3 scripts/qa/run_windowed_refresh_equivalence.py --dry-run
+
+python3 scripts/qa/run_windowed_refresh_equivalence.py \
+  --project data-aquarium \
+  --location asia-east2 \
+  --scratch-dataset ashare_qa_windowed_equivalence \
+  --build-start-date 2024-01-01 \
+  --lookback-start-date 2023-01-01 \
+  --date-from 2025-06-02 \
+  --date-to 2025-06-13
 ```
 
 ## 产出表

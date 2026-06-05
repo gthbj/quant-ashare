@@ -24,7 +24,7 @@ OQ-005 raw GCS canonical 路径为 `a-share/tushare/raw_data/api=<api>/endpoint=
 
 2026-06-05 OQ-005 Phase 2.0 DAG 目标主链为 setup → `pipeline_start_status` → 可选 `ashare-ingest-current-scope` Cloud Run Job → `sql/qa/09_ods_daily_partition_readiness.sql` → 按 `warehouse_mode` 进入只读 QA、BigQuery SQL 兼容全量转换或 ADS 契约手工初始化 → `pipeline_finalize_status` → finish。`09` 只检查业务日分区或近期小窗口；现有 CTAS 转换只能通过 `warehouse_mode=full_rebuild` 或 `warehouse_mode=full_rebuild_compat` 显式手工进入，legacy `ashare_enable_full_refresh=true` 记录为 `full_rebuild_compat`。`warehouse_mode=qa_only` 只跑只读 QA，`skip_ingestion=true` 用于跳过 Cloud Run 的 smoke / 下游验收，`enable_ads_contract_init=true` 才执行 ADS 契约初始化。PR #61 follow-up 后，DAG 不再在模块顶层读取 Airflow Variable，单次 DAG run 可用 `pipeline_dry_run` / `dry_run` 覆盖 Cloud Run dry/write 分支。default Celery queue 的纯 scheduler smoke `manual_oq005_scheduler_smoke_default_queue_20260604_01` 已成功，`2026-05-20` 至 `2026-06-03` SSE 开市日生产 GCS 回填均成功并逐日通过 `09` readiness，`manual_oq005_daily_prod_20260604_01` 已按生产路径写入 `2026-06-04` 并成功完成 readiness；Phase 2.0 BigQuery SQL 兼容路径已进入 `main`。
 
-2026-06-05 OQ-005 Phase 2.2 股票窗口刷新已在分支 `codex/windowed-dwd-dws-refresh` 完成到本地可验证阶段。`warehouse_mode=daily_current` / `backfill` 且 `pipeline_dry_run=false` 时，Composer DAG 在 ODS readiness 后刷新 DIM 小表、恢复 P0 metadata，执行 `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 窗口化刷新股票价格/估值 DWD 与策略 1 DWS，并执行 `sql/qa/10_windowed_stock_refresh_checks.sql`。窗口脚本不写 ADS runner/backtest/report 产物；标签、特征宽表和样本表按 SSE 交易日历向前回补 20 个交易日，价格/估值特征向前读取 60 个交易日。该分支尚未部署 Composer，尚未执行生产 DML。
+2026-06-05 OQ-005 Phase 2.2 股票窗口刷新已在分支 `codex/windowed-dwd-dws-refresh` 完成到本地可验证阶段，并跟进 PR #65 review。`warehouse_mode=daily_current` / `backfill` 且 `pipeline_dry_run=false` 时，Composer DAG 在 ODS readiness 后刷新 DIM 小表、恢复 P0 metadata，执行 `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 窗口化刷新股票价格/估值 DWD 与策略 1 DWS，并执行 `sql/qa/10_windowed_stock_refresh_checks.sql`。窗口脚本不写 ADS runner/backtest/report 产物；标签、特征宽表和样本表按 SSE 交易日历向前回补 20 个交易日，价格/估值特征向前读取 60 个交易日；窗口 DML 使用 transaction 包裹并有目标表存在性守卫。`scripts/qa/run_windowed_refresh_equivalence.py` 是 full-vs-window 等价 QA runner：用 canonical full SQL 生成 scratch `_full` 表，复制为 `_window`，重写窗口 SQL 刷 `_window`，再逐列比较受影响窗口。该分支尚未部署 Composer，尚未执行生产 DML。
 
 ## ODS Raw Parquet Schema 修复约束
 
@@ -113,7 +113,7 @@ DWS/ADS 统一版本字段：`universe_version`、`feature_version`、`label_ver
 
 - 根目录 `sql/` 存放 P0 BigQuery Standard SQL：`00_create_datasets.sql`、`dim/*.sql`、`dwd/*.sql`、`dws/*.sql`、`ads/*.sql`。
 - 现有脚本覆盖 4 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表，使用 `CREATE OR REPLACE TABLE` + CTAS/DDL + 字段描述；`sql/qa/01_p0_smoke_checks.sql` 存放 DIM/DWD 基础断言，`sql/qa/02_strategy1_dws_ads_checks.sql` 存放策略 1 DWS/ADS 断言，`sql/qa/03_oq004_index_checks.sql` 存放 OQ-004 指数映射与 benchmark 覆盖断言。
-- `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 是 OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新脚本；`sql/qa/10_windowed_stock_refresh_checks.sql` 是对应窗口 QA。
+- `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 是 OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新脚本；`sql/qa/10_windowed_stock_refresh_checks.sql` 是对应窗口 QA；`scripts/qa/run_windowed_refresh_equivalence.py` 是定期/发布前 full-vs-window 数值等价 QA。
 - `sql/metadata/01_p0_table_column_descriptions.sql` 统一维护 P0 DIM/DWD 表级和字段级中文说明；每次重建 P0 表后都应重新执行该 metadata 脚本。
 - 当前脚本是 bootstrap SQL，不关闭 OQ-005；后续仍可迁移为 dbt 或纳入 Airflow 调度。
 - 2026-05-31 P0 已物化到 BigQuery；`dwd_index_eod` 已恢复读取 `index_dailybasic`。该接口市值/股本单位为元/股，不做 `*10000` 换算。

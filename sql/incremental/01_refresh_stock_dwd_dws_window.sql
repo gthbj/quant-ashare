@@ -68,6 +68,26 @@ IF p_write_end_date < p_dwd_write_start_date THEN
   );
 END IF;
 
+ASSERT (
+  SELECT COUNT(*) = 2
+  FROM `data-aquarium.ashare_dwd.INFORMATION_SCHEMA.TABLES`
+  WHERE table_name IN ('dwd_stock_eod_price', 'dwd_stock_eod_valuation')
+) AS 'windowed refresh target DWD tables must exist; run full_rebuild/full_rebuild_compat before daily_current/backfill';
+
+ASSERT (
+  SELECT COUNT(*) = 7
+  FROM `data-aquarium.ashare_dws.INFORMATION_SCHEMA.TABLES`
+  WHERE table_name IN (
+    'dws_stock_universe_daily',
+    'dws_stock_feature_price_daily',
+    'dws_stock_feature_valuation_daily',
+    'dws_stock_feature_fin_daily',
+    'dws_stock_label_daily',
+    'dws_stock_feature_daily_v0',
+    'dws_stock_sample_daily'
+  )
+) AS 'windowed refresh target DWS tables must exist; run full_rebuild/full_rebuild_compat before daily_current/backfill';
+
 CREATE TEMP TABLE refresh_window AS
 SELECT
   p_business_date AS business_date,
@@ -76,6 +96,8 @@ SELECT
   p_feature_read_start_date AS feature_read_start_date,
   p_label_write_start_date AS label_write_start_date,
   p_write_end_date AS write_end_date;
+
+BEGIN TRANSACTION;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- DWD: dwd_stock_eod_price
@@ -1593,5 +1615,7 @@ JOIN `data-aquarium.ashare_dws.dws_stock_label_daily` AS l
 WHERE f.trade_date BETWEEN p_label_write_start_date AND p_write_end_date
   AND f.feature_version = p_feature_version
   AND l.label_version = p_label_version;
+
+COMMIT TRANSACTION;
 
 SELECT * FROM refresh_window;
