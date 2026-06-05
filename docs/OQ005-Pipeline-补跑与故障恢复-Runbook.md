@@ -83,8 +83,9 @@
    gcloud run jobs execute ashare-ingest-current-scope \
      --project=data-aquarium \
      --region=asia-east2 \
-     --args="--endpoint-group,current_scope,--business-date,2026-06-05,--allow-gcs-write,--endpoint-filter,daily"
+     --args="--endpoint-group,current_scope,--endpoint,daily,--business-date,2026-06-05,--allow-gcs-write"
    ```
+   注意：`--endpoint` 参数可重复使用，如 `--endpoint,daily,--endpoint,adj_factor`。
 
 3. **验证分区状态：**
    ```sql

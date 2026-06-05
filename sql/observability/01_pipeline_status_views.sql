@@ -22,7 +22,6 @@ SELECT
   finished_at,
   TIMESTAMP_DIFF(COALESCE(finished_at, CURRENT_TIMESTAMP()), started_at, SECOND) AS duration_seconds,
   error_summary,
-  -- 窗口范围
   CONCAT(COALESCE(date_from, business_date), ' → ', COALESCE(date_to, business_date)) AS window_range
 FROM `data-aquarium.ashare_meta.pipeline_run`
 ORDER BY started_at DESC
@@ -83,7 +82,7 @@ ORDER BY t.finished_at DESC
 LIMIT 100;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 4. Cloud Run ingestion 失败明细
+-- 4. Cloud Run ingestion 失败明细（只含 failed，不含 empty_return）
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE VIEW `data-aquarium.ashare_meta.v_ingestion_failures` AS
 SELECT
@@ -101,16 +100,39 @@ SELECT
   finished_at,
   TIMESTAMP_DIFF(COALESCE(finished_at, CURRENT_TIMESTAMP()), started_at, SECOND) AS duration_seconds
 FROM `data-aquarium.ashare_meta.ingestion_run`
-WHERE status IN ('failed', 'empty_return')
+WHERE status = 'failed'
 ORDER BY started_at DESC
 LIMIT 100;
 
 -- ────────────────────────────────────────────────────────────────────────────
--- 5. 每日 pipeline 健康仪表盘
+-- 4b. Cloud Run ingestion empty_return 明细（需按 endpoint/date 判断是否正常）
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE VIEW `data-aquarium.ashare_meta.v_ingestion_empty_returns` AS
+SELECT
+  ingestion_run_id,
+  endpoint,
+  source_system,
+  business_date_start,
+  business_date_end,
+  partition_date,
+  status,
+  error_summary,
+  gcs_uri,
+  row_count,
+  started_at,
+  finished_at
+FROM `data-aquarium.ashare_meta.ingestion_run`
+WHERE status = 'empty_return'
+ORDER BY started_at DESC
+LIMIT 100;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 5. 每日 pipeline 健康仪表盘（用 pipeline_run_id join 避免串 run）
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE VIEW `data-aquarium.ashare_meta.v_pipeline_daily_health` AS
 WITH latest_runs AS (
   SELECT
+    pipeline_run_id,
     business_date,
     warehouse_mode,
     status,
@@ -122,19 +144,15 @@ WITH latest_runs AS (
 ),
 task_summary AS (
   SELECT
-    r.business_date,
-    r.warehouse_mode,
-    r.pipeline_run_id,
+    t.pipeline_run_id,
     COUNTIF(t.status = 'success') AS tasks_success,
     COUNTIF(t.status = 'failed') AS tasks_failed,
     COUNTIF(t.status = 'skipped') AS tasks_skipped,
     COUNTIF(t.status = 'running') AS tasks_running,
     COUNT(*) AS tasks_total
-  FROM `data-aquarium.ashare_meta.pipeline_run` r
-  JOIN `data-aquarium.ashare_meta.pipeline_task_status` t
-    ON r.pipeline_run_id = t.pipeline_run_id
-  WHERE r.started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
-  GROUP BY r.business_date, r.warehouse_mode, r.pipeline_run_id
+  FROM `data-aquarium.ashare_meta.pipeline_task_status` t
+  WHERE t.started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+  GROUP BY t.pipeline_run_id
 )
 SELECT
   lr.business_date,
@@ -147,16 +165,19 @@ SELECT
   ts.tasks_total,
   lr.started_at,
   lr.finished_at,
-  TIMESTAMP_DIFF(COALESCE(lr.finished_at, CURRENT_TIMESTAMP()), lr.started_at, SECOND) AS duration_seconds
+  TIMESTAMP_DIFF(COALESCE(lr.finished_at, CURRENT_TIMESTAMP()), lr.started_at, SECOND) AS duration_seconds,
+  lr.pipeline_run_id
 FROM latest_runs lr
 LEFT JOIN task_summary ts
-  ON lr.business_date = ts.business_date
-  AND lr.warehouse_mode = ts.warehouse_mode
+  ON lr.pipeline_run_id = ts.pipeline_run_id
 WHERE lr.rn = 1
 ORDER BY lr.business_date DESC, lr.warehouse_mode;
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 6. 最近 24 小时异常摘要（供告警查询）
+--    - pipeline_failure: DAG run 失败
+--    - task_failure: task 失败（含 QA、readiness、窗口刷新等）
+--    - ingestion_failed: 采集执行失败（不含 empty_return）
 -- ────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE VIEW `data-aquarium.ashare_meta.v_alert_summary` AS
 SELECT
@@ -190,7 +211,7 @@ WHERE status = 'failed'
 UNION ALL
 
 SELECT
-  'ingestion_failure',
+  'ingestion_failed',
   ingestion_run_id,
   partition_date,
   endpoint,
@@ -199,7 +220,18 @@ SELECT
   started_at,
   finished_at
 FROM `data-aquarium.ashare_meta.ingestion_run`
-WHERE status IN ('failed', 'empty_return')
+WHERE status = 'failed'
   AND started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
 
 ORDER BY finished_at DESC;
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- 7. 告警探针（供 Cloud Scheduler / check_alerts.py 查询）
+--    返回最近 N 分钟内新增的异常数量，> 0 即触发通知。
+-- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE VIEW `data-aquarium.ashare_meta.v_alert_probe` AS
+SELECT
+  COUNT(*) AS alert_count,
+  MIN(finished_at) AS earliest_alert,
+  MAX(finished_at) AS latest_alert
+FROM `data-aquarium.ashare_meta.v_alert_summary`;
