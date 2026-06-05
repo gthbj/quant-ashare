@@ -9,6 +9,12 @@ DECLARE p_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n5_w20_pv'
 DECLARE p_rebalance_frequency STRING DEFAULT 'weekly';
 DECLARE p_target_holdings INT64 DEFAULT 5;
 DECLARE p_label_horizon INT64 DEFAULT 5;
+DECLARE p_train_start DATE DEFAULT DATE '2019-04-03';
+DECLARE p_train_end DATE DEFAULT DATE '2023-12-31';
+DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
+DECLARE p_valid_end DATE DEFAULT DATE '2024-12-31';
+DECLARE p_test_start DATE DEFAULT DATE '2025-01-01';
+DECLARE p_test_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;  -- NULL 表示按 p_predict_start 作为调仓周序锚点
@@ -61,15 +67,23 @@ ASSERT (
 
 -- ── split 日期互斥 ──
 ASSERT (
+  p_train_start <= p_train_end
+  AND p_valid_start <= p_valid_end
+  AND p_test_start <= p_test_end
+  AND p_train_end < p_valid_start
+  AND p_valid_end < p_test_start
+) AS 'configured split date ranges must be ordered and mutually exclusive';
+
+ASSERT (
   SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
   WHERE tp.run_id = p_prediction_run_id AND tp.trade_date BETWEEN DATE '2019-01-01' AND p_predict_end
     AND (
-      (tp.split_tag = 'train' AND tp.trade_date >= DATE '2024-01-01')
-      OR (tp.split_tag = 'valid' AND (tp.trade_date < DATE '2024-01-01' OR tp.trade_date >= DATE '2025-01-01'))
-      OR (tp.split_tag = 'test' AND (tp.trade_date < DATE '2025-01-01' OR tp.trade_date >= DATE '2026-01-01'))
+      (tp.split_tag = 'train' AND NOT tp.trade_date BETWEEN p_train_start AND p_train_end)
+      OR (tp.split_tag = 'valid' AND NOT tp.trade_date BETWEEN p_valid_start AND p_valid_end)
+      OR (tp.split_tag = 'test' AND NOT tp.trade_date BETWEEN p_test_start AND p_test_end)
     )
-) AS 'split_tag date ranges must be mutually exclusive';
+) AS 'split_tag must match configured split date ranges';
 
 -- ── 特征列不含禁止项 ──
 ASSERT (

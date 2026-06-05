@@ -258,8 +258,10 @@ def build_task_fanout_steps(config, exp, args, common_flags: list[str]) -> list[
     work_units_uri = join_gs_uri(matrix_uri, "work_units.json")
     work_unit_count = len(config.candidate_grid)
     candidate_parallelism = resolve_candidate_parallel_count(work_unit_count, args.candidate_parallelism)
+    # prepare_matrix only materializes frozen matrix artifacts; ADS replacement is handled by reducer/backtest steps.
+    prepare_common_flags = [flag for flag in common_flags if flag != "--force-replace"]
     prepare_flags = [
-        *common_flags,
+        *prepare_common_flags,
         f"--matrix-id={matrix_id}",
         f"--matrix-uri={matrix_uri}",
         f"--candidate-parallelism={args.candidate_parallelism}",
