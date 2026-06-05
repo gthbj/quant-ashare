@@ -8,6 +8,8 @@
 
 **OQ-005 PR #70 部署/smoke 与 OQ-012 读层复核（2026-06-05）**：当前处理工作树为 `/Users/luna/Desktop/git/quant-ashare`（`main`，干净起点）；PR #70 实现工作树是 `/private/tmp/quant-ashare-oq005-daily-window-hardening`、分支 `codex/oq005-daily-window-hardening`，已在 PR #70 合并后清理。PR #70 合并后已只读复核 Composer bucket：`data/sql/` 下 `01_refresh_stock_dwd_dws_window.sql` 与 `10_windowed_stock_refresh_checks.sql` 哈希均与当前 `main` 一致；Airflow backfill smoke `manual_oq005_backfill_smoke_pr70_20260605_01`（`2026-06-03..2026-06-04`）成功；非交易日 daily_current smoke `manual_oq005_daily_current_nontd_20260606_01` 归一到 `2026-06-05` 后因 ODS 未采集在 `ods_daily_partition_readiness` 以 `QA-ODS-DAILY-2` 阻断，窗口写入未执行，符合门禁预期。OQ-012 只读复核中 `sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过，当前 BigQuery 读层未再暴露 schema mismatch；待 owner 决定是否关闭/归档 OQ-012 或保留防复发任务。
 
+**sklearn native search 真实运行修复（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-native-search-orchestrator-fix`，分支 `codex/fix-native-search-orchestrator-metrics`。`main` 部署镜像后首次真实跑 `search_id=sklearn_native_pvfq_n30_bw_h5_20260605_01`：训练面板已补建 3,055,781 行，`prepare_matrix` execution `strategy1-prepare-matrix-job-d697c` 成功，36-task candidate fan-out execution `strategy1-train-candidate-fanout-job-tpl9v` 全部成功。Top5 后处理暴露两个工程问题：orchestrator 排名阶段不必要下载/反序列化 36 个 `model.joblib`；Top5 select/register/predict 并发写 `ads_model_registry` 时 2 个 execution 因 BigQuery 429 table update 限流失败。当前分支已修复：ranking 阶段只下载 JSON metrics/status 且 `load_models=False` 不要求/不加载模型；`load_dataframe` 对 BigQuery `TooManyRequests` 做退避重试。已取消不完整的 3 个 backtest execution；待合并、重建镜像后用同一 search_id `--resume --force-replace` 重跑 Top5。
+
 **PR #71 sklearn native search review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-sklearn-native-search`，分支 `codex/implement-sklearn-native-search`。已按 PR #71 comment 修复 6 类问题：native acceptance / `18` QA 补 valid/test `top_minus_bottom_fwd_ret_mean` 不能同时为负的 hard gate；QA-SKN-13 修复 `final_holdout_status` NULL 漏洞；Python/QA 的 test RankIC 边界统一为严格 `>0`；`rank_candidates` fallback 仅限“全员 valid RankIC 非正”且 hard filter 不可绕过，并排除 `not_converged`；Top5 单候选失败改为 fail-soft、其他候选继续跑但最终 `18` 仍要求完整 Top5；额外修复 `fetch_topk_ads_outputs` runtime SQL 中无 `predict_date` 分区过滤的多余 prediction distinct join；最终 follow-up 已将 test 侧 `top_minus_bottom_fwd_ret_mean` 从 10 分桶改为 5 分桶，和 valid 侧 `q=5` 口径一致。验证：Python `py_compile`、ranking fallback 小样例、36-task dry-run、runtime fetch SQL dry-run、`18` BigQuery dry-run、`git diff --check`。尚未部署镜像、未实跑 36 候选。
 
 **OQ-005 daily_current 20 日窗口与非交易日口径修复（2026-06-05）**：工作树 `/private/tmp/quant-ashare-oq005-daily-window-hardening`，分支 `codex/oq005-daily-window-hardening`。本分支从最新 `origin/main` 补入本地 `5b62895` 的 daily_current 20 个交易日窗口和 QA-WIN-16/17/18 估值覆盖检查，并进一步硬化非交易日口径：`daily_current` 的 `date_to` / `business_date` 会先归一到不晚于请求日期的最近 SSE 开市日，`backfill` 保持显式日期。PR #70 review follow-up 已修复 QA-WIN-18 误以 `pe/pb` 和全量 valuation 行触发的问题，改为在 price-driven feature universe 内按 `total_mv_cny/circ_mv_cny` 检查 `has_valuation_data`；backfill 的估值覆盖 QA 也改为实际写入窗口。已同步 `sql/README.md`、`orchestration/composer/README.md`、`ARCHITECTURE_MEMORY.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`TODO.md` 和 `IMPLEMENTATION_STATUS.md`，将 OQ-005 状态从“尚未部署 / 待 smoke”修正为已完成 Composer DAG/SQL 部署验收、20 日估值缺口回填和 backfill / qa_only / daily_current smoke；OQ-005 仍 open，剩余 Dataform、告警、补跑和运维观测闭环。验证：窗口 SQL / QA 对 `daily_current business_date=2026-06-06` 和 `backfill 2026-06-03..2026-06-04` 的 BigQuery dry-run 均通过；只读窗口计算确认 `2026-06-06` 归一为 `2026-06-05`，窗口起点 `2026-05-11`，`backfill 2026-06-03..2026-06-04` 的估值覆盖起点为 `2026-06-03`。该分支随后通过 PR #70 合并；Composer 同步与生产 smoke 见上方 OQ-005 PR #70 部署/smoke 摘要。
@@ -65,6 +67,64 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: sklearn_native_pvfq_n30_bw_h5_20260605_01
+相关 issue/PR: sklearn native search Top5 runtime fix
+
+### 已完成工作
+
+- 在 `main` 部署镜像后启动真实 sklearn native search；补建 `s1_sklearn_native_pvfq_n30_bw_h5_20260605_01` 训练面板 3,055,781 行。
+- 确认 `prepare_matrix` 成功（`strategy1-prepare-matrix-job-d697c`，4m04s）和 36 个 candidate task 全部成功（`strategy1-train-candidate-fanout-job-tpl9v`，1m24s）。
+- 定位 Top5 后处理两个工程问题：本地 ranking 阶段下载/反序列化 `model.joblib` 不必要；Top5 并发写 `ads_model_registry` 触发 BigQuery 429 table update 限流。
+- 修复 ranking-only candidate 加载：orchestrator 本地阶段只下载 `candidate_metrics.json` / `task_status.json`，`load_candidates(load_models=False)` 不要求也不加载 `model.joblib`。
+- 修复 BigQuery load 瞬时限流：`load_dataframe` 对 `google.api_core.exceptions.TooManyRequests` 做退避重试。
+- 取消不完整 Top5 backtest execution：`strategy1-backtest-report-job-pbr24`、`strategy1-backtest-report-job-mcpmc`、`strategy1-backtest-report-job-44qml`。
+
+### 重要上下文
+
+- 36 candidate 并发训练本身没有失败；失败发生在 Top5 select/register/predict 同时写同一张 ADS 表。
+- 本修复需要合并并重建/部署 Cloud Run 镜像后才会影响容器端 select/register/predict。
+- 后续可复用已成功的 prepare/fanout artifact，用同一 `search_id` 加 `--resume --force-replace` 重跑 Top5。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/bq_io.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1_cloudrun/select_register_predict.py`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1_cloudrun/bq_io.py scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py scripts/strategy1_cloudrun/select_register_predict.py scripts/strategy1_cloudrun/train_predict.py`
+- 小样例验证 `load_candidates(load_models=False)` 不需要 `model.joblib` 且不调用 `joblib.load`。
+- 小样例验证 `load_dataframe` 对 `TooManyRequests` 重试并按 10s/20s 退避。
+- `orchestrate_sklearn_native_search --dry-run` 展开 36 candidate / Top5 plan。
+- `git diff --check`
+
+### 阻塞项
+
+- 无代码阻塞；需要合并后重建 Cloud Run 镜像并重跑 Top5 才能完成 native search 验收。
+
+### 下一步建议
+
+- 提 PR 并合并本修复。
+- 重建并部署 `strategy1-cloudrun-runner` 镜像到 prepare/candidate/select/backtest jobs。
+- 用 `search_id=sklearn_native_pvfq_n30_bw_h5_20260605_01` 执行 `orchestrate_sklearn_native_search --resume --force-replace`，重跑 Top5，随后跑 `18` QA 并判断是否接受 sklearn native baseline。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
 
 日期: 2026-06-05
 Agent ID: Codex
