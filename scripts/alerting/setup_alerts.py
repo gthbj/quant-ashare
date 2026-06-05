@@ -2,11 +2,11 @@
 """OQ-005 Pipeline 告警规则配置脚本。
 
 告警链路：
-  1. check_alerts.py 由 Cloud Scheduler 定时调用
+  1. check_alerts.py 由 Composer DAG oq005_alert_checker 定时调用
   2. 查询 v_alert_summary 视图
-  3. 将异常写入 Cloud Logging（JSON payload）
+  3. 将异常与 checker heartbeat 写入 Cloud Logging（JSON payload）
   4. Cloud Logging 日志指标匹配这些条目
-  5. Cloud Monitoring 告警策略订阅日志指标，> 0 时触发通知
+  5. Cloud Monitoring 告警策略订阅日志指标，按阈值或 heartbeat 缺失触发通知
 
 使用方式：
     # dry-run 查看配置
@@ -21,7 +21,7 @@
 前置条件：
     1. 已执行 sql/observability/01_pipeline_status_views.sql 创建视图
     2. 已启用 Cloud Logging API + Cloud Monitoring API
-    3. check_alerts.py 已部署为 Cloud Scheduler job（每 5-10 分钟执行）
+    3. oq005_alert_checker Composer DAG 已部署（每 10 分钟执行）
     4. 已配置通知渠道（Email/Slack/PagerDuty）
 """
 
@@ -66,6 +66,15 @@ LOG_METRICS = [
         "description": "Cloud Run ingestion execution failed (not empty_return)",
         "filter": 'jsonPayload.alert_type="ingestion_failed"',
     },
+    {
+        "name": "oq005_alert_checker_heartbeat",
+        "description": "OQ-005 alert checker heartbeat for liveness monitoring",
+        "filter": (
+            'jsonPayload.alert_type="alert_checker_heartbeat" '
+            'AND jsonPayload.resource_id="oq005_alert_checker" '
+            'AND jsonPayload.status="succeeded"'
+        ),
+    },
 ]
 
 # 告警策略定义
@@ -79,6 +88,7 @@ ALERT_POLICIES = [
             "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "pipeline_failure",
+        "condition_type": "threshold",
         "log_metric_name": "oq005_pipeline_failure",
         "threshold_value": 0,
         "duration_seconds": 0,
@@ -93,6 +103,7 @@ ALERT_POLICIES = [
             "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "task_failure",
+        "condition_type": "threshold",
         "log_metric_name": "oq005_task_failure",
         "threshold_value": 0,
         "duration_seconds": 0,
@@ -106,10 +117,26 @@ ALERT_POLICIES = [
             "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "ingestion_failed",
+        "condition_type": "threshold",
         "log_metric_name": "oq005_ingestion_failed",
         "threshold_value": 0,
         "duration_seconds": 0,
         "severity": "WARNING",
+    },
+    {
+        "display_name": "OQ-005: Alert Checker Heartbeat Missing",
+        "description": (
+            "告警 checker 自身心跳缺失。\n\n"
+            "`oq005_alert_checker` 每 10 分钟运行并写入 heartbeat；"
+            "若 30 分钟内没有 heartbeat，说明 checker DAG 可能失败、被 pause、"
+            "Composer 调度异常或日志写入异常。\n\n"
+            "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
+        ),
+        "condition_display_name": "alert_checker_heartbeat_absent",
+        "condition_type": "absence",
+        "log_metric_name": "oq005_alert_checker_heartbeat",
+        "duration_seconds": 1800,
+        "severity": "ERROR",
     },
 ]
 
@@ -159,21 +186,30 @@ def create_alert_policy(
     condition = monitoring_v3.AlertPolicy.Condition()
     condition.display_name = policy_def["condition_display_name"]
 
-    threshold = monitoring_v3.AlertPolicy.Condition.MetricThreshold()
-    threshold.filter = f'metric.type="{metric_type}"'
-    threshold.comparison = monitoring_v3.AlertPolicy.Condition.ComparisonType.COMPARISON_GT
-    threshold.threshold_value = policy_def["threshold_value"]
-
-    if policy_def["duration_seconds"] > 0:
-        threshold.duration = duration_pb2.Duration(seconds=policy_def["duration_seconds"])
-
     aggregation = monitoring_v3.Aggregation()
-    aggregation.alignment_period.seconds = 300
+    aggregation.alignment_period = duration_pb2.Duration(seconds=300)
     aggregation.per_series_aligner = monitoring_v3.Aggregation.Aligner.ALIGN_COUNT
     aggregation.cross_series_reducer = monitoring_v3.Aggregation.Reducer.REDUCE_SUM
-    threshold.aggregations.append(aggregation)
 
-    condition.metric_threshold = threshold
+    condition_type = policy_def.get("condition_type", "threshold")
+    if condition_type == "absence":
+        absence = monitoring_v3.AlertPolicy.Condition.MetricAbsence()
+        absence.filter = f'metric.type="{metric_type}"'
+        absence.duration = duration_pb2.Duration(seconds=policy_def["duration_seconds"])
+        absence.aggregations.append(aggregation)
+        condition.condition_absent = absence
+    else:
+        threshold = monitoring_v3.AlertPolicy.Condition.MetricThreshold()
+        threshold.filter = f'metric.type="{metric_type}"'
+        threshold.comparison = monitoring_v3.ComparisonType.COMPARISON_GT
+        threshold.threshold_value = policy_def["threshold_value"]
+
+        if policy_def["duration_seconds"] > 0:
+            threshold.duration = duration_pb2.Duration(seconds=policy_def["duration_seconds"])
+
+        threshold.aggregations.append(aggregation)
+        condition.condition_threshold = threshold
+
     policy.conditions.append(condition)
 
     if notification_channels:
@@ -186,7 +222,7 @@ def create_alert_policy(
     )
 
     alert_strategy = monitoring_v3.AlertPolicy.AlertStrategy()
-    alert_strategy.auto_close.seconds = 86400
+    alert_strategy.auto_close = duration_pb2.Duration(seconds=86400)
     policy.alert_strategy = alert_strategy
 
     try:
@@ -244,9 +280,9 @@ def main() -> None:
             print(f"    description: {p['description'].splitlines()[0]}")
         print()
         print("=== 告警链路 ===")
-        print("  check_alerts.py --write-log")
+        print("  oq005_alert_checker -> check_alerts.py --write-log --write-heartbeat")
         print("    -> Cloud Logging (jsonPayload)")
-        print("    -> log metric (oq005_*)")
+        print("    -> log metric (oq005_* + checker heartbeat)")
         print("    -> Cloud Monitoring alert policy")
         print("    -> notification channel")
         return
@@ -274,7 +310,7 @@ def main() -> None:
     print("=== 完成 ===")
     print()
     print("下一步：")
-    print("  1. 部署 check_alerts.py 为定期任务（每 5-10 分钟）")
+    print("  1. 部署 oq005_alert_checker Composer DAG（每 10 分钟）")
     print("  2. 验证：https://console.cloud.google.com/monitoring/alerting?project=" + args.project)
     print("  3. 日志指标：https://console.cloud.google.com/logs/metrics?project=" + args.project)
 

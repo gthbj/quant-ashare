@@ -21,6 +21,9 @@
     # 指定查询窗口
     python scripts/alerting/check_alerts.py --lookback-minutes 10
 
+    # 写入 checker heartbeat（供 dead-man's-switch liveness 告警使用）
+    python scripts/alerting/check_alerts.py --write-heartbeat
+
 前置条件：
     1. 已执行 sql/observability/01_pipeline_status_views.sql 创建视图
     2. 已配置 ADC：gcloud auth application-default login
@@ -148,6 +151,35 @@ def write_to_cloud_logging(
     return written
 
 
+def write_heartbeat_to_cloud_logging(
+    project_id: str,
+    *,
+    alerts_count: int,
+    lookback_minutes: int,
+) -> None:
+    """写入 checker heartbeat，供 Cloud Monitoring 监控告警链自身存活。"""
+    if not HAS_CLOUD_LOGGING:
+        raise AlertLogWriteError("请安装依赖：pip install google-cloud-logging")
+
+    client = cloud_logging.Client(project=project_id)
+    logger = client.logger(LOG_NAME)
+    checked_at = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "alert_type": "alert_checker_heartbeat",
+        "resource_id": "oq005_alert_checker",
+        "status": "succeeded",
+        "checked_at": checked_at,
+        "lookback_minutes": lookback_minutes,
+        "alerts_count": alerts_count,
+    }
+    insert_id_source = "|".join(
+        str(payload.get(key) or "")
+        for key in ("alert_type", "resource_id", "checked_at")
+    )
+    insert_id = hashlib.sha256(insert_id_source.encode("utf-8")).hexdigest()
+    logger.log_struct(payload, severity="INFO", insert_id=insert_id)
+
+
 def format_alert_message(alerts: list[dict[str, Any]]) -> str:
     """格式化告警消息。"""
     if not alerts:
@@ -180,6 +212,11 @@ def main() -> None:
     parser.add_argument("--project", default=PROJECT_ID, help=f"GCP project (default: {PROJECT_ID})")
     parser.add_argument("--lookback-minutes", type=int, default=10, help="Lookback window in minutes (default: 10)")
     parser.add_argument("--write-log", action="store_true", help="Write alerts to Cloud Logging")
+    parser.add_argument(
+        "--write-heartbeat",
+        action="store_true",
+        help="Write checker heartbeat to Cloud Logging for liveness monitoring",
+    )
     parser.add_argument("--notify", action="store_true", help="Send notification")
     parser.add_argument("--channel", default="stdout", choices=["stdout", "slack", "email"], help="Notification channel")
     parser.add_argument("--json", action="store_true", help="Output JSON")
@@ -197,6 +234,16 @@ def main() -> None:
         return
 
     if not alerts:
+        if args.write_heartbeat:
+            try:
+                write_heartbeat_to_cloud_logging(
+                    args.project,
+                    alerts_count=0,
+                    lookback_minutes=args.lookback_minutes,
+                )
+            except AlertLogWriteError as e:
+                print(f"ALERT HEARTBEAT WRITE FAILED: {e}", file=sys.stderr)
+                sys.exit(1)
         print("0")
         return
 
@@ -208,6 +255,17 @@ def main() -> None:
             print(f"ALERT LOG WRITE FAILED: {e}", file=sys.stderr)
             sys.exit(1)
         print(f"Wrote {written} alerts to Cloud Logging", file=sys.stderr)
+
+    if args.write_heartbeat:
+        try:
+            write_heartbeat_to_cloud_logging(
+                args.project,
+                alerts_count=len(alerts),
+                lookback_minutes=args.lookback_minutes,
+            )
+        except AlertLogWriteError as e:
+            print(f"ALERT HEARTBEAT WRITE FAILED: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # 输出/通知
     message = format_alert_message(alerts)

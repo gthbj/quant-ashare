@@ -5,6 +5,7 @@ This enables the Cloud Monitoring alert pipeline:
   v_alert_summary -> check_alerts.py -> Cloud Logging -> log-based metric -> alert policy
 
 Schedule: every 10 minutes
+Lookback: 20 minutes, intentionally overlapping to tolerate scheduler jitter
 """
 
 from __future__ import annotations
@@ -45,8 +46,9 @@ def _run_alert_check(**context) -> None:
             sys.executable,
             str(script_path),
             "--project", "data-aquarium",
-            "--lookback-minutes", "10",
+            "--lookback-minutes", "20",
             "--write-log",
+            "--write-heartbeat",
         ],
         capture_output=True,
         text=True,
@@ -58,9 +60,14 @@ def _run_alert_check(**context) -> None:
     elif result.returncode == 2:
         # Alerts found - log them but don't fail the DAG
         print(f"Alerts found: {result.stdout}")
-    else:
+    elif result.returncode == 0:
         # No alerts
         print("No alerts found")
+    else:
+        raise RuntimeError(
+            "Alert checker exited with unexpected return code "
+            f"{result.returncode}.\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
 
 
 with DAG(

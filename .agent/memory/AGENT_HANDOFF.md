@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-005 告警/观测生产闭环部署与文档同步（2026-06-05）**：工作树 `/private/tmp/oq005-alerts-ops`，分支 `codex/oq005-alerts-ops`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到 3 个策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。`check_alerts.py --lookback-minutes 10 --json` 查询正常。PR #75 review follow-up 已把 `scripts/alerting/README.md` 的生产入口从 Cloud Scheduler/cron 修正为 Composer DAG，并同步 `TODO.md`、`OPEN_QUESTIONS.md` 的 OQ-005 剩余范围。验证通过 Python py_compile、观测 SQL BigQuery dry-run 和 `git diff --check`。下一步：合并 PR 后继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
+**OQ-005 告警/观测生产闭环部署与 PR #75 follow-up（2026-06-05）**：工作树 `/private/tmp/oq005-alerts-ops`，分支 `codex/oq005-alerts-ops`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到 3 个策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。PR #75 review follow-up 已修复 README 生产入口、OQ-005 状态矛盾、DAG 意外返回码静默成功、checker liveness 缺失和 10 分钟 lookback 无重叠问题：DAG 只接受 rc `0/1/2`，其他 rc fail-closed；生产 lookback 改 20 分钟；`check_alerts.py` 新增 `--write-heartbeat`；`setup_alerts.py` 新增 `oq005_alert_checker_heartbeat` metric 与 30 分钟 absence policy，并修复 Monitoring API duration / condition enum / condition field 写法。验证通过 py_compile、`setup_alerts.py --dry-run`、只读 `check_alerts.py --json`、Monitoring condition 构造、观测 SQL dry-run、`git diff --check`。该 follow-up 尚未同步 Composer bucket 或应用新增 liveness policy；合并后需部署并验收 checker heartbeat absence 告警。下一步：合并 PR 后继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
 
 **OQ-005 告警/观测 PR #72 review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-alerts-runbook`，分支 `codex/oq005-alerts-runbook`。PR #72 新增 BigQuery 观测视图、Cloud Logging / Cloud Monitoring 告警配置脚本、告警查询脚本和补跑 runbook。本轮按 comment 修复：`setup_alerts.py` 的 `LogMetric` 使用正确 `filter` 字段；`check_alerts.py` 查询失败和缺 `google-cloud-logging` 写日志路径均 fail-closed，默认 lookback 改 10 分钟并用稳定 `insert_id` 降低重复日志；runbook §9 的 `task_failure` / `ingestion_failed` 与 SQL 实现一致；`v_alert_probe` 注释改为固定 24 小时手工健康检查口径。验证通过 Python `py_compile`、观测 SQL BigQuery dry-run、`git diff --check`；本机缺 `google-cloud-logging`，未做真实 log metric API apply。合并后仍需部署视图、配置 Cloud Scheduler/Cloud Run checker、log-based metrics、alert policies，并做生产 smoke。
 
@@ -436,6 +436,67 @@ Run ID: N/A
 
 - `scripts/alerting/README.md`
 - `TODO.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: PR #75 / OQ-005 alert checker reliability follow-up
+
+### 已完成工作
+
+- 修复 `oq005_alert_checker` DAG 返回码处理：`rc=0` 表示无异常成功，`rc=1` 表示 checker 查询/写日志失败并让 DAG failed，`rc=2` 表示发现业务告警但 DAG 成功；其他意外返回码一律 fail-closed。
+- 将 DAG 调用 `check_alerts.py` 的生产 lookback 从 10 分钟放宽为 20 分钟，和 10 分钟调度形成重叠。
+- `check_alerts.py` 新增 `--write-heartbeat`，成功查询后写入 `alert_checker_heartbeat` 日志，用于监控告警链自身存活。
+- `setup_alerts.py` 新增 `oq005_alert_checker_heartbeat` log-based metric，以及 30 分钟无 heartbeat 的 absence alert policy。
+- 修复 `setup_alerts.py` 里 Cloud Monitoring API 的 duration / condition enum / condition field 写法，避免真实 apply 创建策略时失败。
+- README 同步 Composer DAG、20 分钟 lookback、heartbeat 和 dead-man's-switch 口径。
+- TODO / OPEN_QUESTIONS / IMPLEMENTATION_STATUS 同步为“主告警链路已部署验收，checker liveness follow-up 待合并后部署验收”。
+
+### 重要上下文
+
+- 本次只改 PR 分支中的代码与文档，未同步 Composer bucket，未实际创建新增 heartbeat metric / absence policy。
+- 合并后需要部署 `orchestration/composer/dags/oq005_alert_checker.py` 与 `scripts/alerting/check_alerts.py` 到 Composer bucket，并运行 `setup_alerts.py` 应用新增 heartbeat metric / absence policy。
+
+### 改动文件
+
+- `orchestration/composer/dags/oq005_alert_checker.py`
+- `scripts/alerting/check_alerts.py`
+- `scripts/alerting/setup_alerts.py`
+- `scripts/alerting/README.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `/tmp/oq005-alerts-venv/bin/python -m py_compile scripts/alerting/check_alerts.py scripts/alerting/setup_alerts.py orchestration/composer/dags/oq005_alert_checker.py`
+- `/tmp/oq005-alerts-venv/bin/python scripts/alerting/setup_alerts.py --dry-run`
+- `/tmp/oq005-alerts-venv/bin/python scripts/alerting/check_alerts.py --lookback-minutes 20 --json`
+- 临时 monkeypatch 验证：告警日志写入失败时不会写成功 heartbeat
+- 临时构造验证：3 个 threshold policy 生成 `condition_threshold`，checker heartbeat 缺失策略生成 `condition_absent`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/observability/01_pipeline_status_views.sql`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- PR #75 合并后部署 checker DAG / checker script 到 Composer bucket，应用新增 heartbeat metric / absence policy，并做 heartbeat liveness smoke。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 
