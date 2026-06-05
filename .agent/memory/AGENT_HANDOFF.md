@@ -8,7 +8,7 @@
 
 **项目记忆瘦身归档（2026-06-05）**：`AGENT_HANDOFF.md` 已按 owner 要求整理，当前文件只保留启动摘要、归档清理交接和最近 3 条交接；较早的 30 条交接已追加到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动优先读本文件；需要审计历史时再读 archive。
 
-**OQ-010 Cloud Run Python baseline 搜索 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-python-baseline-search`，分支 `codex/prd-cloudrun-python-baseline-search`。新增 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：本轮数据截止 `2026-04-30`；train/valid/test/final_holdout 为 `2019-04-03..2023-12-31` / 2024 / 2025 / `2026-01-05..2026-04-30`；固定 `pv_fin_quality + 30/5% + biweekly + 5d`、沪深主板股票池、成本 profile 和 Ledger v1；P0 推荐 LightGBM wave 2，固定 40 个候选、40 并发、单 task 1 vCPU / 4Gi，并按 Cloud Run 区域配额 50 vCPU / 200Gi 设计。PR #78 review follow-up 后，候选排序改为 2022/2023 purged walk-forward CV + 2024 valid confirmation，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch；实现时需先落共享验收配置 `configs/strategy1/model_acceptance_contract_v1.yml`，并迁移 sklearn `decide_acceptance` / `18_qa` 以取代旧内联阈值；若 binary LightGBM rejected，后续优先试 `lightgbm_regression`。真实 Cloud Run Job `strategy1-train-candidate-fanout-job` 已更新为 `parallelism=40` 并复核通过；本次未实现 LightGBM 代码、未执行 BigQuery search。
+**OQ-010 Cloud Run Python baseline 搜索 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-python-baseline-search`，分支 `codex/prd-cloudrun-python-baseline-search`。新增 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：本轮数据截止 `2026-04-30`；train/valid/test/final_holdout 为 `2019-04-03..2023-12-31` / 2024 / 2025 / `2026-01-05..2026-04-30`；固定 `pv_fin_quality + 30/5% + biweekly + 5d`、沪深主板股票池、成本 profile 和 Ledger v1；P0 推荐 LightGBM wave 2，固定 40 个候选、40 并发、单 task 1 vCPU / 4Gi，并按 Cloud Run 区域配额 50 vCPU / 200Gi 设计。PR #78 review follow-up 后，候选排序改为 2021/2022/2023 三折 purged walk-forward CV + 2024 valid confirmation，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch；实现时需先落共享验收配置 `configs/strategy1/model_acceptance_contract_v1.yml`，并迁移 sklearn `decide_acceptance` / `18_qa` 以取代旧内联阈值；若 binary LightGBM rejected，后续优先试 `lightgbm_regression`。真实 Cloud Run Job `strategy1-train-candidate-fanout-job` 已更新为 `parallelism=40` 并复核通过；本次未实现 LightGBM 代码、未执行 BigQuery search。
 
 **OQ-005 告警/观测生产闭环部署与 PR #75 follow-up（2026-06-05）**：工作树 `/private/tmp/oq005-alerts-ops`，分支 `codex/oq005-alerts-ops`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到 3 个策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。PR #75 review follow-up 已修复 README 生产入口、OQ-005 状态矛盾、DAG 意外返回码静默成功、checker liveness 缺失和 10 分钟 lookback 无重叠问题：DAG 只接受 rc `0/1/2`，其他 rc fail-closed；生产 lookback 改 20 分钟；`check_alerts.py` 新增 `--write-heartbeat`；`setup_alerts.py` 新增 `oq005_alert_checker_heartbeat` metric 与 30 分钟 absence policy，并修复 Monitoring API duration / condition enum / condition field 写法。验证通过 py_compile、`setup_alerts.py --dry-run`、只读 `check_alerts.py --json`、Monitoring condition 构造、观测 SQL dry-run、`git diff --check`。该 follow-up 尚未同步 Composer bucket 或应用新增 liveness policy；合并后需部署并验收 checker heartbeat absence 告警。下一步：合并 PR 后继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
 
@@ -43,7 +43,8 @@ Run ID: N/A
 - 按 PR #78 re-review comment 继续修订 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`。
 - 采纳建议 A：§9.1 和 Phase B 明确共享验收契约 `configs/strategy1/model_acceptance_contract_v1.yml` 必须取代 sklearn native search 的 `decide_acceptance` 和 `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql` 内联阈值；Python acceptance 与 SQL QA 必须通过同一契约版本追溯。
 - 采纳建议 B：Wave 3 顺序改为 binary LightGBM rejected 后优先尝试 `lightgbm_regression`，再考虑 XGBoost / HistGradientBoosting / CatBoost 或特征增强。
-- 澄清 CV 表述：独立 walk-forward folds 为 2022/2023，2024 是 valid confirmation，不再重复命名为 `cv_2024`。
+- 澄清 CV 表述：独立 walk-forward folds 为 2021/2022/2023，2024 是 valid confirmation，不再重复命名为 `cv_2024`。
+- 按 owner 最新确认采纳可选加固：新增 `cv_2021`（train `2019-04-03..2020-12-31`，eval 2021）作为第三个独立 CV fold；`cv_2021` 参与三折排序稳定性计算，但不单独一票否决候选。
 - 按 owner 最新要求把 P0 候选规模固定为 `candidate_count=40` / `candidate_parallelism=40` / 单 task 1 vCPU / 4Gi，并写入 PRD、TODO 和记忆。
 - 真实执行 `gcloud run jobs update strategy1-train-candidate-fanout-job --region=asia-east2 --parallelism=40`，随后 `gcloud run jobs describe` 复核 `parallelism: 40`。
 - 同步 `docs/策略1CloudRun训练回测运行手册.md` 的 candidate fan-out job 部署命令，将共享 Job spec parallelism 从 100 收敛到当前 P0 的 40；同步 `docs/prd/PRD_20260605_02_策略1CloudRun轻量Task并发.md` 的当前最大并发说明。
@@ -77,7 +78,7 @@ Run ID: N/A
 
 ### 下一步建议
 
-- 合并 PRD 后，按 Phase B 顺序实现：共享契约 / sklearn acceptance 与 `18_qa` 迁移 / LightGBM candidate fan-out / CV ranking / Top 5 完整回测 / `19` QA。
+- 合并 PRD 后，按 Phase B 顺序实现：共享契约 / sklearn acceptance 与 `18_qa` 迁移 / LightGBM candidate fan-out / 2021/2022/2023 三折 CV ranking / Top 5 完整回测 / `19` QA。
 
 ### 已更新记忆文件
 
@@ -98,7 +99,7 @@ Run ID: N/A
 ### 已完成工作
 
 - 复核 PR #78 comment，认可验收状态机不完备、accepted/rejected 门槛不一致、阈值与 sklearn native PRD 漂移、2026 final_holdout 过短、单一年份 valid 选高容量候选方差过高、binary objective 与排序评估不完全一致、缺少共享验收契约等问题。
-- 修订 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：候选排序改为 purged walk-forward CV + 2024 valid confirmation；后续 follow-up 已将 P0 固定为 `candidate_count=40` / `candidate_parallelism=40`，且必须有 CV 证据，否则不得 accepted。
+- 修订 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：候选排序改为 2021/2022/2023 三折 purged walk-forward CV + 2024 valid confirmation；后续 follow-up 已将 P0 固定为 `candidate_count=40` / `candidate_parallelism=40`，且必须有 CV 证据，否则不得 accepted。
 - 重写 §9 接受标准：新增共享验收配置 `configs/strategy1/model_acceptance_contract_v1.yml`，状态机改为互斥完整且机器可校验；补 Sharpe `>=0.70`、max drawdown `>=-25%` 等风险门槛；`RankIC == 0`、`top_minus_bottom == 0`、`test_year_excess_return == 0` 等边界显式 rejected。
 - 将 2026 final_holdout 定位改为明显坏结果 veto / holdout watch：不再要求 `final_holdout_excess_return_vs_000852 >= 0`，但 `<= -5pct` 或 `final_holdout_total_return <= -8%` 仍 hard reject。
 - 补充 objective 路线：P0 保留 LightGBM binary 兼容当前链路，ranking / regression objective 留作后续波次。
@@ -153,7 +154,7 @@ Run ID: N/A
 - PRD 固定本轮数据截止 `2026-04-30`，明确不用 2026 年 5 月数据参与本轮模型搜索。
 - PRD 固定 train/valid/test/final_holdout 为 `2019-04-03..2023-12-31` / 2024 / 2025 / `2026-01-05..2026-04-30`。
 - PRD 固定交易参数、股票池、成本和 Ledger v1，只比较 Cloud Run Python 模型 backend / 模型族 / 参数。
-- PRD 将 P0 模型族定为 LightGBM wave 2；PR #78 review follow-up 后已改为 purged walk-forward CV + 2024 valid confirmation 选 Top 5，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch。
+- PRD 将 P0 模型族定为 LightGBM wave 2；PR #78 review follow-up 后已改为 2021/2022/2023 三折 purged walk-forward CV + 2024 valid confirmation 选 Top 5，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch。
 - 同步更新 `TODO.md`、`PROJECT_CONTEXT.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md` 和本交接。
 
 ### 重要上下文

@@ -293,17 +293,20 @@ candidate_task_memory = 4Gi
 
 候选排序不得使用 2025 test 或 2026 final_holdout。默认排序证据来自 train/valid 范围内：
 
-1. `2022` / `2023` 两个独立 purged walk-forward CV folds。
+1. `2021` / `2022` / `2023` 三个独立 purged walk-forward CV folds。
 2. 2024 valid confirmation。
 
 推荐 CV folds：
 
 | fold | 训练窗口 | 评价窗口 |
 |---|---|---|
+| `cv_2021` | `2019-04-03` 至 `2020-12-31` | `2021-01-01` 至 `2021-12-31` |
 | `cv_2022` | `2019-04-03` 至 `2021-12-31` | `2022-01-01` 至 `2022-12-31` |
 | `cv_2023` | `2019-04-03` 至 `2022-12-31` | `2023-01-01` 至 `2023-12-31` |
 
 每个 fold 的评价窗口前必须按 `label_horizon` 设置 embargo。本轮 `label_horizon=5d`，默认 embargo 为 5 个 SSE 交易日；实现可按实际标签窗口扩大，但不得小于 5 个交易日。
+
+`cv_2021` 的训练窗口较短，参与三折排序稳定性计算，但不得单独一票否决候选；候选是否进入 Top 5 仍以三折聚合指标、2024 valid confirmation 和 §9 机器门槛共同决定。
 
 2024 仍是固定 valid split，但不再重复命名为 `cv_2024`。它用于最新年度 confirmation、score orientation 和 Top 5 最低门槛，不计入独立 CV fold 数。
 
@@ -563,7 +566,7 @@ search_id = cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01
 2. 复核 `strategy1-train-candidate-fanout-job` 共享 Job spec 为 `parallelism=40`，candidate task 资源为 1 vCPU / 4Gi；若不一致，先更新 Job 配置再执行 search。
 3. 一次 prepare matrix。
 4. 40 个 LightGBM candidate task fan-out，默认 `--tasks=40 --parallelism=40`。
-5. CV + 2024 valid confirmation 选 Top 5。
+5. 三折 CV + 2024 valid confirmation 选 Top 5。
 6. Top 5 完整回测到 `2026-04-30`。
 7. 跑 `10` / `12` / `19` QA。
 8. 输出是否建立 `cloud_run_python_baseline_v1`。
@@ -578,8 +581,8 @@ search_id = cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01
 
 | 风险 | 控制 |
 |---|---|
-| 反复看 test / final holdout 导致过拟合 | CV + 2024 valid confirmation 排名；记录 `test_reuse_wave_no`；超过 3 波必须新增 holdout |
-| 单一年份 valid 从 40 个候选中选参方差过高 | P0 必须启用 2022 / 2023 purged walk-forward CV + 2024 valid confirmation；未启用则不得 accepted |
+| 反复看 test / final holdout 导致过拟合 | 三折 CV + 2024 valid confirmation 排名；记录 `test_reuse_wave_no`；超过 3 波必须新增 holdout |
+| 单一年份 valid 从 40 个候选中选参方差过高 | P0 必须启用 2021 / 2022 / 2023 purged walk-forward CV + 2024 valid confirmation；未启用则不得 accepted |
 | 共享契约与旧实现硬编码并存导致继续漂移 | Phase B 必须先迁移 sklearn `decide_acceptance` 和 `18_qa`，再实现新 LightGBM acceptance |
 | LightGBM 依赖增加镜像复杂度 | 只在 Cloud Run Python runner 镜像加入，不影响数仓 SQL |
 | 候选太多导致成本上升 | 一次 prepare matrix；candidate task 轻量并发；只让 Top 5 跑完整回测 |
@@ -597,7 +600,7 @@ search_id = cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01
 2. PRD 明确本轮数据截止到 `2026-04-30`。
 3. PRD 明确 train / valid / test / final_holdout 分段。
 4. PRD 明确 LightGBM 为 P0 默认新模型族。
-5. PRD 明确候选排序使用 CV + 2024 valid confirmation，不使用 test / final_holdout 选参。
+5. PRD 明确候选排序使用三折 CV + 2024 valid confirmation，不使用 test / final_holdout 选参。
 6. PRD 明确 2026 final_holdout 不参与参数排名，只作为明显坏结果 veto 和风险 watch。
 7. PRD 明确 accepted / needs_more_evidence / rejected 互斥完整的机器化标准。
 8. PRD 明确共享验收契约必须取代 sklearn `decide_acceptance` / `18_qa` 的内联阈值。
