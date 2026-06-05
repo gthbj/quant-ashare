@@ -1,6 +1,6 @@
 # OQ-005 Pipeline 告警与观测
 
-> 文档维护：opencode（最近更新 2026-06-05）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-05）
 
 ## 概述
 
@@ -9,7 +9,10 @@
 ## 告警链路
 
 ```
-check_alerts.py (Cloud Scheduler, */5 * * * *)
+oq005_alert_checker (Cloud Composer DAG, */10 * * * *)
+    |
+    v
+check_alerts.py --write-log --lookback-minutes 10
     |
     v
 v_alert_summary (BigQuery view)
@@ -25,6 +28,7 @@ Alert Policy --> Notification Channel (Email/Slack/PagerDuty)
 ```
 
 关键点：
+- 生产定时入口是 Composer DAG `oq005_alert_checker`，每 10 分钟执行一次
 - `check_alerts.py` 查询 BigQuery 视图，将异常写入 Cloud Logging
 - Cloud Monitoring 日志指标匹配这些 JSON 条目
 - 告警策略在指标 > 0 时触发通知
@@ -37,6 +41,9 @@ scripts/alerting/
 ├── setup_alerts.py      # 告警规则配置脚本（Cloud Monitoring）
 ├── check_alerts.py      # 告警查询脚本（定期检查 + 写入 Cloud Logging）
 └── README.md            # 本文件
+
+orchestration/composer/dags/
+└── oq005_alert_checker.py  # 生产定时 checker DAG
 
 sql/observability/
 └── 01_pipeline_status_views.sql  # 观测视图定义
@@ -69,15 +76,19 @@ python scripts/alerting/setup_alerts.py --notification-channels "projects/xxx/no
 ### 3. 部署定期检查
 
 ```bash
-# 方式 1：Cloud Scheduler + Cloud Run
-gcloud scheduler jobs create http oq005-alert-check \
-  --schedule='*/5 * * * *' \
-  --uri='https://<cloud-run-url>/check-alerts' \
-  --http-method=POST
+# 生产路径：同步 checker 脚本与 DAG 到 Composer bucket
+gcloud storage cp scripts/alerting/check_alerts.py \
+  gs://asia-east2-ashare-composer-b2629133-bucket/data/scripts/alerting/check_alerts.py
 
-# 方式 2：本机 cron
-*/5 * * * * python /path/to/check_alerts.py --write-log --lookback-minutes 10
+gcloud storage cp orchestration/composer/dags/oq005_alert_checker.py \
+  gs://asia-east2-ashare-composer-b2629133-bucket/dags/oq005_alert_checker.py
+
+# 验证 DAG 已被 Airflow 识别
+gcloud composer environments run ashare-composer \
+  --location=asia-east2 dags list -- --output json
 ```
+
+Cloud Scheduler 或本机 cron 仅作为非生产替代入口，不能作为当前生产部署口径记录。
 
 ### 4. 查询异常
 
@@ -122,4 +133,4 @@ python scripts/alerting/check_alerts.py --json
 2. 已配置 ADC：`gcloud auth application-default login`
 3. 已启用 Cloud Monitoring API + Cloud Logging API
 4. 已配置通知渠道（Email/Slack/PagerDuty）
-5. `check_alerts.py` 已部署为定期任务（Cloud Scheduler 或 cron）
+5. Composer DAG `oq005_alert_checker` 已部署并处于 unpaused 状态

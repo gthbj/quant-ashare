@@ -27,7 +27,7 @@
 
 ## 工程 / 调度
 
-- [x] OQ-005 GCP 数据流水线落地：Phase 0/1/1.5/1.6/1.7/2.0/2.2 已完成并部署到 Composer。告警/观测已部署并验收：8 个 BigQuery 观测视图已创建，3 个 Cloud Logging log-based metrics 已创建（`oq005_pipeline_failure` / `oq005_task_failure` / `oq005_ingestion_failed`），3 个 Cloud Monitoring alert policies 已启用（Pipeline ERROR / Task ERROR / Ingestion WARNING），Email 通知渠道已配置，定时 checker DAG `oq005_alert_checker` 已部署（每 10 分钟），三类告警 smoke 均在 Cloud Monitoring timeSeries 中验证 value=1。下一步进入 Dataform definitions、策略 runner/report 可选分支、补跑和生产运维观测闭环
+- [~] OQ-005 GCP 数据流水线落地：Phase 0/1/1.5/1.6/1.7/2.0/2.2 已完成并部署到 Composer。告警/观测生产闭环已部署并验收：8 个 BigQuery 观测视图已创建，3 个 Cloud Logging log-based metrics 已创建（`oq005_pipeline_failure` / `oq005_task_failure` / `oq005_ingestion_failed`），3 个 Cloud Monitoring alert policies 已启用（Pipeline ERROR / Task ERROR / Ingestion WARNING），Email 通知渠道已配置，定时 checker DAG `oq005_alert_checker` 已部署（每 10 分钟），三类告警 smoke 均在 Cloud Monitoring timeSeries 中验证 value=1。OQ-005 仍 open；下一步进入 Dataform definitions、策略 runner/report 可选分支、补跑和完整 ODS→ADS 运维观测闭环
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算 / 调度配置
 - [ ] 写"从 ODS 继承字段描述"脚本（`bq show` -> 映射 -> `bq update`）
 - [ ] 增量调度（dbt 或 Airflow + SQL）与数据质量断言

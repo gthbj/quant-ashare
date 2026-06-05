@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-005 告警/观测生产闭环部署（2026-06-05）**：工作树 `/tmp/oq005-alerts-ops`，分支 `codex/oq005-alerts-ops`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到 3 个策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。`check_alerts.py --lookback-minutes 10 --json` 查询正常。下一步：提交 PR，更新文档/记忆。
+**OQ-005 告警/观测生产闭环部署与文档同步（2026-06-05）**：工作树 `/private/tmp/oq005-alerts-ops`，分支 `codex/oq005-alerts-ops`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到 3 个策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。`check_alerts.py --lookback-minutes 10 --json` 查询正常。PR #75 review follow-up 已把 `scripts/alerting/README.md` 的生产入口从 Cloud Scheduler/cron 修正为 Composer DAG，并同步 `TODO.md`、`OPEN_QUESTIONS.md` 的 OQ-005 剩余范围。验证通过 Python py_compile、观测 SQL BigQuery dry-run 和 `git diff --check`。下一步：合并 PR 后继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
 
 **OQ-005 告警/观测 PR #72 review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-alerts-runbook`，分支 `codex/oq005-alerts-runbook`。PR #72 新增 BigQuery 观测视图、Cloud Logging / Cloud Monitoring 告警配置脚本、告警查询脚本和补跑 runbook。本轮按 comment 修复：`setup_alerts.py` 的 `LogMetric` 使用正确 `filter` 字段；`check_alerts.py` 查询失败和缺 `google-cloud-logging` 写日志路径均 fail-closed，默认 lookback 改 10 分钟并用稳定 `insert_id` 降低重复日志；runbook §9 的 `task_failure` / `ingestion_failed` 与 SQL 实现一致；`v_alert_probe` 注释改为固定 24 小时手工健康检查口径。验证通过 Python `py_compile`、观测 SQL BigQuery dry-run、`git diff --check`；本机缺 `google-cloud-logging`，未做真实 log metric API apply。合并后仍需部署视图、配置 Cloud Scheduler/Cloud Run checker、log-based metrics、alert policies，并做生产 smoke。
 
@@ -408,6 +408,55 @@ Run ID: N/A
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/ARCHITECTURE_MEMORY.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-05
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: PR #75 / OQ-005 alerting ops review follow-up
+
+### 已完成工作
+
+- 修复 `scripts/alerting/README.md` 的生产部署口径：当前生产定时入口为 Composer DAG `oq005_alert_checker`，每 10 分钟运行；Cloud Scheduler / cron 仅可作为非生产替代入口。
+- 将 `TODO.md` 中 OQ-005 状态从已完成改为进行中，保留告警/观测生产闭环已验收事实，并明确剩余 Dataform definitions、策略 runner/report 可选分支、补跑和完整 ODS→ADS 运维观测闭环。
+- 更新 `OPEN_QUESTIONS.md`：OQ-005 不再把“告警”列为剩余关闭项，新增 2026-06-05 告警/观测生产闭环完成事实。
+- 刷新本文件顶部交接摘要，移除“提交 PR，更新文档/记忆”的过期下一步。
+
+### 重要上下文
+
+- 本次只修文档和记忆状态，不修改 DAG、SQL、告警策略或任何生产资源。
+- OQ-005 仍 open；告警/观测闭环已完成，后续重点是 Dataform 生产链路、补跑和完整 ODS→ADS 运维观测闭环。
+
+### 改动文件
+
+- `scripts/alerting/README.md`
+- `TODO.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/alerting/check_alerts.py scripts/alerting/setup_alerts.py orchestration/composer/dags/oq005_alert_checker.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/observability/01_pipeline_status_views.sql`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 合并 PR #75 后继续 OQ-005 的 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 
 ---
