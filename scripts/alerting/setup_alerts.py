@@ -4,9 +4,9 @@
 告警链路：
   1. check_alerts.py 由 Cloud Scheduler 定时调用
   2. 查询 v_alert_summary 视图
-  3. 将异常写入 Cloud Logging（stdout JSON，被 ops-agent 采集）
-  4. Cloud Monitoring 日志指标匹配这些条目
-  5. 告警策略在指标 > 0 时触发通知
+  3. 将异常写入 Cloud Logging（JSON payload）
+  4. Cloud Logging 日志指标匹配这些条目
+  5. Cloud Monitoring 告警策略订阅日志指标，> 0 时触发通知
 
 使用方式：
     # dry-run 查看配置
@@ -20,7 +20,7 @@
 
 前置条件：
     1. 已执行 sql/observability/01_pipeline_status_views.sql 创建视图
-    2. 已启用 Cloud Monitoring API
+    2. 已启用 Cloud Logging API + Cloud Monitoring API
     3. check_alerts.py 已部署为 Cloud Scheduler job（每 5-10 分钟执行）
     4. 已配置通知渠道（Email/Slack/PagerDuty）
 """
@@ -32,6 +32,12 @@ import sys
 from typing import Any
 
 try:
+    from google.cloud import logging_v2 as cloud_logging
+except ImportError:
+    print("请安装依赖：pip install google-cloud-logging")
+    sys.exit(1)
+
+try:
     from google.cloud import monitoring_v3
     from google.protobuf import duration_pb2
 except ImportError:
@@ -40,39 +46,30 @@ except ImportError:
 
 
 PROJECT_ID = "data-aquarium"
-DATASET = "ashare_meta"
 
 # 日志指标定义
-# 这些指标匹配 check_alerts.py 写入 Cloud Logging 的 JSON 条目。
-# check_alerts.py 写入格式：{"severity": "ERROR", "alert_type": "...", ...}
+# 用 Cloud Logging Log Metric API 创建，name 即为 metric 的标识。
+# 在 Cloud Monitoring 中，metric type 为 logging.googleapis.com/user/{name}
 LOG_METRICS = [
     {
         "name": "oq005_pipeline_failure",
         "description": "Pipeline DAG run failed",
-        "filter": (
-            'resource.type="global" AND '
-            'jsonPayload.alert_type="pipeline_failure"'
-        ),
+        "filter": 'jsonPayload.alert_type="pipeline_failure"',
     },
     {
         "name": "oq005_task_failure",
         "description": "Pipeline task failed (QA, readiness, windowed transform, etc.)",
-        "filter": (
-            'resource.type="global" AND '
-            'jsonPayload.alert_type="task_failure"'
-        ),
+        "filter": 'jsonPayload.alert_type="task_failure"',
     },
     {
         "name": "oq005_ingestion_failed",
-        "description": "Cloud Run ingestion execution failed",
-        "filter": (
-            'resource.type="global" AND '
-            'jsonPayload.alert_type="ingestion_failed"'
-        ),
+        "description": "Cloud Run ingestion execution failed (not empty_return)",
+        "filter": 'jsonPayload.alert_type="ingestion_failed"',
     },
 ]
 
 # 告警策略定义
+# metric_type = logging.googleapis.com/user/{name}，与日志指标对应
 ALERT_POLICIES = [
     {
         "display_name": "OQ-005: Pipeline Run Failed",
@@ -82,7 +79,7 @@ ALERT_POLICIES = [
             "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "pipeline_failure",
-        "metric_type": f"logging.googleapis.com/user/{PROJECT_ID}_oq005_pipeline_failure",
+        "log_metric_name": "oq005_pipeline_failure",
         "threshold_value": 0,
         "duration_seconds": 0,
         "severity": "ERROR",
@@ -96,7 +93,7 @@ ALERT_POLICIES = [
             "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "task_failure",
-        "metric_type": f"logging.googleapis.com/user/{PROJECT_ID}_oq005_task_failure",
+        "log_metric_name": "oq005_task_failure",
         "threshold_value": 0,
         "duration_seconds": 0,
         "severity": "ERROR",
@@ -109,7 +106,7 @@ ALERT_POLICIES = [
             "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "ingestion_failed",
-        "metric_type": f"logging.googleapis.com/user/{PROJECT_ID}_oq005_ingestion_failed",
+        "log_metric_name": "oq005_ingestion_failed",
         "threshold_value": 0,
         "duration_seconds": 0,
         "severity": "WARNING",
@@ -118,25 +115,21 @@ ALERT_POLICIES = [
 
 
 def create_log_metric(
-    client: monitoring_v3.MetricServiceClient,
     project_id: str,
     metric_def: dict[str, Any],
 ) -> None:
-    """创建自定义日志指标。"""
-    project_name = f"projects/{project_id}"
+    """用 Cloud Logging API 创建日志指标。"""
+    client = cloud_logging.MetricsServiceV2Client()
+    parent = f"projects/{project_id}"
 
-    descriptor = monitoring_v3.MetricDescriptor()
-    descriptor.type = f"logging.googleapis.com/user/{metric_def['name']}"
-    descriptor.metric_kind = monitoring_v3.MetricDescriptor.MetricKind.GAUGE
-    descriptor.value_type = monitoring_v3.MetricDescriptor.ValueType.INT64
-    descriptor.description = metric_def["description"]
-    descriptor.display_name = metric_def["name"]
+    metric = cloud_logging.LogMetric(
+        name=metric_def["name"],
+        description=metric_def["description"],
+        filter_=metric_def["filter"],
+    )
 
     try:
-        client.create_metric_descriptor(
-            name=project_name,
-            metric_descriptor=descriptor,
-        )
+        client.create_log_metric(parent=parent, metric=metric)
         print(f"  + 创建日志指标：{metric_def['name']}")
     except Exception as e:
         if "ALREADY_EXISTS" in str(e):
@@ -147,13 +140,16 @@ def create_log_metric(
 
 
 def create_alert_policy(
-    client: monitoring_v3.AlertPolicyServiceClient,
     project_id: str,
     policy_def: dict[str, Any],
     notification_channels: list[str] | None = None,
 ) -> None:
-    """创建告警策略。"""
+    """用 Cloud Monitoring API 创建告警策略。"""
+    client = monitoring_v3.AlertPolicyServiceClient()
     project_name = f"projects/{project_id}"
+
+    # metric type = logging.googleapis.com/user/{log_metric_name}
+    metric_type = f"logging.googleapis.com/user/{policy_def['log_metric_name']}"
 
     policy = monitoring_v3.AlertPolicy()
     policy.display_name = policy_def["display_name"]
@@ -164,7 +160,7 @@ def create_alert_policy(
     condition.display_name = policy_def["condition_display_name"]
 
     threshold = monitoring_v3.AlertPolicy.Condition.MetricThreshold()
-    threshold.filter = f'resource.type="global" AND metric.type="{policy_def["metric_type"]}"'
+    threshold.filter = f'metric.type="{metric_type}"'
     threshold.comparison = monitoring_v3.AlertPolicy.Condition.ComparisonType.COMPARISON_GT
     threshold.threshold_value = policy_def["threshold_value"]
 
@@ -205,11 +201,9 @@ def create_alert_policy(
             raise
 
 
-def list_notification_channels(
-    client: monitoring_v3.NotificationChannelServiceClient,
-    project_id: str,
-) -> list[dict[str, str]]:
+def list_notification_channels(project_id: str) -> list[dict[str, str]]:
     """列出已配置的通知渠道。"""
+    client = monitoring_v3.NotificationChannelServiceClient()
     project_name = f"projects/{project_id}"
     channels = []
     try:
@@ -226,7 +220,7 @@ def list_notification_channels(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="OQ-005 Pipeline 告警规则配置")
-    parser.add_argument("--project", default=PROJECT_ID, help=f"GCP 项目 ID（默认：{PROJECT_ID}）")
+    parser.add_argument("--project", default=PROJECT_ID, help=f"GCP project (default: {PROJECT_ID})")
     parser.add_argument("--dry-run", action="store_true", help="只打印配置，不实际创建")
     parser.add_argument("--notification-channels", nargs="*", help="通知渠道 resource name 列表")
     args = parser.parse_args()
@@ -237,29 +231,28 @@ def main() -> None:
     print()
 
     if args.dry_run:
-        print("=== 日志指标 ===")
+        print("=== 日志指标 (Cloud Logging API) ===")
         for m in LOG_METRICS:
             print(f"  - {m['name']}: {m['description']}")
             print(f"    filter: {m['filter']}")
         print()
-        print("=== 告警策略 ===")
+        print("=== 告警策略 (Cloud Monitoring API) ===")
         for p in ALERT_POLICIES:
+            metric_type = f"logging.googleapis.com/user/{p['log_metric_name']}"
             print(f"  - {p['display_name']} [{p.get('severity', 'ERROR')}]")
-            print(f"    {p['description'].splitlines()[0]}")
+            print(f"    metric: {metric_type}")
+            print(f"    description: {p['description'].splitlines()[0]}")
         print()
-        print("=== 前置条件 ===")
-        print("  1. check_alerts.py 已部署为 Cloud Scheduler job（每 5-10 分钟）")
-        print("  2. check_alerts.py 将异常写入 Cloud Logging（JSON 格式）")
-        print("  3. 日志指标匹配这些 JSON 条目")
-        print("  4. 告警策略在指标 > 0 时触发通知")
+        print("=== 告警链路 ===")
+        print("  check_alerts.py --write-log")
+        print("    -> Cloud Logging (jsonPayload)")
+        print("    -> log metric (oq005_*)")
+        print("    -> Cloud Monitoring alert policy")
+        print("    -> notification channel")
         return
 
-    metric_client = monitoring_v3.MetricServiceClient()
-    alert_client = monitoring_v3.AlertPolicyServiceClient()
-    channel_client = monitoring_v3.NotificationChannelServiceClient()
-
     print("=== 通知渠道 ===")
-    channels = list_notification_channels(channel_client, args.project)
+    channels = list_notification_channels(args.project)
     if channels:
         for ch in channels:
             print(f"  - {ch['display_name']} ({ch['type']}): {ch['name']}")
@@ -267,30 +260,23 @@ def main() -> None:
         print("  ! 未配置通知渠道。请在 Cloud Console 中配置后重新运行。")
     print()
 
-    print("=== 创建日志指标 ===")
+    print("=== 创建日志指标 (Cloud Logging API) ===")
     for m in LOG_METRICS:
-        create_log_metric(metric_client, args.project, m)
+        create_log_metric(args.project, m)
     print()
 
-    print("=== 创建告警策略 ===")
+    print("=== 创建告警策略 (Cloud Monitoring API) ===")
     notification_channels = args.notification_channels or []
     for p in ALERT_POLICIES:
-        create_alert_policy(alert_client, args.project, p, notification_channels)
+        create_alert_policy(args.project, p, notification_channels)
     print()
 
     print("=== 完成 ===")
     print()
     print("下一步：")
-    print("  1. 部署 check_alerts.py 为 Cloud Scheduler job：")
-    print(f"     gcloud scheduler jobs create http oq005-alert-check \\")
-    print(f"       --schedule='*/5 * * * *' \\")
-    print(f"       --uri='https://<cloud-run-url>/check-alerts' \\")
-    print(f"       --http-method=POST")
-    print("  2. 或在本机 cron 中运行：")
-    print("     */5 * * * * python /path/to/check_alerts.py --write-log")
-    print()
-    print("验证：")
-    print(f"  https://console.cloud.google.com/monitoring/alerting?project={args.project}")
+    print("  1. 部署 check_alerts.py 为定期任务（每 5-10 分钟）")
+    print("  2. 验证：https://console.cloud.google.com/monitoring/alerting?project=" + args.project)
+    print("  3. 日志指标：https://console.cloud.google.com/logs/metrics?project=" + args.project)
 
 
 if __name__ == "__main__":

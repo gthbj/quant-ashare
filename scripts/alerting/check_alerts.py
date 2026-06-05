@@ -6,8 +6,13 @@
   - --write-log：写入 Cloud Logging（供 Cloud Monitoring 日志指标采集）
   - --notify：发送通知（stdout / Slack / Email）
 
+退出码：
+  0：查询成功且无异常（或 --json 模式）
+  1：查询失败（视图不存在、权限不足、BQ 临时错误等）
+  2：查询成功但有异常（供探针脚本判断）
+
 使用方式：
-    # 查询最近 1 小时异常
+    # 查询最近 1 小时异常（无异常输出 "0"，有异常输出详情并 exit 2）
     python scripts/alerting/check_alerts.py
 
     # 写入 Cloud Logging（供告警链路使用）
@@ -33,7 +38,7 @@ from typing import Any
 try:
     from google.cloud import bigquery
 except ImportError:
-    print("请安装依赖：pip install google-cloud-bigquery")
+    print("请安装依赖：pip install google-cloud-bigquery", file=sys.stderr)
     sys.exit(1)
 
 try:
@@ -49,11 +54,19 @@ REGION = "asia-east2"
 LOG_NAME = "oq005-pipeline-alerts"
 
 
+class AlertCheckError(Exception):
+    """查询失败（视图不存在、权限不足、BQ 临时错误等）。"""
+
+
 def check_alerts(
     project_id: str,
     lookback_minutes: int = 60,
 ) -> list[dict[str, Any]]:
-    """查询最近 N 分钟的异常。"""
+    """查询最近 N 分钟的异常。
+
+    Raises:
+        AlertCheckError: 查询失败时抛出，不静默吞掉。
+    """
     client = bigquery.Client(project=project_id, location=REGION)
 
     query = f"""
@@ -71,23 +84,27 @@ WHERE finished_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {lookback_minut
 ORDER BY finished_at DESC
 """
 
-    results = []
     try:
-        rows = client.query(query).result()
-        for row in rows:
-            results.append({
-                "alert_type": row.alert_type,
-                "resource_id": row.resource_id,
-                "business_date": row.business_date,
-                "warehouse_mode": row.warehouse_mode,
-                "status": row.status,
-                "error_summary": row.error_summary,
-                "started_at": row.started_at.isoformat() if row.started_at else None,
-                "finished_at": row.finished_at.isoformat() if row.finished_at else None,
-            })
+        query_job = client.query(query)
+        rows = query_job.result()
     except Exception as e:
-        print(f"查询失败：{e}", file=sys.stderr)
-        return []
+        # 包装成 AlertCheckError，保留原始错误信息
+        raise AlertCheckError(
+            f"BigQuery query failed: {type(e).__name__}: {e}"
+        ) from e
+
+    results = []
+    for row in rows:
+        results.append({
+            "alert_type": row.alert_type,
+            "resource_id": row.resource_id,
+            "business_date": row.business_date,
+            "warehouse_mode": row.warehouse_mode,
+            "status": row.status,
+            "error_summary": row.error_summary,
+            "started_at": row.started_at.isoformat() if row.started_at else None,
+            "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        })
 
     return results
 
@@ -106,7 +123,6 @@ def write_to_cloud_logging(
 
     written = 0
     for alert in alerts:
-        # 每条异常作为一个独立的日志条目
         payload = {
             "alert_type": alert["alert_type"],
             "resource_id": alert["resource_id"],
@@ -160,16 +176,19 @@ def main() -> None:
     parser.add_argument("--json", action="store_true", help="Output JSON")
     args = parser.parse_args()
 
-    alerts = check_alerts(args.project, args.lookback_minutes)
+    # 查询异常；失败时 AlertCheckError 会被捕获并 exit 1
+    try:
+        alerts = check_alerts(args.project, args.lookback_minutes)
+    except AlertCheckError as e:
+        print(f"ALERT CHECK FAILED: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if args.json:
         print(json.dumps(alerts, indent=2, ensure_ascii=False))
         return
 
     if not alerts:
-        # 探针模式：无异常时输出 0
-        if not args.notify:
-            print("0")
+        print("0")
         return
 
     # 写入 Cloud Logging
@@ -187,6 +206,9 @@ def main() -> None:
             print(message)
     else:
         print(message)
+
+    # 有异常时 exit 2（供探针脚本判断）
+    sys.exit(2)
 
 
 if __name__ == "__main__":
