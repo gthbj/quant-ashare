@@ -6,7 +6,8 @@
 -- - 目标表必须已由全量 CTAS 路径初始化。
 -- - 本脚本只刷新股票日频 DWD 与策略 1 DWS，不写 ADS run/backtest 产物。
 -- - DWD 写入窗口由 date_from/date_to 或 business_date 控制。
--- - 特征读取窗口按 SSE 交易日历往前推 60 个交易日。
+-- - 价格特征读取窗口按 SSE 交易日历往前推 60 个交易日。
+-- - 估值特征读取窗口按每只股票写入窗口首日前的实际 60 条估值观测推导，覆盖 daily_basic 缺口。
 -- - 标签写入窗口按 SSE 交易日历往前推 20 个交易日，避免 t+H forward label 受 late data/生命周期变更影响后未回填。
 
 DECLARE p_business_date DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@business_date, '') AS DATE), CURRENT_DATE('Asia/Shanghai'));
@@ -23,6 +24,7 @@ DECLARE p_min_amount_ma20_cny FLOAT64 DEFAULT 50000000.0;
 DECLARE p_min_close_price FLOAT64 DEFAULT 3.0;
 DECLARE p_board_allowlist ARRAY<STRING> DEFAULT ['SSE_MAIN', 'SZSE_MAIN'];
 DECLARE p_asof_lookback_days INT64 DEFAULT 900;
+DECLARE p_valuation_observation_window INT64 DEFAULT 60;
 DECLARE p_dwd_write_start_date DATE DEFAULT GREATEST(COALESCE(p_date_from, p_date_to), p_final_start_date);
 DECLARE p_write_end_date DATE DEFAULT p_date_to;
 DECLARE p_anchor_seq INT64 DEFAULT (
@@ -45,6 +47,7 @@ DECLARE p_feature_read_start_date DATE DEFAULT GREATEST(
   ),
   p_final_start_date
 );
+DECLARE p_valuation_feature_read_start_date DATE DEFAULT p_dwd_write_start_date;
 DECLARE p_label_write_start_date DATE DEFAULT GREATEST(
   COALESCE(
     (
@@ -87,15 +90,6 @@ ASSERT (
     'dws_stock_sample_daily'
   )
 ) AS 'windowed refresh target DWS tables must exist; run full_rebuild/full_rebuild_compat before daily_current/backfill';
-
-CREATE TEMP TABLE refresh_window AS
-SELECT
-  p_business_date AS business_date,
-  p_warehouse_mode AS warehouse_mode,
-  p_dwd_write_start_date AS dwd_write_start_date,
-  p_feature_read_start_date AS feature_read_start_date,
-  p_label_write_start_date AS label_write_start_date,
-  p_write_end_date AS write_end_date;
 
 BEGIN TRANSACTION;
 
@@ -410,6 +404,41 @@ FROM `data-aquarium.ashare_ods.ods_tushare_daily_basic`
 WHERE endpoint = 'daily_basic'
   AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', p_dwd_write_start_date) AND FORMAT_DATE('%Y%m%d', p_write_end_date)
   AND SAFE.PARSE_DATE('%Y%m%d', trade_date) BETWEEN p_dwd_write_start_date AND p_write_end_date;
+
+SET p_valuation_feature_read_start_date = COALESCE((
+  WITH first_write AS (
+    SELECT
+      sec_code,
+      MIN(trade_date) AS first_write_trade_date
+    FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
+    WHERE trade_date BETWEEN p_dwd_write_start_date AND p_write_end_date
+    GROUP BY sec_code
+  ),
+  ranked AS (
+    SELECT
+      v.sec_code,
+      v.trade_date,
+      ROW_NUMBER() OVER (
+        PARTITION BY v.sec_code
+        ORDER BY v.trade_date DESC
+      ) AS obs_rank_desc
+    FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation` AS v
+    JOIN first_write AS f
+      ON v.sec_code = f.sec_code
+     AND v.trade_date <= f.first_write_trade_date
+    WHERE v.trade_date BETWEEN p_final_start_date AND p_write_end_date
+  ),
+  read_bounds AS (
+    SELECT
+      sec_code,
+      MIN(trade_date) AS read_start_date
+    FROM ranked
+    WHERE obs_rank_desc <= p_valuation_observation_window
+    GROUP BY sec_code
+  )
+  SELECT MIN(read_start_date)
+  FROM read_bounds
+), p_dwd_write_start_date);
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- DWS: dws_stock_universe_daily
@@ -771,26 +800,59 @@ INSERT INTO `data-aquarium.ashare_dws.dws_stock_feature_valuation_daily` (
   created_at
 )
 WITH base AS (
+  WITH first_write AS (
+    SELECT
+      sec_code,
+      MIN(trade_date) AS first_write_trade_date
+    FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
+    WHERE trade_date BETWEEN p_dwd_write_start_date AND p_write_end_date
+    GROUP BY sec_code
+  ),
+  ranked AS (
+    SELECT
+      v.sec_code,
+      v.trade_date,
+      ROW_NUMBER() OVER (
+        PARTITION BY v.sec_code
+        ORDER BY v.trade_date DESC
+      ) AS obs_rank_desc
+    FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation` AS v
+    JOIN first_write AS f
+      ON v.sec_code = f.sec_code
+     AND v.trade_date <= f.first_write_trade_date
+    WHERE v.trade_date BETWEEN p_valuation_feature_read_start_date AND p_write_end_date
+  ),
+  read_bounds AS (
+    SELECT
+      sec_code,
+      MIN(trade_date) AS read_start_date
+    FROM ranked
+    WHERE obs_rank_desc <= p_valuation_observation_window
+    GROUP BY sec_code
+  )
   SELECT
-    trade_date,
-    sec_code,
-    turnover_rate,
-    turnover_rate_free_float,
-    volume_ratio,
-    pe,
-    pe_ttm,
-    pb,
-    ps,
-    ps_ttm,
-    dividend_yield,
-    dividend_yield_ttm,
-    total_share,
-    float_share,
-    free_share,
-    total_mv_cny,
-    circ_mv_cny
-  FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
-  WHERE trade_date BETWEEN p_feature_read_start_date AND p_write_end_date
+    v.trade_date,
+    v.sec_code,
+    v.turnover_rate,
+    v.turnover_rate_free_float,
+    v.volume_ratio,
+    v.pe,
+    v.pe_ttm,
+    v.pb,
+    v.ps,
+    v.ps_ttm,
+    v.dividend_yield,
+    v.dividend_yield_ttm,
+    v.total_share,
+    v.float_share,
+    v.free_share,
+    v.total_mv_cny,
+    v.circ_mv_cny
+  FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation` AS v
+  JOIN read_bounds AS b
+    ON v.sec_code = b.sec_code
+   AND v.trade_date >= b.read_start_date
+  WHERE v.trade_date BETWEEN p_valuation_feature_read_start_date AND p_write_end_date
 ),
 windowed AS (
   SELECT
@@ -1617,5 +1679,16 @@ WHERE f.trade_date BETWEEN p_label_write_start_date AND p_write_end_date
   AND l.label_version = p_label_version;
 
 COMMIT TRANSACTION;
+
+CREATE TEMP TABLE refresh_window AS
+SELECT
+  p_business_date AS business_date,
+  p_warehouse_mode AS warehouse_mode,
+  p_dwd_write_start_date AS dwd_write_start_date,
+  p_feature_read_start_date AS feature_read_start_date,
+  p_valuation_feature_read_start_date AS valuation_feature_read_start_date,
+  p_valuation_observation_window AS valuation_observation_window,
+  p_label_write_start_date AS label_write_start_date,
+  p_write_end_date AS write_end_date;
 
 SELECT * FROM refresh_window;

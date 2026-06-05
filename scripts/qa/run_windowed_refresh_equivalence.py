@@ -27,6 +27,7 @@ LOCATION = "asia-east2"
 SCRATCH_DATASET = "ashare_qa_windowed_equivalence"
 FLOAT_TYPES = {"FLOAT", "FLOAT64", "NUMERIC", "BIGNUMERIC"}
 IGNORED_COMPARE_COLUMNS = {"created_at"}
+VALUATION_OBSERVATION_WINDOW = 60
 
 
 @dataclass(frozen=True)
@@ -174,10 +175,12 @@ def render_window_sql(args: argparse.Namespace) -> tuple[str, list[bigquery.Scal
     return sql, query_parameters
 
 
-def create_copy_sql(spec: TableSpec, args: argparse.Namespace) -> str:
+def create_copy_sql(spec: TableSpec, args: argparse.Namespace, full_end_date: str) -> str:
     return f"""
 CREATE OR REPLACE TABLE {spec.window_ref(args.project, args.scratch_dataset)} AS
-SELECT * FROM {spec.full_ref(args.project, args.scratch_dataset)};
+SELECT *
+FROM {spec.full_ref(args.project, args.scratch_dataset)}
+WHERE trade_date BETWEEN DATE {literal(args.build_start_date)} AND DATE {literal(full_end_date)};
 """.strip()
 
 
@@ -188,6 +191,7 @@ def compare_window_dates(spec: TableSpec, args: argparse.Namespace, label_start_
 
 
 def label_start_date_sql(args: argparse.Namespace) -> str:
+    write_start = args.date_from or args.date_to
     return f"""
 SELECT CAST(GREATEST(
   COALESCE(
@@ -201,13 +205,55 @@ SELECT CAST(GREATEST(
           FROM `{args.project}.ashare_dim.dim_trade_calendar`
           WHERE exchange = 'SSE'
             AND is_open = 1
-            AND cal_date >= DATE {literal(args.date_from)}
+            AND cal_date >= DATE {literal(write_start)}
         ) - 20
     ),
-    DATE_SUB(DATE {literal(args.date_from)}, INTERVAL 35 DAY)
+    DATE_SUB(DATE {literal(write_start)}, INTERVAL 35 DAY)
   ),
   DATE {literal(args.build_start_date)}
 ) AS STRING) AS label_start_date
+""".strip()
+
+
+def valuation_required_build_start_sql(args: argparse.Namespace) -> str:
+    write_start = args.date_from or args.date_to
+    return f"""
+WITH first_write AS (
+  SELECT
+    sec_code,
+    MIN(trade_date) AS first_write_trade_date
+  FROM `{args.project}.ashare_dwd.dwd_stock_eod_valuation`
+  WHERE trade_date BETWEEN DATE {literal(write_start)} AND DATE {literal(args.date_to)}
+  GROUP BY sec_code
+),
+ranked AS (
+  SELECT
+    v.sec_code,
+    v.trade_date,
+    ROW_NUMBER() OVER (
+      PARTITION BY v.sec_code
+      ORDER BY v.trade_date DESC
+    ) AS obs_rank_desc
+  FROM `{args.project}.ashare_dwd.dwd_stock_eod_valuation` AS v
+  JOIN first_write AS f
+    ON v.sec_code = f.sec_code
+   AND v.trade_date <= f.first_write_trade_date
+  WHERE v.trade_date BETWEEN DATE '2019-01-01' AND DATE {literal(args.date_to)}
+),
+read_bounds AS (
+  SELECT
+    sec_code,
+    MIN(trade_date) AS read_start_date,
+    COUNT(*) AS read_obs_count
+  FROM ranked
+  WHERE obs_rank_desc <= {VALUATION_OBSERVATION_WINDOW}
+  GROUP BY sec_code
+)
+SELECT
+  CAST(MIN(read_start_date) AS STRING) AS required_build_start_date,
+  COUNT(*) AS sec_code_count,
+  COUNTIF(read_obs_count < {VALUATION_OBSERVATION_WINDOW}) AS sec_code_count_with_less_than_60_obs
+FROM read_bounds
 """.strip()
 
 
@@ -284,6 +330,38 @@ def ensure_dataset(client: bigquery.Client, args: argparse.Namespace) -> None:
     client.create_dataset(dataset, exists_ok=True)
 
 
+def validate_build_start_guard(client: bigquery.Client, args: argparse.Namespace) -> None:
+    rows = list(
+        run_query(
+            client,
+            valuation_required_build_start_sql(args),
+            description="validate valuation build-start lookback",
+            location=args.location,
+        )
+    )
+    row = rows[0]
+    required_build_start = row["required_build_start_date"]
+    if required_build_start is None:
+        print("[guard] no valuation rows found for the write window; build-start lookback guard skipped")
+        return
+
+    if parse_date(args.build_start_date) > parse_date(required_build_start):
+        raise ValueError(
+            "build_start_date is too late for a discriminating equivalence QA run: "
+            f"build_start_date={args.build_start_date}, "
+            f"required_build_start_date<={required_build_start}. "
+            "Move --build-start-date earlier so canonical full shadows contain the "
+            "same 60-observation valuation history required by the windowed path."
+        )
+
+    print(
+        "[guard] valuation build-start lookback ok: "
+        f"required_build_start_date<={required_build_start}, "
+        f"sec_code_count={row['sec_code_count']}, "
+        f"less_than_60_obs={row['sec_code_count_with_less_than_60_obs']}"
+    )
+
+
 def main() -> int:
     args = parse_args()
     date_to = parse_date(args.date_to)
@@ -303,16 +381,18 @@ def main() -> int:
 
     if args.dry_run:
         print("Dry-run plan:")
-        print("  1. Create scratch dataset.")
+        print("  1. Validate build_start_date has enough valuation lookback against production DWD.")
+        print("  2. Create scratch dataset.")
         for path in FULL_SQL_FILES:
-            print(f"  2. Render and run canonical full SQL: {path}")
+            print(f"  3. Render and run canonical full SQL: {path}")
         for spec in TABLES:
-            print(f"  3. Copy {spec.table_name}_full -> {spec.table_name}_window")
-        print(f"  4. Render and run {WINDOW_SQL_FILE} against *_window tables.")
-        print("  5. Compare *_window vs *_full for DWD and label windows.")
+            print(f"  4. Copy {spec.table_name}_full -> {spec.table_name}_window")
+        print(f"  5. Render and run {WINDOW_SQL_FILE} against *_window tables.")
+        print("  6. Compare *_window vs *_full for DWD and label windows.")
         return 0
 
     client = bigquery.Client(project=args.project, location=args.location)
+    validate_build_start_guard(client, args)
     ensure_dataset(client, args)
 
     for path in FULL_SQL_FILES:
@@ -320,7 +400,7 @@ def main() -> int:
         run_query(client, sql, description=f"canonical full shadow: {path}", location=args.location)
 
     for spec in TABLES:
-        run_query(client, create_copy_sql(spec, args), description=f"copy window seed: {spec.table_name}", location=args.location)
+        run_query(client, create_copy_sql(spec, args, full_end_date), description=f"copy window seed: {spec.table_name}", location=args.location)
 
     window_sql, window_params = render_window_sql(args)
     run_query(

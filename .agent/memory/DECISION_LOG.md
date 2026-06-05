@@ -1295,3 +1295,39 @@ Phase 2.0 实现分支 `codex/oq005-scheduler-phase2` 更新 Composer DAG、meta
 ### 相关文件
 
 `orchestration/composer/dags/ashare_daily_pipeline_v0.py`, `sql/meta/01_create_meta_tables.sql`, `sql/meta/04_ods_field_unit_map.sql`, `orchestration/composer/README.md`, `orchestration/README.md`, `sql/README.md`, `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`, `TODO.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260605-02: OQ-005 窗口刷新估值特征按实际观测推导读取边界
+
+日期: 2026-06-05
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5
+
+### 背景
+
+PR #65 合并后、部署 Composer 和生产 DML 前，真实 scratch full-vs-window 等价 QA 发现 `dws_stock_feature_valuation_daily.turnover_rate_zscore_60d` 在部分股票上与 canonical full path 不一致。价格特征的 60 个 SSE 交易日读取窗口足够覆盖价格类滚动窗口，但 `daily_basic` 对部分股票不是每日完整观测；SQL 使用 `ROWS BETWEEN 59 PRECEDING AND CURRENT ROW` 时需要 60 条实际估值观测，实际跨度可能超过固定交易日读取窗口。
+
+### 决策
+
+1. OQ-005 股票 DWD/DWS 窗口刷新中，价格特征读取窗口保持 60 个 SSE 交易日。
+2. 估值特征读取边界按每只股票写入窗口首日前的实际 60 条估值观测推导，不用固定交易日窗口近似。
+3. 标签、特征宽表和样本表写入窗口仍按 20 个 SSE 交易日向前回补。
+4. full-vs-window 等价 QA runner 复制 canonical `_full` 表到 `_window` seed 时必须带 `trade_date` 分区过滤，兼容 `require_partition_filter=true`。
+5. full-vs-window 等价 QA runner 必须校验 `build_start_date` 足够早，避免 full/window shadow 被同样截断后假通过。
+
+### 理由
+
+窗口刷新要与 canonical full SQL 在写入窗口内数值等价。对估值特征使用与价格特征相同的固定交易日读取窗口，会在 `daily_basic` 稀疏观测股票上截断 60 条观测窗口，导致 z-score 等滚动特征漂移。按每只股票实际观测推导读取边界，可以覆盖长期停牌或集中缺口股票；`build_start_date` guard 保证等价 QA 的 full shadow 有足够历史，避免非判别性通过。
+
+### 影响
+
+`sql/incremental/01_refresh_stock_dwd_dws_window.sql` 增加 `p_valuation_observation_window=60`，并在 DWD 估值刷新后按股票推导估值特征 read bounds；`p_valuation_feature_read_start_date` 仅作为全局分区裁剪下界和审计输出。`scripts/qa/run_windowed_refresh_equivalence.py` 的 seed copy 加分区过滤，并在真实运行前检查 `build_start_date`。后续部署 Composer 前必须合并该 hotfix；生产 smoke 仍需在合并后执行。
+
+### 备选方案
+
+继续使用统一 60 个交易日读取窗口；放弃，因为真实等价 QA 已证明会造成估值滚动特征漂移。把估值读取窗口固定扩大到 180 个交易日；放弃作为最终实现，因为对重度停牌或集中缺口股票仍是启发式。完全重建所有 2019+ DWD/DWS；放弃作为每日路径，因为 OQ-005 daily/backfill 目标是窗口化刷新，完整重建只属于显式维护链路。
+
+### 相关文件
+
+`sql/incremental/01_refresh_stock_dwd_dws_window.sql`, `scripts/qa/run_windowed_refresh_equivalence.py`, `sql/README.md`, `TODO.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
