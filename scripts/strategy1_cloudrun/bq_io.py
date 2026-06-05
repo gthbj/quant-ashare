@@ -6,10 +6,12 @@ import json
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from google.api_core import exceptions as google_exceptions
 from google.cloud import bigquery, storage
 
 
@@ -87,7 +89,15 @@ def load_dataframe(
         write_disposition=write_disposition,
         labels=normalize_bq_labels(labels),
     )
-    client.load_table_from_dataframe(frame, table_id, job_config=job_config).result()
+    delays = [10, 20, 40, 60, 60, 60]
+    for attempt in range(len(delays) + 1):
+        try:
+            client.load_table_from_dataframe(frame, table_id, job_config=job_config).result()
+            return
+        except google_exceptions.TooManyRequests:
+            if attempt == len(delays):
+                raise
+            time.sleep(delays[attempt])
 
 
 def get_git_commit() -> str | None:

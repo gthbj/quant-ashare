@@ -588,6 +588,7 @@ def load_candidates(
     work_units: dict[str, Any],
     *,
     require_all_candidates: bool,
+    load_models: bool = True,
 ) -> list[CandidateResult]:
     candidates = []
     missing = []
@@ -597,7 +598,7 @@ def load_candidates(
         status_path = unit_dir / "task_status.json"
         metrics_path = unit_dir / "candidate_metrics.json"
         model_path = unit_dir / "model.joblib"
-        if not status_path.exists() or not metrics_path.exists() or not model_path.exists():
+        if not status_path.exists() or not metrics_path.exists() or (load_models and not model_path.exists()):
             missing.append(unit_index)
             continue
         status = read_json(status_path)
@@ -608,7 +609,7 @@ def load_candidates(
             if status.get(key) != manifest.get(key):
                 raise ValueError(f"candidate unit_index={unit_index} has mismatched {key}")
         metrics = read_json(metrics_path)
-        model = joblib.load(model_path)
+        model = joblib.load(model_path) if load_models else None
         candidates.append(CandidateResult(
             candidate_id=str(unit["candidate_id"]),
             model=model,

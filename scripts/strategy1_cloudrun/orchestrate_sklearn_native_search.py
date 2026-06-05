@@ -155,6 +155,7 @@ def main() -> int:
         matrix_uri=matrix_uri,
         candidate_count=len(config.candidate_grid),
         matrix_local=args.matrix_local_dir,
+        download_models=False,
     )
     manifest = read_json(matrix_local / "matrix_manifest.json")
     work_units = read_json(matrix_local / "work_units.json")
@@ -163,6 +164,7 @@ def main() -> int:
         manifest,
         work_units,
         require_all_candidates=not args.allow_partial_candidates,
+        load_models=False,
     )
     ranking = rank_candidates(candidates, top_k=top_k)
     top_rows = [row for row in ranking if row.get("shortlist_rank_valid_only") is not None]
@@ -321,12 +323,16 @@ def ensure_candidate_artifacts_local(
     matrix_uri: str,
     candidate_count: int,
     matrix_local: str | None,
+    download_models: bool = True,
 ) -> Path:
     local_dir = Path(matrix_local) if matrix_local else Path(tempfile.mkdtemp(prefix="strategy1-native-search-"))
     for rel in ("matrix_manifest.json", "work_units.json"):
         download_gcs_file(project, join_gs_uri(matrix_uri, rel), local_dir / rel)
     for unit_index in range(candidate_count):
-        for name in ("candidate_metrics.json", "task_status.json", "model.joblib"):
+        names = ["candidate_metrics.json", "task_status.json"]
+        if download_models:
+            names.append("model.joblib")
+        for name in names:
             rel = f"candidates/unit_index={unit_index}/{name}"
             download_gcs_file(project, join_gs_uri(matrix_uri, rel), local_dir / rel)
     return local_dir
