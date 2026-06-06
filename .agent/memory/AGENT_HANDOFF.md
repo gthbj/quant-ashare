@@ -8,13 +8,13 @@
 
 **OQ-010 PRD04 Wave 3 执行收口（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-wave3`，分支 `codex/fix-prd04-prepare-matrix-parallelism`，PR #82。PR #79 合并后已部署 Cloud Run runner；本分支修复 `prepare_matrix()` requested parallelism 作用域 bug，并补 BigQuery JSON sanitizer，避免 regression `roc_auc/log_loss` 的 NaN 写入非法 `metrics_json`；PR #82 review follow-up 已补 `NaT` / `pd.NA` / `NaN` / `inf` 转 `null`、`np.ndarray` / pandas 标量递归转换和 `default=str` 兜底，并把状态表 `params_json`、GCS lock payload、work-unit manifest/hash 等 runner JSON 路径统一到 strict helper。最终镜像 `prd04-7d8daec-20260606-01` 已构建并部署到五个策略 Cloud Run Jobs。Wave 3 `cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01` 已完成：12 个 regression 候选、Top5 回测/报告/诊断和 `19` QA 全部通过，Top5 全部 rejected，当前仍不建立 `cloud_run_python_baseline_v1`。后续建议进入 PRD04 下一模型族 / 特征增强路线，或先分析回撤过大原因。
 
-**OQ-005 非交易日 skip gate 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-nontrading-skip`，分支 `codex/oq005-nontrading-skip`。`ashare_daily_pipeline_v0.py` 已新增 scheduled `daily_current` 非交易日 gate，并完成 PR #83 review follow-up：`pipeline_start_status` 后查 `ashare_dim.dim_trade_calendar` 的 SSE 当日开市状态；非开市日进入实体 `PythonOperator` `skip_non_trading_day`，在 task body 写 `pipeline_task_status.status='skipped'`，跳过 ingestion、ODS readiness 和 transform；日历缺行或 `is_open` NULL 均 fail-closed。普通手工触发、`backfill`、`qa_only`、`full_rebuild` 和 legacy full refresh 不受影响；只有 smoke-only `force_non_trading_day_gate=true` 可手工强制测试 skip 分支。合并后验收必须是真正 scheduled run 或显式 smoke hook，普通 `dags trigger` 不算 skip gate smoke；上一交易日修复仍需显式 `backfill`。
+**OQ-005 非交易日 skip gate 已部署验收（2026-06-06）**：PR #83 已合并到 `main`（`3723f52`），`ashare_daily_pipeline_v0.py` 已同步到 Composer bucket `gs://asia-east2-ashare-composer-b2629133-bucket/dags/`，本地与 bucket SHA256 均为 `e4b07ba402716b914bfbd6fe27fa38f97fab8e1c12f6a0bcce9e5fd8c58696af`。`manual_smoke_skip_non_trading_day_pr83_20260606_02` 使用 `business_date=2026-06-06`、`warehouse_mode=daily_current`、`force_non_trading_day_gate=true`、`pipeline_dry_run=true` 成功：`non_trading_day_gate=success`、`skip_non_trading_day=success`，`pipeline_task_status` 写入 `skip_non_trading_day status='skipped'`，ingestion/readiness/transform 全部 skipped，Cloud Run 最新 execution 仍为 01:53 的旧 PR #80 run，未被 smoke 触发。DAG 当前 active/unpaused、无 import errors。首次 smoke `manual_smoke_skip_non_trading_day_pr83_20260606_01` 在 Composer 新旧 serialized DAG 切换窗口内走到旧路径，已中止、确认未触发 Cloud Run，并在 `pipeline_run` 标为 `partial` 防止假告警；`v_alert_summary` 对两次 smoke 为空。
 
 **OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-cloudrun-python-baseline`，分支 `codex/implement-prd04-cloudrun-python-baseline`。PR #79 review follow-up 与 residual follow-up 已完成：共享验收契约阈值注入 `18/19` QA、final_holdout 缺证据改为 `needs_more_evidence`、QA NULL 空过和数据上界断言补齐、split 边界对齐 `2024-01-02` / `2025-01-02`、auto-next-wave 改为当前 wave QA 后非阻断触发，并补资源元数据和 LightGBM convergence 元数据。运行手册已同步 40 候选 / 20 并发 / 2 vCPU 8Gi，`config.py` / `ledger.py` / `01` / `10` 的 fallback 默认日期已对齐 Jan 2 交易日起点，`18/19` 已用 `qa_required()` 让单行 NULL 也 fail，并声明 SQL `DECLARE` 默认只是 standalone fallback、生产必须由 orchestrator 从共享契约注入。真实 LightGBM binary wave 2 search `cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01` 已按 `candidate_count=40`、`candidate_parallelism=20`、单 task `2 vCPU / 8Gi` 完成，Top5 均 rejected，不建立 `cloud_run_python_baseline_v1`；`18/19` 真实 QA 均通过。合并部署 PR #79 follow-up 后下一步：执行 `lightgbm_regression` wave 3。
 
 **项目记忆瘦身归档（2026-06-05）**：`AGENT_HANDOFF.md` 已按 owner 要求整理，当前文件只保留启动摘要、归档清理交接和最近 3 条交接；较早的 30 条交接已追加到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动优先读本文件；需要审计历史时再读 archive。
 
-**OQ-005 PR #80 部署与 2026-06-05 smoke（2026-06-06）**：当前 `main` 已包含 PR #80，并已完成生产部署：`ashare_daily_pipeline_v0.py` 同步到 Composer `dags/`，仓库 `sql/` 同步到 `gs://asia-east2-ashare-composer-b2629133-bucket/data/sql/`，本地 / bucket DAG 与 `09_ods_daily_partition_readiness.sql` SHA256 一致。`manual_pr80_daily_current_20260605_20260606_01` 使用 `business_date=2026-06-05` 成功完成 current_scope 采集、ODS readiness、窗口 DIM/DWD/DWS 刷新和窗口 QA；采集后 2026-06-05 strong endpoint 行数为 daily 5514、daily_basic 5514、adj_factor 5526、stk_limit 7634、index_daily 7。`manual_pr80_qa_only_20260605_20260606_01` 使用 `skip_ingestion=true` 成功完成 readiness + P0 / strategy1 / OQ004 / finance / OQ006 五个只读 QA。最近 20 个交易日 `2026-05-11..2026-06-05` ODS daily_basic → DWD valuation → DWS valuation 行数均为 110,035，错配天数 0。下一步仍是 Dataform 生产链路、补跑/resume 自动化和完整 ODS→ADS 运维观测闭环；非交易日自动 skip gate 已在 `codex/oq005-nontrading-skip` 实现，待合并部署 smoke。
+**OQ-005 PR #80 部署与 2026-06-05 smoke（2026-06-06）**：当前 `main` 已包含 PR #80，并已完成生产部署：`ashare_daily_pipeline_v0.py` 同步到 Composer `dags/`，仓库 `sql/` 同步到 `gs://asia-east2-ashare-composer-b2629133-bucket/data/sql/`，本地 / bucket DAG 与 `09_ods_daily_partition_readiness.sql` SHA256 一致。`manual_pr80_daily_current_20260605_20260606_01` 使用 `business_date=2026-06-05` 成功完成 current_scope 采集、ODS readiness、窗口 DIM/DWD/DWS 刷新和窗口 QA；采集后 2026-06-05 strong endpoint 行数为 daily 5514、daily_basic 5514、adj_factor 5526、stk_limit 7634、index_daily 7。`manual_pr80_qa_only_20260605_20260606_01` 使用 `skip_ingestion=true` 成功完成 readiness + P0 / strategy1 / OQ004 / finance / OQ006 五个只读 QA。最近 20 个交易日 `2026-05-11..2026-06-05` ODS daily_basic → DWD valuation → DWS valuation 行数均为 110,035，错配天数 0。下一步仍是 Dataform 生产链路、补跑/resume 自动化和完整 ODS→ADS 运维观测闭环；非交易日自动 skip gate 已由 PR #83 合并部署，并通过 `manual_smoke_skip_non_trading_day_pr83_20260606_02` 验收。
 
 **OQ-010 Cloud Run Python baseline 搜索 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-python-baseline-search`，分支 `codex/prd-cloudrun-python-baseline-search`。新增 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：本轮数据截止 `2026-04-30`；train/valid/test/final_holdout 为 `2019-04-03..2023-12-31` / 2024 / 2025 / `2026-01-05..2026-04-30`；固定 `pv_fin_quality + 30/5% + biweekly + 5d`、沪深主板股票池、成本 profile 和 Ledger v1；P0 推荐 LightGBM wave 2。PR #78 review follow-up 后，候选排序改为 2021/2022/2023 三折 purged walk-forward CV + 2024 valid confirmation，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch；实现 smoke 后当前资源口径已从最初 40 并发 / 1 vCPU 4Gi 调整为 40 候选 / 20 并发 / 2 vCPU 8Gi；若 binary LightGBM rejected，后续优先试 `lightgbm_regression`。
 
@@ -26,7 +26,7 @@
 
 **OQ-010 已收口事实（2026-06-05）**：Ledger v1 P1 extended fresh run `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` 覆盖 `2024-01-02` 至 `2026-04-30`，total_return 35.16%、excess_return -7.22% vs `000852.SH`；P2 resume run `s1_bqml_baseline_pvfq_n30_bw_h5_resume_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_resume_20260604_01` 通过 `sql/ml/strategy1/15_qa_ledger_resume_consistency.sql`。sklearn native search 首轮 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 已完成，Top5 均因 `test_year_excess_return<=0.0` 被拒绝，本轮不建立 `cloud_run_sklearn_native_baseline_v1`。
 
-**OQ-005 / OQ-012 当前状态（2026-06-06）**：OQ-005 已完成 current-scope 生产采集至 `2026-06-05`、Composer DAG/SQL 部署验收、20 日窗口 DWD/DWS smoke、readiness 门禁复核、告警/观测与 alert checker heartbeat；scheduled 非交易日 skip gate 已在 `codex/oq005-nontrading-skip` 实现，待合并部署 smoke。OQ-005 仍 open，剩余 Dataform 生产链路、补跑/resume 自动化和完整 ODS→ADS 运维观测闭环。OQ-012 当前 BigQuery 读层 `sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过，待 owner 决定关闭/归档或保留 schema contract / ingestion 显式 cast 防复发任务。
+**OQ-005 / OQ-012 当前状态（2026-06-06）**：OQ-005 已完成 current-scope 生产采集至 `2026-06-05`、Composer DAG/SQL 部署验收、20 日窗口 DWD/DWS smoke、readiness 门禁复核、告警/观测与 alert checker heartbeat；scheduled 非交易日 skip gate 已由 PR #83 合并部署并完成 force hook smoke。OQ-005 仍 open，剩余 Dataform 生产链路、补跑/resume 自动化和完整 ODS→ADS 运维观测闭环。OQ-012 当前 BigQuery 读层 `sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过，待 owner 决定关闭/归档或保留 schema contract / ingestion 显式 cast 防复发任务。
 
 **常规约定**：评审默认写 GitHub PR comment；TODO 只保留下一步可执行事项，待 owner 决策问题以 `OPEN_QUESTIONS.md` 为唯一来源。PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。
 
@@ -926,6 +926,71 @@ Run ID: N/A
 
 - 合并后同步 DAG 到 Composer bucket。
 - 用真正 scheduled run 或 `force_non_trading_day_gate=true` smoke-only 手工 run 验证 `skip_non_trading_day` 状态行、pipeline terminal success 和 Cloud Run ingestion 未触发。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: manual_smoke_skip_non_trading_day_pr83_20260606_02
+相关 issue/PR: PR #83 / OQ-005 scheduled non-trading day skip gate deployment
+
+### 已完成工作
+
+- 将 `main` 快进到 PR #83 merge commit `3723f52`。
+- 将 `orchestration/composer/dags/ashare_daily_pipeline_v0.py` 同步到 Composer DAG bucket：`gs://asia-east2-ashare-composer-b2629133-bucket/dags/ashare_daily_pipeline_v0.py`。
+- 复核本地与 bucket DAG SHA256 一致：`e4b07ba402716b914bfbd6fe27fa38f97fab8e1c12f6a0bcce9e5fd8c58696af`。
+- 用 `business_date=2026-06-06`、`warehouse_mode=daily_current`、`force_non_trading_day_gate=true`、`pipeline_dry_run=true` 触发 smoke `manual_smoke_skip_non_trading_day_pr83_20260606_02`。
+- 验证 smoke 成功：`non_trading_day_gate=success`、`skip_non_trading_day=success`、`pipeline_finalize_status=success`、`finish=success`。
+- 验证 `pipeline_task_status` 已写入 `skip_non_trading_day status='skipped'`，`pipeline_run.status='success'`。
+- 验证 ingestion/readiness/window/full/qa 分支均 skipped，Cloud Run `ashare-ingest-current-scope` 没有新 execution。
+- 验证 DAG 当前 active/unpaused、无 import errors；`v_alert_summary` 对本次 smoke 为空。
+
+### 重要上下文
+
+- 首次 smoke `manual_smoke_skip_non_trading_day_pr83_20260606_01` 在 Composer 新旧 serialized DAG 切换窗口内被创建，`non_trading_day_gate` / `skip_non_trading_day` 一度显示 `removed` 且旧 `branch_ingestion` 进入 scheduled。
+- 已立即暂停 DAG、确认 Cloud Run 未触发、通过 Airflow API 将该 DagRun 标为 failed，并将 `ashare_meta.pipeline_run` 对应行修正为 `partial`，error_summary 写明被第二次成功 smoke supersede，避免假告警。
+- 生产 20:00 scheduled run 当前保持启用；下一次真实周末 scheduled run 仍可作为自然验收补充，但本次 force hook smoke 已验证 skip 分支落库与 Cloud Run 未触发。
+
+### 改动文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `gcloud storage cp` 部署 DAG，并下载回 `/tmp/ashare_daily_pipeline_v0.py.bucket` 做 SHA256 对比。
+- Airflow REST API 验证 DAG `is_active=true`、`is_paused=false`、`has_import_errors=false`。
+- Airflow task 状态验证 `manual_smoke_skip_non_trading_day_pr83_20260606_02` 成功走 skip 分支。
+- BigQuery 查询验证 `pipeline_run` / `pipeline_task_status` 状态。
+- Cloud Run execution list 验证最近 execution 仍为 PR #80 的 `manual_pr80_daily_current_20260605_20260606_01_current_scope_write`，本次 smoke 未触发 Cloud Run。
+- BigQuery `v_alert_summary` 查询返回空。
+
+### 阻塞项
+
+- 无部署阻塞。
+
+### 下一步建议
+
+- 继续 OQ-005 Dataform definitions。
+- 继续补跑/resume 自动化。
+- 继续完整 ODS→ADS 运维观测闭环收尾。
 
 ### 已更新记忆文件
 
