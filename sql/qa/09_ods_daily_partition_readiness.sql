@@ -235,37 +235,6 @@ FROM (
 );
 
 -- =============================================================================
--- Assertions: only strong endpoints block on trading days
--- =============================================================================
-
--- QA-ODS-DAILY-1: no missing partition for strong endpoints
-ASSERT (
-  SELECT COUNTIF(checked_partition IS NULL) = 0
-  FROM qa_ods_strong_results
-) AS 'QA-ODS-DAILY-1: no recent partition found for strong ODS endpoints';
-
--- QA-ODS-DAILY-2: strong endpoints must have rows on trading days
--- Only enforced on trading days to avoid blocking on weekends/holidays
-ASSERT (
-  SELECT COUNTIF(require_rows AND row_count = 0) = 0
-  FROM qa_ods_strong_results
-  WHERE p_is_trading_day OR p_require_business_partition
-) AS 'QA-ODS-DAILY-2: strong ODS endpoints must have data on trading days';
-
--- QA-ODS-DAILY-3: production run must find exact partition for strong endpoints
-ASSERT (
-  SELECT COUNTIF(
-    p_require_business_partition
-    AND require_exact_in_production
-    AND checked_partition != exact_partition
-  ) = 0
-  FROM qa_ods_strong_results
-) AS 'QA-ODS-DAILY-3: production run must find exact partition for strong endpoints';
-
--- QA-ODS-DAILY-4: detect API row limit hit (potential truncation)
--- This is a warning, not a blocker.
-
--- =============================================================================
 -- Output results for observability
 -- =============================================================================
 CREATE TEMP TABLE qa_ods_readiness_results AS
@@ -295,67 +264,99 @@ FROM (
 )
 ORDER BY gate_type, endpoint_group, endpoint;
 
--- Persist non-blocking readiness warnings so they remain visible after the
--- BigQuery task succeeds. Strong endpoint failures are still represented by
--- the failed ods_daily_partition_readiness task callback.
-MERGE `data-aquarium.ashare_meta.pipeline_task_status` AS T
-USING (
-  SELECT
-    p_pipeline_run_id AS pipeline_run_id,
-    CONCAT(
-      'ods_daily_partition_readiness.',
-      LOWER(status),
-      '.',
-      REPLACE(endpoint, '/', '_')
-    ) AS task_id,
-    'qa' AS task_type,
-    CAST(business_date AS STRING) AS business_date,
-    'warning' AS status,
-    row_count,
+-- Persist non-blocking readiness warnings before blocking ASSERTs so warning
+-- context remains visible even when strong endpoint readiness fails.
+IF NOT p_pipeline_dry_run THEN
+  MERGE `data-aquarium.ashare_meta.pipeline_task_status` AS T
+  USING (
+    SELECT
+      p_pipeline_run_id AS pipeline_run_id,
+      CONCAT(
+        'ods_daily_partition_readiness.',
+        LOWER(status),
+        '.',
+        REPLACE(endpoint, '/', '_')
+      ) AS task_id,
+      'qa' AS task_type,
+      CAST(business_date AS STRING) AS business_date,
+      'warning' AS status,
+      row_count,
+      endpoint,
+      CONCAT(
+        'ODS readiness warning: endpoint=', endpoint,
+        ', status=', status,
+        ', checked_partition=', COALESCE(checked_partition, 'NULL'),
+        ', exact_partition=', COALESCE(exact_partition, 'NULL'),
+        ', row_count=', CAST(row_count AS STRING)
+      ) AS error_summary
+    FROM qa_ods_readiness_results
+    WHERE status = 'API_LIMIT_RISK'
+       OR (p_is_trading_day AND gate_type = 'weak' AND status = 'MISSING_REQUIRED')
+  ) AS S
+  ON T.pipeline_run_id = S.pipeline_run_id AND T.task_id = S.task_id
+  WHEN MATCHED THEN UPDATE SET
+    task_type = S.task_type,
+    business_date = S.business_date,
+    endpoint = S.endpoint,
+    status = S.status,
+    row_count = S.row_count,
+    error_summary = S.error_summary,
+    updated_at = CURRENT_TIMESTAMP()
+  WHEN NOT MATCHED THEN INSERT (
+    pipeline_run_id,
+    task_id,
+    task_type,
+    business_date,
     endpoint,
-    CONCAT(
-      'ODS readiness warning: endpoint=', endpoint,
-      ', status=', status,
-      ', checked_partition=', COALESCE(checked_partition, 'NULL'),
-      ', exact_partition=', COALESCE(exact_partition, 'NULL'),
-      ', row_count=', CAST(row_count AS STRING)
-    ) AS error_summary
-  FROM qa_ods_readiness_results
-  WHERE status = 'API_LIMIT_RISK'
-     OR (gate_type = 'weak' AND status = 'MISSING_REQUIRED')
-) AS S
-ON T.pipeline_run_id = S.pipeline_run_id AND T.task_id = S.task_id
-WHEN MATCHED THEN UPDATE SET
-  task_type = S.task_type,
-  business_date = S.business_date,
-  endpoint = S.endpoint,
-  status = S.status,
-  row_count = S.row_count,
-  error_summary = S.error_summary,
-  updated_at = CURRENT_TIMESTAMP()
-WHEN NOT MATCHED THEN INSERT (
-  pipeline_run_id,
-  task_id,
-  task_type,
-  business_date,
-  endpoint,
-  status,
-  row_count,
-  error_summary,
-  created_at,
-  updated_at
-) VALUES (
-  S.pipeline_run_id,
-  S.task_id,
-  S.task_type,
-  S.business_date,
-  S.endpoint,
-  S.status,
-  S.row_count,
-  S.error_summary,
-  CURRENT_TIMESTAMP(),
-  CURRENT_TIMESTAMP()
-);
+    status,
+    row_count,
+    error_summary,
+    created_at,
+    updated_at
+  ) VALUES (
+    S.pipeline_run_id,
+    S.task_id,
+    S.task_type,
+    S.business_date,
+    S.endpoint,
+    S.status,
+    S.row_count,
+    S.error_summary,
+    CURRENT_TIMESTAMP(),
+    CURRENT_TIMESTAMP()
+  );
+END IF;
+
+-- =============================================================================
+-- Assertions: only strong endpoints block on trading days
+-- =============================================================================
+
+-- QA-ODS-DAILY-1: no missing partition for strong endpoints
+ASSERT (
+  SELECT COUNTIF(checked_partition IS NULL) = 0
+  FROM qa_ods_strong_results
+) AS 'QA-ODS-DAILY-1: no recent partition found for strong ODS endpoints';
+
+-- QA-ODS-DAILY-2: strong endpoints must have rows on trading days
+-- Only enforced on trading days to avoid blocking on weekends/holidays
+ASSERT (
+  SELECT COUNTIF(require_rows AND row_count = 0) = 0
+  FROM qa_ods_strong_results
+  WHERE p_is_trading_day OR p_require_business_partition
+) AS 'QA-ODS-DAILY-2: strong ODS endpoints must have data on trading days';
+
+-- QA-ODS-DAILY-3: production run must find exact partition for strong endpoints
+ASSERT (
+  SELECT COUNTIF(
+    p_require_business_partition
+    AND require_exact_in_production
+    AND checked_partition != exact_partition
+  ) = 0
+  FROM qa_ods_strong_results
+) AS 'QA-ODS-DAILY-3: production run must find exact partition for strong endpoints';
+
+-- QA-ODS-DAILY-4: detect API row limit hit (potential truncation)
+-- This is a warning, not a blocker.
 
 SELECT *
 FROM qa_ods_readiness_results

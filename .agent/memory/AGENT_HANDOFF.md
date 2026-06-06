@@ -8,6 +8,8 @@
 
 **项目记忆瘦身归档（2026-06-05）**：`AGENT_HANDOFF.md` 已按 owner 要求整理，当前文件只保留启动摘要、归档清理交接和最近 3 条交接；较早的 30 条交接已追加到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动优先读本文件；需要审计历史时再读 archive。
 
+**OQ-005 PR #80 readiness warning follow-up（2026-06-06）**：工作树 `/private/tmp/oq005-scheduler-fix`，分支 `codex/oq005-scheduler-daily-fix`。已按 PR #80 comment 修复 `sql/qa/09_ods_daily_partition_readiness.sql`：warning MERGE 前置到阻断 ASSERT 前；`pipeline_dry_run=true` 不写 `pipeline_task_status` warning；非交易日 weak endpoint 缺失不写 warning。实际验证：`manual_verify_oq005_warning_before_assert_20260606_01` 在 `2026-06-05` strong 缺失失败前写入 4 条 weak warning；`manual_verify_oq005_dryrun_no_warning_20260606_01` 和 `manual_verify_oq005_nontd_weak_suppressed_20260606_01` 均确认 warning 行数为 0。同步更新 runbook、KNOWN_CONSTRAINTS、TODO、OPEN_QUESTIONS、IMPLEMENTATION_STATUS。尚未重新同步 Composer bucket，待 PR 合并后按生产部署流程同步。
+
 **OQ-010 Cloud Run Python baseline 搜索 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-python-baseline-search`，分支 `codex/prd-cloudrun-python-baseline-search`。新增 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：本轮数据截止 `2026-04-30`；train/valid/test/final_holdout 为 `2019-04-03..2023-12-31` / 2024 / 2025 / `2026-01-05..2026-04-30`；固定 `pv_fin_quality + 30/5% + biweekly + 5d`、沪深主板股票池、成本 profile 和 Ledger v1；P0 推荐 LightGBM wave 2，固定 40 个候选、40 并发、单 task 1 vCPU / 4Gi，并按 Cloud Run 区域配额 50 vCPU / 200Gi 设计。PR #78 review follow-up 后，候选排序改为 2021/2022/2023 三折 purged walk-forward CV + 2024 valid confirmation，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch；实现时需先落共享验收配置 `configs/strategy1/model_acceptance_contract_v1.yml`，并迁移 sklearn `decide_acceptance` / `18_qa` 以取代旧内联阈值；若 binary LightGBM rejected，后续优先试 `lightgbm_regression`。真实 Cloud Run Job `strategy1-train-candidate-fanout-job` 已更新为 `parallelism=40` 并复核通过；本次未实现 LightGBM 代码、未执行 BigQuery search。
 
 **OQ-005 告警/观测生产闭环部署与 PR #75 follow-up（2026-06-05）**：PR #75 已合并并完成生产部署；后续代码收敛工作树 `/private/tmp/oq005-alerting-deploy-followup`，分支 `codex/oq005-alerting-deploy-followup`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到告警策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。PR #75 follow-up 已部署并验收：Composer bucket 已同步 DAG 与 `check_alerts.py`；新增 `oq005_alert_checker_heartbeat` log-based metric 和 `OQ-005: Alert Checker Heartbeat Missing` 30 分钟 absence policy，策略已启用并绑定 1 个 Email 通知渠道；`check_alerts.py` 显式使用 `resource.type=global` 写业务告警与 heartbeat，避免 Composer 默认 `k8s_container` resource 与现有告警策略不匹配。PR #77 review follow-up 已修复告警策略幂等键：`setup_alerts.py` 使用稳定 `user_labels.oq005_policy` 并兼容旧 display name 迁移，避免旧名环境重复创建新旧两份策略。manual smoke `manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功，随后的 scheduled run 也成功；Cloud Logging 中 heartbeat 为 `resource.type=global`、`lookback_minutes=20`、`alerts_count=0`，Cloud Monitoring global timeSeries 已有点。下一步：继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
@@ -31,6 +33,60 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: manual_verify_oq005_warning_before_assert_20260606_01 / manual_verify_oq005_dryrun_no_warning_20260606_01 / manual_verify_oq005_nontd_weak_suppressed_20260606_01
+相关 issue/PR: PR #80 / OQ-005 readiness review follow-up
+
+### 已完成工作
+
+- 复核 PR #80 comment，认可 warning MERGE 没有实际运行验证、strong ASSERT 前未持久化 warning、dry-run 会写 warning、非交易日 weak 缺失会产生噪声等问题。
+- 修改 `sql/qa/09_ods_daily_partition_readiness.sql`：先生成 readiness 结果并在非 dry-run 下前置 MERGE warning，再执行 strong endpoint 阻断 ASSERT。
+- MERGE 过滤条件改为 API 行数上限风险或交易日 weak `MISSING_REQUIRED`；非交易日 weak 缺失不写 warning。
+- 更新 `docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md`、`TODO.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`IMPLEMENTATION_STATUS.md` 和本交接。
+
+### 重要上下文
+
+- 本 follow-up 只改 PR #80 分支内容，未重新同步 Composer bucket；待 PR 合并后按生产部署流程同步最新 SQL。
+- 2026-06-05 ODS strong endpoint 仍缺失，因此相关 smoke 以 `QA-ODS-DAILY-2` 失败是预期结果。
+
+### 改动文件
+
+- `sql/qa/09_ods_daily_partition_readiness.sql`
+- `docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `bq query --dry_run` 验证 `sql/qa/09_ods_daily_partition_readiness.sql`。
+- `manual_verify_oq005_warning_before_assert_20260606_01`：`2026-06-05` strong 缺失失败前写入 4 条 weak warning。
+- `manual_verify_oq005_dryrun_no_warning_20260606_01`：dry-run 强制分区失败后 `pipeline_task_status` 0 行。
+- `manual_verify_oq005_nontd_weak_suppressed_20260606_01`：`2026-06-06` 非交易日强门禁失败后 `pipeline_task_status` 0 行。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- PR #80 合并后，同步最新 `sql/qa/09_ods_daily_partition_readiness.sql` 到 Composer bucket，并按生产路径重跑小 smoke。
+- 继续实现非交易日自动 skip ingestion / transform gate 和 `skip_non_trading_day` 状态行。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
 
 日期: 2026-06-05
 Agent ID: Codex

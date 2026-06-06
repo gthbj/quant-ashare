@@ -28,7 +28,7 @@
 
 ## 工程 / 调度
 
-- [~] OQ-005 GCP 数据流水线落地：Phase 0/1/1.5/1.6/1.7/2.0/2.2 已完成并部署到 Composer。每日 `ashare_daily_pipeline_v0` 已修复 scheduled run 默认日期：20:00 CST 使用 Asia/Shanghai 当天 `data_interval_end`，手动 `dag_run.conf` 仍可覆盖；`sql/qa/09_ods_daily_partition_readiness.sql` 已按 strong/weak endpoint 重整，strong 缺失阻断，weak 缺失和 API 单次上限命中写 `pipeline_task_status` warning。告警/观测主链路和 checker heartbeat / dead-man's-switch 已部署验收。OQ-005 仍 open；下一步进入 Dataform definitions、补跑/resume 自动化、非交易日自动 skip gate、策略 runner/report 可选分支和完整 ODS→ADS 运维观测闭环
+- [~] OQ-005 GCP 数据流水线落地：Phase 0/1/1.5/1.6/1.7/2.0/2.2 已完成并部署到 Composer。每日 `ashare_daily_pipeline_v0` 已修复 scheduled run 默认日期：20:00 CST 使用 Asia/Shanghai 当天 `data_interval_end`，手动 `dag_run.conf` 仍可覆盖；`sql/qa/09_ods_daily_partition_readiness.sql` 已按 strong/weak endpoint 重整，strong 缺失阻断，weak 缺失和 API 单次上限命中写 `pipeline_task_status` warning，且 PR #80 follow-up 已补 warning 写入在 ASSERT 前、dry-run 不写状态、非交易日弱缺失不写 warning。告警/观测主链路和 checker heartbeat / dead-man's-switch 已部署验收。OQ-005 仍 open；下一步进入 Dataform definitions、补跑/resume 自动化、非交易日自动 skip gate、策略 runner/report 可选分支和完整 ODS→ADS 运维观测闭环
 - [ ] 为 `ashare_daily_pipeline_v0` 增加交易日 gate：非交易日 scheduled `daily_current` 自动跳过 ingestion / transform，写 `skip_non_trading_day` 状态行；上一交易日修复必须显式 `backfill`
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算 / 调度配置
 - [ ] 写"从 ODS 继承字段描述"脚本（`bq show` -> 映射 -> `bq update`）

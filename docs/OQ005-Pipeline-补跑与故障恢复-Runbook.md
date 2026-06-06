@@ -1,6 +1,6 @@
 # OQ-005 Pipeline 补跑与故障恢复 Runbook
 
-> 文档维护：opencode（最近更新 2026-06-05）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-06）
 
 本 runbook 覆盖 OQ-005 日常调度链路的常见故障与恢复步骤。
 
@@ -25,6 +25,7 @@
 - 手动触发：`dag_run.conf` 中的参数最高优先级
 - `backfill` 模式：必须显式指定 `date_from`/`date_to`
 - 非交易日：当前 DAG 仍按给定 `business_date` 进入 readiness；不要依赖它自动补上一交易日，需要修复上一交易日时显式触发 `backfill`
+- `pipeline_dry_run=true` 时，readiness 只做检查，不写 `pipeline_task_status` warning 行
 
 ---
 
@@ -254,6 +255,7 @@
 **当前行为：**
 - `daily_current` 模式不自动把 `business_date` 改成上一交易日；如果触发到非交易日，应先确认是否需要补上一交易日。
 - 需要修复上一交易日时，显式使用 `backfill` 并设置 `date_from`/`date_to`。
+- 非交易日不会因为 weak endpoint 缺失写入 warning；strong endpoint 若归一到的最近交易日 ODS 缺失，仍会阻断。
 - `qa_only` 模式继续执行只读检查。
 
 **待补强项：** 后续可增加交易日 gate，在非交易日自动跳过 ingestion / transform 并写 `skip_non_trading_day` 状态行。
@@ -271,7 +273,7 @@ gcloud composer environments run ashare-composer \
 gcloud composer environments run ashare-composer \
   --project=data-aquarium --location=asia-east2 \
   dags -- trigger ashare_daily_pipeline_v0 \
-  --conf '{"warehouse_mode": "backfill", "date_from": "2026-06-06", "date_to": "2026-06-06", "skip_ingestion": true}' \
+  --conf '{"warehouse_mode": "backfill", "date_from": "2026-06-05", "date_to": "2026-06-05", "skip_ingestion": true}' \
   --run-id "manual_backfill_friday"
 ```
 
@@ -281,7 +283,7 @@ gcloud composer environments run ashare-composer \
 
 **场景：** 交易日 20:00 后 strong endpoint（daily, daily_basic, adj_factor, stk_limit, index_daily）数据缺失。
 
-**行为：** `ods_daily_partition_readiness` 失败，错误 `QA-ODS-DAILY-2`，pipeline 阻断。
+**行为：** `ods_daily_partition_readiness` 失败，错误 `QA-ODS-DAILY-2`，pipeline 阻断。非阻断 warning 会先写入 `pipeline_task_status`，便于失败后仍能看到 weak endpoint 缺失或 API 行数上限风险。
 
 **恢复步骤：**
 

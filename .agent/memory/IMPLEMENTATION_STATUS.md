@@ -2,9 +2,11 @@
 
 这是实现状态的唯一事实来源。面向「已完成/进行中/受阻的整体状态」；「下一步要做什么」见根目录 `TODO.md`。
 
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 ## 当前状态
+
+> 最新补充（2026-06-06）：PR #80 readiness review follow-up 已在工作树 `/private/tmp/oq005-scheduler-fix`、分支 `codex/oq005-scheduler-daily-fix` 完成。`sql/qa/09_ods_daily_partition_readiness.sql` 将 non-blocking warning MERGE 前置到阻断 ASSERT 前，保证 strong endpoint 缺失导致任务失败时，weak endpoint 缺失 / API 行数上限风险仍可写入 `pipeline_task_status`；同时 `pipeline_dry_run=true` 完全跳过 warning 写入，非交易日不因 weak endpoint 缺失写 warning。实际验证：`manual_verify_oq005_warning_before_assert_20260606_01` 在 `2026-06-05` strong 缺失失败前写入 4 条 weak warning；`manual_verify_oq005_dryrun_no_warning_20260606_01` 在 dry-run 强制分区失败后状态表 0 行；`manual_verify_oq005_nontd_weak_suppressed_20260606_01` 在 `2026-06-06` 非交易日强门禁失败后状态表 0 行。同步更新 runbook、KNOWN_CONSTRAINTS、TODO、OPEN_QUESTIONS 和本交接；本 follow-up 尚未重新同步 Composer bucket，待 PR 合并后按生产部署流程同步。
 
 > 最新补充（2026-06-05）：OQ-005 scheduler daily-date / readiness follow-up 已完成验证并部署到 Composer bucket。`ashare_daily_pipeline_v0` 的 scheduled run 默认 `business_date` / `date_to` 已从 Airflow `ds` 改为 `data_interval_end.in_timezone('Asia/Shanghai')`，20:00 CST scheduled run 取当天日期，手动 `dag_run.conf.business_date/date_to` 仍最高优先级；Airflow task callback 状态回写也已同步改用同一 `data_interval_end` 口径，避免 `pipeline_task_status` 继续记录前一天。`sql/qa/09_ods_daily_partition_readiness.sql` 已按 strong/weak endpoint 固化：strong 为 `daily/daily_basic/adj_factor/stk_limit/index_daily`，缺失阻断；weak 缺失和 API 单次返回上限命中写入 `pipeline_task_status` 的 `warning` 行，不覆盖主 readiness task。已同步 `orchestration/composer/dags/ashare_daily_pipeline_v0.py`、`sql/qa/09_ods_daily_partition_readiness.sql`、`sql/meta/01_create_meta_tables.sql` 到 Composer bucket。smoke `manual_smoke_scheduler_fix_20260605_04` 使用 `business_date=2026-06-05` / `warehouse_mode=qa_only` / `skip_ingestion=true`，最终按预期在 `ods_daily_partition_readiness` 以 `QA-ODS-DAILY-2` 失败并阻断下游；状态表记录 `business_date=2026-06-05`，task_type=`qa`，ODS 复核确认 `daily` / `daily_basic` 只有 `partition_date=20260604`、没有 `20260605`。当前 DAG 尚未实现非交易日自动 skip gate；runbook 已改为如实说明，后续需补 `skip_non_trading_day` 状态行。
 
