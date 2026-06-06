@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 尾部风险控制 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-prd`，分支 `codex/prd-strategy1-tail-risk-diagnostics`，PR #84。新增 `docs/prd/PRD_20260606_01_策略1尾部风险控制.md` 草案，基于 PRD04 Wave 3 regression Top5 因 max drawdown 全部 rejected 的复核结论，定义三阶段方案：P0 固定最大回撤诊断 artifact / 报告 / `20_qa_tail_risk_outputs.sql`，自动输出最大回撤区间、持仓贡献、跌停仓位占比和选股画像，不改变交易结果；P1 做 `individual_risk_guard_v0` 个股硬风险过滤 profile A/B；P2 在 `dws_market_state_daily` 或等价 market state artifact 落地后做 risk-off `skip_new_buys` 风控。PR #84 review follow-up 已采纳 5 条：P0 改为 ADS 严格只读且 QA 要求 pre/post hash，补 P1 风险字段可得性 / PIT 映射，持仓贡献权重钉死为 BOD，跌停主判据改为 DWD / 交易所涨跌停价源标记，补 top-K 回撤事件切分定义。未实现代码、未执行 BigQuery。
+**OQ-010 尾部风险 P0 诊断实现（2026-06-06）**：PR #84（`docs/prd/PRD_20260606_01_策略1尾部风险控制.md`）已合并，PRD 分支已清理。当前实现工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-impl`，分支 `codex/implement-tail-risk-diagnostics-p0`，PR #87。已新增只读 `scripts/strategy1/analyze_tail_risk.py`、Cloud Run `backtest_report.py` 自动执行入口、TopK comparison 尾部风险摘要和 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`；产物写入 `tail_risk/` local/GCS artifact，覆盖最大回撤窗口、持仓贡献、跌停 / 不可卖暴露、选股画像、风险股票名单和 ADS pre/post hash guard，不改变候选、订单、成交、持仓、NAV 或 summary。已用 Wave 3 regression Top1 完成本地 artifact smoke 和真实 `20` QA。P1 个股硬风险过滤 profile A/B 与 P2 市场状态 risk-off 仍待后续独立实现。
 
 **OQ-005 Composer DAG 拆分 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dag-split-prd`，分支 `codex/oq005-dag-split-prd`。新增 `docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md`，定义将当前 `ashare_daily_pipeline_v0` 拆成 `ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh`、`ashare_warehouse_full_rebuild`、`ashare_research_model_experiment`、`ashare_research_model_fanout`，`oq005_alert_checker` 继续独立。本次只写 PRD 和记忆/TODO，不改 DAG、不部署 Composer、不运行 BigQuery / Dataform / Cloud Run。后续建议先实现 production DAG 拆分 Phase B/C/D：抽共享 helper，新增 ingestion daily DAG 与 warehouse window refresh DAG，完成开市日、非交易日和 backfill smoke 后再继续 Dataform definitions / resume 自动化。
 
@@ -1155,6 +1155,77 @@ Run ID: manual_smoke_skip_non_trading_day_pr83_20260606_02
 - `TODO.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: s1_cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01__lgbm_r03_l63_lr002_n600_leaf300_ff09_bf09_l1_01_l2_1
+相关 issue/PR: PR #87 / OQ-010 / PRD_20260606_01 / Tail-risk diagnostics P0
+
+### 已完成工作
+
+- 通过 GitHub API squash merge PR #84，合并 `docs/prd/PRD_20260606_01_策略1尾部风险控制.md`，并删除远端 / 本地 `codex/prd-strategy1-tail-risk-diagnostics` 与对应工作树。
+- 新建工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-impl`，分支 `codex/implement-tail-risk-diagnostics-p0`。
+- 新增 `scripts/strategy1/analyze_tail_risk.py`：只读 ADS/DWD/DIM，输出 `tail_risk/` 最大回撤事件、持仓贡献、行业 / 板块贡献、跌停 / 不可卖暴露、选股画像、风险股票名单、search summary、ADS read-only guard 和中文 `tail_risk.md`。
+- 修改 `scripts/strategy1_cloudrun/backtest_report.py`：默认在报告、模型诊断和 `12` QA 后执行尾部风险诊断；新增 `--skip-tail-risk` 和 `--search-id`；诊断后自动执行 `20_qa_tail_risk_outputs.sql`，并注入脚本产出的 summary/NAV expected hash。
+- 修改 `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`：TopK 回测传递 `search_id`，comparison report 增加最大回撤窗口和跌停仓位峰值，并输出 `tail_risk/search_tail_risk_summary.csv`。
+- 新增 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`：复算最大回撤、持仓覆盖、跌停 / 不可卖权重和 summary/NAV hash，作为 P0 诊断 QA。
+- 更新 `sql/ml/strategy1/README.md`、`docs/策略1CloudRun训练回测运行手册.md`、`TODO.md` 和相关记忆。
+
+### 重要上下文
+
+- P0 尾部风险诊断不写 ADS 核心表，不改变任何策略交易结果；artifact 文件存在性由 Python 脚本和 `artifact_manifest.json` 强制，`20` QA 只校验 BigQuery 派生不变量和只读 hash。
+- 本地 smoke 使用 Wave 3 regression Top1：最大回撤区间 `2024-01-05` 至 `2024-02-07`，策略回撤 `-34.80%`，同期 benchmark return `-15.47%`，跌停仓位峰值约 `86.46%`（2024-02-05）。
+- `candidate_overlap_by_signal_date.csv` / `common_crash_names.csv` 在单候选脚本中保留为空表头；TopK 横向诊断由 orchestrator comparison 生成，包含两两选股重叠、共同选中股票和回撤窗口近似贡献。
+- P1/P2 尚未开始：P1 是个股硬风险过滤 profile A/B，P2 依赖 `dws_market_state_daily` 或等价 market state artifact 做 risk-off。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_tail_risk.py`
+- `scripts/strategy1_cloudrun/backtest_report.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`
+- `sql/ml/strategy1/README.md`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python -m py_compile scripts/strategy1/analyze_tail_risk.py scripts/strategy1_cloudrun/backtest_report.py scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `python scripts/strategy1/analyze_tail_risk.py --help`
+- `bq query --use_legacy_sql=false --location=asia-east2 --dry_run < sql/ml/strategy1/20_qa_tail_risk_outputs.sql`
+- `python -m scripts.strategy1_cloudrun.backtest_report ... --dry-run`
+- `python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search ... --dry-run`
+- Wave 3 regression Top1 `analyze_tail_risk.py --skip-gcs-upload` 本地 artifact smoke 成功。
+- 使用脚本 post-guard hash 执行真实 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`，全部 ASSERT 通过。
+
+### 阻塞项
+
+- 无代码阻塞；生产生效需要合并本实现 PR 并部署 Cloud Run runner 镜像。
+
+### 下一步建议
+
+- 合并本实现 PR 后构建 / 部署新的 `strategy1-cloudrun-runner` 镜像。
+- 对 Wave 3 Top5 统一生成 uploaded `tail_risk/` artifact 和 comparison summary。
+- 基于尾部风险证据实现 P1 `individual_risk_guard_v0` profile A/B。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`

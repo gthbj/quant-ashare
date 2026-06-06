@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 from scripts.strategy1_cloudrun.bq_io import make_client
 from scripts.strategy1_cloudrun.config import (
@@ -42,9 +43,11 @@ def main() -> int:
         "project": config.project,
         "region": config.region,
         "experiment": experiment.to_params(),
+        "search_id": args.search_id,
         "use_python_ledger": not args.use_bq_ledger,
         "run_report": not args.skip_report,
         "run_diagnosis": not args.skip_diagnosis,
+        "run_tail_risk": not args.skip_tail_risk,
         "run_qa": not args.skip_qa,
     }
     if args.dry_run:
@@ -82,6 +85,14 @@ def main() -> int:
                 "script": "sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql",
                 "job_id": run_sql_script(client, "sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql", sql_params),
             })
+    if not args.skip_tail_risk:
+        run_subprocess(tail_risk_command(config, experiment, args.skip_gcs_upload, args.search_id))
+        if not args.skip_qa:
+            tail_risk_params = {**sql_params, **tail_risk_guard_sql_params(experiment)}
+            job_ids.append({
+                "script": "sql/ml/strategy1/20_qa_tail_risk_outputs.sql",
+                "job_id": run_sql_script(client, "sql/ml/strategy1/20_qa_tail_risk_outputs.sql", tail_risk_params),
+            })
     print(json.dumps({"status": "succeeded", "steps": job_ids}, ensure_ascii=False, indent=2, default=str))
     return 0
 
@@ -93,12 +104,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--prediction-run-id", default=None)
     parser.add_argument("--backtest-id", default=None)
+    parser.add_argument("--search-id", default=None)
     parser.add_argument("--manifest-resolved", default=None)
     parser.add_argument("--experiment-json", default=None, help="Base64 encoded resolved experiment payload")
     parser.add_argument("--force-replace", action="store_true")
     parser.add_argument("--skip-gcs-upload", action="store_true")
     parser.add_argument("--skip-report", action="store_true")
     parser.add_argument("--skip-diagnosis", action="store_true")
+    parser.add_argument("--skip-tail-risk", action="store_true")
     parser.add_argument("--skip-qa", action="store_true")
     parser.add_argument("--use-bq-ledger", action="store_true", help="Fallback path for equivalence tests")
     return parser.parse_args()
@@ -208,6 +221,47 @@ def diagnosis_command(config, exp: Experiment, skip_gcs_upload: bool) -> list[st
     if skip_gcs_upload:
         cmd.append("--skip-gcs-upload")
     return cmd
+
+
+def tail_risk_command(config, exp: Experiment, skip_gcs_upload: bool, search_id: str | None) -> list[str]:
+    cmd = [
+        sys.executable, "scripts/strategy1/analyze_tail_risk.py",
+        "--project", config.project,
+        "--region", config.region,
+        "--run-id", exp.run_id,
+        "--prediction-run-id", exp.prediction_run_id,
+        "--backtest-id", exp.backtest_id,
+        "--artifact-base-uri", config.artifact_base_uri,
+        "--local-mirror-root", "reports/strategy1",
+    ]
+    search_id = search_id or exp.parent_experiment_id
+    if search_id:
+        cmd.extend(["--search-id", search_id])
+    if skip_gcs_upload:
+        cmd.append("--skip-gcs-upload")
+    return cmd
+
+
+def tail_risk_local_dir(exp: Experiment) -> Path:
+    return (
+        Path("reports/strategy1")
+        / "ml_pv_clf_v0"
+        / f"run_id={exp.run_id}"
+        / f"backtest_id={exp.backtest_id}"
+        / "tail_risk"
+    )
+
+
+def tail_risk_guard_sql_params(exp: Experiment) -> dict[str, str | None]:
+    guard_path = tail_risk_local_dir(exp) / "ads_readonly_guard.json"
+    if not guard_path.exists():
+        raise FileNotFoundError(f"tail risk guard missing: {guard_path}")
+    guard = json.loads(guard_path.read_text(encoding="utf-8"))
+    post = guard.get("post") or {}
+    return {
+        "p_expected_summary_hash": post.get("summary_hash"),
+        "p_expected_nav_hash": post.get("nav_hash"),
+    }
 
 
 def run_subprocess(cmd: list[str]) -> None:
