@@ -10,7 +10,7 @@
 
 **项目记忆瘦身归档（2026-06-05）**：`AGENT_HANDOFF.md` 已按 owner 要求整理，当前文件只保留启动摘要、归档清理交接和最近 3 条交接；较早的 30 条交接已追加到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动优先读本文件；需要审计历史时再读 archive。
 
-**OQ-005 PR #80 readiness warning follow-up（2026-06-06）**：工作树 `/private/tmp/oq005-scheduler-fix`，分支 `codex/oq005-scheduler-daily-fix`。已按 PR #80 comment 修复 `sql/qa/09_ods_daily_partition_readiness.sql`：warning MERGE 前置到阻断 ASSERT 前；`pipeline_dry_run=true` 不写 `pipeline_task_status` warning；非交易日 weak endpoint 缺失不写 warning。实际验证：`manual_verify_oq005_warning_before_assert_20260606_01` 在 `2026-06-05` strong 缺失失败前写入 4 条 weak warning；`manual_verify_oq005_dryrun_no_warning_20260606_01` 和 `manual_verify_oq005_nontd_weak_suppressed_20260606_01` 均确认 warning 行数为 0。同步更新 runbook、KNOWN_CONSTRAINTS、TODO、OPEN_QUESTIONS、IMPLEMENTATION_STATUS。尚未重新同步 Composer bucket，待 PR 合并后按生产部署流程同步。
+**OQ-005 PR #80 部署与 2026-06-05 smoke（2026-06-06）**：当前 `main` 已包含 PR #80，并已完成生产部署：`ashare_daily_pipeline_v0.py` 同步到 Composer `dags/`，仓库 `sql/` 同步到 `gs://asia-east2-ashare-composer-b2629133-bucket/data/sql/`，本地 / bucket DAG 与 `09_ods_daily_partition_readiness.sql` SHA256 一致。`manual_pr80_daily_current_20260605_20260606_01` 使用 `business_date=2026-06-05` 成功完成 current_scope 采集、ODS readiness、窗口 DIM/DWD/DWS 刷新和窗口 QA；采集后 2026-06-05 strong endpoint 行数为 daily 5514、daily_basic 5514、adj_factor 5526、stk_limit 7634、index_daily 7。`manual_pr80_qa_only_20260605_20260606_01` 使用 `skip_ingestion=true` 成功完成 readiness + P0 / strategy1 / OQ004 / finance / OQ006 五个只读 QA。最近 20 个交易日 `2026-05-11..2026-06-05` ODS daily_basic → DWD valuation → DWS valuation 行数均为 110,035，错配天数 0。下一步仍是 Dataform 生产链路、补跑/resume 自动化、非交易日自动 skip gate 和完整 ODS→ADS 运维观测闭环。
 
 **OQ-010 Cloud Run Python baseline 搜索 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-python-baseline-search`，分支 `codex/prd-cloudrun-python-baseline-search`。新增 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：本轮数据截止 `2026-04-30`；train/valid/test/final_holdout 为 `2019-04-03..2023-12-31` / 2024 / 2025 / `2026-01-05..2026-04-30`；固定 `pv_fin_quality + 30/5% + biweekly + 5d`、沪深主板股票池、成本 profile 和 Ledger v1；P0 推荐 LightGBM wave 2。PR #78 review follow-up 后，候选排序改为 2021/2022/2023 三折 purged walk-forward CV + 2024 valid confirmation，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch；实现 smoke 后当前资源口径已从最初 40 并发 / 1 vCPU 4Gi 调整为 40 候选 / 20 并发 / 2 vCPU 8Gi；若 binary LightGBM rejected，后续优先试 `lightgbm_regression`。
 
@@ -22,7 +22,7 @@
 
 **OQ-010 已收口事实（2026-06-05）**：Ledger v1 P1 extended fresh run `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` 覆盖 `2024-01-02` 至 `2026-04-30`，total_return 35.16%、excess_return -7.22% vs `000852.SH`；P2 resume run `s1_bqml_baseline_pvfq_n30_bw_h5_resume_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_resume_20260604_01` 通过 `sql/ml/strategy1/15_qa_ledger_resume_consistency.sql`。sklearn native search 首轮 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 已完成，Top5 均因 `test_year_excess_return<=0.0` 被拒绝，本轮不建立 `cloud_run_sklearn_native_baseline_v1`。
 
-**OQ-005 / OQ-012 当前状态（2026-06-05）**：OQ-005 已完成 current-scope 生产采集、Composer DAG/SQL 部署验收、20 日窗口 DWD/DWS smoke 和 readiness 门禁复核；仍 open，剩余 Dataform 生产链路、告警、补跑和完整运维观测闭环。OQ-012 当前 BigQuery 读层 `sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过，待 owner 决定关闭/归档或保留 schema contract / ingestion 显式 cast 防复发任务。
+**OQ-005 / OQ-012 当前状态（2026-06-06）**：OQ-005 已完成 current-scope 生产采集至 `2026-06-05`、Composer DAG/SQL 部署验收、20 日窗口 DWD/DWS smoke、readiness 门禁复核、告警/观测与 alert checker heartbeat；仍 open，剩余 Dataform 生产链路、补跑/resume 自动化、非交易日自动 skip gate 和完整 ODS→ADS 运维观测闭环。OQ-012 当前 BigQuery 读层 `sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过，待 owner 决定关闭/归档或保留 schema contract / ingestion 显式 cast 防复发任务。
 
 **常规约定**：评审默认写 GitHub PR comment；TODO 只保留下一步可执行事项，待 owner 决策问题以 `OPEN_QUESTIONS.md` 为唯一来源。PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。
 
@@ -122,6 +122,66 @@ Agent ID: Codex
 Agent 实例 ID: Codex desktop session
 模型: GPT-5 Codex
 运行环境: Codex desktop
+Run ID: manual_pr80_daily_current_20260605_20260606_01 / manual_pr80_qa_only_20260605_20260606_01
+相关 issue/PR: PR #80 / OQ-005 production deploy and 2026-06-05 smoke
+
+### 已完成工作
+
+- 将 PR #80 后的 `orchestration/composer/dags/ashare_daily_pipeline_v0.py` 同步到 Composer `dags/`。
+- 将仓库 `sql/` 同步到 Composer bucket `gs://asia-east2-ashare-composer-b2629133-bucket/data/sql/`。
+- 触发 `business_date=2026-06-05`、`warehouse_mode=daily_current`、`pipeline_dry_run=false` 的生产 run，完成 current_scope 采集、ODS readiness、窗口 DIM/DWD/DWS 刷新和窗口 QA。
+- 触发 `business_date=2026-06-05`、`warehouse_mode=qa_only`、`skip_ingestion=true` 的独立只读 QA smoke。
+- 更新 `orchestration/composer/README.md`，把手动触发默认日期说明改为 `data_interval_end` 口径。
+- 更新 TODO 和项目记忆，去掉 PR #80 “待部署 / 2026-06-05 未采集”的过期状态。
+
+### 重要上下文
+
+- 触发生产 run 前，BigQuery ODS strong endpoint 的 `20260605` 分区仍为 0 行；本次 `daily_current` 因此先执行了 current_scope 采集，再通过 readiness 和窗口刷新。
+- PR #80 部署后本地 / Composer bucket 哈希一致：DAG SHA256 为 `e3d4e7a75dc64b28ce8d93081922b62f2a77f201bf99b79f684b661570476b31`，`sql/qa/09_ods_daily_partition_readiness.sql` SHA256 为 `52fe8070a9145756775614cc387724dc35d6a45c29d99b4194eed28f4c3ff0c4`。
+- OQ-005 未关闭；非交易日自动 skip ingestion / transform gate、Dataform 生产链路、补跑/resume 自动化仍待完成。
+
+### 改动文件
+
+- `orchestration/composer/README.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 ... < sql/qa/09_ods_daily_partition_readiness.sql`
+- `manual_pr80_daily_current_20260605_20260606_01`：Airflow terminal state `success`，2026-06-05 strong endpoint 行数为 daily 5514、daily_basic 5514、adj_factor 5526、stk_limit 7634、index_daily 7。
+- `manual_pr80_qa_only_20260605_20260606_01`：Airflow terminal state `success`，readiness + P0 / strategy1 / OQ004 / finance / OQ006 五个只读 QA 均 success。
+- `2026-06-05` DWD/DWS 主键唯一；`2026-05-11..2026-06-05` 最近 20 个交易日 ODS daily_basic → DWD valuation → DWS valuation 行数均为 110,035，错配天数 0。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 实现非交易日自动 skip gate：scheduled 非交易日自动跳过 ingestion / transform 并写 `skip_non_trading_day` 状态行。
+- 推进 Dataform definitions / BigQuery Studio pipeline 生产链路。
+- 做补跑/resume 自动化和完整 ODS→ADS 运维观测闭环。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
 Run ID: manual_verify_oq005_warning_before_assert_20260606_01 / manual_verify_oq005_dryrun_no_warning_20260606_01 / manual_verify_oq005_nontd_weak_suppressed_20260606_01
 相关 issue/PR: PR #80 / OQ-005 readiness review follow-up
 
@@ -134,8 +194,8 @@ Run ID: manual_verify_oq005_warning_before_assert_20260606_01 / manual_verify_oq
 
 ### 重要上下文
 
-- 本 follow-up 只改 PR #80 分支内容，未重新同步 Composer bucket；待 PR 合并后按生产部署流程同步最新 SQL。
-- 2026-06-05 ODS strong endpoint 仍缺失，因此相关 smoke 以 `QA-ODS-DAILY-2` 失败是预期结果。
+- 本 follow-up 只改 PR #80 分支内容；后续 PR #80 已合并，并已按上方 2026-06-06 部署交接同步 Composer bucket。
+- 该条记录中的 `2026-06-05` ODS strong endpoint 缺失是合并前验证时点事实；后续 `manual_pr80_daily_current_20260605_20260606_01` 已完成 2026-06-05 采集并通过 readiness。
 
 ### 改动文件
 
