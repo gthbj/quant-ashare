@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 风险特征入模 Phase B0 实现（2026-06-06）**：PR #94 已合并；工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-acceptance-diagnosis`。新增 `scripts/strategy1/diagnose_acceptance_window.py`，用于 PRD Phase B0 只读诊断：读取既有 ADS / artifact，重切 BQML historical reference 的 2025-only 指标，并汇总 sklearn native、LightGBM binary、LightGBM regression 三波已拒 Python Top5 候选；不训练模型、不重跑 BQML、不执行 `sql/ml/strategy1` SQL runner、不写 ADS。uploaded 模式已成功，artifact URI 为 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_window_diagnosis/diagnosis_id=riskfeat_acceptance_window_20260606_01`。诊断结论 `primary_blocker=mixed_evidence`：BQML historical reference 2025-only excess -23.43%、max_drawdown -10.06%；15 个 Python 候选中 10 个 2025 excess 未过、5 个 full-period max_drawdown 未过，same-side fraction 66.67% 低于 80% 阈值。后续不应自动启动第 4 波风险特征训练，应先由 owner / 审查者复核诊断结论。
+**OQ-010 风险特征入模 Phase B0 实现（2026-06-06）**：PR #94 已合并；工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-acceptance-diagnosis`。新增 `scripts/strategy1/diagnose_acceptance_window.py`，用于 PRD Phase B0 只读诊断：读取既有 ADS / artifact，重切 BQML historical reference 的 2025-only 指标，并汇总 sklearn native、LightGBM binary、LightGBM regression 三波已拒 Python Top5 候选；不训练模型、不重跑 BQML、不执行 `sql/ml/strategy1` SQL runner、不写 ADS。PR #96 review follow-up 已统一 maxDD 门口径：2025 excess 仍看 2025 段，风险 maxDD 门使用 full-period summary，报告同时展示 test maxDD 与 full maxDD。uploaded 模式已成功，artifact URI 为 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_window_diagnosis/diagnosis_id=riskfeat_acceptance_window_20260606_01`。诊断结论 `primary_blocker=mixed_evidence`：BQML historical reference 2025-only excess -23.43%、test maxDD -10.06%、full-period maxDD -14.48%；15 个 Python 候选中 10 个 2025 excess 未过、5 个 full-period maxDD 未过，same-side fraction 66.67% 低于 80% 阈值。后续不应自动启动第 4 波风险特征训练，应先由 owner / 审查者复核诊断结论。
 
 **OQ-010 风险特征入模 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-prd`，分支 `codex/prd-strategy1-risk-feature-baseline`，PR #94。新增 `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`，承接 PRD04 LightGBM binary/regression 均 rejected、尾部风险 P1 轻度改善但仍跑输、P2 v0 `skip_new_buys` 降收益且未改善回撤的事实。PRD 将下一步收敛为风险特征入模：新增 `feature_set_id=strategy1_pv_fin_risk_v0_20260606`，把个股尾部风险字段、`dws_market_state_daily` 市场状态字段和风险 flag 纳入 Cloud Run frozen matrix；P0 固定 `diagnostic_only`、40 候选 / 20 并发 / 2 vCPU 8Gi、LightGBM binary + regression、共享 acceptance contract；P1 才评估 `risk_score_penalty_v0` 候选风险评分。PR #94 review follow-up 已补 `test_reuse_wave_no=4` / final_holdout passed 要求、训练前只读 `acceptance_window_diagnosis`、`feature_delta_vs_base.json`、market-state 贡献展示，以及风险专项 accepted 目标 `max_drawdown >= -18%`。本次只写 PRD 和记忆/TODO，未改代码、未运行 BigQuery / Cloud Run。
 
@@ -67,6 +67,62 @@ Agent ID: Codex
 Agent 实例 ID: Codex desktop session
 模型: GPT-5 Codex
 运行环境: Codex desktop
+Run ID: pr96_acceptance_window_review_followup_20260606
+相关 issue/PR: PR #96 comment `4638273442`
+
+### 已完成工作
+
+- 查看 PR #96 comment `4638273442`，认可 P3：BQML reference 的风险 maxDD 门原先使用 2025 段 maxDD，而 Python 候选风险门使用 full-period summary maxDD，口径不一致。
+- 修改 `scripts/strategy1/diagnose_acceptance_window.py`：
+  - BQML reference 仍用 2025 段计算 `total_return` / `benchmark_return` / `excess_return`。
+  - BQML risk maxDD 门改为读取 `ads_backtest_performance_summary.max_drawdown` 的 full-period 口径。
+  - 报告表同时展示 `test_maxDD` 与 `full_maxDD`，Python 候选 summary 文案改为 `failed_full_period_risk_drawdown_target_count`。
+- 重新 uploaded 诊断 artifact 到同一路径：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_window_diagnosis/diagnosis_id=riskfeat_acceptance_window_20260606_01`。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md` 和本交接文件。
+
+### 重要上下文
+
+- 修正后结论不变：`primary_blocker=mixed_evidence`。
+- BQML historical reference 2025-only：total_return 4.05%、benchmark_return 27.49%、excess_return -23.43%、test maxDD -10.06%、full-period maxDD -14.48%。
+- Python 15 个已拒 Top5 候选仍为 10 个 2025 excess 未过、5 个 full-period maxDD 未过。
+- comment 中关于 2025 小盘基准暴涨导致 `2025-excess` 门与 maxDD 门冲突的策略解读成立，但这是 owner 需要决策的接受门问题，当前 PR 只修诊断口径，不修改 acceptance contract。
+
+### 改动文件
+
+- `scripts/strategy1/diagnose_acceptance_window.py`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1/diagnose_acceptance_window.py`
+- `git diff --check`
+- `python3 scripts/strategy1/diagnose_acceptance_window.py --project data-aquarium --region asia-east2`
+- `gcloud storage ls gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_window_diagnosis/diagnosis_id=riskfeat_acceptance_window_20260606_01/`
+
+### 阻塞项
+
+- 无代码阻塞；是否调整 2025 test excess / maxDD 接受门仍需 owner 决策。
+
+### 下一步建议
+
+- review / 合并 PR #96。
+- 合并后先让 owner 决定是否调整接受门，再决定是否启动第 4 波风险特征训练。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
 Run ID: risk_feature_acceptance_window_impl_20260606
 相关 issue/PR: PR #94 / OQ-010 风险特征入模
 
@@ -85,7 +141,7 @@ Run ID: risk_feature_acceptance_window_impl_20260606
 ### 重要上下文
 
 - 诊断结论为 `primary_blocker=mixed_evidence`，不是可自动继续训练的 `model_feature_gap`，也不是明确暂停的 `acceptance_window_risk`。
-- BQML historical reference 2025-only：total_return 4.05%、benchmark_return 27.49%、excess_return -23.43%、max_drawdown -10.06%。
+- BQML historical reference 2025-only：total_return 4.05%、benchmark_return 27.49%、excess_return -23.43%、test maxDD -10.06%；full-period maxDD -14.48%。
 - 15 个已拒 Python Top5 候选：10 个 2025 excess 未过，5 个 full-period max_drawdown 未过；same-side fraction 66.67% 低于 80% 阈值。
 - 脚本读取 `ads_backtest_nav_daily` 时显式使用 `trade_date BETWEEN ...` 分区过滤，符合项目硬约束。
 - 后续进入第 4 波 `feature_set_id=strategy1_pv_fin_risk_v0_20260606` 训练前，应先由 owner / 审查者复核本诊断。

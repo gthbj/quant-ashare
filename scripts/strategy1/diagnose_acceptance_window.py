@@ -158,6 +158,16 @@ def fetch_bqml_reference_metrics(client: bigquery.Client, args: argparse.Namespa
       WHERE backtest_id = @backtest_id
         AND trade_date BETWEEN @test_start AND @test_end
     ),
+    summary AS (
+      SELECT
+        start_date AS full_period_start_date,
+        end_date AS full_period_end_date,
+        benchmark_sec_code AS full_period_benchmark_sec_code,
+        max_drawdown AS full_period_max_drawdown
+      FROM `{args.project}.ashare_ads.ads_backtest_performance_summary`
+      WHERE backtest_id = @backtest_id
+      LIMIT 1
+    ),
     perf AS (
       SELECT
         COUNT(*) AS trading_days,
@@ -167,7 +177,7 @@ def fetch_bqml_reference_metrics(client: bigquery.Client, args: argparse.Namespa
       FROM nav
     ),
     dd AS (
-      SELECT MIN(drawdown) AS max_drawdown
+      SELECT MIN(drawdown) AS test_year_max_drawdown
       FROM (
         SELECT
           nav_value / NULLIF(MAX(nav_value) OVER (
@@ -181,14 +191,19 @@ def fetch_bqml_reference_metrics(client: bigquery.Client, args: argparse.Namespa
       @backtest_id AS backtest_id,
       @test_start AS test_start_date,
       @test_end AS test_end_date,
+      summary.full_period_start_date,
+      summary.full_period_end_date,
       perf.trading_days,
-      perf.benchmark_sec_code,
+      COALESCE(perf.benchmark_sec_code, summary.full_period_benchmark_sec_code) AS benchmark_sec_code,
       perf.total_return,
       perf.benchmark_return,
       perf.total_return - perf.benchmark_return AS excess_return,
-      dd.max_drawdown
+      dd.test_year_max_drawdown,
+      summary.full_period_max_drawdown,
+      summary.full_period_max_drawdown AS max_drawdown
     FROM perf
     CROSS JOIN dd
+    LEFT JOIN summary ON TRUE
     """
     frame = query_dataframe(
         client,
@@ -206,7 +221,9 @@ def fetch_bqml_reference_metrics(client: bigquery.Client, args: argparse.Namespa
     if int(row.get("trading_days") or 0) <= 0:
         raise RuntimeError(f"zero 2025 NAV rows for BQML reference {args.bqml_reference_backtest_id}")
     row["passes_test_year_excess_gate"] = safe_float(row.get("excess_return")) > 0.0
-    row["passes_risk_max_drawdown_target"] = safe_float(row.get("max_drawdown")) >= args.risk_max_drawdown_target
+    row["passes_risk_max_drawdown_target"] = (
+        safe_float(row.get("full_period_max_drawdown")) >= args.risk_max_drawdown_target
+    )
     return row
 
 
@@ -366,7 +383,7 @@ def build_diagnosis(
         })
     if bqml_fails_risk_dd:
         same_side_checks.append({
-            "gate": "risk_max_drawdown_target",
+            "gate": "full_period_risk_max_drawdown_target",
             "python_failed_count": failed_risk_dd,
             "python_failed_fraction": fraction(failed_risk_dd, candidate_count),
             "threshold": args.python_same_side_threshold,
@@ -429,12 +446,13 @@ def render_markdown(diagnosis: dict[str, Any], candidates: pd.DataFrame) -> str:
         "",
         "## BQML Historical Reference 2025-only",
         "",
-        "| backtest_id | trading_days | total_return | benchmark_return | excess_return | max_drawdown | excess gate | risk DD target |",
-        "|---|---:|---:|---:|---:|---:|---|---|",
+        "| backtest_id | trading_days | test_return | test_benchmark | test_excess | test_maxDD | full_maxDD | excess gate | full risk DD target |",
+        "|---|---:|---:|---:|---:|---:|---:|---|---|",
         (
             f"| `{bqml.get('backtest_id')}` | {bqml.get('trading_days')} | "
             f"{pct(bqml.get('total_return'))} | {pct(bqml.get('benchmark_return'))} | "
-            f"{pct(bqml.get('excess_return'))} | {pct(bqml.get('max_drawdown'))} | "
+            f"{pct(bqml.get('excess_return'))} | {pct(bqml.get('test_year_max_drawdown'))} | "
+            f"{pct(bqml.get('full_period_max_drawdown'))} | "
             f"{yes_no(bqml.get('passes_test_year_excess_gate'))} | "
             f"{yes_no(bqml.get('passes_risk_max_drawdown_target'))} |"
         ),
@@ -444,7 +462,7 @@ def render_markdown(diagnosis: dict[str, Any], candidates: pd.DataFrame) -> str:
         f"- candidate_count: {diagnosis['python_candidate_count']}",
         f"- rejected_count: {diagnosis['python_rejected_count']}",
         f"- failed_test_year_excess_count: {diagnosis['python_failed_test_year_excess_count']}",
-        f"- failed_risk_drawdown_target_count: {diagnosis['python_failed_risk_drawdown_target_count']}",
+        f"- failed_full_period_risk_drawdown_target_count: {diagnosis['python_failed_risk_drawdown_target_count']}",
         "",
     ]
     if not candidates.empty:
