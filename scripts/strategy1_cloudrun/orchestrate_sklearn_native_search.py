@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import dataclasses
+import itertools
 import json
 import math
 import subprocess
@@ -26,6 +27,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
@@ -262,9 +264,12 @@ def main() -> int:
 
     successful_topk_results = [item for item in topk_results if item.get("status") == "succeeded"]
     comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results, search_exp) if successful_topk_results else []
+    comparison_rows = enrich_tail_risk_rows(client, comparison_rows)
     contract = load_acceptance_contract(config.acceptance_contract_path)
     apply_native_acceptance_to_ads(client, comparison_rows, raw_manifest, contract)
     comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results, search_exp) if successful_topk_results else []
+    comparison_rows = enrich_tail_risk_rows(client, comparison_rows)
+    overlap_rows, common_crash_rows = build_search_tail_risk_artifacts(client, search_id, comparison_rows)
     write_final_comparison(
         comparison_dir,
         search_id=search_id,
@@ -273,6 +278,8 @@ def main() -> int:
         ranking=ranking,
         top_rows=top_rows,
         comparison_rows=comparison_rows,
+        overlap_rows=overlap_rows,
+        common_crash_rows=common_crash_rows,
         topk_execution_results=topk_results,
         test_reuse_wave_no=test_reuse_wave_no,
         test_reuse_approval_ref=test_reuse_approval_ref,
@@ -554,6 +561,7 @@ def run_topk_candidate(
         f"--run-id={exp.run_id}",
         f"--prediction-run-id={exp.prediction_run_id}",
         f"--backtest-id={exp.backtest_id}",
+        f"--search-id={search_id}",
     ])
     if args.skip_diagnosis:
         backtest_flags.append("--skip-diagnosis")
@@ -668,6 +676,8 @@ def write_final_comparison(
     ranking: list[dict[str, Any]],
     top_rows: list[dict[str, Any]],
     comparison_rows: list[dict[str, Any]],
+    overlap_rows: list[dict[str, Any]],
+    common_crash_rows: list[dict[str, Any]],
     topk_execution_results: list[dict[str, Any]],
     test_reuse_wave_no: int,
     test_reuse_approval_ref: str | None,
@@ -675,6 +685,27 @@ def write_final_comparison(
 ) -> None:
     pd.DataFrame(ranking).to_csv(out_dir / "candidate_ranking.csv", index=False)
     pd.DataFrame(comparison_rows).to_csv(out_dir / "top5_backtest_summary.csv", index=False)
+    tail_cols = [
+        "candidate_id", "run_id", "backtest_id", "tail_risk_profile_id",
+        "tail_risk_peak_date", "tail_risk_trough_date", "tail_risk_drawdown_pct",
+        "tail_risk_benchmark_return", "tail_risk_excess_return",
+        "tail_risk_limit_down_weight_peak", "tail_risk_uri",
+    ]
+    tail_dir = out_dir / "tail_risk"
+    tail_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([{key: row.get(key) for key in tail_cols} for row in comparison_rows]).to_csv(
+        tail_dir / "search_tail_risk_summary.csv",
+        index=False,
+    )
+    pd.DataFrame(overlap_rows or [], columns=[
+        "search_id", "signal_date", "left_run_id", "right_run_id",
+        "left_candidate_id", "right_candidate_id", "left_selected_count",
+        "right_selected_count", "overlap_count",
+    ]).to_csv(tail_dir / "candidate_overlap_by_signal_date.csv", index=False)
+    pd.DataFrame(common_crash_rows or [], columns=[
+        "search_id", "signal_date", "sec_code", "sec_name", "selected_run_count",
+        "run_ids", "candidate_ids", "window_cumulative_contribution",
+    ]).to_csv(tail_dir / "common_crash_names.csv", index=False)
     diag_cols = [
         "candidate_id", "run_id", "backtest_id", "model_diagnosis_primary_diagnosis",
         "model_diagnosis_confidence", "model_diagnosis_uri",
@@ -746,15 +777,20 @@ def render_comparison_md(payload: dict[str, Any], comparison_rows: list[dict[str
             "",
             "## Top 5 回测",
             "",
-            "| rank | candidate_id | status | total_return | excess_return | sharpe | max_drawdown | test RankIC | test excess | final holdout excess |",
-            "|---:|---|---|---:|---:|---:|---:|---:|---:|---:|",
+            "| rank | candidate_id | status | total_return | excess_return | sharpe | max_drawdown | max DD window | limit-down weight peak | test RankIC | test excess | final holdout excess |",
+            "|---:|---|---|---:|---:|---:|---:|---|---:|---:|---:|---:|",
         ])
         for row in comparison_rows:
+            dd_window = "NA"
+            if row.get("tail_risk_peak_date") and row.get("tail_risk_trough_date"):
+                dd_window = f"{row.get('tail_risk_peak_date')}→{row.get('tail_risk_trough_date')}"
             lines.append(
                 f"| {row.get('shortlist_rank_valid_only')} | `{row.get('candidate_id')}` | "
                 f"{row.get('native_acceptance_status')} | {fmt(row.get('total_return'))} | "
                 f"{fmt(row.get('excess_return'))} | {fmt(row.get('sharpe'))} | "
-                f"{fmt(row.get('max_drawdown'))} | {fmt(row.get('test_rank_ic_mean'))} | "
+                f"{fmt(row.get('max_drawdown'))} | {dd_window} | "
+                f"{fmt(row.get('tail_risk_limit_down_weight_peak'))} | "
+                f"{fmt(row.get('test_rank_ic_mean'))} | "
                 f"{fmt(row.get('test_year_excess_return'))} | "
                 f"{fmt(row.get('final_holdout_excess_return'))} |"
             )
@@ -899,6 +935,8 @@ def fetch_topk_ads_outputs(
       reg.metrics_json AS registry_metrics_json,
       reg.model_params_json,
       summary.backtest_id,
+      summary.start_date,
+      summary.end_date,
       summary.total_return,
       summary.excess_return,
       summary.sharpe,
@@ -951,6 +989,8 @@ def fetch_topk_ads_outputs(
         out.append({
             "run_id": run_id,
             "backtest_id": row.get("backtest_id"),
+            "start_date": row.get("start_date"),
+            "end_date": row.get("end_date"),
             "candidate_id": row.get("candidate_id") or candidate_by_run.get(run_id),
             "shortlist_rank_valid_only": rank_by_run.get(run_id),
             "model_id": row.get("model_id"),
@@ -994,6 +1034,287 @@ def fetch_topk_ads_outputs(
             "final_holdout_status": reg_metrics.get("final_holdout_status"),
         })
     return sorted(out, key=lambda row: row.get("shortlist_rank_valid_only") or 999)
+
+
+def enrich_tail_risk_rows(client: bigquery.Client, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    backtest_ids = [row.get("backtest_id") for row in rows if row.get("backtest_id")]
+    if not backtest_ids:
+        return rows
+    start_dates = [str(row.get("start_date")) for row in rows if row.get("start_date")]
+    end_dates = [str(row.get("end_date")) for row in rows if row.get("end_date")]
+    if not start_dates or not end_dates:
+        return rows
+    start_date = min(start_dates)
+    end_date = max(end_dates)
+    nav_sql = """
+    SELECT
+      nav.backtest_id,
+      nav.trade_date,
+      nav.nav,
+      nav.daily_return,
+      nav.benchmark_return,
+      nav.excess_return
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    WHERE nav.backtest_id IN UNNEST(@backtest_ids)
+      AND nav.trade_date BETWEEN @start_date AND @end_date
+    ORDER BY nav.backtest_id, nav.trade_date
+    """
+    pos_sql = """
+    SELECT
+      pos.backtest_id,
+      pos.trade_date,
+      pos.sec_code,
+      pos.weight,
+      px.ret_1d,
+      px.is_limit_down
+    FROM `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+    LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
+      ON px.sec_code = pos.sec_code
+     AND px.trade_date = pos.trade_date
+     AND px.trade_date BETWEEN @start_date AND @end_date
+    WHERE pos.backtest_id IN UNNEST(@backtest_ids)
+      AND pos.trade_date BETWEEN @start_date AND @end_date
+    """
+    params = [
+        bigquery.ArrayQueryParameter("backtest_ids", "STRING", backtest_ids),
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+        bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+    ]
+    nav = client.query(nav_sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).to_dataframe()
+    pos = client.query(pos_sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).to_dataframe()
+    if nav.empty:
+        return rows
+    nav["trade_date"] = pd.to_datetime(nav["trade_date"]).dt.date
+    if not pos.empty:
+        pos["trade_date"] = pd.to_datetime(pos["trade_date"]).dt.date
+    by_backtest = {}
+    for backtest_id, group in nav.groupby("backtest_id"):
+        event = compute_tail_risk_event(group)
+        if event is None:
+            continue
+        limit_peak = None
+        if not pos.empty:
+            p = pos[pos["backtest_id"] == backtest_id].copy()
+            if not p.empty:
+                peak = pd.Timestamp(event["tail_risk_peak_date"]).date()
+                trough = pd.Timestamp(event["tail_risk_trough_date"]).date()
+                p = p[(p["trade_date"] >= peak) & (p["trade_date"] <= trough)]
+                if not p.empty:
+                    ret = pd.to_numeric(p["ret_1d"], errors="coerce")
+                    is_limit = p["is_limit_down"].fillna(False).astype(bool)
+                    fallback = p["is_limit_down"].isna() & (ret <= -0.095)
+                    p["limit_weight"] = np.where(is_limit | fallback, pd.to_numeric(p["weight"], errors="coerce").fillna(0.0), 0.0)
+                    limit_peak = safe_float_or_none(p.groupby("trade_date")["limit_weight"].sum().max())
+        event["tail_risk_limit_down_weight_peak"] = limit_peak
+        by_backtest[backtest_id] = event
+    enriched = []
+    for row in rows:
+        item = dict(row)
+        item["tail_risk_profile_id"] = "diagnostic_only"
+        event = by_backtest.get(row.get("backtest_id"))
+        if event:
+            item.update(event)
+        report_uri = item.get("report_uri")
+        if report_uri and str(report_uri).startswith("gs://"):
+            item["tail_risk_uri"] = f"{str(report_uri).rstrip('/')}/tail_risk"
+        enriched.append(item)
+    return enriched
+
+
+def build_search_tail_risk_artifacts(
+    client: bigquery.Client,
+    search_id: str,
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    run_ids = [str(row.get("run_id")) for row in rows if row.get("run_id")]
+    if len(run_ids) < 2:
+        return [], []
+    start_dates = [str(row.get("start_date")) for row in rows if row.get("start_date")]
+    end_dates = [str(row.get("end_date")) for row in rows if row.get("end_date")]
+    if not start_dates or not end_dates:
+        return [], []
+    candidate_by_run = {str(row.get("run_id")): row.get("candidate_id") for row in rows if row.get("run_id")}
+    start_date = min(start_dates)
+    end_date = max(end_dates)
+    target_sql = """
+    SELECT
+      pt.run_id,
+      pt.rebalance_date AS signal_date,
+      pt.sec_code,
+      st.sec_name
+    FROM `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
+    LEFT JOIN `data-aquarium.ashare_dim.dim_stock` AS st
+      ON st.sec_code = pt.sec_code
+    WHERE pt.run_id IN UNNEST(@run_ids)
+      AND pt.rebalance_date BETWEEN @start_date AND @end_date
+    """
+    params = [
+        bigquery.ArrayQueryParameter("run_ids", "STRING", run_ids),
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+        bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+    ]
+    targets = client.query(target_sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).to_dataframe()
+    if targets.empty:
+        return [], []
+    targets["signal_date"] = pd.to_datetime(targets["signal_date"]).dt.date
+    overlap_rows: list[dict[str, Any]] = []
+    common_rows: list[dict[str, Any]] = []
+    for signal_date, group in targets.groupby("signal_date"):
+        selected_by_run = {
+            run_id: set(run_group["sec_code"].dropna().astype(str))
+            for run_id, run_group in group.groupby("run_id")
+        }
+        for left_run, right_run in itertools.combinations(sorted(selected_by_run), 2):
+            left_set = selected_by_run.get(left_run, set())
+            right_set = selected_by_run.get(right_run, set())
+            overlap_rows.append({
+                "search_id": search_id,
+                "signal_date": str(signal_date),
+                "left_run_id": left_run,
+                "right_run_id": right_run,
+                "left_candidate_id": candidate_by_run.get(left_run),
+                "right_candidate_id": candidate_by_run.get(right_run),
+                "left_selected_count": len(left_set),
+                "right_selected_count": len(right_set),
+                "overlap_count": len(left_set & right_set),
+            })
+        common_threshold = 3
+        common = (
+            group.groupby(["signal_date", "sec_code", "sec_name"], dropna=False)
+            .agg(run_ids=("run_id", lambda values: sorted(set(map(str, values)))))
+            .reset_index()
+        )
+        common["selected_run_count"] = common["run_ids"].map(len)
+        common = common[common["selected_run_count"] >= common_threshold]
+        for _, item in common.iterrows():
+            run_list = item["run_ids"]
+            common_rows.append({
+                "search_id": search_id,
+                "signal_date": str(signal_date),
+                "sec_code": item.get("sec_code"),
+                "sec_name": item.get("sec_name"),
+                "selected_run_count": int(item.get("selected_run_count") or 0),
+                "run_ids": ";".join(run_list),
+                "candidate_ids": ";".join(str(candidate_by_run.get(run_id) or "") for run_id in run_list),
+                "window_cumulative_contribution": None,
+            })
+    common_rows = attach_common_crash_contribution(client, rows, common_rows)
+    return overlap_rows, common_rows
+
+
+def attach_common_crash_contribution(
+    client: bigquery.Client,
+    rows: list[dict[str, Any]],
+    common_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not common_rows:
+        return common_rows
+    sec_codes = sorted({str(row["sec_code"]) for row in common_rows if row.get("sec_code")})
+    window_by_backtest = {
+        str(row.get("backtest_id")): {
+            "run_id": row.get("run_id"),
+            "peak": row.get("tail_risk_peak_date"),
+            "trough": row.get("tail_risk_trough_date"),
+        }
+        for row in rows
+        if row.get("backtest_id") and row.get("tail_risk_peak_date") and row.get("tail_risk_trough_date")
+    }
+    if not sec_codes or not window_by_backtest:
+        return common_rows
+    start_date = min(str(item["peak"]) for item in window_by_backtest.values())
+    end_date = max(str(item["trough"]) for item in window_by_backtest.values())
+    pos_sql = """
+    SELECT
+      pos.backtest_id,
+      pos.trade_date,
+      pos.sec_code,
+      pos.weight,
+      px.ret_1d
+    FROM `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+    LEFT JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS px
+      ON px.sec_code = pos.sec_code
+     AND px.trade_date = pos.trade_date
+     AND px.trade_date BETWEEN @start_date AND @end_date
+    WHERE pos.backtest_id IN UNNEST(@backtest_ids)
+      AND pos.sec_code IN UNNEST(@sec_codes)
+      AND pos.trade_date BETWEEN @start_date AND @end_date
+    """
+    params = [
+        bigquery.ArrayQueryParameter("backtest_ids", "STRING", list(window_by_backtest)),
+        bigquery.ArrayQueryParameter("sec_codes", "STRING", sec_codes),
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+        bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+    ]
+    pos = client.query(pos_sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).to_dataframe()
+    if pos.empty:
+        return common_rows
+    pos["trade_date"] = pd.to_datetime(pos["trade_date"]).dt.date
+    pos["weight"] = pd.to_numeric(pos["weight"], errors="coerce").fillna(0.0)
+    pos["ret_1d"] = pd.to_numeric(pos["ret_1d"], errors="coerce").fillna(0.0)
+    contribution_by_run_sec: dict[tuple[str, str], float] = {}
+    run_by_backtest = {backtest_id: item["run_id"] for backtest_id, item in window_by_backtest.items()}
+    for backtest_id, window in window_by_backtest.items():
+        peak = pd.Timestamp(window["peak"]).date()
+        trough = pd.Timestamp(window["trough"]).date()
+        chunk = pos[
+            (pos["backtest_id"] == backtest_id)
+            & (pos["trade_date"] >= peak)
+            & (pos["trade_date"] <= trough)
+        ].copy()
+        if chunk.empty:
+            continue
+        chunk["approx_contribution"] = chunk["weight"] * chunk["ret_1d"]
+        run_id = str(run_by_backtest.get(backtest_id))
+        for sec_code, value in chunk.groupby("sec_code")["approx_contribution"].sum().items():
+            contribution_by_run_sec[(run_id, str(sec_code))] = float(value)
+    enriched = []
+    for row in common_rows:
+        item = dict(row)
+        total = 0.0
+        has_value = False
+        for run_id in str(item.get("run_ids") or "").split(";"):
+            value = contribution_by_run_sec.get((run_id, str(item.get("sec_code"))))
+            if value is not None:
+                total += value
+                has_value = True
+        item["window_cumulative_contribution"] = safe_float_or_none(total) if has_value else None
+        enriched.append(item)
+    return enriched
+
+
+def compute_tail_risk_event(nav: pd.DataFrame) -> dict[str, Any] | None:
+    nav = nav.sort_values("trade_date").reset_index(drop=True).copy()
+    if nav.empty:
+        return None
+    nav["run_max"] = pd.to_numeric(nav["nav"], errors="coerce").cummax()
+    nav["drawdown"] = pd.to_numeric(nav["nav"], errors="coerce") / nav["run_max"] - 1.0
+    trough_idx = nav["drawdown"].idxmin()
+    if pd.isna(trough_idx):
+        return None
+    trough = nav.loc[trough_idx]
+    peak_nav = trough["run_max"]
+    peak_rows = nav[(nav.index <= trough_idx) & (abs(nav["nav"] - peak_nav) <= 1e-10)]
+    peak = peak_rows.iloc[0] if not peak_rows.empty else nav.iloc[0]
+    loss_window = nav[(nav["trade_date"] > peak["trade_date"]) & (nav["trade_date"] <= trough["trade_date"])]
+    if loss_window.empty:
+        loss_window = nav[(nav["trade_date"] >= peak["trade_date"]) & (nav["trade_date"] <= trough["trade_date"])]
+    benchmark_return = compound_return(loss_window["benchmark_return"])
+    drawdown = safe_float_or_none(trough["drawdown"])
+    return {
+        "tail_risk_peak_date": str(peak["trade_date"]),
+        "tail_risk_trough_date": str(trough["trade_date"]),
+        "tail_risk_drawdown_pct": drawdown,
+        "tail_risk_benchmark_return": benchmark_return,
+        "tail_risk_excess_return": None if drawdown is None or benchmark_return is None else drawdown - benchmark_return,
+    }
+
+
+def compound_return(series: pd.Series) -> float | None:
+    values = pd.to_numeric(series, errors="coerce").dropna()
+    values = values[values > -1.0]
+    if values.empty:
+        return 0.0
+    return safe_float_or_none(np.prod(1.0 + values) - 1.0)
 
 
 def apply_native_acceptance_to_ads(

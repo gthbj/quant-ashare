@@ -1,4 +1,4 @@
-> 文档维护：GPT-5 Codex（最近更新 2026-06-05）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-06）
 
 # 策略 1 Cloud Run 训练回测运行手册
 
@@ -18,6 +18,7 @@
 8. `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`：校验 Cloud Run orchestrator 状态表、锁元数据、execution id 和 task fan-out 状态行。
 9. `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`：校验 sklearn native TopK 产物、valid-only 排名、uploaded 报告/诊断、native acceptance gate 和 test 复用记录。
 10. `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`：校验 Cloud Run Python LightGBM baseline search 的 TopK、CV 证据、共享验收契约、test reuse 和 final_holdout watch。
+11. `scripts/strategy1/analyze_tail_risk.py` 与 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`：在 TopK 回测完成后只读 ADS/DWD/DIM，输出最大回撤窗口、持仓贡献、跌停/不可卖暴露和选股画像，并校验 ADS pre/post hash 未变化。
 
 当前限制：
 
@@ -263,6 +264,7 @@ gcloud run jobs deploy strategy1-train-candidate-fanout-job \
   --parallelism 20 \
   --task-timeout 3600 \
   --max-retries 0
+```
 
 当前 OQ-010 Cloud Run Python baseline search 的 P0 口径固定为 40 个候选、20 并发、单 task `2 vCPU / 8Gi`。`strategy1-train-candidate-fanout-job` 的共享 Job spec 应保持 `parallelism=20`；40 个候选仍由一次 `--tasks=40` execution 启动，实际同时运行的 task 数由 Job spec 控制。若后续扩到 60 / 80 / 100 个候选，需要先更新对应 PRD、Cloud Run 区域配额和本部署命令。
 
@@ -279,6 +281,7 @@ gcloud run jobs update strategy1-train-candidate-fanout-job \
 
 调整后，manifest 和执行参数中的 `candidate_parallelism` 必须同步改为新的并发值，并在 PR / 交接中记录 smoke 证据。
 
+```bash
 gcloud run jobs deploy strategy1-select-register-predict-job \
   --project data-aquarium \
   --region asia-east2 \
@@ -395,6 +398,33 @@ python -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search \
 8. 搜索报告写入 `reports/strategy1_cloudrun/sklearn_native_search/search_id=<search_id>/`，uploaded 模式同步到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/search_id=<search_id>/`。
 9. 完成后运行 `18_qa_sklearn_native_search_outputs.sql`；该 QA 不要求 BQML parity passed，而是检查 native acceptance gate。
 
+## 7.2 尾部风险诊断
+
+Cloud Run `backtest_report.py` 默认在 `09`、报告、模型诊断、`10/12` QA 后执行尾部风险诊断：
+
+```bash
+python -m scripts.strategy1_cloudrun.backtest_report \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml \
+  --manifest configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml \
+  --experiment-id cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_search_v0 \
+  --search-id cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01 \
+  --run-id <candidate_run_id> \
+  --prediction-run-id <candidate_prediction_run_id> \
+  --backtest-id <candidate_backtest_id>
+```
+
+执行语义：
+
+1. `analyze_tail_risk.py` 只读 `ashare_ads` / `ashare_dwd` / `ashare_dim`，不写 ADS，不改变回测结果。
+2. 单候选 artifact 写到 `reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/tail_risk/`；uploaded 模式同步到对应 GCS 报告路径下的 `tail_risk/`。
+3. 主要产物包括 `max_drawdown_windows.*`、`drawdown_position_contribution.csv`、`limit_down_exposure_daily.csv`、`selection_profile_by_signal_date.csv`、`risky_selected_names.csv`、`ads_readonly_guard.json` 和中文 `tail_risk.md`。
+4. `ads_readonly_guard.json` 记录 summary / NAV hash 和 ADS 相关行数的 pre/post 对比；pre/post 不一致时脚本 fail-fast，不能降级跳过。
+5. `20_qa_tail_risk_outputs.sql` 复算最大回撤、持仓覆盖、跌停/不可卖权重和 summary/NAV hash；由 `backtest_report.py` 自动注入脚本产出的 expected hash。
+6. `backtest_report.py` 对非 guard 类尾部风险诊断失败采用 fail-soft：原报告、模型诊断和 `10` / `12` 已完成时不回滚，写入 `tail_risk/tail_risk_failure.json` 并跳过 `20`；后续可单独复跑尾部风险诊断。
+7. 若只想跳过本诊断，可传 `--skip-tail-risk`；这只影响尾部风险 artifact，不影响原报告和模型诊断。
+
 ## 8. QA
 
 Cloud Run smoke 后执行：
@@ -405,12 +435,14 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_m
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/20_qa_tail_risk_outputs.sql
 ```
 
 `16` 需要按实际 `p_run_id` / `p_prediction_run_id` / `p_backtest_id` 修改脚本顶部参数，或由后续调度器注入参数。
 task fan-out 路径还需把 `16` 的 `p_require_task_fanout` 设为 `TRUE`。`16` 会同时断言 selected registry 已写入 matrix/work-unit 审计字段、所有 candidate task 成功、reducer 写入的 `candidate_task_bq_*` 审计计数为 0，并直接查询 `JOBS_BY_PROJECT` 兜底确认 candidate task 未读取 BigQuery 训练面板。
 `17` 需要按实际 `p_experiment_id` / `p_run_id` / `p_backtest_id` 修改脚本顶部参数；task fan-out 路径需把 `p_require_train_step=FALSE`、`p_require_task_fanout=TRUE`。如果单独直接运行 train/backtest job、没有经过 orchestrator，则不运行 `17`。
 `18` 只用于 sklearn native search。它需要按实际 `p_search_id` / `p_source_run_id` 修改脚本顶部参数，或由 `orchestrate_sklearn_native_search.py` 注入参数执行。
+`20` 只用于尾部风险 P0 诊断。它需要按实际 `p_run_id` / `p_prediction_run_id` / `p_backtest_id` / `p_predict_start` / `p_predict_end` 修改参数，或由 `backtest_report.py` 注入参数执行；`p_expected_summary_hash` / `p_expected_nav_hash` 应来自 `tail_risk/ads_readonly_guard.json`。
 
 ## 9. 安全
 
