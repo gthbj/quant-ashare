@@ -102,7 +102,7 @@ ashare_dim / ashare_dwd
 | `dws_stock_feature_price_daily` | `(sec_code, trade_date, feature_version)` | `dwd_stock_eod_price` | 收益、动量、波动、趋势、形态、可交易行为特征 |
 | `dws_stock_feature_valuation_daily` | `(sec_code, trade_date, feature_version)` | `dwd_stock_eod_valuation` | 估值、市值、换手、流动性特征 |
 | `dws_stock_feature_fin_daily` | `(sec_code, trade_date, feature_version)` | `dwd_fin_indicator` + `dwd_fin_income/balancesheet/cashflow`（默认合并口径） | PIT 财务指标、质量、成长、杠杆、现金流、三大报表绝对值、财报时效特征 |
-| `dws_market_state_daily` | `(trade_date)` | `dwd_index_eod`, `dwd_stock_eod_price` | 市场状态、指数趋势、全市场宽度 |
+| `dws_market_state_daily` | `(trade_date, market_state_version)` | `dwd_index_eod`, `dwd_stock_eod_price`, `dws_stock_feature_daily_v0` | 市场状态、指数趋势、全市场宽度、P2 market risk-off 触发证据 |
 | `dws_stock_label_daily` | `(sec_code, trade_date, label_version)` | `dwd_stock_eod_price`, `dwd_index_eod`, `dim_trade_calendar` | 未来收益、超额收益、可成交标签 |
 | `dws_stock_feature_daily_v0` | `(sec_code, trade_date, feature_version)` | 上述特征族 | P0 训练用特征宽表 |
 | `dws_stock_sample_daily` | `(sec_code, trade_date, feature_version, label_version)` | universe + feature + label | 训练/回测样本清单 |
@@ -256,20 +256,27 @@ QUALIFY ROW_NUMBER() OVER (
 
 ### 4.5 `dws_market_state_daily`
 
-**目标**：给模型和策略提供市场环境特征，支持仓位控制、分层训练和风险诊断。
+**目标**：给模型和策略提供市场环境特征，支持仓位控制、分层训练、风险诊断和策略 1 P2 market risk-off。
 
-**粒度**：`trade_date`。
+**粒度**：`(trade_date, market_state_version)`。`trade_date=t` 的状态在 t 日收盘后形成，只允许影响 t+1 开盘及之后的执行决策。
 
 **字段族**：
 
 | 字段族 | 示例字段 |
 |---|---|
-| 指数收益 | `csi300_ret_5d`, `csi500_ret_20d`, `csi1000_ret_20d` |
-| 指数趋势 | `csi500_close_to_ma60`, `csi1000_ma20_to_ma60` |
-| 市场波动 | `csi500_vol_20d`, `market_ret_std_20d` |
-| 市场宽度 | `adv_ratio_1d`, `above_ma20_ratio`, `limit_up_count`, `limit_down_count` |
-| 风格 | `small_minus_large_20d`, `value_minus_growth_proxy_20d` |
-| 状态标签 | `market_regime` | 如 `risk_on/risk_neutral/risk_off` |
+| 指数收益 | `csi300_ret_5d`, `csi300_ret_20d`, `csi1000_ret_5d`, `csi1000_ret_20d` |
+| 指数趋势/波动 | `csi1000_drawdown_20d`, `csi1000_vol_20d`, `csi1000_close_to_ma20`, `csi1000_close_to_ma60`, `csi1000_ma20_to_ma60` |
+| 市场宽度 | `adv_ratio_1d`, `above_ma20_ratio`, `new_low_20d_ratio`, `limit_down_count`, `one_word_limit_down_count`, `limit_down_mv_ratio` |
+| 横截面画像 | `avg_ret_20d`, `ret_20d_p25`, `ret_20d_median`, `drawdown_20d_median`, `avg_vol_20d` |
+| P2 触发证据 | `is_smallcap_trend_down`, `is_breadth_weak`, `is_limit_down_diffusion`, `risk_off_trigger_count`, `risk_off_reasons` |
+| 状态标签 | `market_regime`, `is_risk_off`, `risk_off_action` |
+
+**当前实现**：
+
+- SQL：`sql/dws/08_dws_market_state_daily.sql`。
+- QA：`sql/qa/11_market_state_checks.sql`。
+- 默认版本：`market_state_v0_20260606`。
+- P2 v0 执行动作固定为 `risk_off_action='skip_new_buys'`：risk-off 次一开市日允许卖出和 pending sell 继续处理，但 BUY 侧新增/加仓订单必须写 `BUY_SKIPPED_MARKET_RISK_OFF`，不成交、不候补。
 
 **基准代码**：
 

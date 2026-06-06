@@ -19,6 +19,7 @@
 9. `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`：校验 sklearn native TopK 产物、valid-only 排名、uploaded 报告/诊断、native acceptance gate 和 test 复用记录。
 10. `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`：校验 Cloud Run Python LightGBM baseline search 的 TopK、CV 证据、共享验收契约、test reuse 和 final_holdout watch。
 11. `scripts/strategy1/analyze_tail_risk.py` 与 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`：在 TopK 回测完成后只读 ADS/DWD/DIM，输出最大回撤窗口、持仓贡献、跌停/不可卖暴露和选股画像，并校验 ADS pre/post hash 未变化。
+12. `sql/dws/08_dws_market_state_daily.sql` 与 `sql/qa/11_market_state_checks.sql`：生成并校验 P2 市场状态 risk-off 证据表；`backtest_report.py` 在 `tail_risk_profile_id=market_risk_off_v0` 或 `individual_and_market_risk_guard_v0` 时由 Python ledger 读取该表并跳过 risk-off 次日买单。
 
 当前限制：
 
@@ -425,6 +426,29 @@ python -m scripts.strategy1_cloudrun.backtest_report \
 6. `backtest_report.py` 对非 guard 类尾部风险诊断失败采用 fail-soft：原报告、模型诊断和 `10` / `12` 已完成时不回滚，写入 `tail_risk/tail_risk_failure.json` 并跳过 `20`；后续可单独复跑尾部风险诊断。
 7. 若只想跳过本诊断，可传 `--skip-tail-risk`；这只影响尾部风险 artifact，不影响原报告和模型诊断。
 
+## 7.3 市场状态 risk-off
+
+P2 market risk-off 先构建市场状态 DWS，再跑 portfolio-only A/B，不重新训练：
+
+```bash
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/08_dws_market_state_daily.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/11_market_state_checks.sql
+
+python -m scripts.strategy1_cloudrun.orchestrate_experiments \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml \
+  --manifest configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml \
+  --force-replace
+```
+
+执行语义：
+
+1. `dws_market_state_daily` 的 `trade_date` 是信号日；risk-off 在 `t` 日收盘后形成，只能影响 `t+1` 开盘执行。
+2. `market_risk_off_v0` 只启用市场状态风控；`individual_and_market_risk_guard_v0` 同时启用 P1 个股风险和 P2 市场状态。
+3. P2 v0 动作固定为 `skip_new_buys`：risk-off 次日允许卖出和 pending sell 继续处理，但所有 BUY 侧新增/加仓订单写 `BUY_SKIPPED_MARKET_RISK_OFF`，不成交、不候补。
+4. `tail_risk/market_risk_off_dates.csv` 记录 risk-off 日期、触发原因和关键指标；`10` / `20` QA 会校验 risk-off 执行日没有真实 BUY 成交。
+
 ## 8. QA
 
 Cloud Run smoke 后执行：
@@ -436,13 +460,15 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/16_qa_c
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/20_qa_tail_risk_outputs.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/11_market_state_checks.sql
 ```
 
 `16` 需要按实际 `p_run_id` / `p_prediction_run_id` / `p_backtest_id` 修改脚本顶部参数，或由后续调度器注入参数。
 task fan-out 路径还需把 `16` 的 `p_require_task_fanout` 设为 `TRUE`。`16` 会同时断言 selected registry 已写入 matrix/work-unit 审计字段、所有 candidate task 成功、reducer 写入的 `candidate_task_bq_*` 审计计数为 0，并直接查询 `JOBS_BY_PROJECT` 兜底确认 candidate task 未读取 BigQuery 训练面板。
 `17` 需要按实际 `p_experiment_id` / `p_run_id` / `p_backtest_id` 修改脚本顶部参数；task fan-out 路径需把 `p_require_train_step=FALSE`、`p_require_task_fanout=TRUE`。如果单独直接运行 train/backtest job、没有经过 orchestrator，则不运行 `17`。
 `18` 只用于 sklearn native search。它需要按实际 `p_search_id` / `p_source_run_id` 修改脚本顶部参数，或由 `orchestrate_sklearn_native_search.py` 注入参数执行。
-`20` 只用于尾部风险 P0 诊断。它需要按实际 `p_run_id` / `p_prediction_run_id` / `p_backtest_id` / `p_predict_start` / `p_predict_end` 修改参数，或由 `backtest_report.py` 注入参数执行；`p_expected_summary_hash` / `p_expected_nav_hash` 应来自 `tail_risk/ads_readonly_guard.json`。
+`20` 用于尾部风险诊断、P1 个股风险和 P2 market risk-off。它需要按实际 `p_run_id` / `p_prediction_run_id` / `p_backtest_id` / `p_predict_start` / `p_predict_end` 修改参数，或由 `backtest_report.py` 注入参数执行；`p_expected_summary_hash` / `p_expected_nav_hash` 应来自 `tail_risk/ads_readonly_guard.json`。
+`11_market_state_checks.sql` 用于 `dws_market_state_daily` 表级 QA；P2 A/B 前必须先跑通。
 
 ## 9. 安全
 

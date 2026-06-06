@@ -37,6 +37,7 @@ DECLARE p_slippage_sell_bps FLOAT64 DEFAULT 5.0;
 DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;        -- 兼容字段，不再作为默认撮合成本来源
 DECLARE p_benchmark STRING DEFAULT '000852.SH';  -- OQ-010 示例值
 DECLARE p_tail_risk_profile_id STRING DEFAULT 'diagnostic_only';
+DECLARE p_market_state_version STRING DEFAULT 'market_state_v0_20260606';
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_backtest
 DECLARE p_parent_backtest_id STRING DEFAULT NULL;
@@ -63,7 +64,12 @@ IF p_initial_state_mode NOT IN ('fresh', 'resume_from_backtest') THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_initial_state_mode: ', p_initial_state_mode);
 END IF;
 
-IF p_tail_risk_profile_id NOT IN ('diagnostic_only', 'individual_risk_guard_v0') THEN
+IF p_tail_risk_profile_id NOT IN (
+  'diagnostic_only',
+  'individual_risk_guard_v0',
+  'market_risk_off_v0',
+  'individual_and_market_risk_guard_v0'
+) THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_tail_risk_profile_id: ', p_tail_risk_profile_id);
 END IF;
 
@@ -296,10 +302,26 @@ JOIN `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
   ON cand.strategy_id = p_strategy_id
  AND cand.run_id = p_run_id
  AND cand.rebalance_date = pr.signal_date
-WHERE p_tail_risk_profile_id = 'individual_risk_guard_v0'
+WHERE p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0')
   AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
   AND cand.is_selected_candidate
   AND STARTS_WITH(COALESCE(cand.filter_reason, ''), 'tail_risk:');
+
+-- P2 market risk-off: signal_date t is known after close and blocks BUY side on t+1.
+CREATE TEMP TABLE market_risk_off_period AS
+SELECT
+  pr.period_idx,
+  pr.signal_date,
+  ms.risk_off_reasons,
+  ms.risk_off_action
+FROM periods AS pr
+JOIN `data-aquarium.ashare_dws.dws_market_state_daily` AS ms
+  ON ms.trade_date = pr.signal_date
+ AND ms.trade_date BETWEEN p_predict_start AND p_predict_end
+WHERE p_tail_risk_profile_id IN ('market_risk_off_v0', 'individual_and_market_risk_guard_v0')
+  AND ms.market_state_version = p_market_state_version
+  AND ms.is_risk_off
+  AND ms.risk_off_action = 'skip_new_buys';
 
 -- ── resume 初始状态：fresh 模式为空；resume 模式从父回测恢复 ──
 CREATE TEMP TABLE initial_hold AS
@@ -311,7 +333,8 @@ CREATE TEMP TABLE initial_target AS
 SELECT
   CAST(NULL AS STRING) AS sec_code,
   CAST(NULL AS FLOAT64) AS w,
-  CAST(FALSE AS BOOL) AS tail_risk_new_buy_blocked
+  CAST(FALSE AS BOOL) AS tail_risk_new_buy_blocked,
+  CAST(FALSE AS BOOL) AS market_risk_buy_blocked
 FROM (SELECT 1)
 WHERE FALSE;
 
@@ -355,7 +378,11 @@ IF p_initial_state_mode = 'resume_from_backtest' THEN
     FROM candidate_signal
     QUALIFY ROW_NUMBER() OVER (ORDER BY exec_date DESC, signal_date DESC) = 1
   )
-  SELECT target.sec_code, target.target_weight AS w, FALSE AS tail_risk_new_buy_blocked
+  SELECT
+    target.sec_code,
+    target.target_weight AS w,
+    FALSE AS tail_risk_new_buy_blocked,
+    FALSE AS market_risk_buy_blocked
   FROM active_signal AS a
   JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS target
     ON target.rebalance_date = a.signal_date
@@ -455,7 +482,7 @@ ASSERT (
 
 -- ── ledger 状态表 ──
 CREATE TEMP TABLE hold AS SELECT sec_code, shares FROM initial_hold;  -- 当前实际持仓（日级变更）
-CREATE TEMP TABLE target AS SELECT sec_code, w, tail_risk_new_buy_blocked FROM initial_target;   -- 最新目标组合权重，仅在 execution_date 更新
+CREATE TEMP TABLE target AS SELECT sec_code, w, tail_risk_new_buy_blocked, market_risk_buy_blocked FROM initial_target;   -- 最新目标组合权重，仅在 execution_date 更新
 CREATE TEMP TABLE pending_sell AS SELECT sec_code FROM initial_pending_sell;  -- 未卖出的退出/降仓意图，日级重试
 CREATE TEMP TABLE snap (trade_date DATE, sec_code STRING, shares FLOAT64);  -- 每日收盘后持仓快照
 CREATE TEMP TABLE cash_hist (trade_date DATE, cash_after FLOAT64);          -- 每日收盘后现金
@@ -486,11 +513,14 @@ WHILE v_d <= p_max_day DO
     SELECT
       p.sec_code,
       p.w,
-      g.sec_code IS NOT NULL AS tail_risk_new_buy_blocked
+      g.sec_code IS NOT NULL AS tail_risk_new_buy_blocked,
+      m.period_idx IS NOT NULL AS market_risk_buy_blocked
     FROM presence AS p
     LEFT JOIN tail_risk_buy_guard AS g
       ON g.period_idx = p.period_idx
      AND g.sec_code = p.sec_code
+    LEFT JOIN market_risk_off_period AS m
+      ON m.period_idx = p.period_idx
     WHERE p.period_idx = v_period_idx;
   END IF;
 
@@ -527,6 +557,7 @@ WHILE v_d <= p_max_day DO
       COALESCE(pf.prev_close_ffill, pe.open, pf.close_ffill) AS val_price,
       COALESCE(t.w, 0) AS w,
       COALESCE(t.tail_risk_new_buy_blocked, FALSE) AS tail_risk_new_buy_blocked,
+      COALESCE(t.market_risk_buy_blocked, FALSE) AS market_risk_buy_blocked,
       ps.sec_code IS NOT NULL AS was_pending
     FROM universe AS u
     LEFT JOIN hold AS h ON h.sec_code = u.sec_code
@@ -549,6 +580,7 @@ WHILE v_d <= p_max_day DO
     can_buy, can_sell, val_price, w, was_pending,
     cur_value, desired_value,
     (tail_risk_new_buy_blocked AND cur_shares <= 0.000001) AS tail_risk_buy_blocked,
+    market_risk_buy_blocked,
     -- 卖出：rebalance 日处理净卖出；非 rebalance 日只处理 pending sell。
     IF(
       cur_shares > 0
@@ -568,6 +600,7 @@ WHILE v_d <= p_max_day DO
       AND can_buy
       AND exec_open IS NOT NULL
       AND NOT (tail_risk_new_buy_blocked AND cur_shares <= 0.000001)
+      AND NOT market_risk_buy_blocked
       AND desired_value - cur_value > 0.01,
       desired_value - cur_value,
       0.0
@@ -591,6 +624,7 @@ WHILE v_d <= p_max_day DO
       AND (
         NOT (can_buy AND exec_open IS NOT NULL)
         OR (tail_risk_new_buy_blocked AND cur_shares <= 0.000001)
+        OR market_risk_buy_blocked
       ),
       desired_value - cur_value,
       0.0
@@ -692,7 +726,11 @@ WHILE v_d <= p_max_day DO
   -- BUY skipped: no fallback candidate.
   SELECT v_exec, sec_code, 'BUY',
     COALESCE(SAFE_DIVIDE(buy_skip_value, val_price), 0.0), 0.0, CAST(NULL AS FLOAT64), 0.0, 0.0, 0.0,
-    IF(tail_risk_buy_blocked, 'BUY_SKIPPED_TAIL_RISK', 'BUY_SKIPPED_UNTRADABLE')
+    CASE
+      WHEN market_risk_buy_blocked THEN 'BUY_SKIPPED_MARKET_RISK_OFF'
+      WHEN tail_risk_buy_blocked THEN 'BUY_SKIPPED_TAIL_RISK'
+      ELSE 'BUY_SKIPPED_UNTRADABLE'
+    END
   FROM plan
   WHERE buy_skip_value > 0.000001
   UNION ALL

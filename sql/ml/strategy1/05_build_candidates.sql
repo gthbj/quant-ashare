@@ -34,7 +34,12 @@ IF p_target_holdings <= 0 THEN
   RAISE USING MESSAGE = 'p_target_holdings must be positive';
 END IF;
 
-IF p_tail_risk_profile_id NOT IN ('diagnostic_only', 'individual_risk_guard_v0') THEN
+IF p_tail_risk_profile_id NOT IN (
+  'diagnostic_only',
+  'individual_risk_guard_v0',
+  'market_risk_off_v0',
+  'individual_and_market_risk_guard_v0'
+) THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_tail_risk_profile_id: ', p_tail_risk_profile_id);
 END IF;
 
@@ -132,11 +137,11 @@ risk_eval AS (
     scored.* EXCEPT(filter_reason),
     scored.filter_reason AS universe_filter_reason,
     ARRAY_CONCAT(
-      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+      IF(p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0')
          AND scored.filter_reason IS NULL
          AND NOT scored.has_risk_feature_row,
          ['tail_risk_feature_missing'], []),
-      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+      IF(p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0')
          AND scored.filter_reason IS NULL
          AND scored.has_risk_feature_row
          AND (
@@ -148,27 +153,27 @@ risk_eval AS (
            OR scored.circ_mv_cny IS NULL
          ),
          ['tail_risk_required_field_null'], []),
-      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+      IF(p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0')
          AND scored.filter_reason IS NULL
          AND scored.ret_20d < p_tail_risk_ret_20d_min,
          ['ret_20d_lt_30pct'], []),
-      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+      IF(p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0')
          AND scored.filter_reason IS NULL
          AND scored.drawdown_20d < p_tail_risk_drawdown_20d_min,
          ['drawdown_20d_lt_30pct'], []),
-      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+      IF(p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0')
          AND scored.filter_reason IS NULL
          AND scored.limit_down_days_20d >= p_tail_risk_limit_down_days_20d_min,
          ['limit_down_days_20d_gte_2'], []),
-      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+      IF(p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0')
          AND scored.filter_reason IS NULL
          AND scored.one_word_limit_days_20d >= p_tail_risk_one_word_limit_days_20d_min,
          ['one_word_limit_days_20d_gte_1'], []),
-      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+      IF(p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0')
          AND scored.filter_reason IS NULL
          AND scored.total_mv_cny < p_tail_risk_total_mv_min_cny,
          ['total_mv_cny_lt_30e8'], []),
-      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+      IF(p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0')
          AND scored.filter_reason IS NULL
          AND scored.circ_mv_cny < p_tail_risk_circ_mv_min_cny,
          ['circ_mv_cny_lt_20e8'], [])

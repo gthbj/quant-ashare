@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-010 尾部风险 P2 market risk-off 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-tailrisk-p2-market-riskoff`，分支 `codex/implement-tailrisk-p2-market-riskoff`，PR #92。已新增 `sql/dws/08_dws_market_state_daily.sql`、`sql/qa/11_market_state_checks.sql`、P2 A/B manifest，并让 Cloud Run Python ledger、SQL fallback `08_run_backtest.sql`、候选 / 汇总 / QA / 报告 / tail-risk 诊断支持 `market_risk_off_v0` 与 `individual_and_market_risk_guard_v0`。风险动作固定为 `risk_off_action='skip_new_buys'`：risk-off 执行日只禁止新买 / 加仓，卖出和 pending sell 继续执行，成交失败写 `BUY_SKIPPED_MARKET_RISK_OFF`。已通过 Python `py_compile`、manifest 解析、`backtest_report.py --dry-run`、相关 BigQuery SQL dry-run 和 `git diff --check`。尚未合并、尚未物化 DWS、尚未部署新 runner、尚未跑 P2 A/B。
+
 **Dataform definitions 与调度运行命名清理（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dataform-definitions`，分支 `codex/oq005-dataform-definitions`，PR #91。已新增 Dataform 首版 `workflow_settings.yaml`、`action_manifest.json`、生成器 `scripts/dataform/generate_sqlx_from_sql.py` 和 45 个 `definitions/**/*.sqlx`，以 canonical `sql/` 生成 31 个 Dataform operations；`npx --yes @dataform/cli compile dataform` 通过。按 owner 要求清理调度运行代码中的阶段性命名：告警 DAG 文件改为 `ashare_pipeline_alert_checker.py`，QA/metadata SQL 改为 `01_core_smoke_checks.sql`、`03_index_benchmark_checks.sql`、`05_unit_contract_checks.sql`、`01_core_table_column_descriptions.sql`，Composer task_id / Dataform action/tag 改为 `core_*`、`index_benchmark_checks`、`unit_contract_checks`、`qa_core`、`qa_contract` 等稳定命名。PR #91 review follow-up 已补运行命名 cutover runbook、Dataform `--check` 防漂移检查和“线上旧名 vs 目标新名”记忆说明。未部署 Composer / Dataform，未运行 BigQuery DML；生产 cutover 前，2026-06-05 / PR #75 历史线上告警/checker 仍按旧 `oq005_*` / `oq005_alert_checker` 名称审计。
 
 **OQ-010 尾部风险 P1 comment follow-up（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-p1`，分支 `codex/implement-tail-risk-p1`，PR #88 已 rebase 到最新 `origin/main` 并按 review comment 修正。最新语义：`05_build_candidates.sql` 只写 `tail_risk:*` 风险标记，不把风险标记股票从 TopN / target 剔除；必需风险字段 NULL 记为 `tail_risk_required_field_null`。Python Ledger v1 与 BigQuery SQL fallback 均新增 `BUY_SKIPPED_TAIL_RISK`：未持仓风险目标跳过新买入，已有持仓不因 P1 标记被强制卖出。`10` / `20` QA 已改为验证未持仓风险目标无真实买入成交且留下 skip 状态。验证：Python `py_compile`、`05/08/09/10/11/20` dry-run 均通过；短区间 smoke 因跳过报告触发 `10` report guard 失败，已确认是 smoke 参数问题并清理临时 ADS 残留为 0。另已在 `KNOWN_CONSTRAINTS.md` 写入 BigQuery 分区表查询/删除/更新必须显式带分区列过滤的项目硬约束。
@@ -16,7 +18,7 @@
 
 **OQ-005 Composer DAG 拆分生产切换（2026-06-06）**：PR #86 已合并并完成 Composer 部署 / smoke。已应用 meta DDL 与观测视图，部署 `ashare_common.py`、`ashare_ods_ingestion_daily.py`、`ashare_warehouse_window_refresh.py`、`ashare_warehouse_full_rebuild.py` 和仓库 `sql/` 到 Composer bucket。旧 `ashare_daily_pipeline_v0` 已暂停，新 scheduled DAG `ashare_ods_ingestion_daily` 已 unpause；`ashare_warehouse_window_refresh` 与 `ashare_warehouse_full_rebuild` 无 schedule。`setup_alerts.py` 已补真实 GCP apply 兼容修复，`ashare_pipeline_warehouse_refresh_missing` metric 与 `Ashare Pipeline: Warehouse Refresh Missing` policy 已创建 / 对齐。Smoke：`manual_split_skip_gate_20260606_01` 非交易日 gate 成功且 Cloud Run 未触发；`manual_split_qa_only_20260605_01` 5 个 QA success；`manual_split_backfill_20260605_01` 1 日窗口刷新和全部 QA success；refresh-missing synthetic transaction smoke 通过；`check_alerts.py --lookback-minutes 20` 返回空。后续只剩新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然观察，以及 Dataform 生产接入 / shadow 验证、完整 ODS→ADS 运维观测闭环和后续自然 scheduled 观察。
 
-**OQ-010 尾部风险 P0 诊断实现（2026-06-06）**：PR #84（`docs/prd/PRD_20260606_01_策略1尾部风险控制.md`）已合并，PRD 分支已清理。当前实现工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-impl`，分支 `codex/implement-tail-risk-diagnostics-p0`，PR #87。已新增只读 `scripts/strategy1/analyze_tail_risk.py`、Cloud Run `backtest_report.py` 自动执行入口、TopK comparison 尾部风险摘要和 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`；产物写入 `tail_risk/` local/GCS artifact，覆盖最大回撤窗口、持仓贡献、跌停 / 不可卖暴露、选股画像、风险股票名单和 ADS pre/post hash guard，不改变候选、订单、成交、持仓、NAV 或 summary。PR #87 review follow-up 已补：DWS 特征 join 按 `feature_version` 过滤；非 guard 类诊断异常 fail-soft 并写 `tail_risk_failure.json`，ADS read-only guard 失败仍 hard fail；最大回撤窗口保留首次高点日期。已用 Wave 3 regression Top1 完成本地 artifact smoke 和真实 `20` QA。P1 个股硬风险过滤 profile A/B 与 P2 市场状态 risk-off 仍待后续独立实现。
+**OQ-010 尾部风险 P0 诊断实现（2026-06-06）**：PR #84（`docs/prd/PRD_20260606_01_策略1尾部风险控制.md`）已合并，PRD 分支已清理。当前实现工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-impl`，分支 `codex/implement-tail-risk-diagnostics-p0`，PR #87。已新增只读 `scripts/strategy1/analyze_tail_risk.py`、Cloud Run `backtest_report.py` 自动执行入口、TopK comparison 尾部风险摘要和 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`；产物写入 `tail_risk/` local/GCS artifact，覆盖最大回撤窗口、持仓贡献、跌停 / 不可卖暴露、选股画像、风险股票名单和 ADS pre/post hash guard，不改变候选、订单、成交、持仓、NAV 或 summary。PR #87 review follow-up 已补：DWS 特征 join 按 `feature_version` 过滤；非 guard 类诊断异常 fail-soft 并写 `tail_risk_failure.json`，ADS read-only guard 失败仍 hard fail；最大回撤窗口保留首次高点日期。已用 Wave 3 regression Top1 完成本地 artifact smoke 和真实 `20` QA。P1 个股硬风险过滤 profile A/B 已完成；P2 市场状态 risk-off 已在 PR #92 实现到待审阶段。
 
 **OQ-005 Composer DAG 拆分 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dag-split-prd`，分支 `codex/oq005-dag-split-prd`。新增 `docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md`，定义将当前 `ashare_daily_pipeline_v0` 拆成 `ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh`、`ashare_warehouse_full_rebuild`、`ashare_research_model_experiment`、`ashare_research_model_fanout`，`ashare_pipeline_alert_checker` 继续独立。本次只写 PRD 和记忆/TODO，不改 DAG、不部署 Composer、不运行 BigQuery / Dataform / Cloud Run。后续建议先实现 production DAG 拆分 Phase B/C/D：抽共享 helper，新增 ingestion daily DAG 与 warehouse window refresh DAG，完成开市日、非交易日和 backfill smoke 后再继续 Dataform 生产接入 / shadow 验证 / resume 自动化。
 
@@ -239,6 +241,77 @@ Run ID: tail_risk_p1_comment_followup_20260606
 - `.agent/memory/PROJECT_CONTEXT.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: oq010_tailrisk_p2_market_riskoff_impl_20260606
+相关 issue/PR: PR #92 / OQ-010 尾部风险 P2
+
+### 已完成工作
+
+- 在工作树 `/Users/luna/Desktop/git/quant-ashare-tailrisk-p2-market-riskoff`、分支 `codex/implement-tailrisk-p2-market-riskoff` 实现尾部风险 P2 market risk-off。
+- 新增 `sql/dws/08_dws_market_state_daily.sql`，生成 `market_state_v0_20260606` 市场状态日表；新增 `sql/qa/11_market_state_checks.sql` 作为市场状态 DWS 门禁。
+- Cloud Run Python ledger、SQL fallback `08_run_backtest.sql`、候选生成、汇总、`10` / `11` / `20` QA、中文报告和 tail-risk 诊断均支持 `market_risk_off_v0` / `individual_and_market_risk_guard_v0`。
+- 新增 `configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml`，定义复用既有 prediction source、不重新训练的 P2 portfolio-only A/B。
+
+### 重要上下文
+
+- P2 风控动作固定为 `skip_new_buys`：risk-off 执行日只阻止新买 / 加仓，卖出和 pending sell 继续执行。
+- risk-off 判定使用 t-1 signal date，执行日写 `BUY_SKIPPED_MARKET_RISK_OFF` 审计行。
+- 本次没有实际物化 `dws_market_state_daily`，没有部署新 Cloud Run runner，也没有跑 P2 A/B；这些必须在 PR 合并后继续。
+
+### 改动文件
+
+- `sql/dws/08_dws_market_state_daily.sql`
+- `sql/qa/11_market_state_checks.sql`
+- `configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml`
+- `scripts/strategy1_cloudrun/ledger.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/backtest_report.py`
+- `scripts/strategy1/analyze_tail_risk.py`
+- `scripts/strategy1/render_report.py`
+- `sql/ml/strategy1/05_build_candidates.sql`
+- `sql/ml/strategy1/08_run_backtest.sql`
+- `sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`
+- `sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `sql/ml/strategy1/11_model_quality_diagnostics.sql`
+- `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`
+- `sql/ads/01_ads_strategy1_tables.sql`
+- `sql/ml/strategy1/README.md`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `docs/数据仓库建模方案-DWS-ADS.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python -m py_compile scripts/strategy1_cloudrun/ledger.py scripts/strategy1_cloudrun/config.py scripts/strategy1_cloudrun/backtest_report.py scripts/strategy1/analyze_tail_risk.py scripts/strategy1/render_report.py`
+- P2 manifest 解析：3 个实验均为 portfolio-only，`requires_retrain=false`
+- BigQuery dry-run：`sql/dws/08_dws_market_state_daily.sql`、`sql/qa/11_market_state_checks.sql`、`sql/ml/strategy1/05_build_candidates.sql`、`08_run_backtest.sql`、`09_build_metrics_and_report_inputs.sql`、`10_qa_runner_outputs.sql`、`11_model_quality_diagnostics.sql`、`20_qa_tail_risk_outputs.sql`
+- `python -m scripts.strategy1_cloudrun.backtest_report --project data-aquarium --region asia-east2 --config configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml --manifest configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml --experiment-id tailrisk_p2_market_riskoff_pvfq_n30_bw_h5_20260606 --dry-run`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- PR 合并后先执行 `sql/dws/08_dws_market_state_daily.sql` 和 `sql/qa/11_market_state_checks.sql`。
+- 构建并部署包含 P2 改动的新 Cloud Run runner 镜像。
+- 用 `configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml` 跑 diagnostic / market-only / combo 三条 P2 A/B，并比较收益、回撤、skip 笔数和风险暴露。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
