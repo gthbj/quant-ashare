@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 整数手交易执行实现（2026-06-07）**：PR #100 `feat(strategy1): implement lot-aware ledger` 已合并进入 `main`（merge commit `4a1657d`），远端分支 `codex/implement-lot-aware-ledger`、本地分支和实现工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-impl` 已清理。Cloud Run Python 默认回测路径已切到 `ledger_exec_v1_lot100` / `cloud_run_sklearn_ledger_v1_lot100`：买入 100 股整数手向下取整，below-lot / 现金不足回退写显式状态，清仓卖出允许 odd-lot，部分卖出按 100 股取整并保留残股；legacy FLOAT 路径只能通过显式 `--use-float-ledger` 或 `--use-bq-ledger` 作为 audit 运行。`23_qa_lot_aware_ledger_outputs.sql`、golden-case 单测、report / summary / acceptance gate v2 对齐和运行手册均已进入 `main`。尚未部署 Cloud Run 镜像，也尚未执行真实 fixed-prediction lot-aware reference；下一步应复用当前 prediction stream 跑 `2024-01-02` 至 `2026-04-30` reference，并重跑 `23` 和 acceptance gate v2。
+**OQ-010 整数手交易执行实现（2026-06-07）**：PR #100 `feat(strategy1): implement lot-aware ledger` 已合并进入 `main`（merge commit `4a1657d`），Cloud Run Python 默认回测路径已切到 `ledger_exec_v1_lot100` / `cloud_run_sklearn_ledger_v1_lot100`，并已清理无用实现分支/工作树。执行真实 fixed-prediction lot-aware reference 前，预检确认源 prediction run `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` 覆盖 `2024-01-02` 至 `2026-04-30` 且目标 run/backtest 无 ADS 残留，但同时发现 portfolio-only 报告/诊断链路未正确透传 `prediction_run_id`。当前修复工作树为 `/Users/luna/Desktop/git/quant-ashare-lotaware-runner-fix`，分支 `codex/fix-portfolio-only-report-source-run`：`render_report.py` 新增 `--prediction-run-id` 并用源预测 run 读取模型、预测和买入成交 enrichment，`backtest_report.py` 向 report / diagnosis 同时传 candidate run 与 prediction source run；已通过 `py_compile`、`git diff --check` 和 lot-aware reference dry-run。下一步应先合并该修复，再构建/部署 Cloud Run runner，复用当前 prediction stream 跑 `2024-01-02` 至 `2026-04-30` reference，并重跑 `23` 和 acceptance gate v2。
 
 **OQ-010 验收门 v2 实现（2026-06-06）**：PR #98 已合并；实现工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-impl`、分支 `codex/implement-acceptance-gate-v2` 的 v2 契约、只读诊断脚本和 `22` QA 已进入 `main`。已新增 `configs/strategy1/model_acceptance_contract_v2.yml`、只读脚本 `scripts/strategy1/diagnose_acceptance_gate_v2.py` 和 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，并扩展 `scripts/strategy1_cloudrun/acceptance.py` 支持 contract hash / v2 SQL 参数。诊断脚本只读 ADS/DWD/DWS，不训练、不改 prediction、不写 ADS；默认 reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，输出 `acceptance_gate_v2/` artifact、10/20/30/40 组合可行性、eligible benchmark、score orientation audit、低价股偏移、现金/实际持仓和风格暴露诊断。uploaded 模式成功，GCS URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01`，16 个对象；`22_qa_acceptance_gate_v2_outputs.sql` 注入真实 contract hash 后真实执行 9 个 ASSERT 全部通过，默认 standalone placeholder 已改为在 `QA-V2-1` fail-loud。当前 v2 结论：reference run 为 `rejected`，原因是跑输 `000852.SH`、full-period IR 为负、2026 final_holdout 严重跑输；拒绝范围仅限当前 top-30 long-only 实现，不否定信号家族。`10/5%` 是 `diagnostic_only`，`20/30/40` 因局部现金峰值为 `needs_more_evidence`，没有 implementation hard fail。后续已转为先实现整数手 lot-aware ledger。
 
@@ -65,6 +65,31 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-07
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: strategy1_lotaware_source_run_fix_20260607
+相关 issue/PR: 待创建 PR
+
+### 已完成工作
+
+- 预检 fixed-prediction lot-aware reference 输入：源 prediction run `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` 在 `2024-01-02` 至 `2026-04-30` 有 1,247,888 行预测；目标 `s1_lotaware_ref_pvfq_n30_bw_h5_20260606_01` / `bt_s1_lotaware_ref_pvfq_n30_bw_h5_20260606_01` 无 candidate / portfolio / order / trade / NAV 残留。
+- 确认源模型 registry 为 `bqml_logistic_reg`、`feature_set_id=strategy1_pv_fin_quality_v0_20260603`、`target_holdings=30`、`rebalance_frequency=biweekly`。
+- 修复 portfolio-only / lot-aware 报告和诊断的 source-run 口径：`render_report.py` 支持 `--prediction-run-id`，`backtest_report.py` 向 report / diagnosis 同时传新回测 run 与源预测 run。
+
+### 验证
+
+- `python3 -m py_compile scripts/strategy1/render_report.py scripts/strategy1_cloudrun/backtest_report.py`
+- `python3 -m scripts.strategy1_cloudrun.backtest_report ... --experiment-json <lotaware_ref> --force-replace --dry-run`
+- `git diff --check`
+
+### 后续
+
+- 创建并合并该修复 PR。
+- 合并后构建/部署新 Cloud Run runner 镜像，执行 lot-aware reference，并运行 `23_qa_lot_aware_ledger_outputs.sql` 与 acceptance gate v2。
 
 日期: 2026-06-07
 Agent ID: Codex

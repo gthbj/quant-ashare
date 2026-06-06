@@ -236,6 +236,7 @@ def report_command(config, exp: Experiment, skip_gcs_upload: bool) -> list[str]:
         sys.executable, "scripts/strategy1/render_report.py",
         "--project", config.project,
         "--run-id", exp.run_id,
+        "--prediction-run-id", exp.prediction_run_id,
         "--backtest-id", exp.backtest_id,
         "--artifact-base-uri", config.artifact_base_uri,
         "--local-mirror-root", "reports/strategy1",
@@ -249,7 +250,8 @@ def diagnosis_command(config, exp: Experiment, skip_gcs_upload: bool) -> list[st
     cmd = [
         sys.executable, "scripts/strategy1/diagnose_model_quality.py",
         "--project", config.project,
-        "--run-id", exp.prediction_run_id,
+        "--run-id", exp.run_id,
+        "--prediction-run-id", exp.prediction_run_id,
         "--backtest-id", exp.backtest_id,
         "--artifact-base-uri", config.artifact_base_uri,
         "--local-mirror-root", "reports/strategy1",

@@ -2,9 +2,11 @@
 
 这是实现状态的唯一事实来源。面向「已完成/进行中/受阻的整体状态」；「下一步要做什么」见根目录 `TODO.md`。
 
-Last updated: 2026-06-06
+Last updated: 2026-06-07
 
 ## 当前状态
+
+> 最新补充（2026-06-07）：fixed-prediction lot-aware reference 执行前预检已完成：源 prediction run `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` 在 `2024-01-02` 至 `2026-04-30` 有 1,247,888 行预测，目标 lot-aware run/backtest 当前无 ADS 残留；源模型登记为 `bqml_logistic_reg`、`feature_set_id=strategy1_pv_fin_quality_v0_20260603`、`target_holdings=30`、`rebalance_frequency=biweekly`。预检同时发现 portfolio-only / lot-aware run 的报告链路仍按新 `run_id` 读取模型 registry 和 prediction，且 `backtest_report.py` 调诊断时把 `run_id` 错传为 prediction source；若直接跑会产出缺模型/缺信号或 run 口径混乱的报告/诊断。已在工作树 `/Users/luna/Desktop/git/quant-ashare-lotaware-runner-fix`、分支 `codex/fix-portfolio-only-report-source-run` 修复：`render_report.py` 新增 `--prediction-run-id` 并用源预测 run 读取模型、预测和买入成交 enrichment，`backtest_report.py` 向 report / diagnosis 同时传 candidate run 与 prediction source run。已通过 `py_compile`、`git diff --check` 和 lot-aware reference dry-run；下一步应先合并该 runner/report 修复，再构建/部署 Cloud Run 镜像并执行真实 lot-aware reference。
 
 > 最新补充（2026-06-07）：PR #100 `feat(strategy1): implement lot-aware ledger` 已按 merge commit 合并进入 `main`（merge commit `4a1657d`），本地 `main` 已 fast-forward 到最新；远端分支 `codex/implement-lot-aware-ledger`、本地分支和实现工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-impl` 均已清理。`ledger_exec_v1_lot100` 代码、`23_qa_lot_aware_ledger_outputs.sql`、golden-case 单测、report / summary / acceptance gate v2 对齐和运行手册现在都在 `main`。尚未部署 Cloud Run 镜像，尚未执行 `2024-01-02` 至 `2026-04-30` fixed-prediction lot-aware reference；下一步应构建/部署 runner 镜像，复用当前 prediction stream 跑 lot-aware reference，并执行 `23` QA 与 acceptance gate v2。
 
