@@ -87,6 +87,7 @@ def main() -> int:
         matrix_uri=matrix_uri,
         local_dir=local_dir,
         skip_gcs_upload=args.skip_gcs_upload,
+        candidate_parallelism_requested=candidate_parallelism_arg,
         candidate_parallelism_resolved=candidate_parallelism_resolved,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
@@ -130,6 +131,7 @@ def prepare_matrix(
     matrix_uri: str,
     local_dir: Path,
     skip_gcs_upload: bool,
+    candidate_parallelism_requested: int,
     candidate_parallelism_resolved: int,
 ) -> dict[str, Any]:
     client = make_client(config.project, config.region)
@@ -197,7 +199,7 @@ def prepare_matrix(
 
     work_units = stamp_work_units(build_work_units(config, experiment, matrix_uri), matrix_id, matrix_uri)
     work_units["candidate_parallelism_resolved"] = candidate_parallelism_resolved
-    work_units["candidate_parallelism_requested"] = candidate_parallelism_arg
+    work_units["candidate_parallelism_requested"] = candidate_parallelism_requested
     work_units["candidate_task_cpu"] = config.candidate_task_cpu
     work_units["candidate_task_memory"] = config.candidate_task_memory
     work_units["work_units_sha256"] = sha256_json({k: v for k, v in work_units.items() if k != "work_units_sha256"})
@@ -231,7 +233,7 @@ def prepare_matrix(
         "feature_order_sha256": feature_schema["feature_order_sha256"],
         "preprocess_stats_sha256": preprocess_stats["preprocess_stats_sha256"],
         "work_units_sha256": work_units["work_units_sha256"],
-        "candidate_parallelism_requested": candidate_parallelism_arg,
+        "candidate_parallelism_requested": candidate_parallelism_requested,
         "candidate_parallelism_resolved": candidate_parallelism_resolved,
         "candidate_task_cpu": config.candidate_task_cpu,
         "candidate_task_memory": config.candidate_task_memory,
