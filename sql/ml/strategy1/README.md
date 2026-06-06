@@ -159,7 +159,7 @@ python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search
 
 尾部风险诊断（PRD-20260606-01）：`scripts/strategy1/analyze_tail_risk.py` 是 P0 只读诊断入口，不改变 candidate、target、order、trade、position、NAV 或 summary。Cloud Run `backtest_report.py` 默认在报告、模型诊断和 `12` QA 后执行该脚本，并把 experiment 的 `feature_version` 传给诊断脚本，避免多版本 `dws_stock_feature_daily_v0` join 扩行时行数扇出；若只需要复跑原报告链路，可显式传 `--skip-tail-risk`。诊断 artifact 写入单候选报告目录下的 `tail_risk/`，包含最大回撤事件、持仓贡献、行业/板块贡献、跌停和不可卖暴露、选股画像、风险股票名单、ADS 只读 guard 和中文 `tail_risk.md`。TopK 搜索比较报告会额外写 `tail_risk/search_tail_risk_summary.csv`，并在 comparison markdown 的 Top5 表中展示最大回撤窗口和跌停仓位峰值。P0 验收用 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`；该 QA 只复算 ADS/DWD 派生不变量，artifact 文件存在性和 ADS pre/post hash 由脚本本身强制校验。ADS pre/post hash 变化必须 hard fail；其他尾部风险诊断异常在 `backtest_report.py` 中 fail-soft，写入 `tail_risk/tail_risk_failure.json` 并跳过 `20`，不使已成功的报告和模型诊断链路失败。
 
-P1 个股风险过滤（PRD-20260606-01）：`tail_risk_profile_id` 默认是 `diagnostic_only`，不改变选股。需要做 P1 A/B 时，在 manifest experiment 中设为 `individual_risk_guard_v0`；`05_build_candidates.sql` 会在 candidate selection 层排除新买入候选，规则为 `ret_20d < -30%`、`drawdown_20d < -30%`、`limit_down_days_20d >= 2`、`one_word_limit_days_20d >= 1`、`total_mv_cny < 30e8`、`circ_mv_cny < 20e8`，同时只标记 `vol_20d` p95 和 `turnover_rate_ma20` p98，不硬排除。过滤后不足目标持股数时保留现金，不用被过滤股票补位；已有持仓是否卖出仍交给 Ledger v1。`tail_risk/` 会输出 `risk_filter_funnel_daily.csv` 和 `risk_filter_excluded_names.csv`。`10_qa_runner_outputs.sql` 与 `20_qa_tail_risk_outputs.sql` 会校验 summary/comparison profile 可追溯，以及被 `tail_risk:*` 排除的股票没有进入同日目标组合。
+P1 个股风险过滤（PRD-20260606-01）：`tail_risk_profile_id` 默认是 `diagnostic_only`，不改变选股。需要做 P1 A/B 时，在 manifest experiment 中设为 `individual_risk_guard_v0`；`05_build_candidates.sql` 会在 candidate selection 层标记新买入风控候选，规则为 `ret_20d < -30%`、`drawdown_20d < -30%`、`limit_down_days_20d >= 2`、`one_word_limit_days_20d >= 1`、`total_mv_cny < 30e8`、`circ_mv_cny < 20e8`，以及必需风险字段 NULL 时 `tail_risk_required_field_null`；`vol_20d` p95 和 `turnover_rate_ma20` p98 只标记、不硬排除。风险标记股票仍可进入目标组合，避免候选层全量重构把已持仓风险股强制卖出；真正的买入拦截发生在 Ledger v1 执行层：若目标股带 `tail_risk:*` 且执行前没有持仓，则写 `BUY_SKIPPED_TAIL_RISK`，不成交、不候补、现金保留。已有持仓不因 P1 风控标记被强制卖出，仍按 Ledger v1 目标组合、实际持仓 netting 和 pending sell 语义处理。`tail_risk/` 会输出 `risk_filter_funnel_daily.csv` 和 `risk_filter_excluded_names.csv`。`10_qa_runner_outputs.sql` 与 `20_qa_tail_risk_outputs.sql` 会校验 summary/comparison profile 可追溯、P1 风险标记可审计，以及未持仓风险目标没有真实买入成交并留下 `BUY_SKIPPED_TAIL_RISK`。
 
 ## 参数说明
 
@@ -480,6 +480,7 @@ P2 验收时执行 `15_qa_ledger_resume_consistency.sql`，比较 full fresh-sta
 | `FILLED` | 全部成交 |
 | `FILLED_SCALED_CASH` | 因现金不足按比例缩放后成交 |
 | `BUY_SKIPPED_UNTRADABLE` | 买入不可交易，未成交且不候补 |
+| `BUY_SKIPPED_TAIL_RISK` | P1 尾部风险 profile 拦截未持仓新买入，未成交且不候补 |
 | `SELL_SKIPPED_UNTRADABLE` | rebalance execution_date 卖出不可交易，进入/维持 pending sell |
 | `PENDING_SELL_CARRY` | 非 rebalance 日继续尝试 pending sell 但仍不可卖 |
 | `CANCELLED_BY_NETTING` | pending sell 因目标提高/重新入选被 netting 取消 |

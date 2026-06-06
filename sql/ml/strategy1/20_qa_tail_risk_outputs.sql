@@ -181,21 +181,6 @@ ASSERT (
   FROM summary_row
 ) AS 'QA-TAIL-P1-1: backtest summary metrics_json must record tail_risk_profile_id';
 
-ASSERT (
-  SELECT COUNT(*) = 0
-  FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
-  JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
-    ON pt.strategy_id = cand.strategy_id
-   AND pt.run_id = cand.run_id
-   AND pt.rebalance_date = cand.rebalance_date
-   AND pt.sec_code = cand.sec_code
-   AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
-  WHERE cand.strategy_id = p_strategy_id
-    AND cand.run_id = p_run_id
-    AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
-    AND STARTS_WITH(COALESCE(cand.filter_reason, ''), 'tail_risk:')
-) AS 'QA-TAIL-P1-2: tail-risk filtered candidates must not enter same-day portfolio targets';
-
 IF p_tail_risk_profile_id = 'individual_risk_guard_v0' THEN
   ASSERT (
     SELECT COUNT(*) > 0
@@ -204,7 +189,114 @@ IF p_tail_risk_profile_id = 'individual_risk_guard_v0' THEN
       AND cand.run_id = p_run_id
       AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
       AND cand.filter_reason LIKE 'tail_risk:%'
-  ) AS 'QA-TAIL-P1-3: individual_risk_guard_v0 must leave auditable tail-risk exclusions';
+  ) AS 'QA-TAIL-P1-2: individual_risk_guard_v0 must leave auditable tail-risk guard flags';
+
+  ASSERT (
+    SELECT COUNT(*) = 0
+    FROM (
+      WITH tail_targets AS (
+        SELECT cand.rebalance_date, cand.sec_code, nxt.cal_date AS exec_date
+        FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
+        JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS sig_cal
+          ON sig_cal.exchange = 'SSE'
+         AND sig_cal.is_open = 1
+         AND sig_cal.cal_date = cand.rebalance_date
+        JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS nxt
+          ON nxt.exchange = 'SSE'
+         AND nxt.is_open = 1
+         AND nxt.trade_date_seq = sig_cal.trade_date_seq + 1
+        WHERE cand.strategy_id = p_strategy_id
+          AND cand.run_id = p_run_id
+          AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
+          AND cand.is_selected_candidate
+          AND STARTS_WITH(COALESCE(cand.filter_reason, ''), 'tail_risk:')
+          AND nxt.cal_date BETWEEN p_predict_start AND p_predict_end
+      ),
+      prior_state AS (
+        SELECT
+          tt.*,
+          COALESCE(pos.shares, 0.0) AS prior_shares
+        FROM tail_targets AS tt
+        JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS exec_cal
+          ON exec_cal.exchange = 'SSE'
+         AND exec_cal.is_open = 1
+         AND exec_cal.cal_date = tt.exec_date
+        LEFT JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS prev
+          ON prev.exchange = 'SSE'
+         AND prev.is_open = 1
+         AND prev.trade_date_seq = exec_cal.trade_date_seq - 1
+        LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+          ON pos.backtest_id = p_backtest_id
+         AND pos.trade_date = prev.cal_date
+         AND pos.sec_code = tt.sec_code
+         AND pos.trade_date BETWEEN DATE_SUB(p_predict_start, INTERVAL 10 DAY) AND p_predict_end
+      )
+      SELECT ps.rebalance_date, ps.sec_code, ps.exec_date
+      FROM prior_state AS ps
+      JOIN `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+        ON bt.backtest_id = p_backtest_id
+       AND bt.trade_date = ps.exec_date
+       AND bt.sec_code = ps.sec_code
+       AND bt.side = 'BUY'
+       AND bt.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
+       AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+      WHERE ps.prior_shares <= 0.000001
+    )
+  ) AS 'QA-TAIL-P1-3: selected tail-risk names without prior holding must not have filled BUY trades';
+
+  ASSERT (
+    SELECT COUNT(*) = 0
+    FROM (
+      WITH tail_targets AS (
+        SELECT cand.rebalance_date, cand.sec_code, nxt.cal_date AS exec_date
+        FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
+        JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS sig_cal
+          ON sig_cal.exchange = 'SSE'
+         AND sig_cal.is_open = 1
+         AND sig_cal.cal_date = cand.rebalance_date
+        JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS nxt
+          ON nxt.exchange = 'SSE'
+         AND nxt.is_open = 1
+         AND nxt.trade_date_seq = sig_cal.trade_date_seq + 1
+        WHERE cand.strategy_id = p_strategy_id
+          AND cand.run_id = p_run_id
+          AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
+          AND cand.is_selected_candidate
+          AND STARTS_WITH(COALESCE(cand.filter_reason, ''), 'tail_risk:')
+          AND nxt.cal_date BETWEEN p_predict_start AND p_predict_end
+      ),
+      prior_state AS (
+        SELECT
+          tt.*,
+          COALESCE(pos.shares, 0.0) AS prior_shares
+        FROM tail_targets AS tt
+        JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS exec_cal
+          ON exec_cal.exchange = 'SSE'
+         AND exec_cal.is_open = 1
+         AND exec_cal.cal_date = tt.exec_date
+        LEFT JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS prev
+          ON prev.exchange = 'SSE'
+         AND prev.is_open = 1
+         AND prev.trade_date_seq = exec_cal.trade_date_seq - 1
+        LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+          ON pos.backtest_id = p_backtest_id
+         AND pos.trade_date = prev.cal_date
+         AND pos.sec_code = tt.sec_code
+         AND pos.trade_date BETWEEN DATE_SUB(p_predict_start, INTERVAL 10 DAY) AND p_predict_end
+      )
+      SELECT ps.rebalance_date, ps.sec_code, ps.exec_date
+      FROM prior_state AS ps
+      LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+        ON bt.backtest_id = p_backtest_id
+       AND bt.trade_date = ps.exec_date
+       AND bt.sec_code = ps.sec_code
+       AND bt.side = 'BUY'
+       AND bt.fill_status = 'BUY_SKIPPED_TAIL_RISK'
+       AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+      WHERE ps.prior_shares <= 0.000001
+        AND bt.sec_code IS NULL
+    )
+  ) AS 'QA-TAIL-P1-4: selected tail-risk names without prior holding must emit BUY_SKIPPED_TAIL_RISK';
 END IF;
 
 CREATE TEMP TABLE guard_hash AS

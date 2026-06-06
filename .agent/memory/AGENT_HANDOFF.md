@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-010 尾部风险 P1 comment follow-up（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-p1`，分支 `codex/implement-tail-risk-p1`，PR #88 已 rebase 到最新 `origin/main` 并按 review comment 修正。最新语义：`05_build_candidates.sql` 只写 `tail_risk:*` 风险标记，不把风险标记股票从 TopN / target 剔除；必需风险字段 NULL 记为 `tail_risk_required_field_null`。Python Ledger v1 与 BigQuery SQL fallback 均新增 `BUY_SKIPPED_TAIL_RISK`：未持仓风险目标跳过新买入，已有持仓不因 P1 标记被强制卖出。`10` / `20` QA 已改为验证未持仓风险目标无真实买入成交且留下 skip 状态。验证：Python `py_compile`、`05/08/09/10/11/20` dry-run 均通过；短区间 smoke 因跳过报告触发 `10` report guard 失败，已确认是 smoke 参数问题并清理临时 ADS 残留为 0。另已在 `KNOWN_CONSTRAINTS.md` 写入 BigQuery 分区表查询/删除/更新必须显式带分区列过滤的项目硬约束。
+
 **OQ-005 alert setup review follow-up（2026-06-06）**：分支 `codex/oq005-alert-logmetric-alreadyexists`。针对 `fd8aefe` review 的 Low finding，`scripts/alerting/setup_alerts.py` 已将 log metric 已存在的幂等判断从异常 message substring 改为显式捕获 `google.api_core.exceptions.AlreadyExists`，其他异常仍 fail-fast。该分支只改告警配置脚本和记忆，不改 Composer DAG、BigQuery SQL 或生产调度状态；验证为 `python3 -m py_compile scripts/alerting/setup_alerts.py` 和 `git diff --check`。
 
 **OQ-005 Composer DAG 拆分生产切换（2026-06-06）**：PR #86 已合并并完成 Composer 部署 / smoke。已应用 meta DDL 与观测视图，部署 `ashare_common.py`、`ashare_ods_ingestion_daily.py`、`ashare_warehouse_window_refresh.py`、`ashare_warehouse_full_rebuild.py` 和仓库 `sql/` 到 Composer bucket。旧 `ashare_daily_pipeline_v0` 已暂停，新 scheduled DAG `ashare_ods_ingestion_daily` 已 unpause；`ashare_warehouse_window_refresh` 与 `ashare_warehouse_full_rebuild` 无 schedule。`setup_alerts.py` 已补真实 GCP apply 兼容修复，`oq005_warehouse_refresh_missing` metric 与 `OQ-005: Warehouse Refresh Missing` policy 已创建 / 对齐。Smoke：`manual_split_skip_gate_20260606_01` 非交易日 gate 成功且 Cloud Run 未触发；`manual_split_qa_only_20260605_01` 5 个 QA success；`manual_split_backfill_20260605_01` 1 日窗口刷新和全部 QA success；refresh-missing synthetic transaction smoke 通过；`check_alerts.py --lookback-minutes 20` 返回空。后续只剩新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然观察，以及 Dataform definitions、补跑/resume 自动化和完整 ODS→ADS 运维观测闭环。
@@ -161,6 +163,79 @@ Run ID: oq005_dag_split_impl_20260606
 ### 已更新记忆文件
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: tail_risk_p1_comment_followup_20260606
+相关 issue/PR: PR #88 / OQ-010 尾部风险 P1
+
+### 已完成工作
+
+- 拉取并 rebase 到最新 `origin/main`，解决 `.agent/memory/AGENT_HANDOFF.md` 与 `.agent/memory/IMPLEMENTATION_STATUS.md` 的记忆冲突。
+- 采纳 PR #88 comment 的两条发现：候选层 P1 风控不能强制卖出已有持仓；必需风险字段 NULL 不能 fail-open。
+- 修改 `05_build_candidates.sql`：`individual_risk_guard_v0` 只写 `tail_risk:*` 风险标记，风险标记股票仍参与 TopN / target；必需风险字段 NULL 写 `tail_risk_required_field_null`。
+- 修改 Python Ledger v1 与 BigQuery SQL fallback：对 selected tail-risk target，若执行前没有持仓则写 `BUY_SKIPPED_TAIL_RISK` 并跳过新买入；已有持仓不因 P1 标记被强制卖出。
+- 更新 `09` 汇总、`10` runner QA、`11` 诊断 SQL、`20` tail-risk QA、报告统计、ADS fill_status 描述、README 和 PRD 正文。
+- 按 owner 要求在 `KNOWN_CONSTRAINTS.md` 写入 BigQuery 分区表硬约束：所有启用 `require_partition_filter=TRUE` 的表查询 / DML / 清理 / 断言必须显式带分区列过滤；只按 `run_id` / `backtest_id` 等普通列过滤不满足 BigQuery 必要条件。
+
+### 重要上下文
+
+- 当前 P1 语义保持 PRD 原意：只拦截未持仓新买入，不把已持仓风险股从 target 层强制剔除。
+- 短区间 smoke 使用 `--skip-report` 导致 `10_qa_runner_outputs.sql` 的 report guard 按预期失败；这不是 P1 风控逻辑失败。临时 run/backtest 的 ADS 残留已全部清理为 0。
+- PR #88 仍需合并部署后跑 full-period `diagnostic_only` vs `individual_risk_guard_v0` A/B。
+
+### 改动文件
+
+- `docs/prd/PRD_20260606_01_策略1尾部风险控制.md`
+- `scripts/strategy1/analyze_tail_risk.py`
+- `scripts/strategy1/render_report.py`
+- `scripts/strategy1_cloudrun/backtest_report.py`
+- `scripts/strategy1_cloudrun/ledger.py`
+- `sql/ads/01_ads_strategy1_tables.sql`
+- `sql/ml/strategy1/05_build_candidates.sql`
+- `sql/ml/strategy1/08_run_backtest.sql`
+- `sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`
+- `sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `sql/ml/strategy1/11_model_quality_diagnostics.sql`
+- `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`
+- `sql/ml/strategy1/README.md`
+- `TODO.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python -m py_compile scripts/strategy1_cloudrun/ledger.py scripts/strategy1_cloudrun/backtest_report.py scripts/strategy1/analyze_tail_risk.py scripts/strategy1/render_report.py`
+- BigQuery dry-run：`sql/ml/strategy1/05_build_candidates.sql`
+- BigQuery dry-run：`sql/ml/strategy1/08_run_backtest.sql`
+- BigQuery dry-run：`sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`
+- BigQuery dry-run：`sql/ml/strategy1/10_qa_runner_outputs.sql`
+- BigQuery dry-run：`sql/ml/strategy1/11_model_quality_diagnostics.sql`
+- BigQuery dry-run：`sql/ml/strategy1/20_qa_tail_risk_outputs.sql`
+- 临时 smoke 残留清理查询确认 candidate / target / order / trade / position / nav / summary / monitor 均为 0。
+
+### 阻塞项
+
+- 无代码阻塞；full-period A/B 需等 PR #88 合并并部署新 runner 镜像。
+
+### 下一步建议
+
+- 提交并推送 PR #88 follow-up。
+- 合并部署后执行 full-period `diagnostic_only` vs `individual_risk_guard_v0` A/B，重点比较收益、最大回撤、跌停/不可卖暴露、换手、`BUY_SKIPPED_TAIL_RISK` 次数和 acceptance 状态。
+
+### 已更新记忆文件
+
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 

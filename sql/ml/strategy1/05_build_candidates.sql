@@ -138,6 +138,18 @@ risk_eval AS (
          ['tail_risk_feature_missing'], []),
       IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
          AND scored.filter_reason IS NULL
+         AND scored.has_risk_feature_row
+         AND (
+           scored.ret_20d IS NULL
+           OR scored.drawdown_20d IS NULL
+           OR scored.limit_down_days_20d IS NULL
+           OR scored.one_word_limit_days_20d IS NULL
+           OR scored.total_mv_cny IS NULL
+           OR scored.circ_mv_cny IS NULL
+         ),
+         ['tail_risk_required_field_null'], []),
+      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+         AND scored.filter_reason IS NULL
          AND scored.ret_20d < p_tail_risk_ret_20d_min,
          ['ret_20d_lt_30pct'], []),
       IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
@@ -177,13 +189,17 @@ classified AS (
 universe_only AS (
   SELECT *, ROW_NUMBER() OVER (PARTITION BY rebalance_date ORDER BY score DESC, sec_code) AS rk
   FROM classified
-  WHERE filter_reason IS NULL
+  WHERE universe_filter_reason IS NULL
 )
 SELECT p_strategy_id, rebalance_date, sec_code, p_selected_model_id, p_label_horizon,
        score, rk,
        1.0 - SAFE_DIVIDE(rk - 1, COUNT(*) OVER (PARTITION BY rebalance_date) - 1),
        TRUE, rk <= p_target_holdings,
-       IF(rk <= p_target_holdings, NULL, 'rank_below_target_holdings'),
+       CASE
+         WHEN rk <= p_target_holdings THEN filter_reason
+         WHEN filter_reason IS NOT NULL THEN filter_reason
+         ELSE 'rank_below_target_holdings'
+       END,
        p_run_id, CURRENT_TIMESTAMP()
 FROM universe_only
 
@@ -192,4 +208,4 @@ UNION ALL
 SELECT p_strategy_id, rebalance_date, sec_code, p_selected_model_id, p_label_horizon,
        score, NULL, NULL, in_universe_default, FALSE,
        filter_reason, p_run_id, CURRENT_TIMESTAMP()
-FROM classified WHERE filter_reason IS NOT NULL;
+FROM classified WHERE universe_filter_reason IS NOT NULL;

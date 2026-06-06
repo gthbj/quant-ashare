@@ -193,6 +193,7 @@ def build_ledger_params(project: str, exp: Experiment, force_replace: bool) -> L
         predict_start=exp.predict_start,
         predict_end=exp.predict_end,
         force_replace=force_replace,
+        tail_risk_profile_id=exp.tail_risk_profile_id,
     )
 
 

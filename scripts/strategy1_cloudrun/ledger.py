@@ -39,6 +39,7 @@ class LedgerParams:
     initial_state_mode: str = "fresh"
     parent_backtest_id: str | None = None
     state_as_of_date: str | None = None
+    tail_risk_profile_id: str = "diagnostic_only"
 
 
 def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
@@ -77,6 +78,7 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
         signal_date: group.set_index("sec_code")["target_weight"].astype(float).to_dict()
         for signal_date, group in targets.groupby("rebalance_date")
     }
+    tail_risk_buy_guards = load_tail_risk_buy_guards(client, params)
 
     for exec_date in exec_days["trade_date"]:
         period = periods_by_exec.get(exec_date)
@@ -91,6 +93,7 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
             holdings,
             target_weights,
             pending_sell,
+            tail_risk_buy_guards.get(period.signal_date, set()) if is_rebalance else set(),
             nav_before,
             px,
             params,
@@ -169,6 +172,7 @@ class PlanRow:
     want_value: float
     sell_skip_shares: float
     buy_skip_value: float
+    tail_risk_new_buy_blocked: bool
     pending_noop: bool
     scale: float = 1.0
 
@@ -202,6 +206,7 @@ def build_daily_plan(
     holdings: dict[str, float],
     target_weights: dict[str, float],
     pending_sell: set[str],
+    tail_risk_blocked_new_buys: set[str],
     nav_before: float,
     px: PriceBook,
     params: LedgerParams,
@@ -223,18 +228,24 @@ def build_daily_plan(
         desired_value = w * nav_before
         can_buy_now = can_buy and exec_open is not None and np.isfinite(exec_open)
         can_sell_now = can_sell and exec_open is not None and np.isfinite(exec_open)
+        tail_risk_new_buy_blocked = (
+            params.tail_risk_profile_id == "individual_risk_guard_v0"
+            and is_rebalance
+            and sec in tail_risk_blocked_new_buys
+            and cur_shares <= 0.000001
+        )
         sell_shares = 0.0
         if cur_shares > 0 and (is_rebalance or sec in pending_sell) and cur_value - desired_value > 0.01 and can_sell_now:
             sell_shares = cur_shares if desired_value <= 0.01 else min(cur_shares, (cur_value - desired_value) / exec_open)
         want_value = 0.0
-        if is_rebalance and can_buy_now and desired_value - cur_value > 0.01:
+        if is_rebalance and can_buy_now and desired_value - cur_value > 0.01 and not tail_risk_new_buy_blocked:
             want_value = desired_value - cur_value
         sell_skip_shares = 0.0
         if cur_shares > 0 and (is_rebalance or sec in pending_sell) and cur_value - desired_value > 0.01 and not can_sell_now:
             denom = exec_open if exec_open is not None and np.isfinite(exec_open) else val_price
             sell_skip_shares = cur_shares if desired_value <= 0.01 else min(cur_shares, safe_divide(cur_value - desired_value, denom))
         buy_skip_value = 0.0
-        if is_rebalance and desired_value - cur_value > 0.01 and not can_buy_now:
+        if is_rebalance and desired_value - cur_value > 0.01 and (not can_buy_now or tail_risk_new_buy_blocked):
             buy_skip_value = desired_value - cur_value
         pending_noop = sec in pending_sell and cur_shares > 0 and not (cur_value - desired_value > 0.01)
         plan.append(PlanRow(
@@ -253,6 +264,7 @@ def build_daily_plan(
             want_value=want_value,
             sell_skip_shares=sell_skip_shares,
             buy_skip_value=buy_skip_value,
+            tail_risk_new_buy_blocked=tail_risk_new_buy_blocked,
             pending_noop=pending_noop,
         ))
     return plan
@@ -298,7 +310,8 @@ def execute_plan(
             status = "SELL_SKIPPED_UNTRADABLE" if is_rebalance else "PENDING_SELL_CARRY"
             rows.append(trade_row(params, exec_date, item, "SELL", item.sell_skip_shares, 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, status))
         if item.buy_skip_value > 0.000001:
-            rows.append(trade_row(params, exec_date, item, "BUY", safe_divide(item.buy_skip_value, item.val_price), 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, "BUY_SKIPPED_UNTRADABLE"))
+            status = "BUY_SKIPPED_TAIL_RISK" if item.tail_risk_new_buy_blocked else "BUY_SKIPPED_UNTRADABLE"
+            rows.append(trade_row(params, exec_date, item, "BUY", safe_divide(item.buy_skip_value, item.val_price), 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, status))
         if item.pending_noop:
             rows.append(trade_row(params, exec_date, item, "SELL", 0.0, 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, "CANCELLED_BY_NETTING"))
     return cash, rows
@@ -411,6 +424,30 @@ def load_targets(client: bigquery.Client, params: LedgerParams) -> pd.DataFrame:
         bigquery.ScalarQueryParameter("start", "DATE", params.predict_start),
         bigquery.ScalarQueryParameter("end", "DATE", params.predict_end),
     ]), ["rebalance_date"])
+
+
+def load_tail_risk_buy_guards(client: bigquery.Client, params: LedgerParams) -> dict[Any, set[str]]:
+    if params.tail_risk_profile_id != "individual_risk_guard_v0":
+        return {}
+    sql = f"""
+    SELECT rebalance_date, sec_code
+    FROM `{ADS}.ads_stock_candidate_daily`
+    WHERE strategy_id=@strategy_id AND run_id=@run_id
+      AND rebalance_date BETWEEN @start AND @end
+      AND is_selected_candidate
+      AND STARTS_WITH(COALESCE(filter_reason, ''), 'tail_risk:')
+    ORDER BY rebalance_date, sec_code
+    """
+    frame = normalize_dates(query_dataframe(client, sql, [
+        bigquery.ScalarQueryParameter("strategy_id", "STRING", params.strategy_id),
+        bigquery.ScalarQueryParameter("run_id", "STRING", params.run_id),
+        bigquery.ScalarQueryParameter("start", "DATE", params.predict_start),
+        bigquery.ScalarQueryParameter("end", "DATE", params.predict_end),
+    ]), ["rebalance_date"])
+    guards: dict[Any, set[str]] = {}
+    for row in frame.itertuples(index=False):
+        guards.setdefault(row.rebalance_date, set()).add(row.sec_code)
+    return guards
 
 
 def build_periods(targets: pd.DataFrame, cal: pd.DataFrame, params: LedgerParams) -> pd.DataFrame:

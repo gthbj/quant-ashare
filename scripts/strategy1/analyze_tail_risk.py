@@ -1068,6 +1068,7 @@ def build_selection_profile(
 
 RISK_FILTER_REASON_COLUMNS = [
     "tail_risk_feature_missing_count",
+    "tail_risk_required_field_null_count",
     "ret_20d_lt_30pct_count",
     "drawdown_20d_lt_30pct_count",
     "limit_down_days_20d_gte_2_count",
@@ -1432,8 +1433,8 @@ def render_tail_risk_markdown(
             f"- profile: `{summary['tail_risk_profile_id']}`",
             f"- 调仓日数: `{risk_summary.get('rebalance_day_count', 0)}`",
             f"- 预测样本数: `{risk_summary.get('prediction_count', 0)}`",
-            f"- 风险排除数: `{risk_summary.get('risk_excluded_count', 0)}`",
-            f"- 可选样本数: `{risk_summary.get('eligible_count', 0)}`",
+            f"- 风险标记数: `{risk_summary.get('risk_excluded_count', 0)}`",
+            f"- 未标记可选样本数: `{risk_summary.get('eligible_count', 0)}`",
             f"- 最终入选数: `{risk_summary.get('selected_count', 0)}`",
             "",
         ])

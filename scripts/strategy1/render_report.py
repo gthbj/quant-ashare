@@ -515,7 +515,7 @@ def compute_execution_diagnostics(client: bigquery.Client, project: str,
     SELECT
       COUNTIF(t.side = 'BUY' AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')) AS buy_filled,
       COUNTIF(t.side = 'BUY' AND t.fill_status = 'FILLED_SCALED_CASH') AS buy_scaled_cash,
-      COUNTIF(t.side = 'BUY' AND t.fill_status IN ('BUY_SKIPPED_UNTRADABLE', 'SKIPPED_CASH_INSUFFICIENT', 'SKIPPED_MIN_NOTIONAL')) AS buy_skip,
+      COUNTIF(t.side = 'BUY' AND t.fill_status IN ('BUY_SKIPPED_UNTRADABLE', 'BUY_SKIPPED_TAIL_RISK', 'SKIPPED_CASH_INSUFFICIENT', 'SKIPPED_MIN_NOTIONAL')) AS buy_skip,
       COUNTIF(t.side = 'SELL' AND t.fill_status = 'FILLED') AS sell_filled,
       COUNTIF(t.side = 'SELL' AND t.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY')) AS sell_skip,
       COUNTIF(t.fill_status = 'PENDING_SELL_CARRY') AS pending_sell_carry,
