@@ -2458,6 +2458,8 @@ Run ID: prd_strategy1_lot_aware_ledger_20260606
 - 新建工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-prd`，分支 `codex/prd-strategy1-lot-aware-ledger`。
 - 新增 PRD `docs/prd/PRD_20260606_05_策略1整数手交易执行.md`。
 - PRD 明确后续 production acceptance 必须使用 Cloud Run Python `ledger_exec_v1_lot100` 或后续明确升级版，不得用 FLOAT-shares backtest 判定 accepted。
+- 按 PR #99 review comment 补充 lot100 Python-only 后不再被现有 Python / SQL parity 覆盖，要求新增 Python 单元 / golden-case 测试独立复算现金、费用、PnL 和 NAV。
+- 修正 §5.6.5 的 `min commission` 表述：当前成本 profile 为佣金万一免五，不存在 5 元最低佣金触发条件；现金回退只保留为费用 / 滑点 / 执行价 / 舍入防御性兜底。
 - 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`DECISION_LOG.md` 和本 handoff。
 
 ### 重要上下文
@@ -2465,6 +2467,7 @@ Run ID: prd_strategy1_lot_aware_ledger_20260606
 - PR #98 已合并，验收门 v2 产物已进入 `main`。
 - 当前 extended reference backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` 的 1291 笔 `FILLED` 成交全部为 FLOAT shares，约 98.2% 四舍五入后也不是 100 股整数倍。
 - 新 PRD 固化默认交易规则：买入按 100 股整数手向下取整；清仓卖出允许 odd-lot 全额卖出；部分卖出向下取整到 100 股并保留残股；P0 不做余现金二次分配。
+- `15_qa_ledger_resume_consistency.sql` 和 `scripts/qa/run_windowed_refresh_equivalence.py` 不覆盖 lot100；实现时不能只依赖结构性 QA，必须补手工期望值 golden cases。
 - 进入下一轮风险特征训练前，必须先实现 lot-aware ledger、补 `23` 或等价 QA、复用当前 prediction stream 跑 `2024-01-02` 至 `2026-04-30` fixed-prediction lot-aware reference，并重跑 acceptance gate v2。
 
 ### 改动文件
