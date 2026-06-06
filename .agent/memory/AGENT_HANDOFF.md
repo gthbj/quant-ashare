@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-010 风险特征入模 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-prd`，分支 `codex/prd-strategy1-risk-feature-baseline`。新增 `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`，承接 PRD04 LightGBM binary/regression 均 rejected、尾部风险 P1 轻度改善但仍跑输、P2 v0 `skip_new_buys` 降收益且未改善回撤的事实。PRD 将下一步收敛为风险特征入模：新增 `feature_set_id=strategy1_pv_fin_risk_v0_20260606`，把个股尾部风险字段、`dws_market_state_daily` 市场状态字段和风险 flag 纳入 Cloud Run frozen matrix；P0 固定 `diagnostic_only`、40 候选 / 20 并发 / 2 vCPU 8Gi、LightGBM binary + regression、共享 acceptance contract；P1 才评估 `risk_score_penalty_v0` 候选风险评分。本次只写 PRD 和记忆/TODO，未改代码、未运行 BigQuery / Cloud Run。
+
 **OQ-010 尾部风险 P2 market risk-off 实跑结论（2026-06-06）**：PR #92 已合并；`dws_market_state_daily` 已物化并通过 `sql/qa/11_market_state_checks.sql`（562 行，risk-off 91 日）。已构建/部署 runner 镜像 `tailrisk-p2-6db6bd9-20260606-01`，并用 `configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml` 并发跑完 diagnostic-only、`market_risk_off_v0`、`individual_and_market_risk_guard_v0` 三条 portfolio-only A/B。结果：diagnostic-only total_return 38.25%、Sharpe 0.882、max_drawdown -14.46%；market-only total_return 28.20%、Sharpe 0.734、max_drawdown -15.72%，market skip 217 笔；combo total_return 30.04%、Sharpe 0.773、max_drawdown -14.71%，market skip 217 笔、tail-risk skip 3 笔。三条 report / model diagnosis / tail-risk diagnosis / `10` / `12` / `20` 均 succeeded 并上传 GCS。结论：P2 v0 `skip_new_buys` 降低仓位但未改善回撤且显著拖累收益，不采纳为默认策略；后续若继续市场风控，应另写 v1 风险动作/阈值。
 
 **Dataform definitions 与调度运行命名清理（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dataform-definitions`，分支 `codex/oq005-dataform-definitions`，PR #91。已新增 Dataform 首版 `workflow_settings.yaml`、`action_manifest.json`、生成器 `scripts/dataform/generate_sqlx_from_sql.py` 和 45 个 `definitions/**/*.sqlx`，以 canonical `sql/` 生成 31 个 Dataform operations；`npx --yes @dataform/cli compile dataform` 通过。按 owner 要求清理调度运行代码中的阶段性命名：告警 DAG 文件改为 `ashare_pipeline_alert_checker.py`，QA/metadata SQL 改为 `01_core_smoke_checks.sql`、`03_index_benchmark_checks.sql`、`05_unit_contract_checks.sql`、`01_core_table_column_descriptions.sql`，Composer task_id / Dataform action/tag 改为 `core_*`、`index_benchmark_checks`、`unit_contract_checks`、`qa_core`、`qa_contract` 等稳定命名。PR #91 review follow-up 已补运行命名 cutover runbook、Dataform `--check` 防漂移检查和“线上旧名 vs 目标新名”记忆说明。未部署 Composer / Dataform，未运行 BigQuery DML；生产 cutover 前，2026-06-05 / PR #75 历史线上告警/checker 仍按旧 `oq005_*` / `oq005_alert_checker` 名称审计。
@@ -1800,6 +1802,58 @@ Run ID: dataform_definitions_runtime_naming_cleanup_20260606
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: prd_strategy1_risk_feature_baseline_20260606
+相关 issue/PR: OQ-010 / 策略 1 风险特征入模
+
+### 已完成工作
+
+- 新建工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-prd`，分支 `codex/prd-strategy1-risk-feature-baseline`。
+- 新增 `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`。
+- PRD 明确下一轮 OQ-010 不默认启用 P2 v0 `skip_new_buys`，而是把个股尾部风险、市场状态和风险 flag 纳入 Cloud Run frozen matrix。
+- 同步 TODO、IMPLEMENTATION_STATUS、PROJECT_CONTEXT、OPEN_QUESTIONS 和本 handoff。
+
+### 重要上下文
+
+- P2 `market_risk_off_v0` / combo A/B 已完成且不采纳为默认策略：market-only total_return 28.20%、max_drawdown -15.72%；combo total_return 30.04%、max_drawdown -14.71%，均弱于 diagnostic-only。
+- 新 PRD 默认 `feature_set_id=strategy1_pv_fin_risk_v0_20260606`。
+- P0 固定 `tail_risk_profile_id=diagnostic_only`，默认 40 候选 / 20 并发 / 2 vCPU 8Gi，复用 LightGBM binary + regression 和共享 acceptance contract。
+- P1 才评估 `candidate_risk_adjustment_profile_id=risk_score_penalty_v0`，并要求与 P0 feature-only 做 A/B。
+
+### 改动文件
+
+- `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+
+### 阻塞项
+
+- 无。本文为 PRD，未实现代码、未运行 BigQuery / Cloud Run。
+
+### 下一步建议
+
+- PRD 合并后先实现 backend-neutral training panel / frozen matrix 的风险特征集合，再跑 P0 feature-only risk search。
+- 不要直接把 P2 v0 `skip_new_buys` 设为默认策略。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
