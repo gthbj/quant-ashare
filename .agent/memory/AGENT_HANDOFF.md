@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 验收门 v2 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-prd`，分支 `codex/prd-strategy1-acceptance-gate-v2`，PR #97。新增 `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`，承接风险特征 Phase B0 `mixed_evidence` 诊断，先冻结下一版 accepted / needs_more_evidence / rejected 决策门，再决定是否启动第 4 波风险特征训练。PRD 明确当前 extended reference run 在 v2 下为 `rejected`，但只拒绝当前 top-30 long-only 组合实现，不否定信号家族；后续组合候选固定为 `target_holdings=10/20/30/40`，不包含 `50`，首轮单票权重上限仍为 5%。PR #97 review follow-up 已补：`10/5%` 是 `diagnostic_cash_control`，不参与 accepted 和满仓 implementation hard gate；accepted 需跑赢 `eligible_executable_benchmark`；test/final_holdout 标记已被多轮复用，正向证据不能单独支撑 accepted；新增 `score_orientation_audit.json`、low-price tilt 量化门槛和 exposure-adjusted 收益视图；v2 阈值和指标定义必须统一进入 `configs/strategy1/model_acceptance_contract_v2.yml`，Python acceptance 与 `18/19/22` QA 必须读取同一契约并写契约版本/hash。本文只写 PRD 和记忆/TODO，不改代码、不运行 BigQuery / Cloud Run。
+**OQ-010 验收门 v2 实现（2026-06-06）**：PR #97 已合并；当前实现工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-impl`，分支 `codex/implement-acceptance-gate-v2`。已新增 `configs/strategy1/model_acceptance_contract_v2.yml`、只读脚本 `scripts/strategy1/diagnose_acceptance_gate_v2.py` 和 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，并扩展 `scripts/strategy1_cloudrun/acceptance.py` 支持 contract hash / v2 SQL 参数。诊断脚本只读 ADS/DWD/DWS，不训练、不改 prediction、不写 ADS；默认 reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，输出 `acceptance_gate_v2/` artifact、10/20/30/40 组合可行性、eligible benchmark、score orientation audit、低价股偏移、现金/实际持仓和风格暴露诊断。uploaded 模式成功，GCS URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01`，16 个对象；`22_qa_acceptance_gate_v2_outputs.sql` 真实执行 9 个 ASSERT 全部通过。当前 v2 结论：reference run 为 `rejected`，原因是跑输 `000852.SH`、full-period IR 为负、2026 final_holdout 严重跑输；拒绝范围仅限当前 top-30 long-only 实现，不否定信号家族。`10/5%` 是 `diagnostic_only`，`20/30/40` 因局部现金峰值为 `needs_more_evidence`，没有 implementation hard fail。下一步应 review/merge 实现 PR，再决定继续 PRD03 风险特征训练还是先复核组合现金/执行语义。
 
 **OQ-010 风险特征入模 Phase B0 实现（2026-06-06）**：PR #94 已合并；工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-acceptance-diagnosis`。新增 `scripts/strategy1/diagnose_acceptance_window.py`，用于 PRD Phase B0 只读诊断：读取既有 ADS / artifact，重切 BQML historical reference 的 2025-only 指标，并汇总 sklearn native、LightGBM binary、LightGBM regression 三波已拒 Python Top5 候选；不训练模型、不重跑 BQML、不执行 `sql/ml/strategy1` SQL runner、不写 ADS。PR #96 review follow-up 已统一 maxDD 门口径：2025 excess 仍看 2025 段，风险 maxDD 门使用 full-period summary，报告同时展示 test maxDD 与 full maxDD。uploaded 模式已成功，artifact URI 为 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_window_diagnosis/diagnosis_id=riskfeat_acceptance_window_20260606_01`。诊断结论 `primary_blocker=mixed_evidence`：BQML historical reference 2025-only excess -23.43%、test maxDD -10.06%、full-period maxDD -14.48%；15 个 Python 候选中 10 个 2025 excess 未过、5 个 full-period maxDD 未过，same-side fraction 66.67% 低于 80% 阈值。后续不应自动启动第 4 波风险特征训练，应先由 owner / 审查者复核诊断结论。
 
@@ -63,6 +63,72 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: strategy1_acceptance_gate_v2_implementation_20260606
+相关 issue/PR: PR #97 / 待创建实现 PR
+
+### 已完成工作
+
+- 合并 PR #97，并清理已合并 PRD 分支 / worktree。
+- 新建实现工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-impl` 与分支 `codex/implement-acceptance-gate-v2`。
+- 新增 `configs/strategy1/model_acceptance_contract_v2.yml`，固化 v2 accepted / needs_more_evidence / hard reject 阈值、10/20/30/40 组合候选、eligible benchmark、score orientation audit 与 split 复用口径。
+- 扩展 `scripts/strategy1_cloudrun/acceptance.py`，为共享契约增加 `contract_sha256` 与 v2 SQL 参数导出，同时保持 v1 历史搜索兼容。
+- 新增只读诊断脚本 `scripts/strategy1/diagnose_acceptance_gate_v2.py`：读取当前 extended reference run、prediction、candidate、DWS 标签、DWD 价格和持仓，输出 v2 summary、10/20/30/40 组合可行性、eligible universe benchmark、score orientation audit、低价股偏移、实际持股、现金和风格暴露诊断；不训练、不改 prediction、不写 ADS。
+- 新增 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，校验 v2 contract、目标持股集合、reference rejected、候选 top40、score orientation 输入、valid/test 标签输入，以及 BQML/SQL runner 不得登记 v2 accepted baseline。
+
+### 重要上下文
+
+- 默认诊断 run：`acceptance_gate_v2_reference_20260606_01`。
+- Reference run/backtest：`s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`。
+- 当前 v2 结论：`rejected`，原因是 `full_period_excess_return_vs_000852<=-0.03`、`full_period_information_ratio<0.0`、`final_holdout_excess_return_vs_000852<=-0.1`。该 rejection 只针对当前 top-30 long-only 组合实现，不否定信号家族。
+- 组合可行性摘要：`10/5%` 为 `diagnostic_only`；`20/30/40` 因局部 `max_cash_weight` 或平均现金偏高进入 `needs_more_evidence`，未出现 implementation hard fail。
+- uploaded artifact URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01`。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+- `configs/strategy1/model_acceptance_contract_v2.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `scripts/strategy1/diagnose_acceptance_gate_v2.py`
+- `scripts/strategy1_cloudrun/acceptance.py`
+- `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`
+- `sql/ml/strategy1/README.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1/diagnose_acceptance_gate_v2.py scripts/strategy1_cloudrun/acceptance.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`
+- `python3 scripts/strategy1/diagnose_acceptance_gate_v2.py --project data-aquarium --skip-gcs-upload`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`（9 个 ASSERT 全部 successful）
+- `python3 scripts/strategy1/diagnose_acceptance_gate_v2.py --project data-aquarium`（uploaded 成功，16 个 GCS artifact）
+- `gcloud storage ls gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01/`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 创建并 review/merge 实现 PR。
+- 合并后根据 v2 结论决定：继续 PRD03 风险特征训练，或先复核组合现金/执行语义（尤其 `20/30/40` 的局部现金峰值）。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+---
 
 日期: 2026-06-06
 Agent ID: Codex
