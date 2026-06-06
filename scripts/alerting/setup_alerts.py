@@ -225,9 +225,7 @@ def build_alert_policy(
         threshold.filter = f'resource.type="global" AND metric.type="{metric_type}"'
         threshold.comparison = monitoring_v3.ComparisonType.COMPARISON_GT
         threshold.threshold_value = policy_def["threshold_value"]
-
-        if policy_def["duration_seconds"] > 0:
-            threshold.duration = duration_pb2.Duration(seconds=policy_def["duration_seconds"])
+        threshold.duration = duration_pb2.Duration(seconds=policy_def["duration_seconds"])
 
         threshold.aggregations.append(aggregation)
         condition.condition_threshold = threshold
@@ -268,7 +266,7 @@ def create_log_metric(
         client.create_log_metric(parent=parent, metric=metric)
         print(f"  + 创建日志指标：{metric_def['name']}")
     except Exception as e:
-        if "ALREADY_EXISTS" in str(e):
+        if "already exists" in str(e).lower():
             print(f"  = 日志指标已存在：{metric_def['name']}")
         else:
             print(f"  x 创建日志指标失败：{metric_def['name']}：{e}")

@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-005 Composer DAG 拆分实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dag-split-impl`，分支 `codex/implement-oq005-dag-split`。PRD PR #85 已先合入 `main`；本分支新增共享 helper `ashare_common.py`、生产采集 DAG `ashare_ods_ingestion_daily`、窗口刷新 DAG `ashare_warehouse_window_refresh`、手工全量维护 DAG `ashare_warehouse_full_rebuild`。状态表补 `upstream_pipeline_run_id` / `triggered_by_dag_id`，观测视图补 `v_pipeline_refresh_missing` 并接入 alert summary，告警配置补 warehouse refresh missing metric/policy；PR #86 review follow-up 已补新 scheduled DAG 默认 paused、窗口刷新串行和 refresh-missing 仅检查无 linked run。Composer README 和 OQ-005 runbook 已改为拆分 DAG 入口。仅做本地 `py_compile` 与 `git diff --check`，未部署 Composer、未运行 BigQuery / Cloud Run。合并后先部署新 DAG/SQL/观测视图，确认新 ingestion DAG 保持 paused，先暂停旧 `ashare_daily_pipeline_v0` 后再 unpause 新 ingestion DAG，再做 ingestion→warehouse、非交易日 skip、backfill、qa_only 和 refresh-missing smoke。
+**OQ-005 Composer DAG 拆分生产切换（2026-06-06）**：PR #86 已合并并完成 Composer 部署 / smoke。已应用 meta DDL 与观测视图，部署 `ashare_common.py`、`ashare_ods_ingestion_daily.py`、`ashare_warehouse_window_refresh.py`、`ashare_warehouse_full_rebuild.py` 和仓库 `sql/` 到 Composer bucket。旧 `ashare_daily_pipeline_v0` 已暂停，新 scheduled DAG `ashare_ods_ingestion_daily` 已 unpause；`ashare_warehouse_window_refresh` 与 `ashare_warehouse_full_rebuild` 无 schedule。`setup_alerts.py` 已补真实 GCP apply 兼容修复，`oq005_warehouse_refresh_missing` metric 与 `OQ-005: Warehouse Refresh Missing` policy 已创建 / 对齐。Smoke：`manual_split_skip_gate_20260606_01` 非交易日 gate 成功且 Cloud Run 未触发；`manual_split_qa_only_20260605_01` 5 个 QA success；`manual_split_backfill_20260605_01` 1 日窗口刷新和全部 QA success；refresh-missing synthetic transaction smoke 通过；`check_alerts.py --lookback-minutes 20` 返回空。后续只剩新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然观察，以及 Dataform definitions、补跑/resume 自动化和完整 ODS→ADS 运维观测闭环。
 
 **OQ-010 尾部风险 P0 诊断实现（2026-06-06）**：PR #84（`docs/prd/PRD_20260606_01_策略1尾部风险控制.md`）已合并，PRD 分支已清理。当前实现工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-impl`，分支 `codex/implement-tail-risk-diagnostics-p0`，PR #87。已新增只读 `scripts/strategy1/analyze_tail_risk.py`、Cloud Run `backtest_report.py` 自动执行入口、TopK comparison 尾部风险摘要和 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`；产物写入 `tail_risk/` local/GCS artifact，覆盖最大回撤窗口、持仓贡献、跌停 / 不可卖暴露、选股画像、风险股票名单和 ADS pre/post hash guard，不改变候选、订单、成交、持仓、NAV 或 summary。PR #87 review follow-up 已补：DWS 特征 join 按 `feature_version` 过滤；非 guard 类诊断异常 fail-soft 并写 `tail_risk_failure.json`，ADS read-only guard 失败仍 hard fail；最大回撤窗口保留首次高点日期。已用 Wave 3 regression Top1 完成本地 artifact smoke 和真实 `20` QA。P1 个股硬风险过滤 profile A/B 与 P2 市场状态 risk-off 仍待后续独立实现。
 
@@ -1357,3 +1357,66 @@ Run ID: s1_cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01__lgbm_r03_l63_lr0
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: oq005_dag_split_deploy_smoke_20260606
+相关 issue/PR: OQ-005 / PR #86 / Composer DAG split production switch
+
+### 已完成工作
+
+- 将 OQ-005 DAG 拆分后的 meta DDL、观测视图、Composer DAG 和仓库 `sql/` 部署到 GCP / Composer bucket。
+- 在真实 GCP apply 中修复 `scripts/alerting/setup_alerts.py` 两处兼容问题：log metric 已存在错误识别改为 case-insensitive `already exists`；Monitoring threshold 始终显式设置 `Duration(seconds=...)`，包括 0 秒。
+- 创建 / 对齐 `oq005_warehouse_refresh_missing` log-based metric 和 `OQ-005: Warehouse Refresh Missing` alert policy。
+- 确认 Composer import errors 为 `[]`，暂停旧 scheduled DAG `ashare_daily_pipeline_v0`，unpause 新 scheduled DAG `ashare_ods_ingestion_daily`。
+- 完成三类手工 smoke：非交易日 skip gate、`qa_only`、2026-06-05 1 日 backfill；完成 refresh-missing watchdog synthetic transaction smoke。
+- 同步 TODO、IMPLEMENTATION_STATUS、ARCHITECTURE_MEMORY、KNOWN_CONSTRAINTS、OPEN_QUESTIONS 和本交接。
+
+### 重要上下文
+
+- 旧 `ashare_daily_pipeline_v0` 当前已暂停，只作为迁移期回滚参考；新增生产能力不要继续加到旧 DAG。
+- 新 production scheduled 入口是 `ashare_ods_ingestion_daily`，每日 20:00 CST 采集当天数据，成功后触发 `ashare_warehouse_window_refresh`。
+- `ashare_warehouse_window_refresh` 无 schedule，负责 `daily_current` / `backfill` / `qa_only`，并保持 `max_active_runs=1` 串行。
+- 本次没有触发真实 opening-day ingestion→warehouse scheduled run；`manual_split_backfill_20260605_01` 是手工 backfill smoke。
+
+### 改动文件
+
+- `scripts/alerting/setup_alerts.py`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- BigQuery meta DDL 与观测视图 apply 成功。
+- Composer DAG import errors 为 `[]`。
+- `manual_split_skip_gate_20260606_01` success，`skip_non_trading_day` 状态行落库，Cloud Run execution 未新增。
+- `manual_split_qa_only_20260605_01` success，P0 / strategy1 / OQ004 / finance / OQ006 五个只读 QA 均通过。
+- `manual_split_backfill_20260605_01` success，窗口刷新和窗口 / P0 QA 均通过；2026-06-05 DWD/DWS 估值链路复核通过。
+- refresh-missing synthetic transaction smoke 命中后清理归零，`check_alerts.py --lookback-minutes 20 --json` 返回 `[]`。
+- `python3 -m py_compile scripts/alerting/setup_alerts.py` 与 `git diff --check` 通过。
+
+### 阻塞项
+
+- 无阻塞；剩余是 scheduled 自然观察项。
+
+### 下一步建议
+
+- 等新 `ashare_ods_ingestion_daily` 至少两个开市日 scheduled run 自然完成，确认 ingestion success 后自动触发 `ashare_warehouse_window_refresh`。
+- 等一个真实非交易日 scheduled run 自然通过，确认 `skip_non_trading_day` 状态行落库且 Cloud Run 不触发。
+- 继续 OQ-005 剩余 Dataform definitions、补跑/resume 自动化和完整 ODS→ADS 运维观测闭环。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
