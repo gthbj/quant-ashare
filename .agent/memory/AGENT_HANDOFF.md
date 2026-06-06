@@ -8,6 +8,8 @@
 
 **OQ-010 尾部风险控制 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-prd`，分支 `codex/prd-strategy1-tail-risk-diagnostics`，PR #84。新增 `docs/prd/PRD_20260606_01_策略1尾部风险控制.md` 草案，基于 PRD04 Wave 3 regression Top5 因 max drawdown 全部 rejected 的复核结论，定义三阶段方案：P0 固定最大回撤诊断 artifact / 报告 / `20_qa_tail_risk_outputs.sql`，自动输出最大回撤区间、持仓贡献、跌停仓位占比和选股画像，不改变交易结果；P1 做 `individual_risk_guard_v0` 个股硬风险过滤 profile A/B；P2 在 `dws_market_state_daily` 或等价 market state artifact 落地后做 risk-off `skip_new_buys` 风控。PR #84 review follow-up 已采纳 5 条：P0 改为 ADS 严格只读且 QA 要求 pre/post hash，补 P1 风险字段可得性 / PIT 映射，持仓贡献权重钉死为 BOD，跌停主判据改为 DWD / 交易所涨跌停价源标记，补 top-K 回撤事件切分定义。未实现代码、未执行 BigQuery。
 
+**OQ-005 Composer DAG 拆分 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dag-split-prd`，分支 `codex/oq005-dag-split-prd`。新增 `docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md`，定义将当前 `ashare_daily_pipeline_v0` 拆成 `ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh`、`ashare_warehouse_full_rebuild`、`ashare_research_model_experiment`、`ashare_research_model_fanout`，`oq005_alert_checker` 继续独立。本次只写 PRD 和记忆/TODO，不改 DAG、不部署 Composer、不运行 BigQuery / Dataform / Cloud Run。后续建议先实现 production DAG 拆分 Phase B/C/D：抽共享 helper，新增 ingestion daily DAG 与 warehouse window refresh DAG，完成开市日、非交易日和 backfill smoke 后再继续 Dataform definitions / resume 自动化。
+
 **OQ-010 PRD04 Wave 3 执行收口（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-wave3`，分支 `codex/fix-prd04-prepare-matrix-parallelism`，PR #82。PR #79 合并后已部署 Cloud Run runner；本分支修复 `prepare_matrix()` requested parallelism 作用域 bug，并补 BigQuery JSON sanitizer，避免 regression `roc_auc/log_loss` 的 NaN 写入非法 `metrics_json`；PR #82 review follow-up 已补 `NaT` / `pd.NA` / `NaN` / `inf` 转 `null`、`np.ndarray` / pandas 标量递归转换和 `default=str` 兜底，并把状态表 `params_json`、GCS lock payload、work-unit manifest/hash 等 runner JSON 路径统一到 strict helper。最终镜像 `prd04-7d8daec-20260606-01` 已构建并部署到五个策略 Cloud Run Jobs。Wave 3 `cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01` 已完成：12 个 regression 候选、Top5 回测/报告/诊断和 `19` QA 全部通过，Top5 全部 rejected，当前仍不建立 `cloud_run_python_baseline_v1`。后续建议进入 PRD04 下一模型族 / 特征增强路线，或先分析回撤过大原因。
 
 **OQ-005 非交易日 skip gate 已部署验收（2026-06-06）**：PR #83 已合并到 `main`（`3723f52`），`ashare_daily_pipeline_v0.py` 已同步到 Composer bucket `gs://asia-east2-ashare-composer-b2629133-bucket/dags/`，本地与 bucket SHA256 均为 `e4b07ba402716b914bfbd6fe27fa38f97fab8e1c12f6a0bcce9e5fd8c58696af`。`manual_smoke_skip_non_trading_day_pr83_20260606_02` 使用 `business_date=2026-06-06`、`warehouse_mode=daily_current`、`force_non_trading_day_gate=true`、`pipeline_dry_run=true` 成功：`non_trading_day_gate=success`、`skip_non_trading_day=success`，`pipeline_task_status` 写入 `skip_non_trading_day status='skipped'`，ingestion/readiness/transform 全部 skipped，Cloud Run 最新 execution 仍为 01:53 的旧 PR #80 run，未被 smoke 触发。DAG 当前 active/unpaused、无 import errors。首次 smoke `manual_smoke_skip_non_trading_day_pr83_20260606_01` 在 Composer 新旧 serialized DAG 切换窗口内走到旧路径，已中止、确认未触发 Cloud Run，并在 `pipeline_run` 标为 `partial` 防止假告警；`v_alert_summary` 对两次 smoke 为空。
@@ -41,6 +43,58 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: oq005_dag_split_prd_20260606
+相关 issue/PR: OQ-005 / Composer DAG split PRD
+
+### 已完成工作
+
+- 新建工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dag-split-prd` 和分支 `codex/oq005-dag-split-prd`。
+- 新增 PRD `docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md`，定义 OQ-005 多 DAG 目标边界、参数契约、状态观测、迁移顺序、QA 和验收条件。
+- 同步 TODO、IMPLEMENTATION_STATUS、OPEN_QUESTIONS、ARCHITECTURE_MEMORY 和 DECISION_LOG；新增 `DECISION-20260606-01`。
+
+### 重要上下文
+
+- 本次只写文档，不改 `orchestration/composer/dags/ashare_daily_pipeline_v0.py`，不部署 Composer，不运行 BigQuery / Dataform / Cloud Run。
+- PRD 规定后续先做 production DAG 拆分，再继续 Dataform definitions、补跑 / resume 自动化和完整 ODS→ADS 运维观测闭环；P0 必须包含 `upstream_pipeline_run_id` 跨 DAG 血缘和 refresh-missing watchdog。
+- 目标生产拆分的 P0 是 `ashare_ods_ingestion_daily` 与 `ashare_warehouse_window_refresh`；全量重建和研究 DAG 放在后续阶段。
+
+### 改动文件
+
+- `docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `git diff --check origin/main...HEAD` 通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 实现 Phase B/C/D：抽共享 Composer helper，新增 `ashare_ods_ingestion_daily` 与 `ashare_warehouse_window_refresh`，补 `upstream_pipeline_run_id` 和 refresh-missing watchdog，完成开市日、非交易日和 backfill smoke。
+- 新 production DAG 连续通过至少两个开市日 scheduled run 和一个非交易日 skip smoke 后，暂停旧 `ashare_daily_pipeline_v0`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 日期: 2026-06-06
 Agent ID: Codex
