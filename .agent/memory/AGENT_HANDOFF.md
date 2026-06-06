@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 尾部风险控制 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-prd`，分支 `codex/prd-strategy1-tail-risk-diagnostics`。新增 `docs/prd/PRD_20260606_01_策略1尾部风险控制.md` 草案，基于 PRD04 Wave 3 regression Top5 因 max drawdown 全部 rejected 的复核结论，定义三阶段方案：P0 固定最大回撤诊断 artifact / 报告 / `20_qa_tail_risk_outputs.sql`，自动输出最大回撤区间、持仓贡献、跌停仓位占比和选股画像，不改变交易结果；P1 做 `individual_risk_guard_v0` 个股硬风险过滤 profile A/B；P2 在 `dws_market_state_daily` 或等价 market state artifact 落地后做 risk-off `skip_new_buys` 风控。本次只写 PRD、TODO 和记忆，未实现代码、未执行 BigQuery、未提交。
+**OQ-010 尾部风险控制 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-prd`，分支 `codex/prd-strategy1-tail-risk-diagnostics`，PR #84。新增 `docs/prd/PRD_20260606_01_策略1尾部风险控制.md` 草案，基于 PRD04 Wave 3 regression Top5 因 max drawdown 全部 rejected 的复核结论，定义三阶段方案：P0 固定最大回撤诊断 artifact / 报告 / `20_qa_tail_risk_outputs.sql`，自动输出最大回撤区间、持仓贡献、跌停仓位占比和选股画像，不改变交易结果；P1 做 `individual_risk_guard_v0` 个股硬风险过滤 profile A/B；P2 在 `dws_market_state_daily` 或等价 market state artifact 落地后做 risk-off `skip_new_buys` 风控。PR #84 review follow-up 已采纳 5 条：P0 改为 ADS 严格只读且 QA 要求 pre/post hash，补 P1 风险字段可得性 / PIT 映射，持仓贡献权重钉死为 BOD，跌停主判据改为 DWD / 交易所涨跌停价源标记，补 top-K 回撤事件切分定义。未实现代码、未执行 BigQuery。
 
 **OQ-010 PRD04 Wave 3 执行收口（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-wave3`，分支 `codex/fix-prd04-prepare-matrix-parallelism`，PR #82。PR #79 合并后已部署 Cloud Run runner；本分支修复 `prepare_matrix()` requested parallelism 作用域 bug，并补 BigQuery JSON sanitizer，避免 regression `roc_auc/log_loss` 的 NaN 写入非法 `metrics_json`；PR #82 review follow-up 已补 `NaT` / `pd.NA` / `NaN` / `inf` 转 `null`、`np.ndarray` / pandas 标量递归转换和 `default=str` 兜底，并把状态表 `params_json`、GCS lock payload、work-unit manifest/hash 等 runner JSON 路径统一到 strict helper。最终镜像 `prd04-7d8daec-20260606-01` 已构建并部署到五个策略 Cloud Run Jobs。Wave 3 `cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01` 已完成：12 个 regression 候选、Top5 回测/报告/诊断和 `19` QA 全部通过，Top5 全部 rejected，当前仍不建立 `cloud_run_python_baseline_v1`。后续建议进入 PRD04 下一模型族 / 特征增强路线，或先分析回撤过大原因。
 
@@ -117,15 +117,17 @@ Run ID: 无
 
 - 新建工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-prd` 和分支 `codex/prd-strategy1-tail-risk-diagnostics`。
 - 新增 `docs/prd/PRD_20260606_01_策略1尾部风险控制.md` 草案。
+- 创建 PR #84，并按 review comment 完成 5 条 follow-up。
 - PRD 基于 Wave 3 `lightgbm_regression` Top5 因 `max_drawdown < -25%` 全部 rejected 的复核结论，定义三阶段方案：
   - P0 固定最大回撤诊断 artifact / 报告 / QA，不改变交易结果。
   - P1 `individual_risk_guard_v0` 个股硬风险过滤 profile A/B。
   - P2 依赖 `dws_market_state_daily` 或等价 artifact 的 market risk-off 风控。
 - 同步更新 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md` 和本交接文件。
+- Review follow-up 内容：P0 改为 ADS 严格只读并要求 pre/post hash；补 P1 风险字段可得性 / PIT 映射；持仓贡献权重口径钉死为 beginning-of-day；跌停主判据改为 DWD / `stk_limit` 派生源标记，收益阈值只作 fallback；补 top-K 回撤事件切分规则。
 
 ### 重要上下文
 
-- P0 是诊断能力，不改变模型、候选池、交易、回测或 NAV。
+- P0 是诊断能力，不改变模型、候选池、交易、回测或 NAV；P0 禁止写入任何 ADS 核心表，诊断只落 GCS / 本地镜像 / comparison artifact。
 - P1/P2 会改变选股或买入动作，必须作为独立实验验收，不能直接替换 PRD04 baseline search 默认口径。
 - PRD 推荐 P1 首轮过滤阈值：`ret_20d < -30%`、`drawdown_20d < -30%`、`limit_down_days_20d >= 2`、`one_word_limit_days_20d >= 1`、`total_mv_cny < 30e8`、`circ_mv_cny < 20e8`；`vol_20d p95` 和 `turnover_rate_ma20 p98` 首轮只标记、不默认硬排除。
 - P2 首轮推荐动作是 `skip_new_buys`，不是强制清仓或日内止损。
