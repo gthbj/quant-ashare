@@ -509,6 +509,7 @@ gcloud composer environments run ashare-composer \
 补跑脚本说明：
 - `backfill` / `qa-only` 默认只输出将要执行的 `gcloud composer ... dags trigger` 命令。
 - `--execute` 才会实际触发 Composer。
+- `--execute` 默认最多触发 20 个非 skipped run，超过时需缩小日期范围，或确认计划后显式加 `--yes`。
 - `--resume` 会查询 `ashare_meta.pipeline_run`，跳过同一 `warehouse_mode/date_from/date_to` 已经 `success` 或 `running` 的精确窗口。
 - `--wait --fail-fast` 会逐个轮询 terminal 状态，遇到非 success 即停止后续窗口。
 

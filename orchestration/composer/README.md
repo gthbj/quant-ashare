@@ -180,6 +180,8 @@ python scripts/pipeline/run_warehouse_refresh.py backfill \
   --fail-fast
 ```
 
+该 helper 默认只输出计划；`--execute` 时最多触发 20 个非 skipped run，超过时需缩小日期范围，或确认计划后显式加 `--yes`。
+
 ```json
 {
   "business_date": "2026-06-05",

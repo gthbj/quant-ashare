@@ -1557,6 +1557,7 @@ Run ID: oq005_backfill_resume_helper_20260606
 - 在工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-backfill-resume`、分支 `codex/oq005-backfill-resume` 新增通用补跑脚本 `scripts/pipeline/run_warehouse_refresh.py`。
 - 脚本支持 `backfill` 分块计划、`qa-only` 计划、`status` 查询，默认只打印 `gcloud composer ... dags trigger` 计划；只有显式 `--execute` 才触发 Composer。
 - `--resume` 查询 `ashare_meta.pipeline_run`，按同一 `warehouse_mode/date_from/date_to` 精确跳过已 `success` 或 `running` 的窗口；`--wait --fail-fast` 支持逐个等待 terminal 状态并在失败时停止。
+- PR #90 review follow-up 已补 `--max-execute-runs` 默认 20 个非 skipped run 的执行上限；超过上限时拒绝触发，需缩小日期范围或显式 `--yes`。
 - Composer README 与 OQ-005 runbook 已补脚本入口、手工 `gcloud` fallback 和状态查询示例。
 - 按 owner 要求在 `KNOWN_CONSTRAINTS.md` 写入：需要代码在工作树中改，改完推 PR。
 
@@ -1582,6 +1583,7 @@ Run ID: oq005_backfill_resume_helper_20260606
 - `python3 -m py_compile scripts/pipeline/run_warehouse_refresh.py`
 - `python3 scripts/pipeline/run_warehouse_refresh.py backfill --date-from 2026-06-03 --date-to 2026-06-04 --chunk-days 1`
 - `python3 scripts/pipeline/run_warehouse_refresh.py qa-only --business-date 2026-06-05`
+- `python3 scripts/pipeline/run_warehouse_refresh.py backfill --date-from 2026-06-03 --date-to 2026-06-04 --chunk-days 1 --execute --max-execute-runs 1` 返回 2，未触发 Composer。
 - `git diff --check`
 
 ### 阻塞项

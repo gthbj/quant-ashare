@@ -27,6 +27,7 @@ COMPOSER_LOCATION = "asia-east2"
 BQ_LOCATION = "asia-east2"
 WAREHOUSE_DAG_ID = "ashare_warehouse_window_refresh"
 TERMINAL_STATUSES = {"success", "failed", "partial"}
+MAX_EXECUTE_RUNS = 20
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,16 @@ def _parse_date(value: str) -> date:
         return date.fromisoformat(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid YYYY-MM-DD date: {value}") from exc
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid positive integer: {value}") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(f"invalid positive integer: {value}")
+    return parsed
 
 
 def _yyyymmdd(value: str) -> str:
@@ -364,6 +375,18 @@ def _execute_plan(args: argparse.Namespace, runs: list[PlannedRun]) -> int:
         print("\nPlan only. Re-run with --execute to trigger Composer.")
         return 0
 
+    if len(executable) > args.max_execute_runs and not args.yes:
+        print(
+            f"\nRefusing to execute {len(executable)} runs; "
+            f"configured --max-execute-runs is {args.max_execute_runs}.",
+            file=sys.stderr,
+        )
+        print(
+            "Review the plan, then re-run with --yes or a lower-risk date range.",
+            file=sys.stderr,
+        )
+        return 2
+
     for run in executable:
         print(f"\ntrigger {run.run_id}")
         _trigger_run(
@@ -447,6 +470,8 @@ def add_trigger_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--pipeline-dry-run", action="store_true", help="Pass pipeline_dry_run=true to the DAG. Default is false for production backfill.")
     parser.add_argument("--run-id-prefix", help="Run id prefix. Default includes a UTC timestamp.")
     parser.add_argument("--run-label", default="manual_warehouse_refresh", help="DAG run_label.")
+    parser.add_argument("--max-execute-runs", type=_positive_int, default=MAX_EXECUTE_RUNS, help=f"Maximum non-skipped runs allowed with --execute unless --yes is set (default: {MAX_EXECUTE_RUNS}).")
+    parser.add_argument("--yes", action="store_true", help="Confirm execution when the plan exceeds --max-execute-runs.")
     parser.add_argument("--wait", action="store_true", help="Poll ashare_meta.pipeline_run after each trigger.")
     parser.add_argument("--wait-timeout-seconds", type=int, default=7200, help="Per-run wait timeout.")
     parser.add_argument("--poll-seconds", type=int, default=30, help="Polling interval when --wait is used.")
