@@ -1407,3 +1407,41 @@ OQ-005 当前主 DAG `ashare_daily_pipeline_v0` 已承载生产采集、ODS read
 ### 相关文件
 
 `docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md`, `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`, `orchestration/composer/dags/ashare_daily_pipeline_v0.py`, `orchestration/composer/README.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260606-02: 策略 1 组合验收门先固定 10/20/30/40 持股数候选
+
+日期: 2026-06-06
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+策略 1 已完成 BQML historical reference、Cloud Run sklearn native、LightGBM binary、LightGBM regression、尾部风险 P1/P2 和风险特征 Phase B0 诊断。当前证据显示：RankIC 可以为正，但 current top-30 long-only 组合在 `2024-01-02` 至 `2026-04-30` full-period 和 2026 final holdout 上不能通过生产 baseline 验收。继续直接扩大模型 / 风险特征搜索前，需要先冻结组合验收门和小资金可行性诊断。
+
+### 决策
+
+1. 策略 1 下一版组合验收门的持股数候选固定为 `target_holdings in [10, 20, 30, 40]`。
+2. 不纳入 `target_holdings=50`，也不纳入 100 / 150 等更高持股数方案。
+3. 首轮单票权重上限仍为 5%。
+4. `10/5%` 因理论最多部署约 50% 资金，只作为低集中度 / 高现金对照，不直接与满仓方案比较收益。
+5. `20/5%` 是 5% 上限下的理论满仓边界；`30/5%` 是当前 historical reference；`40/5%` 用于验证更分散组合能否降低尾部风险。
+6. 所有候选必须进入 10 万 CNY、100 股整数手、实际持股数、现金占比、买入跳单率和低价股偏移诊断。
+7. 当前 extended reference run 在验收门 v2 下应判为 `rejected`，但该拒绝只针对当前 top-30 long-only 组合实现，不否定底层信号家族。
+
+### 理由
+
+50 只以上组合在 10 万资金下更容易被 100 股整数手和最低买入额扭曲，可能导致大量现金碎片、跳单或低价股偏移，且会把问题从“模型是否有信号”混成“资金规模是否足够”。先固定 10/20/30/40 可以覆盖集中、理论满仓、当前 reference 和更分散四个可解释点，同时保持首轮实验规模可控。
+
+### 影响
+
+新增 PRD `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`。后续 OQ-010 风险特征入模、组合参数实验、月度滚动重训和 baseline acceptance 必须引用该持股数候选集合；新增 QA 应拒绝 `target_holdings=50`、100、150 等未批准组合。PRD03 风险特征入模的后续实现顺序应调整到验收门 v2 和组合可行性诊断之后。
+
+### 备选方案
+
+继续使用 30 只固定组合；放弃，因为无法判断当前失败来自模型、组合集中度、资金手数约束还是基准暴露。加入 50 只；放弃，因为 owner 明确要求不要 50，且 10 万资金下 50 只会明显放大整数手失真。直接尝试 100 / 150 只；放弃，因为与小资金实盘目标不匹配。
+
+### 相关文件
+
+`docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`, `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
