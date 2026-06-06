@@ -1425,7 +1425,7 @@ Agent ID: Codex
 1. 策略 1 下一版组合验收门的持股数候选固定为 `target_holdings in [10, 20, 30, 40]`。
 2. 不纳入 `target_holdings=50`，也不纳入 100 / 150 等更高持股数方案。
 3. 首轮单票权重上限仍为 5%。
-4. `10/5%` 因理论最多部署约 50% 资金，只作为低集中度 / 高现金对照，不直接与满仓方案比较收益。
+4. `10/5%` 因理论最多部署约 50% 资金，只作为低仓位 / 高现金 / 集中选股对照，不直接与满仓方案比较收益，不参与 production baseline accepted 判定，也不适用满仓候选的现金占比 hard gate。
 5. `20/5%` 是 5% 上限下的理论满仓边界；`30/5%` 是当前 historical reference；`40/5%` 用于验证更分散组合能否降低尾部风险。
 6. 所有候选必须进入 10 万 CNY、100 股整数手、实际持股数、现金占比、买入跳单率和低价股偏移诊断。
 7. 当前 extended reference run 在验收门 v2 下应判为 `rejected`，但该拒绝只针对当前 top-30 long-only 组合实现，不否定底层信号家族。
@@ -1436,7 +1436,7 @@ Agent ID: Codex
 
 ### 影响
 
-新增 PRD `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`。后续 OQ-010 风险特征入模、组合参数实验、月度滚动重训和 baseline acceptance 必须引用该持股数候选集合；新增 QA 应拒绝 `target_holdings=50`、100、150 等未批准组合。PRD03 风险特征入模的后续实现顺序应调整到验收门 v2 和组合可行性诊断之后。
+新增 PRD `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`。后续 OQ-010 风险特征入模、组合参数实验、月度滚动重训和 baseline acceptance 必须引用该持股数候选集合；新增 QA 应拒绝 `target_holdings=50`、100、150 等未批准组合。PRD03 风险特征入模的后续实现顺序应调整到验收门 v2 和组合可行性诊断之后。accepted 候选必须跑赢 `eligible_executable_benchmark`；test/final_holdout 复用状态、score orientation audit、low-price tilt 和 exposure-adjusted 收益视图需要进入实现 artifact。
 
 ### 备选方案
 
