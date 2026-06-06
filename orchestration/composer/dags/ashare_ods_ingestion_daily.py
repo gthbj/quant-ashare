@@ -33,6 +33,7 @@ from ashare_common import (
     build_pipeline_finalize_status,
     build_pipeline_start_status,
     build_setup_group,
+    build_skip_downstream_refresh_task,
     build_skip_non_trading_day_task,
 )
 
@@ -126,7 +127,7 @@ with DAG(
         task_id="branch_downstream_refresh",
         python_callable=_downstream_refresh_branch,
     )
-    skip_downstream_refresh = EmptyOperator(task_id="skip_downstream_refresh")
+    skip_downstream_refresh = build_skip_downstream_refresh_task()
     trigger_warehouse_window_refresh = TriggerDagRunOperator(
         task_id="trigger_warehouse_window_refresh",
         trigger_dag_id="ashare_warehouse_window_refresh",

@@ -201,6 +201,21 @@ WITH ingestion_success AS (
     AND finished_at IS NOT NULL
     AND started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
 ),
+downstream_refresh_exempt AS (
+  SELECT DISTINCT pipeline_run_id
+  FROM `data-aquarium.ashare_meta.pipeline_task_status`
+  WHERE task_id = 'skip_non_trading_day'
+    AND status = 'skipped'
+    AND started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+
+  UNION DISTINCT
+
+  SELECT DISTINCT pipeline_run_id
+  FROM `data-aquarium.ashare_meta.pipeline_task_status`
+  WHERE task_id = 'skip_downstream_refresh'
+    AND status IN ('success', 'skipped')
+    AND started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+),
 warehouse_refresh AS (
   SELECT
     upstream_pipeline_run_id,
@@ -232,9 +247,12 @@ SELECT
   w.latest_refresh.started_at AS latest_refresh_started_at,
   w.latest_refresh.finished_at AS latest_refresh_finished_at
 FROM ingestion_success i
+LEFT JOIN downstream_refresh_exempt e
+  ON e.pipeline_run_id = i.pipeline_run_id
 LEFT JOIN warehouse_refresh w
   ON w.upstream_pipeline_run_id = i.pipeline_run_id
 WHERE TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), i.finished_at, MINUTE) >= 60
+  AND e.pipeline_run_id IS NULL
   AND COALESCE(w.linked_run_count, 0) = 0;
 
 CREATE OR REPLACE VIEW `data-aquarium.ashare_meta.v_alert_summary` AS
