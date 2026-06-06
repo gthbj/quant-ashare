@@ -8,9 +8,9 @@
 
 **OQ-010 尾部风险 P2 market risk-off 实跑结论（2026-06-06）**：PR #92 已合并；`dws_market_state_daily` 已物化并通过 `sql/qa/11_market_state_checks.sql`（562 行，risk-off 91 日）。已构建/部署 runner 镜像 `tailrisk-p2-6db6bd9-20260606-01`，并用 `configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml` 并发跑完 diagnostic-only、`market_risk_off_v0`、`individual_and_market_risk_guard_v0` 三条 portfolio-only A/B。结果：diagnostic-only total_return 38.25%、Sharpe 0.882、max_drawdown -14.46%；market-only total_return 28.20%、Sharpe 0.734、max_drawdown -15.72%，market skip 217 笔；combo total_return 30.04%、Sharpe 0.773、max_drawdown -14.71%，market skip 217 笔、tail-risk skip 3 笔。三条 report / model diagnosis / tail-risk diagnosis / `10` / `12` / `20` 均 succeeded 并上传 GCS。结论：P2 v0 `skip_new_buys` 降低仓位但未改善回撤且显著拖累收益，不采纳为默认策略；后续若继续市场风控，应另写 v1 风险动作/阈值。
 
-**OQ-005 调度运行稳定命名生产 cutover（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-pipeline-cutover-hotfix`，分支 `codex/pipeline-cutover-refresh-missing-fix`，PR #93。PR #91 已完成生产 cutover：Composer bucket `data/sql/`、新 DAG / alert checker 和 `check_alerts.py` 已同步；旧 `oq005_alert_checker.py`、旧命名 QA/metadata SQL 和旧 `oq005_*` log metrics 已清理；`ashare_pipeline_alert_checker` active，`ashare_ods_ingestion_daily` unpaused，旧 `ashare_daily_pipeline_v0` paused。Cloud Monitoring policies 已迁移为 `Ashare Pipeline: ...` 并保留 Email 通知渠道。Smoke：alert checker cutover run 和 `qa_only` run 均成功，heartbeat metric 有点。cutover smoke 暴露 `warehouse_refresh_missing` 对非交易日 skip 的误报，已在 `sql/observability/01_pipeline_status_views.sql` 排除 `skip_non_trading_day` 与 `skip_downstream_refresh`，并应用到 BigQuery 和 Composer bucket；`v_pipeline_refresh_missing`、20 分钟 `v_alert_summary`、`check_alerts.py --lookback-minutes 20 --json` 均为空。PR #93 review follow-up 已将 `skip_downstream_refresh` 改为实体 Python task 显式写 skipped 状态，观测视图兼容旧 success 和新 skipped。后续只剩新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然观察，以及 Dataform 生产接入 / shadow 验证。
+**OQ-005 调度运行稳定命名生产 cutover + PR #93 部署（2026-06-06）**：PR #91 已完成生产 cutover：Composer bucket `data/sql/`、新 DAG / alert checker 和 `check_alerts.py` 已同步；旧 `oq005_alert_checker.py`、旧命名 QA/metadata SQL 和旧 `oq005_*` log metrics 已清理；`ashare_pipeline_alert_checker` active，`ashare_ods_ingestion_daily` unpaused，旧 `ashare_daily_pipeline_v0` paused。PR #93 已合并并部署：`ashare_common.py`、`ashare_ods_ingestion_daily.py` 和 `sql/observability/01_pipeline_status_views.sql` 已同步到 Composer bucket / BigQuery。ODS-only skip smoke `manual_pr93_ods_only_skip_20260605_20260606_01` 成功，Cloud Run ingestion tasks skipped，`trigger_warehouse_window_refresh` skipped，`skip_downstream_refresh` 在 `pipeline_task_status` 中为 `skipped`，无 linked warehouse run，`v_pipeline_refresh_missing` / `v_alert_summary` / `check_alerts.py --lookback-minutes 20 --json` 均为空。后续只剩新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然观察，以及 Dataform 生产接入 / shadow 验证。
 
-**Dataform definitions 与调度运行命名清理（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dataform-definitions`，分支 `codex/oq005-dataform-definitions`，PR #91。已新增 Dataform 首版 `workflow_settings.yaml`、`action_manifest.json`、生成器 `scripts/dataform/generate_sqlx_from_sql.py` 和 45 个 `definitions/**/*.sqlx`，以 canonical `sql/` 生成 31 个 Dataform operations；`npx --yes @dataform/cli compile dataform` 通过。按 owner 要求清理调度运行代码中的阶段性命名：告警 DAG 文件改为 `ashare_pipeline_alert_checker.py`，QA/metadata SQL 改为 `01_core_smoke_checks.sql`、`03_index_benchmark_checks.sql`、`05_unit_contract_checks.sql`、`01_core_table_column_descriptions.sql`，Composer task_id / Dataform action/tag 改为 `core_*`、`index_benchmark_checks`、`unit_contract_checks`、`qa_core`、`qa_contract` 等稳定命名。PR #91 review follow-up 已补运行命名 cutover runbook、Dataform `--check` 防漂移检查和“线上旧名 vs 目标新名”记忆说明。未部署 Composer / Dataform，未运行 BigQuery DML；生产 cutover 前，2026-06-05 / PR #75 历史线上告警/checker 仍按旧 `oq005_*` / `oq005_alert_checker` 名称审计。
+**Dataform definitions 与调度运行命名清理（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dataform-definitions`，分支 `codex/oq005-dataform-definitions`，PR #91。已新增 Dataform 首版 `workflow_settings.yaml`、`action_manifest.json`、生成器 `scripts/dataform/generate_sqlx_from_sql.py` 和 45 个 `definitions/**/*.sqlx`，以 canonical `sql/` 生成 31 个 Dataform operations；`npx --yes @dataform/cli compile dataform` 通过。按 owner 要求清理调度运行代码中的阶段性命名：告警 DAG 文件改为 `ashare_pipeline_alert_checker.py`，QA/metadata SQL 改为 `01_core_smoke_checks.sql`、`03_index_benchmark_checks.sql`、`05_unit_contract_checks.sql`、`01_core_table_column_descriptions.sql`，Composer task_id / Dataform action/tag 改为 `core_*`、`index_benchmark_checks`、`unit_contract_checks`、`qa_core`、`qa_contract` 等稳定命名。PR #91 review follow-up 已补运行命名 cutover runbook、Dataform `--check` 防漂移检查和“线上旧名 vs 目标新名”记忆说明；运行命名已在后续 cutover 中成为线上事实。Dataform definitions 尚未接入 Dataform 生产 / shadow。
 
 **OQ-010 尾部风险 P1 comment follow-up（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-p1`，分支 `codex/implement-tail-risk-p1`，PR #88 已 rebase 到最新 `origin/main` 并按 review comment 修正。最新语义：`05_build_candidates.sql` 只写 `tail_risk:*` 风险标记，不把风险标记股票从 TopN / target 剔除；必需风险字段 NULL 记为 `tail_risk_required_field_null`。Python Ledger v1 与 BigQuery SQL fallback 均新增 `BUY_SKIPPED_TAIL_RISK`：未持仓风险目标跳过新买入，已有持仓不因 P1 标记被强制卖出。`10` / `20` QA 已改为验证未持仓风险目标无真实买入成交且留下 skip 状态。验证：Python `py_compile`、`05/08/09/10/11/20` dry-run 均通过；短区间 smoke 因跳过报告触发 `10` report guard 失败，已确认是 smoke 参数问题并清理临时 ADS 残留为 0。另已在 `KNOWN_CONSTRAINTS.md` 写入 BigQuery 分区表查询/删除/更新必须显式带分区列过滤的项目硬约束。
 
@@ -63,6 +63,61 @@ Agent ID: Codex
 Agent 实例 ID: Codex desktop session
 模型: GPT-5 Codex
 运行环境: Codex desktop
+Run ID: pr93_deploy_smoke_20260606
+相关 issue/PR: PR #93 / OQ-005 scheduler runtime naming cutover
+
+### 已完成工作
+
+- 合并 PR #93 后，从 `main` 同步 `orchestration/composer/dags/ashare_common.py`、`orchestration/composer/dags/ashare_ods_ingestion_daily.py` 和 `sql/observability/01_pipeline_status_views.sql` 到 Composer bucket。
+- 重新应用 `sql/observability/01_pipeline_status_views.sql` 到 BigQuery。
+- 验证 Composer bucket 文件 SHA256 与本地一致，`dags list-import-errors` 返回 `No data found`。
+- 触发 ODS-only skip smoke `manual_pr93_ods_only_skip_20260605_20260606_01`，使用 `business_date=2026-06-05`、`skip_ingestion=true`、`skip_downstream_refresh=true`、`pipeline_dry_run=false`、`require_business_partition=true`。
+- smoke 结果：DAG success；Cloud Run ingestion dry/write task 均 skipped；`ods_daily_partition_readiness` success；`trigger_warehouse_window_refresh` skipped；`skip_downstream_refresh` Airflow task success 且 `pipeline_task_status.status='skipped'`；无 linked `ashare_warehouse_window_refresh` run；`v_pipeline_refresh_missing`、`v_alert_summary` 和 `check_alerts.py --lookback-minutes 20 --json` 均为空。
+
+### 重要上下文
+
+- 这次 smoke 只验证显式 ODS-only skip 路径，不替代后续两个开市日 scheduled run 观察，也不替代真实非交易日 scheduled skip 自然观察。
+- Cloud Run 最新 `ashare-ingest-current-scope` execution 仍为 PR #80 的 `ashare-ingest-current-scope-rf729`（2026-06-06 01:53 UTC 创建），本次 smoke 未创建新 execution。
+- PR #93 远端分支因 `gh pr merge --delete-branch` 的本地 worktree 限制未自动删除，后续已清理。
+
+### 改动文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile orchestration/composer/dags/ashare_common.py orchestration/composer/dags/ashare_ods_ingestion_daily.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/observability/01_pipeline_status_views.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/observability/01_pipeline_status_views.sql`
+- `gcloud composer environments run ashare-composer --location asia-east2 dags -- list-import-errors`
+- `manual_pr93_ods_only_skip_20260605_20260606_01` Airflow task/state + BigQuery status table checks
+- `python3 scripts/alerting/check_alerts.py --lookback-minutes 20 --json`
+
+### 阻塞项
+
+- 无当前部署阻塞。
+
+### 下一步建议
+
+- 等至少两个开市日 scheduled run 自然完成，确认采集成功后自动触发 `ashare_warehouse_window_refresh`。
+- 等一个真实非交易日 scheduled skip 自然通过，确认 `skip_non_trading_day` 状态落库且 Cloud Run 未触发。
+- 继续 Dataform 生产接入 / shadow 验证和完整 ODS→ADS 运维观测闭环。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
 Run ID: pipeline_runtime_naming_cutover_20260606
 相关 issue/PR: PR #91 / PR #93 / OQ-005 scheduler runtime naming cutover
 
@@ -82,7 +137,7 @@ Run ID: pipeline_runtime_naming_cutover_20260606
 - `warehouse_refresh_missing` 现在只监控“应该触发下游刷新但完全没有 linked warehouse run”的异常。
 - 非交易日 scheduled skip 和显式 ODS-only run 不应触发 warehouse refresh；这类 run 以 `pipeline_task_status` 中的 `skip_non_trading_day=skipped` 或 `skip_downstream_refresh=success/skipped` 作为豁免证据。
 - 当前生产告警资源已改为稳定命名：`ashare_pipeline_failure`、`ashare_pipeline_task_failure`、`ashare_pipeline_ingestion_failed`、`ashare_pipeline_warehouse_refresh_missing`、`ashare_pipeline_alert_checker_heartbeat`。
-- PR #93 review follow-up 的 DAG 加固尚未部署到 Composer；合并后需同步 `ashare_common.py`、`ashare_ods_ingestion_daily.py` 和观测 SQL，再做 ODS-only skip smoke。
+- PR #93 review follow-up 的 DAG 加固已部署到 Composer，并通过 ODS-only skip smoke `manual_pr93_ods_only_skip_20260605_20260606_01` 验证不触发 Cloud Run 或 warehouse refresh。
 
 ### 改动文件
 
