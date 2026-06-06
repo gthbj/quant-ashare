@@ -253,12 +253,14 @@
 **场景：** 周末或节假日触发 daily_current 模式。
 
 **当前行为：**
-- `daily_current` 模式不自动把 `business_date` 改成上一交易日；如果触发到非交易日，应先确认是否需要补上一交易日。
+- scheduled `daily_current` 会先查 SSE 交易日历；若当天不是交易日，自动跳过 ingestion、ODS readiness 和 transform，并写入 `skip_non_trading_day` task 状态。
+- 手工触发的 `daily_current` 不作为自动跳过入口；如果触发到非交易日，应先确认是否需要补上一交易日。只有部署 smoke 可以显式传 `force_non_trading_day_gate=true` 来强制测试 skip 分支。
 - 需要修复上一交易日时，显式使用 `backfill` 并设置 `date_from`/`date_to`。
 - 非交易日不会因为 weak endpoint 缺失写入 warning；strong endpoint 若归一到的最近交易日 ODS 缺失，仍会阻断。
 - `qa_only` 模式继续执行只读检查。
+- gate 依赖 `ashare_dim.dim_trade_calendar` 已覆盖目标日期；若未来日历未延展或 `is_open` 为空，DAG 会 fail-closed，需要先采集/刷新 `trade_cal` 与 `dim_trade_calendar` 后再恢复调度。
 
-**待补强项：** 后续可增加交易日 gate，在非交易日自动跳过 ingestion / transform 并写 `skip_non_trading_day` 状态行。
+**生产验收：** DAG 合并部署后，用真正 scheduler 触发的周末/节假日 run 验证 `skip_non_trading_day` 状态写入；如果无法等待 scheduler，可手工触发并显式设置 `force_non_trading_day_gate=true`，但普通 `dags trigger` 不算 skip gate 验收。上一交易日修复仍走显式 `backfill`。
 
 **手动触发非交易日：**
 ```bash
@@ -268,6 +270,13 @@ gcloud composer environments run ashare-composer \
   dags -- trigger ashare_daily_pipeline_v0 \
   --conf '{"warehouse_mode": "qa_only", "business_date": "2026-06-07"}' \
   --run-id "manual_qa_only_weekend"
+
+# smoke-only：手工强制测试 scheduled 非交易日 skip 分支
+gcloud composer environments run ashare-composer \
+  --project=data-aquarium --location=asia-east2 \
+  dags -- trigger ashare_daily_pipeline_v0 \
+  --conf '{"warehouse_mode": "daily_current", "business_date": "2026-06-07", "force_non_trading_day_gate": true}' \
+  --run-id "manual_smoke_skip_non_trading_day"
 
 # 补跑上一交易日（必须显式 backfill）
 gcloud composer environments run ashare-composer \
