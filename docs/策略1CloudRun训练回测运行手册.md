@@ -20,6 +20,7 @@
 10. `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`：校验 Cloud Run Python LightGBM baseline search 的 TopK、CV 证据、共享验收契约、test reuse 和 final_holdout watch。
 11. `scripts/strategy1/analyze_tail_risk.py` 与 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`：在 TopK 回测完成后只读 ADS/DWD/DIM，输出最大回撤窗口、持仓贡献、跌停/不可卖暴露和选股画像，并校验 ADS pre/post hash 未变化。
 12. `sql/dws/08_dws_market_state_daily.sql` 与 `sql/qa/11_market_state_checks.sql`：生成并校验 P2 市场状态 risk-off 证据表；`backtest_report.py` 在 `tail_risk_profile_id=market_risk_off_v0` 或 `individual_and_market_risk_guard_v0` 时由 Python ledger 读取该表并跳过 risk-off 次日买单。
+13. `scripts/strategy1/diagnose_acceptance_gate_v2.py` 与 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`：按 `model_acceptance_contract_v2` 只读生成验收门 v2、10/20/30/40 组合可行性、eligible benchmark 和 score orientation audit artifact；不训练、不改 prediction、不写 ADS。
 
 当前限制：
 

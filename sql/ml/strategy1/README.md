@@ -104,6 +104,16 @@ python scripts/strategy1/analyze_tail_risk.py \
     --skip-gcs-upload
 
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/20_qa_tail_risk_outputs.sql
+
+# 22: 验收门 v2 与组合可行性诊断（PRD-20260606-04）
+# diagnose_acceptance_gate_v2.py 严格只读 ADS/DWD/DWS，不训练、不改 prediction、不写 ADS；
+# 输出 acceptance_gate_v2/ artifact、10/20/30/40 组合可行性、eligible benchmark 和 score audit。
+python scripts/strategy1/diagnose_acceptance_gate_v2.py \
+    --project data-aquarium \
+    --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
+    --local-mirror-root reports/strategy1
+
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql
 ```
 
 ## Cloud Run sklearn runner（PRD-20260604-04）
@@ -162,6 +172,8 @@ python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search
 P1 个股风险过滤（PRD-20260606-01）：`tail_risk_profile_id` 默认是 `diagnostic_only`，不改变选股。需要做 P1 A/B 时，在 manifest experiment 中设为 `individual_risk_guard_v0`；`05_build_candidates.sql` 会在 candidate selection 层标记新买入风控候选，规则为 `ret_20d < -30%`、`drawdown_20d < -30%`、`limit_down_days_20d >= 2`、`one_word_limit_days_20d >= 1`、`total_mv_cny < 30e8`、`circ_mv_cny < 20e8`，以及必需风险字段 NULL 时 `tail_risk_required_field_null`；`vol_20d` p95 和 `turnover_rate_ma20` p98 只标记、不硬排除。风险标记股票仍可进入目标组合，避免候选层全量重构把已持仓风险股强制卖出；真正的买入拦截发生在 Ledger v1 执行层：若目标股带 `tail_risk:*` 且执行前没有持仓，则写 `BUY_SKIPPED_TAIL_RISK`，不成交、不候补、现金保留。已有持仓不因 P1 风控标记被强制卖出，仍按 Ledger v1 目标组合、实际持仓 netting 和 pending sell 语义处理。`tail_risk/` 会输出 `risk_filter_funnel_daily.csv` 和 `risk_filter_excluded_names.csv`。`10_qa_runner_outputs.sql` 与 `20_qa_tail_risk_outputs.sql` 会校验 summary/comparison profile 可追溯、P1 风险标记可审计，以及未持仓风险目标没有真实买入成交并留下 `BUY_SKIPPED_TAIL_RISK`。
 
 P2 市场状态 risk-off（PRD-20260606-01）：先构建 `sql/dws/08_dws_market_state_daily.sql`，并跑 `sql/qa/11_market_state_checks.sql`。该表按 `market_state_version='market_state_v0_20260606'` 记录中证1000趋势、宽度、跌停扩散等 risk-off 证据；信号在 `t` 日收盘后形成，只能影响 `t+1` 开盘执行。需要做 P2 A/B 时使用 `configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml`，其中 `market_risk_off_v0` 只开启市场 risk-off，`individual_and_market_risk_guard_v0` 同时开启 P1 个股风险和 P2 市场状态。P2 v0 动作固定为 `skip_new_buys`：risk-off 的下一开市日允许卖出和 pending sell 继续执行，但所有 BUY 侧新增/加仓订单写 `BUY_SKIPPED_MARKET_RISK_OFF`，不成交、不候补、现金保留；恢复 risk-on 后在下一次合法调仓日恢复买入。`tail_risk/market_risk_off_dates.csv` 会输出 risk-off 日期和触发指标，`10_qa_runner_outputs.sql` / `20_qa_tail_risk_outputs.sql` 会校验 risk-off 日期有市场状态证据、risk-off 执行日没有真实 BUY 成交，并且跳过买单留下可审计状态。
+
+验收门 v2 与组合可行性诊断（PRD-20260606-04）：`configs/strategy1/model_acceptance_contract_v2.yml` 是 v2 阈值和指标定义的唯一事实来源；`scripts/strategy1/diagnose_acceptance_gate_v2.py` 只读当前 extended reference run、预测、候选、NAV、DWS 标签和价格，输出 `acceptance_gate_v2/` artifact。默认诊断 run 为 `acceptance_gate_v2_reference_20260606_01`，reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`。产物包括 `acceptance_gate_v2_summary.*`、`portfolio_feasibility*`、`eligible_universe_benchmark*`、`score_orientation_audit.json`、低价股偏移、实际持股、现金和 exposure-adjusted 视图。`10/5%` 仅为 `diagnostic_cash_control`，不参与 accepted production baseline；可进入 accepted 判定的候选只包含 `20/5%`、`30/5%`、`40/5%`。BigQuery 侧验收使用 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，该 QA 断言 v2 contract、`target_holdings=10/20/30/40` 且无 `50`、reference run 在 v2 下 rejected、候选流可模拟 top40、score orientation 审计输入存在、valid/test 标签输入存在，以及 BQML/SQL runner 不得登记 v2 accepted baseline。
 
 ## 参数说明
 

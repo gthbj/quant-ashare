@@ -1,0 +1,149 @@
+# Strategy 1 acceptance gate v2 contract.
+# 文档维护：GPT-5 Codex（最近更新 2026-06-06）
+
+contract_name: model_acceptance_contract_v2
+contract_version: model_acceptance_contract_v2
+
+gate:
+  acceptance_gate_version: strategy1_acceptance_gate_v2
+  applies_to:
+    - acceptance_gate_v2_diagnosis
+    - future_cloud_run_python_search
+    - future_monthly_retrain
+  historical_contracts:
+    - model_acceptance_contract_v1
+
+windows:
+  full_period:
+    start_date: 2024-01-02
+    end_date: 2026-04-30
+  valid:
+    start_date: 2024-01-02
+    end_date: 2024-12-31
+  test:
+    start_date: 2025-01-02
+    end_date: 2025-12-31
+    reuse_status: reused_by_multiple_waves
+    reuse_wave_no: 4
+  final_holdout:
+    start_date: 2026-01-05
+    end_date: 2026-04-30
+    reuse_status: reused_as_veto_watch_not_untouched
+    reuse_wave_no: 2
+
+benchmarks:
+  primary_benchmark_sec_code: 000852.SH
+  eligible_signal_pool_benchmark:
+    id: eligible_signal_pool_benchmark
+    description: t-date live prediction pool equal-weight diagnostic benchmark
+  eligible_executable_benchmark:
+    id: eligible_executable_benchmark
+    description: signal pool plus t+1 open executable equal-weight diagnostic benchmark
+
+portfolio_candidates:
+  initial_capital_cny: 100000.0
+  lot_size: 100
+  min_lot: 1
+  max_single_weight: 0.05
+  target_holdings:
+    - target_holdings: 10
+      portfolio_candidate_role: diagnostic_cash_control
+      target_weight: 0.05
+      participates_in_accepted_gate: false
+      applies_full_investment_cash_gate: false
+    - target_holdings: 20
+      portfolio_candidate_role: feasible_full_investment_boundary
+      target_weight: 0.05
+      participates_in_accepted_gate: true
+      applies_full_investment_cash_gate: true
+    - target_holdings: 30
+      portfolio_candidate_role: reference_candidate
+      target_weight: 0.03333333333333333
+      participates_in_accepted_gate: true
+      applies_full_investment_cash_gate: true
+    - target_holdings: 40
+      portfolio_candidate_role: diversification_candidate
+      target_weight: 0.025
+      participates_in_accepted_gate: true
+      applies_full_investment_cash_gate: true
+
+thresholds:
+  min_full_period_excess_return_vs_000852: 0.03
+  hard_reject_full_period_excess_return_vs_000852: -0.03
+  needs_more_evidence_full_period_excess_lower_open: -0.03
+  needs_more_evidence_full_period_excess_upper_closed: 0.03
+  min_full_period_information_ratio: 0.25
+  hard_reject_full_period_information_ratio: 0.0
+  min_full_period_excess_return_vs_eligible_executable: 0.0
+  hard_reject_full_period_excess_return_vs_eligible_executable: -0.03
+  min_full_period_information_ratio_vs_eligible_executable: 0.0
+  min_full_period_max_drawdown: -0.18
+  hard_reject_full_period_max_drawdown: -0.25
+  min_full_period_relative_max_drawdown_vs_000852: -0.18
+  hard_reject_full_period_relative_max_drawdown_vs_000852: -0.25
+  min_final_holdout_excess_return_vs_000852: -0.05
+  hard_reject_final_holdout_excess_return_vs_000852: -0.10
+  min_final_holdout_trading_days: 40
+  min_valid_rank_ic: 0.0
+  min_valid_rank_ic_t_stat: 1.0
+  min_valid_top_minus_bottom_fwd_ret: 0.0
+  min_test_rank_ic: 0.0
+  min_test_rank_ic_t_stat: 1.0
+  min_test_top_minus_bottom_fwd_ret: 0.0
+
+implementation_gate:
+  actual_holdings_ratio_min: 0.80
+  actual_holdings_ratio_hard_fail: 0.60
+  avg_cash_weight_max: 0.10
+  avg_cash_weight_hard_fail: 0.20
+  max_cash_weight_max: 0.20
+  skipped_buy_rate_max: 0.20
+  skipped_buy_rate_hard_fail: 0.35
+  negative_cash_days_required: 0
+  max_single_weight_realized_max: 0.055
+  low_price_median_ratio_needs_evidence: 0.70
+  low_price_median_ratio_hard_fail: 0.50
+  low_price_active_weight_needs_evidence: 0.20
+  low_price_contribution_share_hard_fail: 0.50
+
+metric_definitions:
+  full_period_information_ratio: AVG(daily_excess_return) / STDDEV_SAMP(daily_excess_return) * SQRT(252)
+  full_period_information_ratio_vs_eligible_executable: same formula, benchmark is eligible_executable_benchmark
+  rank_ic_t_stat: AVG(rank_ic_daily) / (STDDEV_SAMP(rank_ic_daily) / SQRT(rank_ic_day_count))
+  top_minus_bottom: actual long-side bucket forward return mean minus opposite bucket forward return mean
+  bucket_count: 5
+  relative_max_drawdown: strategy_max_drawdown - benchmark_max_drawdown
+
+score_orientation_audit:
+  required_fields:
+    - raw_score_field
+    - oriented_score_field
+    - score_orientation
+    - higher_oriented_score_is_better
+    - actual_long_side_bucket
+    - top_minus_bottom_definition
+    - rank_ic_score_field
+    - rank_ic_forward_return_field
+    - bucket_return_definition
+    - selected_top_n_matches_bucket_side
+    - signal_top_tail_mismatch
+
+required:
+  allowed_score_orientation:
+    - identity
+    - reverse_probability
+  valid_signal_status: stable
+  cv_confirmation_status: passed
+
+test_reuse:
+  final_holdout_required_after_wave: 3
+  final_holdout_passed_status: passed
+  post_freeze_forward_evidence_required_after_final_holdout_reuse_wave: 1
+
+diagnosis:
+  hard_reject_primary_diagnosis:
+    - signal_inverted
+    - unusable_signal
+  hard_reject_confidence_by_diagnosis:
+    sample_filter_risk:
+      - high

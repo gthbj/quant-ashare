@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+import hashlib
 from pathlib import Path
 from typing import Any
 
+from scripts.strategy1_cloudrun.bq_io import json_dumps_strict
 from scripts.strategy1_cloudrun.config import read_mapping
 
 
@@ -16,11 +18,29 @@ def load_acceptance_contract(path: str | Path | None = None) -> dict[str, Any]:
     contract = read_mapping(path or DEFAULT_CONTRACT_PATH)
     if not contract.get("contract_version"):
         raise ValueError("acceptance contract must define contract_version")
+    contract = dict(contract)
+    contract.setdefault("contract_name", str(contract["contract_version"]))
+    contract["_contract_sha256"] = contract_payload_hash(contract)
+    contract["contract_sha256"] = contract.get("contract_sha256") or contract["_contract_sha256"]
     return contract
+
+
+def contract_payload_hash(contract: dict[str, Any]) -> str:
+    payload = {
+        key: value
+        for key, value in contract.items()
+        if key not in {"contract_sha256", "_contract_sha256", "_contract_path"}
+    }
+    encoded = json_dumps_strict(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def contract_version(contract: dict[str, Any]) -> str:
     return str(contract["contract_version"])
+
+
+def contract_hash(contract: dict[str, Any]) -> str:
+    return str(contract.get("_contract_sha256") or contract.get("contract_sha256") or contract_payload_hash(contract))
 
 
 def contract_sql_params(contract: dict[str, Any]) -> dict[str, Any]:
@@ -29,20 +49,66 @@ def contract_sql_params(contract: dict[str, Any]) -> dict[str, Any]:
     thresholds = contract.get("thresholds") or {}
     required = contract.get("required") or {}
     test_reuse = contract.get("test_reuse") or {}
+    implementation = contract.get("implementation_gate") or {}
     return {
+        "p_acceptance_contract_version": contract_version(contract),
+        "p_acceptance_contract_sha256": contract_hash(contract),
         "p_min_valid_rank_ic": thresholds.get("min_valid_rank_ic", 0.0),
+        "p_min_valid_rank_ic_t_stat": thresholds.get("min_valid_rank_ic_t_stat", 1.0),
         "p_min_valid_top_minus_bottom_fwd_ret": thresholds.get("min_valid_top_minus_bottom_fwd_ret", 0.0),
         "p_min_test_rank_ic": thresholds.get("min_test_rank_ic", 0.0),
+        "p_min_test_rank_ic_t_stat": thresholds.get("min_test_rank_ic_t_stat", 1.0),
         "p_min_test_top_minus_bottom_fwd_ret": thresholds.get("min_test_top_minus_bottom_fwd_ret", 0.0),
         "p_min_test_year_excess_return_vs_000852": thresholds.get("min_test_year_excess_return_vs_000852", 0.0),
         "p_min_overall_excess_return_vs_000852": thresholds.get("min_overall_excess_return_vs_000852", 0.0),
         "p_min_total_return": thresholds.get("min_total_return", 0.0),
         "p_min_sharpe": thresholds.get("min_sharpe", 0.70),
         "p_min_max_drawdown": thresholds.get("min_max_drawdown", -0.25),
+        "p_min_full_period_excess_return_vs_000852": thresholds.get(
+            "min_full_period_excess_return_vs_000852",
+            thresholds.get("min_overall_excess_return_vs_000852", 0.0),
+        ),
+        "p_hard_reject_full_period_excess_return_vs_000852": thresholds.get(
+            "hard_reject_full_period_excess_return_vs_000852", -0.03
+        ),
+        "p_min_full_period_information_ratio": thresholds.get("min_full_period_information_ratio", 0.25),
+        "p_hard_reject_full_period_information_ratio": thresholds.get("hard_reject_full_period_information_ratio", 0.0),
+        "p_min_full_period_excess_return_vs_eligible_executable": thresholds.get(
+            "min_full_period_excess_return_vs_eligible_executable", 0.0
+        ),
+        "p_hard_reject_full_period_excess_return_vs_eligible_executable": thresholds.get(
+            "hard_reject_full_period_excess_return_vs_eligible_executable", -0.03
+        ),
+        "p_min_full_period_information_ratio_vs_eligible_executable": thresholds.get(
+            "min_full_period_information_ratio_vs_eligible_executable", 0.0
+        ),
+        "p_min_full_period_max_drawdown": thresholds.get("min_full_period_max_drawdown", -0.18),
+        "p_hard_reject_full_period_max_drawdown": thresholds.get("hard_reject_full_period_max_drawdown", -0.25),
+        "p_min_full_period_relative_max_drawdown_vs_000852": thresholds.get(
+            "min_full_period_relative_max_drawdown_vs_000852", -0.18
+        ),
+        "p_hard_reject_full_period_relative_max_drawdown_vs_000852": thresholds.get(
+            "hard_reject_full_period_relative_max_drawdown_vs_000852", -0.25
+        ),
         "p_min_final_holdout_excess_return_vs_000852": thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05),
+        "p_hard_reject_final_holdout_excess_return_vs_000852": thresholds.get(
+            "hard_reject_final_holdout_excess_return_vs_000852", -0.10
+        ),
         "p_min_final_holdout_total_return": thresholds.get("min_final_holdout_total_return", -0.08),
         "p_weak_valid_rank_ic_threshold": thresholds.get("weak_valid_rank_ic_threshold", 0.01),
         "p_min_final_holdout_trading_days": thresholds.get("min_final_holdout_trading_days", 40),
+        "p_actual_holdings_ratio_min": implementation.get("actual_holdings_ratio_min", 0.80),
+        "p_actual_holdings_ratio_hard_fail": implementation.get("actual_holdings_ratio_hard_fail", 0.60),
+        "p_avg_cash_weight_max": implementation.get("avg_cash_weight_max", 0.10),
+        "p_avg_cash_weight_hard_fail": implementation.get("avg_cash_weight_hard_fail", 0.20),
+        "p_max_cash_weight_max": implementation.get("max_cash_weight_max", 0.20),
+        "p_skipped_buy_rate_max": implementation.get("skipped_buy_rate_max", 0.20),
+        "p_skipped_buy_rate_hard_fail": implementation.get("skipped_buy_rate_hard_fail", 0.35),
+        "p_max_single_weight_realized_max": implementation.get("max_single_weight_realized_max", 0.055),
+        "p_low_price_median_ratio_needs_evidence": implementation.get("low_price_median_ratio_needs_evidence", 0.70),
+        "p_low_price_median_ratio_hard_fail": implementation.get("low_price_median_ratio_hard_fail", 0.50),
+        "p_low_price_active_weight_needs_evidence": implementation.get("low_price_active_weight_needs_evidence", 0.20),
+        "p_low_price_contribution_share_hard_fail": implementation.get("low_price_contribution_share_hard_fail", 0.50),
         "p_required_valid_signal_status": required.get("valid_signal_status", "stable"),
         "p_required_cv_confirmation_status": required.get("cv_confirmation_status", "passed"),
         "p_final_holdout_required_after_wave": test_reuse.get("final_holdout_required_after_wave", 3),
