@@ -17,7 +17,7 @@ Composer 负责串联全流程：
 - 单次手工 DAG run 可用 `pipeline_dry_run` 或 `dry_run` 覆盖 `ashare_pipeline_dry_run`；dry-run 会让 ODS readiness 默认检查近期可读分区，真实写入会默认要求精确业务日/交易日分区。
 - 不直接保存 token。
 - 每日默认主链只执行单个 Cloud Run ingestion（`ashare-ingest-current-scope`）和 `sql/qa/09_ods_daily_partition_readiness.sql`；该检查只读业务日分区或近期小窗口，不扫描 2019+ 全历史。
-- scheduled `daily_current` 在非交易日会先查 `ashare_dim.dim_trade_calendar`，确认 SSE 当天不开市后跳过 ingestion、readiness 和 transform，并写入 `skip_non_trading_day` task 状态；需要修复上一交易日时必须显式手工触发 `backfill`。
+- scheduled `daily_current` 在非交易日会先查 `ashare_dim.dim_trade_calendar`，确认 SSE 当天不开市后跳过 ingestion、readiness 和 transform，并写入 `skip_non_trading_day` task 状态；普通手工触发不会自动走该 gate，除非仅为部署 smoke 显式设置 `force_non_trading_day_gate=true`；需要修复上一交易日时必须显式手工触发 `backfill`。
 - `ashare_warehouse_mode=daily_current` 且 `ashare_pipeline_dry_run=false` 时，DAG 在采集和 ODS readiness 后刷新 DIM 小表、恢复 P0 metadata，并执行 `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 与 `sql/qa/10_windowed_stock_refresh_checks.sql`，按业务日期窗口刷新股票 DWD 与策略 1 DWS；窗口 SQL 会把非交易日 `date_to` / `business_date` 归一到不晚于请求日期的最近 SSE 开市日。
 - `warehouse_mode=backfill` 且 `ashare_pipeline_dry_run=false` 时，DAG 按 `date_from` / `date_to` 执行同一窗口刷新链路；未传 `date_from` 时只刷新 `date_to` 或 `business_date`。
 - `warehouse_mode=full_rebuild` 或 `warehouse_mode=full_rebuild_compat` 时，DAG 在每日 readiness 之后进入 BigQuery SQL 兼容转换分支，执行 schema P0、DIM、DWD、DWS、metadata、QA 节点。
@@ -78,7 +78,7 @@ ashare_enable_ads_contract_init=false
 
 将 `orchestration/composer/dags/ashare_daily_pipeline_v0.py` 上传到 Composer 环境的 DAG bucket，并同步仓库 `sql/` 目录到 Composer bucket 下的 `data/sql/`。Composer 3 worker 会把该路径挂载为 `/home/airflow/gcs/data/sql`；当前 DAG 会在运行时读取这些 SQL 文件，缺少文件时对应 BigQuery task 会失败。
 
-Cloud Run Job image 更新后，先用手工 DAG run 或临时变量做调度 smoke；确认 Cloud Run execution、每日 ODS readiness、窗口刷新、窗口 QA 和状态表回写通过后，生产每日采集保持 `ashare_pipeline_dry_run=false`、`ashare_warehouse_mode=daily_current`。DAG 变更合并部署后，用周末/节假日 scheduled 口径 smoke 验证 `skip_non_trading_day` 状态写入。完整 ODS→DIM/DWD/DWS 刷新使用手工 DAG run 参数 `warehouse_mode=full_rebuild_compat` 或 `warehouse_mode=full_rebuild`。
+Cloud Run Job image 更新后，先用手工 DAG run 或临时变量做调度 smoke；确认 Cloud Run execution、每日 ODS readiness、窗口刷新、窗口 QA 和状态表回写通过后，生产每日采集保持 `ashare_pipeline_dry_run=false`、`ashare_warehouse_mode=daily_current`。DAG 变更合并部署后，用真正 scheduler 触发的周末/节假日 run 验证 `skip_non_trading_day` 状态写入；若必须立刻验证，可用手工 run 显式传 `force_non_trading_day_gate=true` 作为 smoke-only 测试钩子，不能用普通 `dags trigger` 代替 scheduled gate 验收。完整 ODS→DIM/DWD/DWS 刷新使用手工 DAG run 参数 `warehouse_mode=full_rebuild_compat` 或 `warehouse_mode=full_rebuild`。
 
 部署命令：
 

@@ -23,7 +23,7 @@ import pendulum
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.empty import EmptyOperator
-from airflow.operators.python import BranchPythonOperator, ShortCircuitOperator
+from airflow.operators.python import BranchPythonOperator, PythonOperator, ShortCircuitOperator
 from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
 from airflow.providers.google.cloud.operators.cloud_run import CloudRunExecuteJobOperator
 from airflow.utils.task_group import TaskGroup
@@ -224,7 +224,8 @@ def _sse_is_open_date(business_date: str) -> bool:
     query = """
 SELECT
   COUNT(1) AS calendar_rows,
-  LOGICAL_OR(is_open = 1) AS is_open
+  COUNTIF(is_open IS NULL) AS null_is_open_rows,
+  COALESCE(LOGICAL_OR(is_open = 1), FALSE) AS is_open
 FROM `data-aquarium.ashare_dim.dim_trade_calendar`
 WHERE exchange = 'SSE'
   AND cal_date = SAFE_CAST(@business_date AS DATE)
@@ -238,11 +239,19 @@ WHERE exchange = 'SSE'
     row = next(iter(client.query(query, job_config=job_config).result()), None)
     if row is None or row.calendar_rows == 0:
         raise RuntimeError(f"SSE trade calendar has no row for business_date={business_date}")
+    if row.null_is_open_rows:
+        raise RuntimeError(f"SSE trade calendar has NULL is_open for business_date={business_date}")
     return bool(row.is_open)
 
 
+def _non_trading_day_gate_enabled(context: dict) -> bool:
+    if _dag_run_type(context) == "scheduled":
+        return True
+    return _truthy(_runtime_conf(context).get("force_non_trading_day_gate", False))
+
+
 def _non_trading_day_gate_branch(**context) -> str:
-    if _dag_run_type(context) != "scheduled":
+    if not _non_trading_day_gate_enabled(context):
         return "branch_ingestion"
     if _effective_warehouse_mode(context) != "daily_current":
         return "branch_ingestion"
@@ -682,6 +691,10 @@ def _task_skipped_status_callback(context: dict) -> None:
     _write_pipeline_task_status(context, "skipped")
 
 
+def _write_skip_non_trading_day_status(**context) -> None:
+    _write_pipeline_task_status(context, "skipped")
+
+
 def _build_qa_chain(group_id: str) -> TaskGroup:
     with TaskGroup(group_id=group_id) as qa_group:
         p0_smoke_checks = _bq_sql_task("p0_smoke_checks", "sql/qa/01_p0_smoke_checks.sql")
@@ -740,8 +753,9 @@ with DAG(
         task_id="non_trading_day_gate",
         python_callable=_non_trading_day_gate_branch,
     )
-    skip_non_trading_day = EmptyOperator(
+    skip_non_trading_day = PythonOperator(
         task_id="skip_non_trading_day",
+        python_callable=_write_skip_non_trading_day_status,
         on_success_callback=_task_skipped_status_callback,
     )
     branch_ingestion = BranchPythonOperator(

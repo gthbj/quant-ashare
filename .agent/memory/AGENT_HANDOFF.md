@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-005 非交易日 skip gate 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-nontrading-skip`，分支 `codex/oq005-nontrading-skip`。`ashare_daily_pipeline_v0.py` 已新增 scheduled `daily_current` 非交易日 gate：`pipeline_start_status` 后先查 `ashare_dim.dim_trade_calendar` 的 SSE 当日开市状态；非开市日进入 `skip_non_trading_day`，跳过 ingestion、ODS readiness 和 transform，并写 `pipeline_task_status.status='skipped'`。手工触发、`backfill`、`qa_only`、`full_rebuild` 和 legacy full refresh 不受影响；上一交易日修复仍需显式 `backfill`。本分支同步更新 Composer README、OQ-005 runbook、TODO 与记忆；尚未部署到 Composer，合并后需用周末/节假日 scheduled 口径 smoke 验证状态写入且 Cloud Run 未触发。
+**OQ-005 非交易日 skip gate 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-nontrading-skip`，分支 `codex/oq005-nontrading-skip`。`ashare_daily_pipeline_v0.py` 已新增 scheduled `daily_current` 非交易日 gate，并完成 PR #83 review follow-up：`pipeline_start_status` 后查 `ashare_dim.dim_trade_calendar` 的 SSE 当日开市状态；非开市日进入实体 `PythonOperator` `skip_non_trading_day`，在 task body 写 `pipeline_task_status.status='skipped'`，跳过 ingestion、ODS readiness 和 transform；日历缺行或 `is_open` NULL 均 fail-closed。普通手工触发、`backfill`、`qa_only`、`full_rebuild` 和 legacy full refresh 不受影响；只有 smoke-only `force_non_trading_day_gate=true` 可手工强制测试 skip 分支。合并后验收必须是真正 scheduled run 或显式 smoke hook，普通 `dags trigger` 不算 skip gate smoke；上一交易日修复仍需显式 `backfill`。
 
 **OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-cloudrun-python-baseline`，分支 `codex/implement-prd04-cloudrun-python-baseline`。PR #79 review follow-up 与 residual follow-up 已完成：共享验收契约阈值注入 `18/19` QA、final_holdout 缺证据改为 `needs_more_evidence`、QA NULL 空过和数据上界断言补齐、split 边界对齐 `2024-01-02` / `2025-01-02`、auto-next-wave 改为当前 wave QA 后非阻断触发，并补资源元数据和 LightGBM convergence 元数据。运行手册已同步 40 候选 / 20 并发 / 2 vCPU 8Gi，`config.py` / `ledger.py` / `01` / `10` 的 fallback 默认日期已对齐 Jan 2 交易日起点，`18/19` 已用 `qa_required()` 让单行 NULL 也 fail，并声明 SQL `DECLARE` 默认只是 standalone fallback、生产必须由 orchestrator 从共享契约注入。真实 LightGBM binary wave 2 search `cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01` 已按 `candidate_count=40`、`candidate_parallelism=20`、单 task `2 vCPU / 8Gi` 完成，Top5 均 rejected，不建立 `cloud_run_python_baseline_v1`；`18/19` 真实 QA 均通过。合并部署 PR #79 follow-up 后下一步：执行 `lightgbm_regression` wave 3。
 
@@ -801,6 +801,66 @@ Run ID: N/A
 - 合并后同步 DAG 到 Composer bucket。
 - 触发周末/节假日 scheduled 口径 smoke，验收 `skip_non_trading_day` 状态行、pipeline terminal success 和 Cloud Run ingestion 未触发。
 - 继续 OQ-005 Dataform 生产链路和补跑/resume 自动化。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: N/A
+相关 issue/PR: PR #83 / OQ-005 non-trading day skip gate review follow-up
+
+### 已完成工作
+
+- 复核 PR #83 comment `4637223843`，认可全部 4 条问题。
+- 补 `force_non_trading_day_gate=true` smoke-only 显式钩子：普通手工 `daily_current` 仍不自动走 gate，部署验收必须是真正 scheduled run 或显式 smoke hook，普通 `dags trigger` 不算 skip gate smoke。
+- 将 `skip_non_trading_day` 从 `EmptyOperator` callback 状态写入改为实体 `PythonOperator`，在 task body 写 `pipeline_task_status.status='skipped'`，并保留 skipped callback 作为最终状态覆盖。
+- 日历 gate 查询增加 `COUNTIF(is_open IS NULL)` 与 `COALESCE(LOGICAL_OR(...), FALSE)`；日历缺行或 `is_open` 为空均 fail-closed。
+- Runbook 补充 `dim_trade_calendar` 覆盖边界：若未来日历未延展或 `is_open` 为空，需要先采集/刷新 `trade_cal` 与 `dim_trade_calendar`。
+- 同步更新 Composer README、OQ-005 runbook、TODO、IMPLEMENTATION_STATUS、ARCHITECTURE_MEMORY、KNOWN_CONSTRAINTS、OPEN_QUESTIONS 和本交接。
+
+### 重要上下文
+
+- 本次只改 PR #83 分支代码和文档，未部署到 Composer，未触发生产 DAG。
+- `force_non_trading_day_gate=true` 仅为 smoke-only 测试钩子；上一交易日修复仍必须显式 `backfill`。
+
+### 改动文件
+
+- `orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `orchestration/composer/README.md`
+- `docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 --parameter=business_date::2026-06-06 ...`
+- `git diff --check`
+
+### 阻塞项
+
+- 无代码阻塞；生产生效需要合并后部署 Composer。
+
+### 下一步建议
+
+- 合并后同步 DAG 到 Composer bucket。
+- 用真正 scheduled run 或 `force_non_trading_day_gate=true` smoke-only 手工 run 验证 `skip_non_trading_day` 状态行、pipeline terminal success 和 Cloud Run ingestion 未触发。
 
 ### 已更新记忆文件
 
