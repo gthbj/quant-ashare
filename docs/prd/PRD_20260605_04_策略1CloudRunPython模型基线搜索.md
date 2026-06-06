@@ -143,7 +143,7 @@ score = calibrated / oriented positive-class probability
 2. 相比深度学习，LightGBM 在当前数据规模、日线频率和 CPU Cloud Run 环境下更实用。
 3. 相比继续调 LogisticRegression，LightGBM 更可能解决线性模型无法表达的信号形态。
 
-Wave 2 P0 固定运行 40 个候选，不再使用 `40-80` 的范围表达，也不做完整笛卡尔积。40 是本轮 owner 确认的执行规模：足够覆盖人工分层参数空间，同时与计划提升后的 Cloud Run `50 vCPU / 200Gi` 区域配额和 `candidate_parallelism=40` 对齐。
+Wave 2 P0 固定运行 40 个候选，不再使用 `40-80` 的范围表达，也不做完整笛卡尔积。40 是本轮 owner 确认的执行规模：足够覆盖人工分层参数空间。实现 smoke 证明 LightGBM 单 task `1 vCPU / 4Gi` 内存不足，因此按本文 fallback 规则把 candidate task 收敛为 `2 vCPU / 8Gi`，并把本轮 `candidate_parallelism` 固定为 20。
 
 候选 manifest 应人工分层覆盖以下维度：
 
@@ -166,12 +166,12 @@ P0 固定并发口径：
 | 参数 | P0 固定值 |
 |---|---|
 | `candidate_count` | 40 |
-| `candidate_parallelism` | 40 |
-| `candidate_task_cpu` | 1 vCPU |
-| `candidate_task_memory` | 4Gi |
+| `candidate_parallelism` | 20 |
+| `candidate_task_cpu` | 2 vCPU |
+| `candidate_task_memory` | 8Gi |
 | 计划区域配额 | 50 vCPU / 200Gi |
 
-每个 candidate 对应一个轻量 Cloud Run Job task；默认 `--tasks=40 --parallelism=40`，owner 显式限流时才降低 `candidate_parallelism`。40 个 task 理论峰值为 40 vCPU / 160Gi，50 vCPU / 200Gi 配额提供 10 vCPU / 40Gi 余量。若 LightGBM CV smoke 证明单 task 4Gi 不够，应提高单 task 内存并同步降低并发或重新申请更高配额，不能在未更新资源口径的情况下静默超配。
+每个 candidate 对应一个轻量 Cloud Run Job task；本轮默认 `--tasks=40`，Job spec `parallelism=20`，分两批完成 40 个候选。20 并发理论峰值为 40 vCPU / 160Gi，50 vCPU / 200Gi 配额提供 10 vCPU / 40Gi 余量。owner 显式限流时才继续降低 `candidate_parallelism`。若后续模型仍 OOM，应继续提高单 task 内存并同步降低并发或重新申请更高配额，不能在未更新资源口径的情况下静默超配。
 
 P0 必须启用 §8.2 的 purged walk-forward CV 排名确认，不能只用单一年份 2024 valid 从 40 个候选中选 Top 5。若实现阶段暂不支持 CV，本轮 search 不得登记 `accepted` baseline。若后续要扩到 60 / 80 / 100 个候选，必须另行更新 PRD、candidate manifest、Cloud Run 配额和 test reuse 记录；本文 P0 不允许 `candidate_count > 40`。
 
@@ -278,16 +278,16 @@ preprocess_version = tree_winsor_missing_passthrough_v1
 
 candidate task 不写 ADS selected registry，不写正式 prediction，不跑回测。
 
-P0 candidate fan-out 固定以 40 个 task 单批启动：
+P0 candidate fan-out 固定以 40 个 task 启动，Cloud Run 按 `parallelism=20` 调度：
 
 ```text
 candidate_count = 40
-candidate_parallelism = 40
-candidate_task_cpu = 1
-candidate_task_memory = 4Gi
+candidate_parallelism = 20
+candidate_task_cpu = 2
+candidate_task_memory = 8Gi
 ```
 
-40 并发只覆盖 candidate 训练、CV 预测和 valid metrics 计算。`prepare_matrix` 必须在 fan-out 前单独完成；Top 5 的正式预测、组合、回测、报告和诊断必须在 reducer 选型后执行，不与 40 个 candidate task 混在同一批并发里。
+20 并发只覆盖 candidate 训练、CV 预测和 valid metrics 计算；40 个候选按两批 fan-out 完成。`prepare_matrix` 必须在 fan-out 前单独完成；Top 5 的正式预测、组合、回测、报告和诊断必须在 reducer 选型后执行，不与 candidate task 混在同一批并发里。
 
 ### 8.2 候选排序: CV + valid confirmation
 
@@ -531,7 +531,7 @@ sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql
 11. BQML / SQL runner 不得写入本轮 search 的新 baseline 状态。
 12. 所有 report / diagnosis / comparison artifact URI 必须在 GCS 存在。
 13. `native_baseline_status` 不得出现 §9 未覆盖的状态组合；未知组合必须被拒绝并写 `unmatched_acceptance_state`。
-14. 本轮 search 必须记录 `candidate_count=40`、`candidate_parallelism=40`、candidate task 资源为 1 vCPU / 4Gi；`accepted` 候选必须有 `cv_confirmation_status='passed'`。
+14. 本轮 search 必须记录 `candidate_count=40`、`candidate_parallelism=20`、candidate task 资源为 2 vCPU / 8Gi；`accepted` 候选必须有 `cv_confirmation_status='passed'`。
 15. `final_holdout_excess_return_vs_000852 < 0` 或 `final_holdout_total_return < 0` 但未触发 hard reject 时，必须写 `holdout_watch_flag=TRUE`。
 16. `18_qa_sklearn_native_search_outputs.sql` 与 `19_qa_cloudrun_python_baseline_search_outputs.sql` 必须能追溯到同一 `acceptance_contract_version`，不得继续各自硬编码相同阈值。
 
@@ -563,9 +563,9 @@ sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql
 search_id = cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01
 ```
 
-2. 复核 `strategy1-train-candidate-fanout-job` 共享 Job spec 为 `parallelism=40`，candidate task 资源为 1 vCPU / 4Gi；若不一致，先更新 Job 配置再执行 search。
+2. 复核 `strategy1-train-candidate-fanout-job` 共享 Job spec 为 `parallelism=20`，candidate task 资源为 2 vCPU / 8Gi；若不一致，先更新 Job 配置再执行 search。
 3. 一次 prepare matrix。
-4. 40 个 LightGBM candidate task fan-out，默认 `--tasks=40 --parallelism=40`。
+4. 40 个 LightGBM candidate task fan-out，默认 `--tasks=40 --parallelism=20`。
 5. 三折 CV + 2024 valid confirmation 选 Top 5。
 6. Top 5 完整回测到 `2026-04-30`。
 7. 跑 `10` / `12` / `19` QA。
@@ -605,6 +605,6 @@ search_id = cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01
 7. PRD 明确 accepted / needs_more_evidence / rejected 互斥完整的机器化标准。
 8. PRD 明确共享验收契约必须取代 sklearn `decide_acceptance` / `18_qa` 的内联阈值。
 9. PRD 明确若 binary LightGBM rejected，下一步优先尝试 `lightgbm_regression`，再考虑 XGBoost / 特征增强。
-10. PRD 明确 `strategy1-train-candidate-fanout-job` 需配置为 `parallelism=40` 后再执行本轮 search。
+10. PRD 明确 `strategy1-train-candidate-fanout-job` 需配置为 `parallelism=20`、2 vCPU / 8Gi 后再执行本轮 search。
 11. PRD 明确新增 QA 和产物契约。
 12. TODO / 记忆同步到新的 OQ-010 下一步。

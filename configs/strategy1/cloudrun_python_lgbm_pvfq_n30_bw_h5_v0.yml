@@ -26,9 +26,9 @@ search_mode: cloudrun_python_baseline
 top_k_backtest: 5
 model_search_wave_no: 2
 candidate_count: 40
-candidate_parallelism: 40
-candidate_task_cpu: 1
-candidate_task_memory: 4Gi
+candidate_parallelism: 20
+candidate_task_cpu: 2
+candidate_task_memory: 8Gi
 auto_next_wave_on_needs_more_evidence: true
 next_wave_manifest: configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml
 
@@ -41,13 +41,13 @@ bqml_reference_run_id: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
 default_windows:
   train_start: "2019-04-03"
   train_end: "2023-12-31"
-  valid_start: "2024-01-01"
+  valid_start: "2024-01-02"
   valid_end: "2024-12-31"
-  test_start: "2025-01-01"
+  test_start: "2025-01-02"
   test_end: "2025-12-31"
   final_holdout_start: "2026-01-05"
   final_holdout_end: "2026-04-30"
-  predict_start: "2024-01-01"
+  predict_start: "2024-01-02"
   predict_end: "2026-04-30"
 
 test_reuse:
@@ -72,7 +72,7 @@ experiments:
     label_horizon: 5
     horizon_natural_frequency: weekly
     feature_set_id: strategy1_pv_fin_quality_v0_20260603
-    feature_version: strategy1_pv_fin_quality_v0_20260603
+    feature_version: strategy1_pv_v0_20260601
     requires_retrain: true
     status: planned
 

@@ -6,17 +6,15 @@
 
 ## 当前交接摘要
 
-**OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-cloudrun-python-baseline`，分支 `codex/implement-prd04-cloudrun-python-baseline`。实现已新增共享验收契约、LightGBM binary wave 2 40 候选 manifest、LightGBM regression wave 3 12 候选 manifest、tree 预处理、LightGBM classifier/regressor 训练与打分、2021/2022/2023 purged walk-forward CV ranking、Top5 orchestration、`needs_more_evidence` 自动下一波、sklearn `18_qa` 契约版本追溯和 `19_qa_cloudrun_python_baseline_search_outputs.sql`。本地验证已通过 Python py_compile、两个 LightGBM manifest dry-run、`01/10/18/19` SQL dry-run 和 `git diff --check`；尚未构建/部署新镜像，尚未执行真实 40 候选 Cloud Run search。合并后下一步：部署镜像，先跑 wave 2；若 Top5 无 accepted 且出现 `needs_more_evidence`，按配置进入 `lightgbm_regression` wave 3。
+**OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-cloudrun-python-baseline`，分支 `codex/implement-prd04-cloudrun-python-baseline`。PR #79 review follow-up 已完成：共享验收契约阈值注入 `18/19` QA、final_holdout 缺证据改为 `needs_more_evidence`、QA NULL 空过和数据上界断言补齐、split 边界对齐 `2024-01-02` / `2025-01-02`、auto-next-wave 改为当前 wave QA 后非阻断触发，并补资源元数据和 LightGBM convergence 元数据。真实 LightGBM binary wave 2 search `cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01` 已按 `candidate_count=40`、`candidate_parallelism=20`、单 task `2 vCPU / 8Gi` 完成，Top5 均 rejected，不建立 `cloud_run_python_baseline_v1`；`18/19` 真实 QA 均通过。合并部署 PR #79 follow-up 后下一步：执行 `lightgbm_regression` wave 3。
 
 **项目记忆瘦身归档（2026-06-05）**：`AGENT_HANDOFF.md` 已按 owner 要求整理，当前文件只保留启动摘要、归档清理交接和最近 3 条交接；较早的 30 条交接已追加到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动优先读本文件；需要审计历史时再读 archive。
 
 **OQ-005 PR #80 readiness warning follow-up（2026-06-06）**：工作树 `/private/tmp/oq005-scheduler-fix`，分支 `codex/oq005-scheduler-daily-fix`。已按 PR #80 comment 修复 `sql/qa/09_ods_daily_partition_readiness.sql`：warning MERGE 前置到阻断 ASSERT 前；`pipeline_dry_run=true` 不写 `pipeline_task_status` warning；非交易日 weak endpoint 缺失不写 warning。实际验证：`manual_verify_oq005_warning_before_assert_20260606_01` 在 `2026-06-05` strong 缺失失败前写入 4 条 weak warning；`manual_verify_oq005_dryrun_no_warning_20260606_01` 和 `manual_verify_oq005_nontd_weak_suppressed_20260606_01` 均确认 warning 行数为 0。同步更新 runbook、KNOWN_CONSTRAINTS、TODO、OPEN_QUESTIONS、IMPLEMENTATION_STATUS。尚未重新同步 Composer bucket，待 PR 合并后按生产部署流程同步。
 
-**OQ-010 Cloud Run Python baseline 搜索 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-python-baseline-search`，分支 `codex/prd-cloudrun-python-baseline-search`。新增 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：本轮数据截止 `2026-04-30`；train/valid/test/final_holdout 为 `2019-04-03..2023-12-31` / 2024 / 2025 / `2026-01-05..2026-04-30`；固定 `pv_fin_quality + 30/5% + biweekly + 5d`、沪深主板股票池、成本 profile 和 Ledger v1；P0 推荐 LightGBM wave 2，固定 40 个候选、40 并发、单 task 1 vCPU / 4Gi，并按 Cloud Run 区域配额 50 vCPU / 200Gi 设计。PR #78 review follow-up 后，候选排序改为 2021/2022/2023 三折 purged walk-forward CV + 2024 valid confirmation，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch；实现时需先落共享验收配置 `configs/strategy1/model_acceptance_contract_v1.yml`，并迁移 sklearn `decide_acceptance` / `18_qa` 以取代旧内联阈值；若 binary LightGBM rejected，后续优先试 `lightgbm_regression`。真实 Cloud Run Job `strategy1-train-candidate-fanout-job` 已更新为 `parallelism=40` 并复核通过；本次未实现 LightGBM 代码、未执行 BigQuery search。
+**OQ-010 Cloud Run Python baseline 搜索 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-python-baseline-search`，分支 `codex/prd-cloudrun-python-baseline-search`。新增 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：本轮数据截止 `2026-04-30`；train/valid/test/final_holdout 为 `2019-04-03..2023-12-31` / 2024 / 2025 / `2026-01-05..2026-04-30`；固定 `pv_fin_quality + 30/5% + biweekly + 5d`、沪深主板股票池、成本 profile 和 Ledger v1；P0 推荐 LightGBM wave 2。PR #78 review follow-up 后，候选排序改为 2021/2022/2023 三折 purged walk-forward CV + 2024 valid confirmation，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch；实现 smoke 后当前资源口径已从最初 40 并发 / 1 vCPU 4Gi 调整为 40 候选 / 20 并发 / 2 vCPU 8Gi；若 binary LightGBM rejected，后续优先试 `lightgbm_regression`。
 
 **OQ-005 告警/观测生产闭环部署与 PR #75 follow-up（2026-06-05）**：PR #75 已合并并完成生产部署；后续代码收敛工作树 `/private/tmp/oq005-alerting-deploy-followup`，分支 `codex/oq005-alerting-deploy-followup`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到告警策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。PR #75 follow-up 已部署并验收：Composer bucket 已同步 DAG 与 `check_alerts.py`；新增 `oq005_alert_checker_heartbeat` log-based metric 和 `OQ-005: Alert Checker Heartbeat Missing` 30 分钟 absence policy，策略已启用并绑定 1 个 Email 通知渠道；`check_alerts.py` 显式使用 `resource.type=global` 写业务告警与 heartbeat，避免 Composer 默认 `k8s_container` resource 与现有告警策略不匹配。PR #77 review follow-up 已修复告警策略幂等键：`setup_alerts.py` 使用稳定 `user_labels.oq005_policy` 并兼容旧 display name 迁移，避免旧名环境重复创建新旧两份策略。manual smoke `manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功，随后的 scheduled run 也成功；Cloud Logging 中 heartbeat 为 `resource.type=global`、`lookback_minutes=20`、`alerts_count=0`，Cloud Monitoring global timeSeries 已有点。下一步：继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
-
-**OQ-005 scheduler daily-date / readiness follow-up（2026-06-05）**：工作树 `/tmp/oq005-scheduler-fix`，分支 `codex/oq005-scheduler-daily-fix`。已修复 `ashare_daily_pipeline_v0` scheduled run 默认日期：20:00 CST 使用 `data_interval_end.in_timezone('Asia/Shanghai')` 当天，不再用 Airflow `ds`；task callback 状态回写也同步同一口径。`sql/qa/09_ods_daily_partition_readiness.sql` 已按 strong/weak endpoint 分层，strong 缺失阻断，weak 缺失与 API 单次行数上限命中写 `pipeline_task_status` warning。Composer bucket 已同步 DAG/SQL/meta；smoke `manual_smoke_scheduler_fix_20260605_04` 以 `business_date=2026-06-05` 运行，并因 `2026-06-05` ODS strong endpoint 未采集在 `QA-ODS-DAILY-2` 正确阻断，窗口写入未执行。当前尚未实现非交易日自动 skip ingestion / transform gate，后续应补 `skip_non_trading_day` 状态行。
 
 **OQ-005 告警/观测 PR #72 review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-alerts-runbook`，分支 `codex/oq005-alerts-runbook`。PR #72 新增 BigQuery 观测视图、Cloud Logging / Cloud Monitoring 告警配置脚本、告警查询脚本和补跑 runbook。本轮按 comment 修复：`setup_alerts.py` 的 `LogMetric` 使用正确 `filter` 字段；`check_alerts.py` 查询失败和缺 `google-cloud-logging` 写日志路径均 fail-closed，默认 lookback 改 10 分钟并用稳定 `insert_id` 降低重复日志；runbook §9 的 `task_failure` / `ingestion_failed` 与 SQL 实现一致；`v_alert_probe` 注释改为固定 24 小时手工健康检查口径。验证通过 Python `py_compile`、观测 SQL BigQuery dry-run、`git diff --check`；本机缺 `google-cloud-logging`，未做真实 log metric API apply。合并后仍需部署视图、配置 Cloud Scheduler/Cloud Run checker、log-based metrics、alert policies，并做生产 smoke。
 
@@ -35,6 +33,81 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01
+相关 issue/PR: PR #79 / OQ-010 / PRD04 Cloud Run Python baseline search review follow-up
+
+### 已完成工作
+
+- 复核 PR #79 comment，采纳 H1/H2/M1/M2/M3/L1/L2，并对 L3 补充运行元数据澄清；L4 不在本 PR 修改，原因是 CV eval-fold orientation 改成 held-in 定向会改变候选排序语义并要求重跑 wave 2。
+- 将共享验收契约 `configs/strategy1/model_acceptance_contract_v1.yml` 的关键阈值注入 `18/19` QA，避免 Python acceptance 与 SQL QA 各自硬编码门槛。
+- 修复 final_holdout 缺证据口径：缺失 final_holdout 不再 hard rejected，改为 `needs_more_evidence`；实际明显坏结果仍按契约 veto。
+- 修复 `18/19` QA 的 NULL 空过问题、补 prediction / backtest 数据上界断言，并将 split 边界对齐 PRD 的 `2024-01-02` / `2025-01-02`。
+- 调整 auto-next-wave：当前 wave QA 先执行，下一波失败不再让父 wave 失败。
+- 接入 `allowed_score_orientation` 和 `weak_valid_rank_ic_threshold`，补 `unmatched_acceptance_state` 兜底和 QA。
+- 根据真实 LightGBM smoke，将 P0 资源口径从 40 并发 / 1 vCPU 4Gi 调整为 40 候选 / 20 并发 / 2 vCPU 8Gi；Cloud Run Job spec `parallelism=20`，manifest 默认不再二次分批。
+- 已把 wave 2 ADS metadata / run status 表中的资源、split、contract、convergence 元数据补齐，真实 `18_qa_sklearn_native_search_outputs.sql` 和 `19_qa_cloudrun_python_baseline_search_outputs.sql` 均通过。
+
+### 重要上下文
+
+- 真实 LightGBM binary wave 2 search `cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01` 已完成，Top5 均 rejected，当前不建立 `cloud_run_python_baseline_v1`。
+- Wave 2 的更准确结论是：valid / test RankIC 有正向证据，但 2025 test top-minus-bottom、2025 中证1000超额和 2026 final_holdout 风险门没有转化为可接受基线；不要再表述为“test 完全反转”。
+- PR #79 合并后需要先构建 / 部署包含 review follow-up 的新镜像，再执行 `lightgbm_regression` wave 3。
+
+### 改动文件
+
+- `Dockerfile.strategy1-cloudrun`
+- `configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml`
+- `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml`
+- `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`
+- `scripts/strategy1_cloudrun/acceptance.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1_cloudrun/prepare_matrix.py`
+- `scripts/strategy1_cloudrun/select_register_predict.py`
+- `scripts/strategy1_cloudrun/train_predict.py`
+- `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
+- `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`
+- `sql/ml/strategy1/README.md`
+- `TODO.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- Python `py_compile` 通过。
+- `git diff --check` 通过。
+- `18_qa_sklearn_native_search_outputs.sql` / `19_qa_cloudrun_python_baseline_search_outputs.sql` BigQuery dry-run 通过。
+- Orchestrator dry-run 确认 manifest 默认 `candidate_parallelism=20` 时产生单个 `--tasks=40` train fan-out step，不再拆两批。
+- 真实 BigQuery `18` / `19` QA 均通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 合并 PR #79。
+- 构建并部署新 Cloud Run runner 镜像。
+- 执行 `lightgbm_regression` wave 3；若仍 rejected，再按 PRD04 进入下一模型族或特征增强讨论。
+
+### 已更新记忆文件
+
+- `TODO.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
 
 日期: 2026-06-06
 Agent ID: Codex
@@ -89,6 +162,7 @@ Run ID: manual_verify_oq005_warning_before_assert_20260606_01 / manual_verify_oq
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
+
 
 日期: 2026-06-05
 Agent ID: Codex
@@ -146,67 +220,6 @@ Run ID: N/A
 - `.agent/memory/PROJECT_CONTEXT.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-
-日期: 2026-06-05
-Agent ID: Codex
-Agent 实例 ID: Codex desktop session
-模型: GPT-5 Codex
-运行环境: Codex desktop
-Run ID: manual_smoke_scheduler_fix_20260605_04
-相关 issue/PR: OQ-005 / scheduler daily-date and readiness follow-up
-
-### 已完成工作
-
-- 修复 `ashare_daily_pipeline_v0` scheduled run 默认日期口径：20:00 CST 使用 `data_interval_end.in_timezone('Asia/Shanghai')` 当天日期，手动 `dag_run.conf.business_date/date_to` 仍最高优先级。
-- 修复 Airflow task callback 状态回写仍使用 `ds` 的偏差，避免 `pipeline_task_status` 对 scheduled run 继续写前一天业务日。
-- 为 `ods_daily_partition_readiness` 传入 `pipeline_run_id`，并将 weak endpoint 缺失 / API 单次行数上限命中作为 `warning` 行写入 `pipeline_task_status`，不覆盖主 readiness task。
-- 将 `ods_daily_partition_readiness` 的 task_type 归类为 `qa`。
-- 修正 runbook 中“非交易日自动跳过 ingestion”的未实现描述，改为当前真实行为并把自动 skip gate 留作后续项。
-- 已同步 DAG、readiness SQL、meta DDL 到 Composer bucket。
-
-### 重要上下文
-
-- Smoke `manual_smoke_scheduler_fix_20260605_04` 最终失败是预期结果：`business_date=2026-06-05` 的 ODS strong endpoint 尚未采集，`ods_daily_partition_readiness` 以 `QA-ODS-DAILY-2` 阻断，下游窗口写入未执行。
-- ODS 复核显示 `daily` / `daily_basic` 当前只有 `partition_date=20260604`，没有 `20260605`。
-- 当前 DAG 尚未实现非交易日自动 skip ingestion / transform；后续应补交易日 gate 和 `skip_non_trading_day` 状态行。
-
-### 改动文件
-
-- `orchestration/composer/dags/ashare_daily_pipeline_v0.py`
-- `sql/qa/09_ods_daily_partition_readiness.sql`
-- `sql/meta/01_create_meta_tables.sql`
-- `docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md`
-- `TODO.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/OPEN_QUESTIONS.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-
-### 测试 / 验证
-
-- `python3 -m py_compile orchestration/composer/dags/ashare_daily_pipeline_v0.py`
-- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 --parameter=pipeline_run_id::dryrun_scheduler_fix --parameter=business_date::2026-06-04 --parameter=pipeline_dry_run::false --parameter=require_business_partition::true < sql/qa/09_ods_daily_partition_readiness.sql`
-- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/meta/01_create_meta_tables.sql`
-- `git diff --check`
-- Composer smoke `manual_smoke_scheduler_fix_20260605_04`：按预期 failed at `ods_daily_partition_readiness` / `QA-ODS-DAILY-2`，状态表记录 `business_date=2026-06-05`、task_type=`qa`。
-
-### 阻塞项
-
-- 无当前实现阻塞；`2026-06-05` ODS 数据尚未采集，不能通过 daily_current 成功 smoke。
-
-### 下一步建议
-
-- 等 `2026-06-05` ODS 数据可用后，手动触发 `business_date=2026-06-05` 的 daily_current smoke，验证 strong readiness 通过和窗口刷新成功。
-- 增加非交易日 gate：scheduled 非交易日自动跳过 ingestion / transform 并写 `skip_non_trading_day` 状态行。
-- 继续 Dataform definitions、补跑/resume 自动化和完整 ODS→ADS 运维观测闭环。
-
-### 已更新记忆文件
-
-- `TODO.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/OPEN_QUESTIONS.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 
 日期: 2026-06-05

@@ -139,7 +139,7 @@ python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search
   --force-replace
 ```
 
-该入口会先按 PRD04 窗口构建训练面板，再由 `prepare_matrix` 生成 frozen matrix，并发训练候选、按 2021/2022/2023 purged walk-forward CV + 2024 valid confirmation 选 Top5。Top5 完整 prediction / portfolio / ledger / report / diagnosis 后，由 `19_qa_cloudrun_python_baseline_search_outputs.sql` 校验 Cloud Run Python backend、LightGBM 模型族、CV 证据、uploaded 报告/诊断、共享验收契约、2025 test reuse 和 2026 final_holdout watch。若 Top5 存在 `needs_more_evidence` 且无 accepted 候选，默认进入 `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 的 `lightgbm_regression` 下一波。
+该入口会先按 PRD04 窗口构建训练面板，再由 `prepare_matrix` 生成 frozen matrix，并发训练候选、按 2021/2022/2023 purged walk-forward CV + 2024 valid confirmation 选 Top5。Top5 完整 prediction / portfolio / ledger / report / diagnosis 后，由 `19_qa_cloudrun_python_baseline_search_outputs.sql` 校验 Cloud Run Python backend、LightGBM 模型族、CV 证据、uploaded 报告/诊断、共享验收契约、2025 test reuse 和 2026 final_holdout watch。若 Top5 存在 `needs_more_evidence` 且无 accepted 候选，当前 wave 的 QA 先完成；随后才可按 manifest 触发 `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 的 `lightgbm_regression` 下一波，且下一波失败只记录在 orchestrator 输出中，不覆盖当前 wave 结论。
 
 ## 参数说明
 

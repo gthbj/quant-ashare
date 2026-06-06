@@ -8,6 +8,13 @@ DECLARE p_expected_candidate_count INT64 DEFAULT 36;
 DECLARE p_top_k INT64 DEFAULT 5;
 DECLARE p_test_reuse_wave_no INT64 DEFAULT 1;
 DECLARE p_acceptance_contract_version STRING DEFAULT 'model_acceptance_contract_v1';
+DECLARE p_min_test_rank_ic FLOAT64 DEFAULT 0.0;
+DECLARE p_min_test_year_excess_return_vs_000852 FLOAT64 DEFAULT 0.0;
+DECLARE p_min_sharpe FLOAT64 DEFAULT 0.70;
+DECLARE p_min_max_drawdown FLOAT64 DEFAULT -0.25;
+DECLARE p_required_valid_signal_status STRING DEFAULT 'stable';
+DECLARE p_final_holdout_required_after_wave INT64 DEFAULT 3;
+DECLARE p_final_holdout_passed_status STRING DEFAULT 'passed';
 
 -- QA-SKN-1: search_id 下 Top-K registry 记录能追溯完整 candidate_count / source_run_id。
 ASSERT (
@@ -24,12 +31,12 @@ ASSERT (
 -- QA-SKN-2: 每个 Top-K selected model 都有 terminal task-fanout / matrix audit 信息。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.task_fanout_mode') != 'task_fanout') = 0
-    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.matrix_id') IS NULL) = 0
-    AND COUNTIF(NOT STARTS_WITH(JSON_VALUE(reg.metrics_json, '$.matrix_uri'), 'gs://')) = 0
-    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.feature_order_sha256') IS NULL) = 0
-    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.preprocess_stats_sha256') IS NULL) = 0
-    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.work_units_sha256') IS NULL) = 0
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.task_fanout_mode') = 'task_fanout')
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.matrix_id') IS NOT NULL)
+    AND LOGICAL_AND(STARTS_WITH(JSON_VALUE(reg.metrics_json, '$.matrix_uri'), 'gs://'))
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.feature_order_sha256') IS NOT NULL)
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.preprocess_stats_sha256') IS NOT NULL)
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.work_units_sha256') IS NOT NULL)
     AND COUNTIF(
       SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.succeeded_task_count') AS INT64)
       != SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.work_unit_count') AS INT64)
@@ -43,7 +50,7 @@ ASSERT (
 -- QA-SKN-3: candidate task 不得扫描全量训练面板，沿用 task-fanout audit 计数。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND COUNTIF(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_task_bq_forbidden_table_query_count') AS INT64) != 0) = 0
+    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_task_bq_forbidden_table_query_count') AS INT64) = 0)
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
@@ -53,8 +60,8 @@ ASSERT (
 -- QA-SKN-4 / QA-SKN-10: shortlist 排名只使用 valid 指标，不写 test 指标进排名 key。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.shortlist_ranking_uses_test_metrics') != 'false') = 0
-    AND COUNTIF(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.shortlist_rank_valid_only') AS INT64) IS NULL) = 0
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.shortlist_ranking_uses_test_metrics') = 'false')
+    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.shortlist_rank_valid_only') AS INT64) IS NOT NULL)
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
@@ -75,10 +82,10 @@ ASSERT (
 -- QA-SKN-6: Top-K 候选报告和诊断均 uploaded。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.report_upload_status') != 'uploaded') = 0
-    AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.model_diagnosis_upload_status') != 'uploaded') = 0
-    AND COUNTIF(NOT STARTS_WITH(JSON_VALUE(bs.metrics_json, '$.report_uri'), 'gs://')) = 0
-    AND COUNTIF(NOT STARTS_WITH(JSON_VALUE(bs.metrics_json, '$.model_diagnosis_uri'), 'gs://')) = 0
+    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.report_upload_status') = 'uploaded')
+    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.model_diagnosis_upload_status') = 'uploaded')
+    AND LOGICAL_AND(STARTS_WITH(JSON_VALUE(bs.metrics_json, '$.report_uri'), 'gs://'))
+    AND LOGICAL_AND(STARTS_WITH(JSON_VALUE(bs.metrics_json, '$.model_diagnosis_uri'), 'gs://'))
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   JOIN `data-aquarium.ashare_ads.ads_model_registry` AS reg
     ON reg.model_id = bs.model_id
@@ -98,8 +105,8 @@ ASSERT (
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
     AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') = 'accepted'
     AND (
-      JSON_VALUE(reg.metrics_json, '$.valid_signal_status') != 'stable'
-      OR SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) <= 0
+      NOT IFNULL(JSON_VALUE(reg.metrics_json, '$.valid_signal_status') = p_required_valid_signal_status, FALSE)
+      OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) > p_min_test_rank_ic, FALSE)
       OR SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) IS NULL
       OR SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) IS NULL
       OR (
@@ -107,17 +114,17 @@ ASSERT (
         AND SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) < 0
       )
       OR SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_year_total_return') AS FLOAT64) <= 0
-      OR SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_year_excess_return') AS FLOAT64) <= 0
-      OR bs.sharpe < 0.70
-      OR bs.max_drawdown < -0.25
+      OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_year_excess_return') AS FLOAT64) > p_min_test_year_excess_return_vs_000852, FALSE)
+      OR NOT IFNULL(bs.sharpe >= p_min_sharpe, FALSE)
+      OR NOT IFNULL(bs.max_drawdown >= p_min_max_drawdown, FALSE)
     )
 ) AS 'QA-SKN-7/11: accepted sklearn native candidates must satisfy hard gates and have stable valid signal';
 
 -- QA-SKN-8: native path 仍必须记录 BQML reference 字段，但不要求 parity passed。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.bqml_reference_run_id') IS NULL) = 0
-    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') NOT IN ('passed', 'failed', 'warning')) = 0
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.bqml_reference_run_id') IS NOT NULL)
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') IN ('passed', 'failed', 'warning'))
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
@@ -127,9 +134,9 @@ ASSERT (
 -- QA-SKN-9: 若无 accepted，至少明确 rejected / needs_more_evidence / candidate 之一，不能留空。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') NOT IN (
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') IN (
       'candidate', 'accepted', 'rejected', 'needs_more_evidence'
-    )) = 0
+    ))
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
@@ -154,15 +161,15 @@ ASSERT (
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
-    AND SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_reuse_wave_no') AS INT64) > 3
+    AND SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_reuse_wave_no') AS INT64) > p_final_holdout_required_after_wave
     AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') = 'accepted'
-    AND IFNULL(JSON_VALUE(reg.metrics_json, '$.final_holdout_status'), '') != 'passed'
+    AND IFNULL(JSON_VALUE(reg.metrics_json, '$.final_holdout_status'), '') != p_final_holdout_passed_status
 ) AS 'QA-SKN-13: wave >3 cannot be accepted without final holdout passed evidence';
 
 -- Sanity: caller-provided wave number must match registry rows.
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND COUNTIF(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_reuse_wave_no') AS INT64) != p_test_reuse_wave_no) = 0
+    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_reuse_wave_no') AS INT64) = p_test_reuse_wave_no)
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
@@ -172,9 +179,20 @@ ASSERT (
 -- QA-SKN-15: sklearn native search acceptance 必须追溯共享验收契约版本。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND COUNTIF(JSON_VALUE(reg.metrics_json, '$.acceptance_contract_version') != p_acceptance_contract_version) = 0
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.acceptance_contract_version') = p_acceptance_contract_version)
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
 ) AS 'QA-SKN-15: sklearn native search must record shared acceptance_contract_version';
+
+-- QA-SKN-16: unmatched_acceptance_state 只能作为 rejected 兜底原因。
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.strategy_id = p_strategy_id
+    AND reg.status = 'selected'
+    AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
+    AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_reason') = 'unmatched_acceptance_state'
+    AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') != 'rejected'
+) AS 'QA-SKN-16: unmatched_acceptance_state must only appear on rejected candidates';

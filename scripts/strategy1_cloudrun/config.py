@@ -74,6 +74,9 @@ class RunnerConfig:
     random_state: int = 20260604
     bqml_reference_run_id: str = "s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01"
     acceptance_contract_path: str = DEFAULT_ACCEPTANCE_CONTRACT_PATH
+    candidate_parallelism: int = 0
+    candidate_task_cpu: int | None = None
+    candidate_task_memory: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -216,6 +219,16 @@ def resolve_parallel_count(
     if max_parallel_experiments < 0:
         raise ValueError("--max-parallel-experiments must be >= 0")
     return min(max_parallel_experiments, selected_count)
+
+
+def effective_candidate_parallelism(config: RunnerConfig, cli_value: int | None) -> int:
+    if cli_value is not None and cli_value != 0:
+        if cli_value < 0:
+            raise ValueError("--candidate-parallelism must be >= 0")
+        return cli_value
+    if config.candidate_parallelism < 0:
+        raise ValueError("candidate_parallelism in config must be >= 0")
+    return config.candidate_parallelism
 
 
 def manifest_hash(path: str | Path) -> str:

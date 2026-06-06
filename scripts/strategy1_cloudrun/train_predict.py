@@ -23,6 +23,7 @@ import pandas as pd
 from google.cloud import bigquery
 
 from scripts.strategy1_cloudrun import __version__
+from scripts.strategy1_cloudrun.acceptance import load_acceptance_contract
 from scripts.strategy1_cloudrun.bq_io import (
     ADS,
     env_container_image,
@@ -306,6 +307,11 @@ def train_candidate_from_matrices(
     converged = lightgbm_converged(model_family, model) if model_family.startswith("lightgbm_") else (
         not convergence_warnings and n_iter_max < max_iter
     )
+    convergence_check_type = (
+        "booster_present_no_early_stopping"
+        if model_family.startswith("lightgbm_")
+        else "sklearn_convergence_warning_and_n_iter"
+    )
 
     raw_score = score_model(model, x_valid, score_source)
 
@@ -375,11 +381,17 @@ def train_candidate_from_matrices(
         "n_iter_max": n_iter_max,
         "converged": converged,
         "convergence_status": "converged" if converged else "not_converged",
+        "convergence_check_type": convergence_check_type,
+        "early_stopping_used": False,
+        "lightgbm_best_iteration": getattr(model, "best_iteration_", None) if model_family.startswith("lightgbm_") else None,
         "convergence_warning_count": len(convergence_warnings),
         "convergence_warnings": convergence_warnings[:3],
     }
     metrics.update(cv_metrics)
-    metrics["valid_signal_status"] = classify_valid_signal(metrics)
+    metrics["valid_signal_status"] = classify_valid_signal(
+        metrics,
+        weak_rank_ic_threshold=weak_valid_rank_ic_threshold(config),
+    )
     metrics["model_complexity_rank"] = model_complexity_rank(metrics)
     return CandidateResult(
         candidate_id=candidate_cfg["candidate_id"],
@@ -629,16 +641,24 @@ def _normalize_optional_string(value: Any) -> str | None:
     return text
 
 
-def classify_valid_signal(metrics: dict[str, Any]) -> str:
+def classify_valid_signal(metrics: dict[str, Any], *, weak_rank_ic_threshold: float = 0.01) -> str:
     rank_ic = _nan_to_zero(float(metrics.get("oriented_valid_rank_ic_mean") or math.nan))
     icir = _nan_to_zero(float(metrics.get("oriented_valid_rank_ic_icir") or math.nan))
     topn = _nan_to_zero(float(metrics.get("valid_topn_fwd_ret_mean") or math.nan))
     spread = _nan_to_zero(float(metrics.get("valid_top_minus_bottom_fwd_ret_mean") or math.nan))
     if rank_ic <= 0:
         return "failed"
-    if rank_ic <= 0.01 or icir <= 0 or (topn <= 0 and spread <= 0):
+    if rank_ic <= weak_rank_ic_threshold or icir <= 0 or (topn <= 0 and spread <= 0):
         return "weak"
     return "stable"
+
+
+def weak_valid_rank_ic_threshold(config: RunnerConfig) -> float:
+    try:
+        contract = load_acceptance_contract(config.acceptance_contract_path)
+        return float((contract.get("thresholds") or {}).get("weak_valid_rank_ic_threshold", 0.01))
+    except Exception:
+        return 0.01
 
 
 def model_complexity_rank(metrics_or_params: dict[str, Any]) -> int:

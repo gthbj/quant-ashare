@@ -29,6 +29,7 @@ from scripts.strategy1_cloudrun.config import (
     Experiment,
     add_common_args,
     apply_cli_overrides,
+    effective_candidate_parallelism,
     experiment_from_b64,
     filter_experiments,
     load_manifest,
@@ -57,7 +58,8 @@ def main() -> int:
     matrix_id = args.matrix_id or default_matrix_id(config, experiment)
     matrix_uri = args.matrix_uri or matrix_artifact_uri(config, experiment, matrix_id)
     local_dir = Path(args.matrix_local_dir) if args.matrix_local_dir else matrix_local_dir(config, experiment, matrix_id)
-    candidate_parallelism_resolved = resolve_candidate_parallelism(len(config.candidate_grid), args.candidate_parallelism)
+    candidate_parallelism_arg = effective_candidate_parallelism(config, args.candidate_parallelism)
+    candidate_parallelism_resolved = resolve_candidate_parallelism(len(config.candidate_grid), candidate_parallelism_arg)
     plan = {
         "entrypoint": "prepare_matrix",
         "runner_version": __version__,
@@ -68,7 +70,10 @@ def main() -> int:
         "matrix_uri": matrix_uri,
         "matrix_local_dir": str(local_dir),
         "work_unit_count": len(config.candidate_grid),
+        "candidate_parallelism_arg": candidate_parallelism_arg,
         "candidate_parallelism_resolved": candidate_parallelism_resolved,
+        "candidate_task_cpu": config.candidate_task_cpu,
+        "candidate_task_memory": config.candidate_task_memory,
         "candidate_grid_hash": candidate_grid_hash(config),
         "skip_gcs_upload": args.skip_gcs_upload,
     }
@@ -192,6 +197,9 @@ def prepare_matrix(
 
     work_units = stamp_work_units(build_work_units(config, experiment, matrix_uri), matrix_id, matrix_uri)
     work_units["candidate_parallelism_resolved"] = candidate_parallelism_resolved
+    work_units["candidate_parallelism_requested"] = candidate_parallelism_arg
+    work_units["candidate_task_cpu"] = config.candidate_task_cpu
+    work_units["candidate_task_memory"] = config.candidate_task_memory
     work_units["work_units_sha256"] = sha256_json({k: v for k, v in work_units.items() if k != "work_units_sha256"})
     write_json(local_dir / "work_units.json", work_units)
     bq_audit = {
@@ -223,6 +231,10 @@ def prepare_matrix(
         "feature_order_sha256": feature_schema["feature_order_sha256"],
         "preprocess_stats_sha256": preprocess_stats["preprocess_stats_sha256"],
         "work_units_sha256": work_units["work_units_sha256"],
+        "candidate_parallelism_requested": candidate_parallelism_arg,
+        "candidate_parallelism_resolved": candidate_parallelism_resolved,
+        "candidate_task_cpu": config.candidate_task_cpu,
+        "candidate_task_memory": config.candidate_task_memory,
         "candidate_grid_hash": candidate_grid_hash(config),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by_job": "prepare_matrix",

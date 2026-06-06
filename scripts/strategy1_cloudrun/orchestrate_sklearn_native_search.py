@@ -31,6 +31,7 @@ from google.cloud import bigquery
 
 from scripts.strategy1_cloudrun import __version__
 from scripts.strategy1_cloudrun.acceptance import (
+    contract_sql_params,
     contract_version,
     decide_acceptance as decide_contract_acceptance,
     load_acceptance_contract,
@@ -48,6 +49,7 @@ from scripts.strategy1_cloudrun.config import (
     Experiment,
     add_common_args,
     apply_cli_overrides,
+    effective_candidate_parallelism,
     experiment_to_b64,
     filter_experiments,
     load_manifest,
@@ -79,6 +81,10 @@ from scripts.strategy1_cloudrun.task_fanout import default_matrix_id, matrix_art
 def main() -> int:
     args = parse_args()
     config = apply_cli_overrides(load_runner_config(args.config), args)
+    requested_candidate_parallelism = effective_candidate_parallelism(config, args.candidate_parallelism)
+    candidate_parallelism_source = "cli" if args.candidate_parallelism not in (None, 0) else "config"
+    args.candidate_parallelism_from_cli = args.candidate_parallelism not in (None, 0)
+    args.candidate_parallelism = requested_candidate_parallelism
     raw_manifest = read_mapping(args.manifest)
     _, experiments = load_manifest(args.manifest)
     selected = filter_experiments(
@@ -118,7 +124,10 @@ def main() -> int:
         "matrix_id": matrix_id,
         "matrix_uri": matrix_uri,
         "candidate_count": len(config.candidate_grid),
-        "candidate_parallelism_arg": args.candidate_parallelism,
+        "candidate_parallelism_arg": requested_candidate_parallelism,
+        "candidate_parallelism_source": candidate_parallelism_source,
+        "candidate_task_cpu": config.candidate_task_cpu,
+        "candidate_task_memory": config.candidate_task_memory,
         "top_k_backtest": top_k,
         "test_reuse_wave_no": test_reuse_wave_no,
         "test_reuse_approval_ref": test_reuse_approval_ref,
@@ -252,10 +261,10 @@ def main() -> int:
                 })
 
     successful_topk_results = [item for item in topk_results if item.get("status") == "succeeded"]
-    comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results) if successful_topk_results else []
+    comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results, search_exp) if successful_topk_results else []
     contract = load_acceptance_contract(config.acceptance_contract_path)
     apply_native_acceptance_to_ads(client, comparison_rows, raw_manifest, contract)
-    comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results) if successful_topk_results else []
+    comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results, search_exp) if successful_topk_results else []
     write_final_comparison(
         comparison_dir,
         search_id=search_id,
@@ -274,40 +283,48 @@ def main() -> int:
         comparison_dir,
         comparison_uri(config, search_id),
     )
-    next_wave = maybe_run_next_wave(
-        args=args,
-        raw_manifest=raw_manifest,
-        comparison_rows=comparison_rows,
-    )
     if not args.skip_qa:
         qa_script = (
             "sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql"
             if search_id.startswith("sklearn_native_")
             else "sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql"
         )
-        run_sql_script(
-            client,
-            qa_script,
-            {
-                "p_search_id": search_id,
-                "p_source_run_id": search_exp.run_id,
-                "p_expected_candidate_count": len(config.candidate_grid),
-                "p_expected_candidate_parallelism": resolve_parallel_count(
-                    len(config.candidate_grid),
-                    args.candidate_parallelism,
-                ),
-                "p_expected_model_family": expected_model_family,
-                "p_expected_model_search_wave_no": expected_model_search_wave_no,
-                "p_top_k": top_k,
-                "p_test_reuse_wave_no": test_reuse_wave_no,
-                "p_acceptance_contract_version": contract_version(contract),
-            },
-        )
+        qa_params = {
+            "p_search_id": search_id,
+            "p_source_run_id": search_exp.run_id,
+            "p_expected_candidate_count": len(config.candidate_grid),
+            "p_expected_candidate_parallelism": resolve_parallel_count(
+                len(config.candidate_grid),
+                args.candidate_parallelism,
+            ),
+            "p_expected_candidate_task_cpu": config.candidate_task_cpu,
+            "p_expected_candidate_task_memory": config.candidate_task_memory,
+            "p_expected_model_family": expected_model_family,
+            "p_expected_model_search_wave_no": expected_model_search_wave_no,
+            "p_top_k": top_k,
+            "p_test_reuse_wave_no": test_reuse_wave_no,
+            "p_acceptance_contract_version": contract_version(contract),
+            "p_valid_start_date": search_exp.valid_start,
+            "p_valid_end_date": search_exp.valid_end,
+            "p_test_start_date": search_exp.test_start,
+            "p_test_end_date": search_exp.test_end,
+            "p_final_holdout_start_date": search_exp.final_holdout_start,
+            "p_final_holdout_end_date": search_exp.final_holdout_end,
+            "p_data_end_date": search_exp.final_holdout_end or search_exp.predict_end,
+        }
+        qa_params.update(contract_sql_params(contract))
+        run_sql_script(client, qa_script, qa_params)
+    next_wave = maybe_run_next_wave(
+        args=args,
+        raw_manifest=raw_manifest,
+        comparison_rows=comparison_rows,
+    )
     print(json.dumps({
         "status": "succeeded",
         "search_id": search_id,
         "matrix_uri": matrix_uri,
         "candidate_count": len(config.candidate_grid),
+        "candidate_parallelism_arg": args.candidate_parallelism,
         "top_k_backtest": len(top_rows),
         "comparison_uri": None if args.skip_gcs_upload else comparison_uri(config, search_id),
         "uploaded_artifacts": uploaded,
@@ -393,8 +410,14 @@ def maybe_run_next_wave(
     auto = bool(args.auto_next_wave_on_needs_more_evidence or raw_manifest.get("auto_next_wave_on_needs_more_evidence"))
     if not auto:
         return {"triggered": False, "reason": "auto_next_wave_disabled", "command": cmd}
-    subprocess.run(cmd, check=True)
-    return {"triggered": True, "reason": "needs_more_evidence", "command": cmd}
+    completed = subprocess.run(cmd, check=False)
+    return {
+        "triggered": True,
+        "reason": "needs_more_evidence",
+        "command": cmd,
+        "returncode": completed.returncode,
+        "status": "succeeded" if completed.returncode == 0 else "failed",
+    }
 
 
 def build_training_panel_params(exp: Experiment, *, force_replace: bool) -> dict[str, Any]:
@@ -745,7 +768,11 @@ def render_comparison_md(payload: dict[str, Any], comparison_rows: list[dict[str
     return "\n".join(lines) + "\n"
 
 
-def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def fetch_topk_ads_outputs(
+    client: bigquery.Client,
+    topk_results: list[dict[str, Any]],
+    search_exp: Experiment,
+) -> list[dict[str, Any]]:
     run_ids = [item["experiment"]["run_id"] for item in topk_results]
     backtest_ids = [item["experiment"]["backtest_id"] for item in topk_results]
     rank_by_run = {
@@ -802,7 +829,7 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
            AND tp.trade_date = pred.predict_date
            AND tp.sec_code = pred.sec_code
           WHERE pred.run_id IN UNNEST(@run_ids)
-            AND pred.predict_date BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
+            AND pred.predict_date BETWEEN @test_start AND @test_end
             AND tp.split_tag = 'test'
             AND tp.target_return IS NOT NULL
         ) AS pred
@@ -832,7 +859,7 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
            AND tp.trade_date = pred.predict_date
            AND tp.sec_code = pred.sec_code
           WHERE pred.run_id IN UNNEST(@run_ids)
-            AND pred.predict_date BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
+            AND pred.predict_date BETWEEN @test_start AND @test_end
             AND tp.split_tag = 'test'
             AND tp.target_return IS NOT NULL
         )
@@ -847,7 +874,7 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
         EXP(SUM(IF(1.0 + benchmark_return > 0, LN(1.0 + benchmark_return), NULL))) - 1.0 AS test_year_benchmark_return
       FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily`
       WHERE run_id IN UNNEST(@run_ids)
-        AND trade_date BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
+        AND trade_date BETWEEN @test_start AND @test_end
       GROUP BY run_id
     ),
     final_holdout_perf AS (
@@ -858,7 +885,9 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
         EXP(SUM(IF(1.0 + benchmark_return > 0, LN(1.0 + benchmark_return), NULL))) - 1.0 AS final_holdout_benchmark_return
       FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily`
       WHERE run_id IN UNNEST(@run_ids)
-        AND trade_date BETWEEN DATE '2026-01-05' AND DATE '2026-04-30'
+        AND @final_holdout_start IS NOT NULL
+        AND @final_holdout_end IS NOT NULL
+        AND trade_date BETWEEN @final_holdout_start AND @final_holdout_end
       GROUP BY run_id
     )
     SELECT
@@ -907,6 +936,10 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
             job_config=bigquery.QueryJobConfig(query_parameters=[
                 bigquery.ArrayQueryParameter("run_ids", "STRING", run_ids),
                 bigquery.ArrayQueryParameter("backtest_ids", "STRING", backtest_ids),
+                bigquery.ScalarQueryParameter("test_start", "DATE", search_exp.test_start),
+                bigquery.ScalarQueryParameter("test_end", "DATE", search_exp.test_end),
+                bigquery.ScalarQueryParameter("final_holdout_start", "DATE", search_exp.final_holdout_start),
+                bigquery.ScalarQueryParameter("final_holdout_end", "DATE", search_exp.final_holdout_end),
             ]),
         ).result()
     ]
@@ -923,6 +956,7 @@ def fetch_topk_ads_outputs(client: bigquery.Client, topk_results: list[dict[str,
             "model_id": row.get("model_id"),
             "model_uri": row.get("model_uri"),
             "valid_signal_status": reg_metrics.get("valid_signal_status"),
+            "score_orientation": reg_metrics.get("score_orientation"),
             "cv_confirmation_status": reg_metrics.get("cv_confirmation_status"),
             "cv_rank_ic_mean": reg_metrics.get("cv_rank_ic_mean"),
             "cv_top_minus_bottom_fwd_ret_mean": reg_metrics.get("cv_top_minus_bottom_fwd_ret_mean"),
@@ -991,6 +1025,11 @@ def patch_native_acceptance(
         bigquery.ScalarQueryParameter("reason", "STRING", reason),
         bigquery.ScalarQueryParameter("acceptance_contract_version", "STRING", derived.get("acceptance_contract_version")),
         bigquery.ScalarQueryParameter("holdout_watch_flag", "BOOL", bool(derived.get("holdout_watch_flag"))),
+        bigquery.ScalarQueryParameter(
+            "unmatched_acceptance_state_reasons",
+            "STRING",
+            ";".join(derived.get("unmatched_acceptance_state_reasons") or []),
+        ),
         bigquery.ScalarQueryParameter("candidate_id", "STRING", row.get("candidate_id")),
         bigquery.ScalarQueryParameter("shortlist_rank", "INT64", row.get("shortlist_rank_valid_only")),
         bigquery.ScalarQueryParameter("test_rank_ic_mean", "FLOAT64", safe_float_or_none(row.get("test_rank_ic_mean"))),
@@ -1010,6 +1049,7 @@ def patch_native_acceptance(
           '$.native_acceptance_reason', @reason,
           '$.acceptance_contract_version', @acceptance_contract_version,
           '$.holdout_watch_flag', @holdout_watch_flag,
+          '$.unmatched_acceptance_state_reasons', @unmatched_acceptance_state_reasons,
           '$.test_rank_ic_mean', @test_rank_ic_mean,
           '$.test_top_minus_bottom_fwd_ret_mean', @test_top_minus_bottom,
           '$.test_year_total_return', @test_year_total_return,
@@ -1035,6 +1075,7 @@ def patch_native_acceptance(
           '$.native_acceptance_reason', @reason,
           '$.acceptance_contract_version', @acceptance_contract_version,
           '$.holdout_watch_flag', @holdout_watch_flag,
+          '$.unmatched_acceptance_state_reasons', @unmatched_acceptance_state_reasons,
           '$.test_rank_ic_mean', @test_rank_ic_mean,
           '$.test_top_minus_bottom_fwd_ret_mean', @test_top_minus_bottom,
           '$.test_year_total_return', @test_year_total_return,

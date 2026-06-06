@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates fontconfig fonts-noto-cjk \
+    && apt-get install -y --no-install-recommends git ca-certificates fontconfig fonts-noto-cjk libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/strategy1/requirements.txt /tmp/requirements.txt

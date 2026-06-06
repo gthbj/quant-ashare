@@ -194,6 +194,9 @@ def select_register_predict(
         "work_unit_count": int(work_units["work_unit_count"]),
         "succeeded_task_count": len(candidates),
         "candidate_parallelism_resolved": int(work_units.get("candidate_parallelism_resolved") or work_units["work_unit_count"]),
+        "candidate_parallelism_requested": int(work_units.get("candidate_parallelism_requested") or work_units.get("candidate_parallelism_resolved") or work_units["work_unit_count"]),
+        "candidate_task_cpu": work_units.get("candidate_task_cpu") or manifest.get("candidate_task_cpu"),
+        "candidate_task_memory": work_units.get("candidate_task_memory") or manifest.get("candidate_task_memory"),
         "feature_order_sha256": manifest["feature_order_sha256"],
         "preprocess_stats_sha256": manifest["preprocess_stats_sha256"],
         "work_units_sha256": manifest["work_units_sha256"],
@@ -517,6 +520,16 @@ def native_search_metrics(
         "test_reuse_wave_no": int(test_reuse_wave_no),
         "test_reuse_approval_ref": test_reuse_approval_ref,
         "final_holdout_status": final_holdout_status,
+        "train_start_date": experiment.train_start,
+        "train_end_date": experiment.train_end,
+        "valid_start_date": experiment.valid_start,
+        "valid_end_date": experiment.valid_end,
+        "test_start_date": experiment.test_start,
+        "test_end_date": experiment.test_end,
+        "final_holdout_start_date": experiment.final_holdout_start,
+        "final_holdout_end_date": experiment.final_holdout_end,
+        "predict_start_date": experiment.predict_start,
+        "predict_end_date": experiment.predict_end,
     }
 
 

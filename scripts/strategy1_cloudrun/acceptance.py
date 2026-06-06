@@ -23,6 +23,33 @@ def contract_version(contract: dict[str, Any]) -> str:
     return str(contract["contract_version"])
 
 
+def contract_sql_params(contract: dict[str, Any]) -> dict[str, Any]:
+    """Return SQL DECLARE parameters derived from the shared YAML contract."""
+
+    thresholds = contract.get("thresholds") or {}
+    required = contract.get("required") or {}
+    test_reuse = contract.get("test_reuse") or {}
+    return {
+        "p_min_valid_rank_ic": thresholds.get("min_valid_rank_ic", 0.0),
+        "p_min_valid_top_minus_bottom_fwd_ret": thresholds.get("min_valid_top_minus_bottom_fwd_ret", 0.0),
+        "p_min_test_rank_ic": thresholds.get("min_test_rank_ic", 0.0),
+        "p_min_test_top_minus_bottom_fwd_ret": thresholds.get("min_test_top_minus_bottom_fwd_ret", 0.0),
+        "p_min_test_year_excess_return_vs_000852": thresholds.get("min_test_year_excess_return_vs_000852", 0.0),
+        "p_min_overall_excess_return_vs_000852": thresholds.get("min_overall_excess_return_vs_000852", 0.0),
+        "p_min_total_return": thresholds.get("min_total_return", 0.0),
+        "p_min_sharpe": thresholds.get("min_sharpe", 0.70),
+        "p_min_max_drawdown": thresholds.get("min_max_drawdown", -0.25),
+        "p_min_final_holdout_excess_return_vs_000852": thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05),
+        "p_min_final_holdout_total_return": thresholds.get("min_final_holdout_total_return", -0.08),
+        "p_weak_valid_rank_ic_threshold": thresholds.get("weak_valid_rank_ic_threshold", 0.01),
+        "p_min_final_holdout_trading_days": thresholds.get("min_final_holdout_trading_days", 40),
+        "p_required_valid_signal_status": required.get("valid_signal_status", "stable"),
+        "p_required_cv_confirmation_status": required.get("cv_confirmation_status", "passed"),
+        "p_final_holdout_required_after_wave": test_reuse.get("final_holdout_required_after_wave", 3),
+        "p_final_holdout_passed_status": test_reuse.get("final_holdout_passed_status", "passed"),
+    }
+
+
 def decide_acceptance(row: dict[str, Any], contract: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     """Return status, machine-readable reason and derived fields.
 
@@ -41,6 +68,11 @@ def decide_acceptance(row: dict[str, Any], contract: dict[str, Any]) -> tuple[st
     failed_reasons = _failed_reasons(row)
     if failed_reasons:
         return "failed", ";".join(failed_reasons), derived
+
+    unmatched_reasons = _unmatched_input_state_reasons(row, contract)
+    if unmatched_reasons:
+        derived["unmatched_acceptance_state_reasons"] = unmatched_reasons
+        return "rejected", "unmatched_acceptance_state", derived
 
     hard_reject = _hard_reject_reasons(row, contract)
     if hard_reject:
@@ -121,8 +153,6 @@ def _hard_reject_reasons(row: dict[str, Any], contract: dict[str, Any]) -> list[
         ("total_return", row.get("total_return"), thresholds.get("min_total_return", 0.0), "le"),
         ("sharpe", row.get("sharpe"), thresholds.get("min_sharpe", 0.70), "lt"),
         ("max_drawdown", row.get("max_drawdown"), thresholds.get("min_max_drawdown", -0.25), "lt"),
-        ("final_holdout_excess_return_vs_000852", row.get("final_holdout_excess_return_vs_000852"), thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05), "le"),
-        ("final_holdout_total_return", row.get("final_holdout_total_return"), thresholds.get("min_final_holdout_total_return", -0.08), "le"),
     ]
     for name, actual, threshold, op in numeric_checks:
         actual_value = safe_float(actual)
@@ -133,7 +163,21 @@ def _hard_reject_reasons(row: dict[str, Any], contract: dict[str, Any]) -> list[
             reasons.append(f"{name}<={threshold_value}")
         elif op == "lt" and actual_value < threshold_value:
             reasons.append(f"{name}<{threshold_value}")
+    final_numeric_checks = [
+        ("final_holdout_excess_return_vs_000852", row.get("final_holdout_excess_return_vs_000852"), thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05), "le"),
+        ("final_holdout_total_return", row.get("final_holdout_total_return"), thresholds.get("min_final_holdout_total_return", -0.08), "le"),
+    ]
+    for name, actual, threshold, op in final_numeric_checks:
+        actual_value = safe_float(actual)
+        threshold_value = safe_float(threshold)
+        if not math.isfinite(actual_value):
+            continue
+        if op == "le" and actual_value <= threshold_value:
+            reasons.append(f"{name}<={threshold_value}")
     required = contract.get("required") or {}
+    allowed_score_orientation = set(required.get("allowed_score_orientation") or ["identity", "reverse_probability"])
+    if row.get("score_orientation") not in allowed_score_orientation:
+        reasons.append(f"score_orientation={row.get('score_orientation')}")
     if row.get("valid_signal_status") != required.get("valid_signal_status", "stable"):
         reasons.append(f"valid_signal_status={row.get('valid_signal_status')}")
     diagnosis = contract.get("diagnosis") or {}
@@ -157,6 +201,8 @@ def _needs_more_evidence_reasons(row: dict[str, Any], contract: dict[str, Any]) 
     actual_days = safe_int(row.get("final_holdout_trading_days"))
     if actual_days < min_days:
         reasons.append(f"final_holdout_trading_days<{min_days}")
+    if row.get("final_holdout_excess_return_vs_000852") is None or row.get("final_holdout_total_return") is None:
+        reasons.append("final_holdout_metrics=missing")
     wave_no = safe_int(row.get("test_reuse_wave_no"))
     required_after = safe_int(test_reuse.get("final_holdout_required_after_wave", 3))
     passed_status = str(test_reuse.get("final_holdout_passed_status", "passed"))
@@ -164,6 +210,21 @@ def _needs_more_evidence_reasons(row: dict[str, Any], contract: dict[str, Any]) 
         reasons.append("test_reuse_wave_no_gt_final_holdout_threshold_without_passed_holdout")
     if not row.get("acceptance_contract_version"):
         reasons.append("acceptance_contract_version=missing")
+    return reasons
+
+
+def _unmatched_input_state_reasons(row: dict[str, Any], contract: dict[str, Any]) -> list[str]:
+    required = contract.get("required") or {}
+    allowed_score_orientation = set(required.get("allowed_score_orientation") or ["identity", "reverse_probability"])
+    reasons = []
+    if row.get("score_orientation") is not None and row.get("score_orientation") not in allowed_score_orientation:
+        reasons.append(f"score_orientation={row.get('score_orientation')}")
+    valid_signal_status = row.get("valid_signal_status")
+    if valid_signal_status is not None and valid_signal_status not in {"stable", "weak", "failed"}:
+        reasons.append(f"valid_signal_status={valid_signal_status}")
+    cv_status = row.get("cv_confirmation_status")
+    if cv_status is not None and cv_status not in {"passed", "failed", "missing"}:
+        reasons.append(f"cv_confirmation_status={cv_status}")
     return reasons
 
 
