@@ -17,6 +17,9 @@ SELECT
   date_to,
   run_label,
   warehouse_mode,
+  transform_backend,
+  upstream_pipeline_run_id,
+  triggered_by_dag_id,
   status,
   started_at,
   finished_at,
@@ -133,12 +136,13 @@ CREATE OR REPLACE VIEW `data-aquarium.ashare_meta.v_pipeline_daily_health` AS
 WITH latest_runs AS (
   SELECT
     pipeline_run_id,
+    dag_id,
     business_date,
     warehouse_mode,
     status,
     started_at,
     finished_at,
-    ROW_NUMBER() OVER (PARTITION BY business_date, warehouse_mode ORDER BY started_at DESC) AS rn
+    ROW_NUMBER() OVER (PARTITION BY business_date, dag_id, warehouse_mode ORDER BY started_at DESC) AS rn
   FROM `data-aquarium.ashare_meta.pipeline_run`
   WHERE started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
 ),
@@ -156,6 +160,7 @@ task_summary AS (
 )
 SELECT
   lr.business_date,
+  lr.dag_id,
   lr.warehouse_mode,
   lr.status AS run_status,
   ts.tasks_success,
@@ -178,7 +183,60 @@ ORDER BY lr.business_date DESC, lr.warehouse_mode;
 --    - pipeline_failure: DAG run 失败
 --    - task_failure: task 失败（含 QA、readiness、窗口刷新等）
 --    - ingestion_failed: 采集执行失败（不含 empty_return）
+--    - warehouse_refresh_missing: ingestion 成功后 60 分钟内没有 linked 下游窗口刷新 run
 -- ────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE VIEW `data-aquarium.ashare_meta.v_pipeline_refresh_missing` AS
+WITH ingestion_success AS (
+  SELECT
+    pipeline_run_id,
+    dag_id,
+    business_date,
+    run_label,
+    status,
+    started_at,
+    finished_at
+  FROM `data-aquarium.ashare_meta.pipeline_run`
+  WHERE dag_id = 'ashare_ods_ingestion_daily'
+    AND status = 'success'
+    AND finished_at IS NOT NULL
+    AND started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+),
+warehouse_refresh AS (
+  SELECT
+    upstream_pipeline_run_id,
+    COUNT(*) AS linked_run_count,
+    ARRAY_AGG(
+      STRUCT(pipeline_run_id, status, started_at, finished_at)
+      ORDER BY started_at DESC
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS latest_refresh
+  FROM `data-aquarium.ashare_meta.pipeline_run`
+  WHERE dag_id = 'ashare_warehouse_window_refresh'
+    AND upstream_pipeline_run_id IS NOT NULL
+    AND started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+  GROUP BY upstream_pipeline_run_id
+)
+SELECT
+  i.pipeline_run_id AS ingestion_pipeline_run_id,
+  i.business_date,
+  'daily_current' AS warehouse_mode,
+  'missing_downstream_refresh' AS status,
+  CONCAT(
+    'ODS ingestion run succeeded but no linked ashare_warehouse_window_refresh run was observed within 60 minutes. upstream_pipeline_run_id=',
+    i.pipeline_run_id
+  ) AS error_summary,
+  i.started_at,
+  CURRENT_TIMESTAMP() AS detected_at,
+  w.latest_refresh.pipeline_run_id AS latest_refresh_pipeline_run_id,
+  w.latest_refresh.status AS latest_refresh_status,
+  w.latest_refresh.started_at AS latest_refresh_started_at,
+  w.latest_refresh.finished_at AS latest_refresh_finished_at
+FROM ingestion_success i
+LEFT JOIN warehouse_refresh w
+  ON w.upstream_pipeline_run_id = i.pipeline_run_id
+WHERE TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), i.finished_at, MINUTE) >= 60
+  AND COALESCE(w.linked_run_count, 0) = 0;
+
 CREATE OR REPLACE VIEW `data-aquarium.ashare_meta.v_alert_summary` AS
 SELECT
   'pipeline_failure' AS alert_type,
@@ -207,6 +265,19 @@ SELECT
 FROM `data-aquarium.ashare_meta.pipeline_task_status`
 WHERE status = 'failed'
   AND started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+
+UNION ALL
+
+SELECT
+  'warehouse_refresh_missing',
+  ingestion_pipeline_run_id,
+  business_date,
+  warehouse_mode,
+  status,
+  error_summary,
+  started_at,
+  detected_at
+FROM `data-aquarium.ashare_meta.v_pipeline_refresh_missing`
 
 UNION ALL
 
