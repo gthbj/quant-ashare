@@ -86,6 +86,9 @@ def parse_args():
     p.add_argument("--project", required=True, help="GCP project id")
     p.add_argument("--backtest-id", required=True)
     p.add_argument("--run-id", required=True)
+    p.add_argument("--prediction-run-id", default=None,
+                   help="Model/prediction source run_id; defaults to --run-id. "
+                        "Use this for portfolio-only backtests that reuse an existing prediction stream.")
     p.add_argument("--strategy-id", default="ml_pv_clf_v0")
     p.add_argument("--artifact-base-uri", required=True, help="gs://bucket/path")
     p.add_argument("--local-mirror-root", default="reports/strategy1")
@@ -722,6 +725,7 @@ def build_evidence_pack(summary: dict, nav_df: pd.DataFrame,
         "schema_version": EVIDENCE_SCHEMA_VERSION,
         "run_context": {
             "run_id": args.run_id,
+            "prediction_run_id": args.prediction_run_id,
             "backtest_id": args.backtest_id,
             "strategy_id": args.strategy_id,
             "model_id": summary.get("model_id"),
@@ -1207,6 +1211,8 @@ def render_markdown(summary: dict, model_info: dict, evidence: dict,
     sections.append("# 策略 1 回测报告\n")
     sections.append(f"- **策略名称**: `{args.strategy_id}`")
     sections.append(f"- **run_id**: `{args.run_id}`")
+    if args.prediction_run_id != args.run_id:
+        sections.append(f"- **prediction_run_id**: `{args.prediction_run_id}`")
     sections.append(f"- **backtest_id**: `{args.backtest_id}`")
     sections.append(f"- **model_id**: `{model_info.get('model_id', 'N/A')}`")
     model_metrics = json.loads(model_info.get("metrics_json") or "{}")
@@ -1702,6 +1708,7 @@ def validate_evidence_schema(evidence: dict) -> list[str]:
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     args = parse_args()
+    args.prediction_run_id = args.prediction_run_id or args.run_id
     bq = make_bq_client(args.project)
 
     # 1. Fetch data
@@ -1715,7 +1722,7 @@ def main():
     nav_df = fetch_nav(bq, args.project, args.backtest_id, sd, ed)
 
     print("获取模型信息...")
-    model_info = fetch_model_info(bq, args.project, args.strategy_id, args.run_id)
+    model_info = fetch_model_info(bq, args.project, args.strategy_id, args.prediction_run_id)
 
     print("获取展示基准...")
     assessment_bench = fetch_display_benchmark(bq, args.project,
@@ -1728,14 +1735,15 @@ def main():
 
     print("获取成交记录...")
     trades_df = fetch_trades(bq, args.project, args.backtest_id, sd, ed)
-    buy_enriched = fetch_enriched_buy_trades(bq, args.project, args.run_id, args.backtest_id, sd, ed)
+    buy_enriched = fetch_enriched_buy_trades(
+        bq, args.project, args.prediction_run_id, args.backtest_id, sd, ed)
     pos_weights = fetch_position_weights(bq, args.project, args.backtest_id, sd, ed)
 
     print("获取持仓...")
     positions_df = fetch_positions(bq, args.project, args.backtest_id, sd, ed)
 
     print("获取预测...")
-    predictions_df = fetch_predictions(bq, args.project, args.run_id, sd, ed)
+    predictions_df = fetch_predictions(bq, args.project, args.prediction_run_id, sd, ed)
 
     print("获取组合目标...")
     targets = fetch_portfolio_targets(bq, args.project, args.strategy_id, args.run_id, sd, ed)
@@ -1853,6 +1861,7 @@ def main():
     metrics = {
         "backtest_id": args.backtest_id,
         "run_id": args.run_id,
+        "prediction_run_id": args.prediction_run_id,
         "strategy_id": args.strategy_id,
         "model_id": model_info.get("model_id"),
         "report_version": REPORT_VERSION,
