@@ -163,6 +163,23 @@ python scripts/alerting/setup_alerts.py --dry-run
 
 手工窗口 backfill：
 
+```bash
+python scripts/pipeline/run_warehouse_refresh.py backfill \
+  --date-from 2026-05-11 \
+  --date-to 2026-06-05 \
+  --chunk-days 5 \
+  --resume
+
+python scripts/pipeline/run_warehouse_refresh.py backfill \
+  --date-from 2026-05-11 \
+  --date-to 2026-06-05 \
+  --chunk-days 5 \
+  --resume \
+  --execute \
+  --wait \
+  --fail-fast
+```
+
 ```json
 {
   "business_date": "2026-06-05",
@@ -172,6 +189,19 @@ python scripts/alerting/setup_alerts.py --dry-run
   "warehouse_mode": "backfill",
   "run_label": "manual_window_backfill"
 }
+```
+
+只跑 warehouse QA：
+
+```bash
+python scripts/pipeline/run_warehouse_refresh.py qa-only \
+  --business-date 2026-06-05
+
+python scripts/pipeline/run_warehouse_refresh.py qa-only \
+  --business-date 2026-06-05 \
+  --execute \
+  --wait \
+  --fail-fast
 ```
 
 手工全量维护重建：
