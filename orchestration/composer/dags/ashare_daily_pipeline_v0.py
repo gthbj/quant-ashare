@@ -3,6 +3,14 @@
 Cloud Composer orchestrates Cloud Run ingestion jobs and daily ODS readiness
 checks for the current ODS scope. Full warehouse refresh is behind an explicit
 Airflow variable so the daily schedule does not scan 2019+ history by default.
+
+Scheduling semantics:
+- Scheduled run (20:00 CST): business_date defaults to data_interval_end in
+  Asia/Shanghai timezone, which is the current calendar date.
+- Manual trigger: dag_run.conf.business_date/date_from/date_to override defaults.
+- backfill mode: always uses explicit date_from/date_to from conf.
+- Non-trading day auto-skip is not implemented in this DAG; use explicit
+  backfill when the previous trading day must be repaired.
 """
 
 from __future__ import annotations
@@ -27,9 +35,17 @@ DEFAULT_BQ_LOCATION = "asia-east2"
 PROJECT_ID = DEFAULT_PROJECT_ID
 REGION = DEFAULT_REGION
 BQ_LOCATION = DEFAULT_BQ_LOCATION
-BUSINESS_DATE = "{{ dag_run.conf.get('business_date', ds) }}"
+
+# business_date: scheduled run uses data_interval_end (Asia/Shanghai date),
+# manual trigger uses dag_run.conf.business_date.
+# data_interval_end is the end of the data interval, which for a daily DAG
+# scheduled at 20:00 CST is the current calendar date in Asia/Shanghai.
+#
+# Note: We use a two-step approach because Jinja2 doesn't support nested
+# templates. The default value is computed at runtime by Airflow.
+BUSINESS_DATE = "{{ dag_run.conf.get('business_date', data_interval_end.in_timezone('Asia/Shanghai').strftime('%Y-%m-%d')) }}"
 DATE_FROM = "{{ dag_run.conf.get('date_from', '') }}"
-DATE_TO = "{{ dag_run.conf.get('date_to', dag_run.conf.get('business_date', ds)) }}"
+DATE_TO = "{{ dag_run.conf.get('date_to', dag_run.conf.get('business_date', data_interval_end.in_timezone('Asia/Shanghai').strftime('%Y-%m-%d'))) }}"
 RUN_LABEL = "{{ dag_run.conf.get('run_label', var.value.get('ashare_run_label', 'production_daily')) }}"
 WAREHOUSE_MODE = "{{ dag_run.conf.get('warehouse_mode', var.value.get('ashare_warehouse_mode', 'daily_current')) }}"
 TRANSFORM_BACKEND = "{{ dag_run.conf.get('transform_backend', var.value.get('ashare_transform_backend', 'bq_sql')) }}"
@@ -151,6 +167,9 @@ def _business_date_value(context: dict) -> str:
     conf = _runtime_conf(context)
     if conf.get("business_date"):
         return str(conf["business_date"])
+    data_interval_end = context.get("data_interval_end")
+    if data_interval_end is not None:
+        return data_interval_end.in_timezone("Asia/Shanghai").strftime("%Y-%m-%d")
     return str(context.get("ds") or "")
 
 
@@ -237,7 +256,12 @@ def _task_type(task_id: str) -> str:
         return "transform"
     if task_id.startswith(("metadata.", "windowed_metadata.")):
         return "metadata"
-    if task_id.startswith("qa.") or task_id.startswith("qa_only.") or task_id.endswith("_checks"):
+    if (
+        task_id.startswith("qa.")
+        or task_id.startswith("qa_only.")
+        or task_id.endswith("_checks")
+        or task_id.endswith("_readiness")
+    ):
         return "qa"
     if task_id == "ads_contract_init":
         return "ads_contract"
@@ -691,6 +715,7 @@ with DAG(
         "ods_daily_partition_readiness",
         "sql/qa/09_ods_daily_partition_readiness.sql",
         query_parameters=[
+            _string_query_parameter("pipeline_run_id", "{{ dag_run.run_id }}"),
             _string_query_parameter("business_date", BUSINESS_DATE),
             _string_query_parameter("pipeline_dry_run", PIPELINE_DRY_RUN),
             _string_query_parameter(
