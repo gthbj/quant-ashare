@@ -166,6 +166,8 @@ def build_sql_params(exp: Experiment, force_replace: bool, use_bq_ledger: bool) 
         "p_label_horizon": exp.label_horizon,
         "p_horizon_natural_frequency": exp.horizon_natural_frequency,
         "p_feature_set_id": exp.feature_set_id,
+        "p_feature_version": exp.feature_version,
+        "p_tail_risk_profile_id": exp.tail_risk_profile_id,
         "p_execution_backend": execution_backend,
         "p_ledger_version": "ledger_exec_v1",
         "p_ledger_executor": ledger_executor,
@@ -191,6 +193,7 @@ def build_ledger_params(project: str, exp: Experiment, force_replace: bool) -> L
         predict_start=exp.predict_start,
         predict_end=exp.predict_end,
         force_replace=force_replace,
+        tail_risk_profile_id=exp.tail_risk_profile_id,
     )
 
 

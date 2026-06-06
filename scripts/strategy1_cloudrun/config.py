@@ -100,6 +100,7 @@ class Experiment:
     feature_set_id: str = "strategy1_pv_v0_20260601"
     feature_version: str = "strategy1_pv_v0_20260601"
     fin_feature_version: str = "fin_default_v0_20260602"
+    tail_risk_profile_id: str = "diagnostic_only"
     requires_retrain: bool = True
     status: str = "planned"
     train_start: str = "2019-04-03"
@@ -144,6 +145,7 @@ class Experiment:
             "feature_set_id": self.feature_set_id,
             "feature_version": self.feature_version,
             "fin_feature_version": self.fin_feature_version,
+            "tail_risk_profile_id": self.tail_risk_profile_id,
             "requires_retrain": self.requires_retrain,
             "train_start": self.train_start,
             "train_end": self.train_end,
@@ -299,6 +301,7 @@ def experiment_from_b64(value: str) -> Experiment:
         feature_set_id=raw.get("feature_set_id", "strategy1_pv_v0_20260601"),
         feature_version=raw.get("feature_version", "strategy1_pv_v0_20260601"),
         fin_feature_version=raw.get("fin_feature_version", "fin_default_v0_20260602"),
+        tail_risk_profile_id=raw.get("tail_risk_profile_id", "diagnostic_only"),
         requires_retrain=bool(raw.get("requires_retrain", True)),
         status=raw.get("status", "planned"),
         train_start=raw.get("train_start", "2019-04-03"),
@@ -355,6 +358,7 @@ def _experiment_from_mapping(
         feature_set_id=value("feature_set_id", "strategy1_pv_v0_20260601"),
         feature_version=value("feature_version", "strategy1_pv_v0_20260601"),
         fin_feature_version=value("fin_feature_version", "fin_default_v0_20260602"),
+        tail_risk_profile_id=value("tail_risk_profile_id", "diagnostic_only"),
         requires_retrain=bool(value("requires_retrain", True)),
         status=value("status", "planned"),
         train_start=value("train_start", "2019-04-03"),

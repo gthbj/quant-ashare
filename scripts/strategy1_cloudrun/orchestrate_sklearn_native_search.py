@@ -1032,6 +1032,9 @@ def fetch_topk_ads_outputs(
             "test_reuse_wave_no": reg_metrics.get("test_reuse_wave_no"),
             "test_reuse_approval_ref": reg_metrics.get("test_reuse_approval_ref"),
             "final_holdout_status": reg_metrics.get("final_holdout_status"),
+            "tail_risk_profile_id": summary_metrics.get("tail_risk_profile_id")
+                or reg_metrics.get("tail_risk_profile_id")
+                or "diagnostic_only",
         })
     return sorted(out, key=lambda row: row.get("shortlist_rank_valid_only") or 999)
 
@@ -1110,7 +1113,7 @@ def enrich_tail_risk_rows(client: bigquery.Client, rows: list[dict[str, Any]]) -
     enriched = []
     for row in rows:
         item = dict(row)
-        item["tail_risk_profile_id"] = "diagnostic_only"
+        item["tail_risk_profile_id"] = item.get("tail_risk_profile_id") or "diagnostic_only"
         event = by_backtest.get(row.get("backtest_id"))
         if event:
             item.update(event)
