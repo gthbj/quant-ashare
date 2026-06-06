@@ -6,7 +6,9 @@
 
 ## 当前交接摘要
 
-**OQ-010 验收门 v2 实现（2026-06-06）**：PR #97 已合并；当前实现工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-impl`，分支 `codex/implement-acceptance-gate-v2`。已新增 `configs/strategy1/model_acceptance_contract_v2.yml`、只读脚本 `scripts/strategy1/diagnose_acceptance_gate_v2.py` 和 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，并扩展 `scripts/strategy1_cloudrun/acceptance.py` 支持 contract hash / v2 SQL 参数。诊断脚本只读 ADS/DWD/DWS，不训练、不改 prediction、不写 ADS；默认 reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，输出 `acceptance_gate_v2/` artifact、10/20/30/40 组合可行性、eligible benchmark、score orientation audit、低价股偏移、现金/实际持仓和风格暴露诊断。uploaded 模式成功，GCS URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01`，16 个对象；`22_qa_acceptance_gate_v2_outputs.sql` 注入真实 contract hash 后真实执行 9 个 ASSERT 全部通过，默认 standalone placeholder 已改为在 `QA-V2-1` fail-loud。当前 v2 结论：reference run 为 `rejected`，原因是跑输 `000852.SH`、full-period IR 为负、2026 final_holdout 严重跑输；拒绝范围仅限当前 top-30 long-only 实现，不否定信号家族。`10/5%` 是 `diagnostic_only`，`20/30/40` 因局部现金峰值为 `needs_more_evidence`，没有 implementation hard fail。下一步应 review/merge 实现 PR，再决定继续 PRD03 风险特征训练还是先复核组合现金/执行语义。
+**OQ-010 整数手交易执行 PRD（2026-06-06）**：PR #98 已合并后，复核发现当前 extended reference backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` 的 1291 笔 `FILLED` 成交全部为 FLOAT shares，约 98.2% 四舍五入后也不是 100 股整数倍。新增工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-prd`，分支 `codex/prd-strategy1-lot-aware-ledger`，新增 PRD `docs/prd/PRD_20260606_05_策略1整数手交易执行.md`。本文定义 Cloud Run Python `ledger_exec_v1_lot100`：买入 100 股整数手、清仓 odd-lot 可全额卖出、部分卖出向下取整并保留残股、P0 不做余现金二次分配。后续 production acceptance 不得再用 FLOAT-shares backtest 判定 accepted；进入下一轮风险特征训练前，必须先实现 lot-aware ledger、补 lot-aware QA、跑 `2024-01-02` 至 `2026-04-30` fixed-prediction lot-aware reference，并重跑 acceptance gate v2。
+
+**OQ-010 验收门 v2 实现（2026-06-06）**：PR #98 已合并；实现工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-impl`、分支 `codex/implement-acceptance-gate-v2` 的 v2 契约、只读诊断脚本和 `22` QA 已进入 `main`。已新增 `configs/strategy1/model_acceptance_contract_v2.yml`、只读脚本 `scripts/strategy1/diagnose_acceptance_gate_v2.py` 和 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，并扩展 `scripts/strategy1_cloudrun/acceptance.py` 支持 contract hash / v2 SQL 参数。诊断脚本只读 ADS/DWD/DWS，不训练、不改 prediction、不写 ADS；默认 reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，输出 `acceptance_gate_v2/` artifact、10/20/30/40 组合可行性、eligible benchmark、score orientation audit、低价股偏移、现金/实际持仓和风格暴露诊断。uploaded 模式成功，GCS URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01`，16 个对象；`22_qa_acceptance_gate_v2_outputs.sql` 注入真实 contract hash 后真实执行 9 个 ASSERT 全部通过，默认 standalone placeholder 已改为在 `QA-V2-1` fail-loud。当前 v2 结论：reference run 为 `rejected`，原因是跑输 `000852.SH`、full-period IR 为负、2026 final_holdout 严重跑输；拒绝范围仅限当前 top-30 long-only 实现，不否定信号家族。`10/5%` 是 `diagnostic_only`，`20/30/40` 因局部现金峰值为 `needs_more_evidence`，没有 implementation hard fail。后续已转为先实现整数手 lot-aware ledger。
 
 **OQ-010 风险特征入模 Phase B0 实现（2026-06-06）**：PR #94 已合并；工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-acceptance-diagnosis`。新增 `scripts/strategy1/diagnose_acceptance_window.py`，用于 PRD Phase B0 只读诊断：读取既有 ADS / artifact，重切 BQML historical reference 的 2025-only 指标，并汇总 sklearn native、LightGBM binary、LightGBM regression 三波已拒 Python Top5 候选；不训练模型、不重跑 BQML、不执行 `sql/ml/strategy1` SQL runner、不写 ADS。PR #96 review follow-up 已统一 maxDD 门口径：2025 excess 仍看 2025 段，风险 maxDD 门使用 full-period summary，报告同时展示 test maxDD 与 full maxDD。uploaded 模式已成功，artifact URI 为 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_window_diagnosis/diagnosis_id=riskfeat_acceptance_window_20260606_01`。诊断结论 `primary_blocker=mixed_evidence`：BQML historical reference 2025-only excess -23.43%、test maxDD -10.06%、full-period maxDD -14.48%；15 个 Python 候选中 10 个 2025 excess 未过、5 个 full-period maxDD 未过，same-side fraction 66.67% 低于 80% 阈值。后续不应自动启动第 4 波风险特征训练，应先由 owner / 审查者复核诊断结论。
 
@@ -239,6 +241,8 @@ Run ID: strategy1_acceptance_gate_v2_review_followup_20260606
 - `.agent/memory/DECISION_LOG.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
+
+---
 
 日期: 2026-06-06
 Agent ID: Codex
@@ -2328,6 +2332,8 @@ Run ID: dataform_definitions_runtime_naming_cleanup_20260606
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 
+---
+
 日期: 2026-06-06
 Agent ID: Codex
 Agent 实例 ID: Codex desktop session
@@ -2379,6 +2385,8 @@ Run ID: prd_strategy1_risk_feature_baseline_20260606
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
+
+---
 
 日期: 2026-06-06
 Agent ID: Codex
@@ -2432,5 +2440,64 @@ Run ID: pr91_dataform_naming_review_followup_20260606
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+---
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: prd_strategy1_lot_aware_ledger_20260606
+相关 issue/PR: OQ-010 / 策略 1 整数手交易执行
+
+### 已完成工作
+
+- 新建工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-prd`，分支 `codex/prd-strategy1-lot-aware-ledger`。
+- 新增 PRD `docs/prd/PRD_20260606_05_策略1整数手交易执行.md`。
+- PRD 明确后续 production acceptance 必须使用 Cloud Run Python `ledger_exec_v1_lot100` 或后续明确升级版，不得用 FLOAT-shares backtest 判定 accepted。
+- 按 PR #99 review comment 补充 lot100 Python-only 后不再被现有 Python / SQL parity 覆盖，要求新增 Python 单元 / golden-case 测试独立复算现金、费用、PnL 和 NAV。
+- 修正 §5.6.5 的 `min commission` 表述：当前成本 profile 为佣金万一免五，不存在 5 元最低佣金触发条件；现金回退只保留为费用 / 滑点 / 执行价 / 舍入防御性兜底。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`KNOWN_CONSTRAINTS.md`、`OPEN_QUESTIONS.md`、`DECISION_LOG.md` 和本 handoff。
+
+### 重要上下文
+
+- PR #98 已合并，验收门 v2 产物已进入 `main`。
+- 当前 extended reference backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` 的 1291 笔 `FILLED` 成交全部为 FLOAT shares，约 98.2% 四舍五入后也不是 100 股整数倍。
+- 新 PRD 固化默认交易规则：买入按 100 股整数手向下取整；清仓卖出允许 odd-lot 全额卖出；部分卖出向下取整到 100 股并保留残股；P0 不做余现金二次分配。
+- `15_qa_ledger_resume_consistency.sql` 和 `scripts/qa/run_windowed_refresh_equivalence.py` 不覆盖 lot100；实现时不能只依赖结构性 QA，必须补手工期望值 golden cases。
+- 进入下一轮风险特征训练前，必须先实现 lot-aware ledger、补 `23` 或等价 QA、复用当前 prediction stream 跑 `2024-01-02` 至 `2026-04-30` fixed-prediction lot-aware reference，并重跑 acceptance gate v2。
+
+### 改动文件
+
+- `docs/prd/PRD_20260606_05_策略1整数手交易执行.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+
+### 阻塞项
+
+- 无。本文为 PRD，未实现代码、未运行 BigQuery / Cloud Run。
+
+### 下一步建议
+
+- 合并本文 PRD 后，在实现工作树中实现 Cloud Run Python lot-aware ledger。
+- 实现时先补参数 / QA / 报告口径，再跑 fixed-prediction reference；不要直接继续 PRD03 风险特征训练。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
