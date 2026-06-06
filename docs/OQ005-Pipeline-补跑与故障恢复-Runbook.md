@@ -231,7 +231,28 @@
 
 **步骤：**
 
-1. **触发 backfill DAG：**
+1. **先生成 backfill 计划：**
+   ```bash
+   python scripts/pipeline/run_warehouse_refresh.py backfill \
+     --date-from 2026-05-08 \
+     --date-to 2026-06-04 \
+     --chunk-days 5 \
+     --resume
+   ```
+
+2. **确认计划后触发并等待：**
+   ```bash
+   python scripts/pipeline/run_warehouse_refresh.py backfill \
+     --date-from 2026-05-08 \
+     --date-to 2026-06-04 \
+     --chunk-days 5 \
+     --resume \
+     --execute \
+     --wait \
+     --fail-fast
+   ```
+
+3. **如需手工触发单个窗口：**
    ```bash
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
@@ -240,14 +261,17 @@
      --run-id "manual_oq005_backfill_20260508_20260604"
    ```
 
-2. **监控执行状态：**
+4. **监控执行状态：**
    ```bash
+   python scripts/pipeline/run_warehouse_refresh.py status \
+     --run-id-prefix manual_warehouse_backfill_
+
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
      dags -- list-runs -d ashare_warehouse_window_refresh --output table
    ```
 
-3. **验证数据：**
+5. **验证数据：**
    ```sql
    SELECT trade_date, COUNT(*) AS row_count
    FROM `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
@@ -420,7 +444,32 @@ gcloud run jobs execute ashare-ingest-current-scope \
 
 **示例：**
 ```bash
-# 回填 20 个交易日窗口
+# 回填 20 个交易日窗口，默认只打印计划
+python scripts/pipeline/run_warehouse_refresh.py backfill \
+  --date-from 2026-05-08 \
+  --date-to 2026-06-04 \
+  --chunk-days 5 \
+  --resume
+
+# 确认计划后触发 Composer，并逐个等待 terminal 状态
+python scripts/pipeline/run_warehouse_refresh.py backfill \
+  --date-from 2026-05-08 \
+  --date-to 2026-06-04 \
+  --chunk-days 5 \
+  --resume \
+  --execute \
+  --wait \
+  --fail-fast
+
+# 查询同一 run id 前缀的状态
+python scripts/pipeline/run_warehouse_refresh.py status \
+  --run-id-prefix manual_warehouse_backfill_
+
+# 只跑 QA，默认只打印计划
+python scripts/pipeline/run_warehouse_refresh.py qa-only \
+  --business-date 2026-06-05
+
+# 回填 20 个交易日窗口，手工触发单个 Composer run
 gcloud composer environments run ashare-composer \
   --project=data-aquarium --location=asia-east2 \
   dags -- trigger ashare_warehouse_window_refresh \
@@ -456,6 +505,13 @@ gcloud composer environments run ashare-composer \
   }' \
   --run-id "manual_qa_only_20260605"
 ```
+
+补跑脚本说明：
+- `backfill` / `qa-only` 默认只输出将要执行的 `gcloud composer ... dags trigger` 命令。
+- `--execute` 才会实际触发 Composer。
+- `--execute` 默认最多触发 20 个非 skipped run，超过时需缩小日期范围，或确认计划后显式加 `--yes`。
+- `--resume` 会查询 `ashare_meta.pipeline_run`，跳过同一 `warehouse_mode/date_from/date_to` 已经 `success` 或 `running` 的精确窗口。
+- `--wait --fail-fast` 会逐个轮询 terminal 状态，遇到非 success 即停止后续窗口。
 
 ---
 
