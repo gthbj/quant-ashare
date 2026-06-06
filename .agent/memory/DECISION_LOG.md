@@ -1445,3 +1445,39 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`, `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260606-03: 策略 1 验收门 v2 使用版本化共享契约
+
+日期: 2026-06-06
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+策略 1 已有 `model_acceptance_contract_v1.yml`，但历史实现中 Python acceptance、BigQuery QA 和 PRD 阈值曾出现过漂移风险。验收门 v2 又新增 eligible benchmark、低价股偏移、exposure-adjusted 收益、score orientation audit、split 复用状态和 10/20/30/40 组合可行性门。如果不把阈值和指标口径沉到同一个版本化契约，后续实现很容易再次把 accepted / rejected 判定散落到 Python、SQL 和报告 artifact 中。
+
+### 决策
+
+1. 策略 1 验收门 v2 必须新增 `configs/strategy1/model_acceptance_contract_v2.yml`。
+2. `model_acceptance_contract_v2.yml` 是 v2 阈值、边界开闭口径和指标定义的唯一事实来源。
+3. 后续 `acceptance_gate_v2` 诊断、Python acceptance 模块、`22_qa_acceptance_gate_v2_outputs.sql` 和复用于 v2 新候选的 `18/19` QA 必须读取 / 注入同一契约，并在 artifact 中写 `acceptance_contract_version` 和 `acceptance_contract_sha256`。
+4. `model_acceptance_contract_v1.yml` 继续保留为已完成 sklearn native、LightGBM binary 和 LightGBM regression wave 的历史审计契约，不追溯改写旧结论。
+5. 同一 search / diagnosis / QA run 内不得混用 v1 与 v2；若报告对比历史 v1 结果，必须标注为 historical reference。
+
+### 理由
+
+验收门 v2 将作为后续 OQ-010 模型族搜索、风险特征训练、组合可行性诊断和月度滚动重训的共同判定口径。用版本化契约统一 Python / SQL / QA / artifact，可以避免阈值漂移、边界不一致和报告解释不一致。
+
+### 影响
+
+PR #97 的 PRD 已将共享契约写入 §6.5、QA 要求和实施顺序。后续实现必须先落 `model_acceptance_contract_v2.yml`，再实现只读 `acceptance_gate_v2` 诊断、组合可行性模拟和 `22` QA。PRD03 风险特征后续训练如果继续，也必须引用 v2 契约。
+
+### 备选方案
+
+继续把阈值写在 PRD、Python 和 SQL 各自实现中；放弃，因为会重复 PRD04 之前的阈值漂移问题。直接覆盖 v1；放弃，因为已完成 wave 的历史 artifact 需要保留原审计口径。
+
+### 相关文件
+
+`docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`, `configs/strategy1/model_acceptance_contract_v1.yml`, `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`, `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
