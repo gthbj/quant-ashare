@@ -1,6 +1,6 @@
 # Cloud Composer - 每日 A 股数据流水线
 
-> 文档维护：GPT-5（最近更新 2026-06-05）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-06）
 
 Composer 负责串联全流程：
 
@@ -131,7 +131,7 @@ gcloud composer environments run ashare-composer \
 }
 ```
 
-未传入时使用 Airflow `ds`。
+未传入时使用 `data_interval_end.in_timezone('Asia/Shanghai')` 对应日期。
 
 单次采集 dry-run：
 
