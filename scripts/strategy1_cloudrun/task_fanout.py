@@ -15,6 +15,7 @@ from scripts.strategy1_cloudrun.bq_io import (
     download_gcs_file,
     download_gcs_prefix,
     join_gs_uri,
+    json_dumps_strict,
     run_safe,
     write_json,
 )
@@ -26,7 +27,7 @@ WORK_UNITS_MANIFEST_VERSION = "strategy1_task_fanout_work_units_v1"
 
 
 def candidate_grid_hash(config: RunnerConfig) -> str:
-    payload = json.dumps(list(config.candidate_grid), ensure_ascii=False, sort_keys=True)
+    payload = json_dumps_strict(list(config.candidate_grid), ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
@@ -87,7 +88,7 @@ def build_work_units(config: RunnerConfig, experiment: Experiment, matrix_uri: s
 
 
 def stamp_work_units(work_units: dict[str, Any], matrix_id: str, matrix_uri: str) -> dict[str, Any]:
-    payload = json.loads(json.dumps(work_units, ensure_ascii=False, default=str))
+    payload = json.loads(json_dumps_strict(work_units, ensure_ascii=False))
     payload["matrix_id"] = matrix_id
     for unit in payload.get("units", []):
         unit["matrix_id"] = matrix_id
@@ -97,7 +98,7 @@ def stamp_work_units(work_units: dict[str, Any], matrix_id: str, matrix_uri: str
 
 
 def sha256_json(payload: Any) -> str:
-    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    return hashlib.sha256(json_dumps_strict(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def file_sha256(path: Path) -> str:

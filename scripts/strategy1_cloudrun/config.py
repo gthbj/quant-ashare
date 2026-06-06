@@ -15,6 +15,8 @@ try:
 except ImportError:  # pragma: no cover - yaml is optional for JSON-only callers.
     yaml = None
 
+from scripts.strategy1_cloudrun.bq_io import json_dumps_strict
+
 
 DEFAULT_CONFIG_PATH = "configs/strategy1/cloudrun_runner_default.yml"
 DEFAULT_MANIFEST_PATH = "configs/strategy1/oq010_experiments_v0.json"
@@ -255,7 +257,7 @@ def dump_resolved_manifest(
         "experiments": [exp.to_params() for exp in experiments],
     }
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    Path(path).write_text(json_dumps_strict(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -271,7 +273,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
 
 
 def experiment_to_b64(experiment: Experiment) -> str:
-    payload = json.dumps(experiment.to_params(), ensure_ascii=False, sort_keys=True).encode("utf-8")
+    payload = json_dumps_strict(experiment.to_params(), ensure_ascii=False, sort_keys=True).encode("utf-8")
     return base64.urlsafe_b64encode(payload).decode("ascii")
 
 

@@ -45,24 +45,34 @@ def normalize_bq_labels(labels: dict[str, str | None] | None) -> dict[str, str]:
 
 def json_compatible(value: Any) -> Any:
     """Return a strict-JSON-compatible copy, converting NaN/inf to null."""
-    if value is None:
-        return None
-    if value is pd.NA:
+    if value is None or value is pd.NA or value is pd.NaT:
         return None
     if isinstance(value, dict):
         return {str(k): json_compatible(v) for k, v in value.items()}
     if isinstance(value, (list, tuple, set)):
         return [json_compatible(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return json_compatible(value.tolist())
     if isinstance(value, np.generic):
         return json_compatible(value.item())
+    if isinstance(value, pd.Timestamp):
+        return None if pd.isna(value) else value.isoformat()
+    if isinstance(value, pd.Timedelta):
+        return None if pd.isna(value) else str(value)
     if isinstance(value, float):
         return value if math.isfinite(value) else None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     return value
 
 
 def json_dumps_strict(value: Any, **kwargs: Any) -> str:
+    kwargs.setdefault("default", str)
     return json.dumps(json_compatible(value), allow_nan=False, **kwargs)
 
 
@@ -205,7 +215,7 @@ def job_audit_dict(job: bigquery.QueryJob) -> dict[str, Any]:
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    path.write_text(json_dumps_strict(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def write_text(path: Path, text: str) -> None:

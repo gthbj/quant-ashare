@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 PRD04 Wave 3 执行收口（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-wave3`，分支 `codex/fix-prd04-prepare-matrix-parallelism`，PR #82。PR #79 合并后已部署 Cloud Run runner；本分支修复 `prepare_matrix()` requested parallelism 作用域 bug，并补 BigQuery JSON sanitizer，避免 regression `roc_auc/log_loss` 的 NaN 写入非法 `metrics_json`。最终镜像 `prd04-7d8daec-20260606-01` 已构建并部署到五个策略 Cloud Run Jobs。Wave 3 `cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01` 已完成：12 个 regression 候选、Top5 回测/报告/诊断和 `19` QA 全部通过，Top5 全部 rejected，当前仍不建立 `cloud_run_python_baseline_v1`。后续建议进入 PRD04 下一模型族 / 特征增强路线，或先分析回撤过大原因。
+**OQ-010 PRD04 Wave 3 执行收口（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-wave3`，分支 `codex/fix-prd04-prepare-matrix-parallelism`，PR #82。PR #79 合并后已部署 Cloud Run runner；本分支修复 `prepare_matrix()` requested parallelism 作用域 bug，并补 BigQuery JSON sanitizer，避免 regression `roc_auc/log_loss` 的 NaN 写入非法 `metrics_json`；PR #82 review follow-up 已补 `NaT` / `pd.NA` / `NaN` / `inf` 转 `null`、`np.ndarray` / pandas 标量递归转换和 `default=str` 兜底，并把状态表 `params_json`、GCS lock payload、work-unit manifest/hash 等 runner JSON 路径统一到 strict helper。最终镜像 `prd04-7d8daec-20260606-01` 已构建并部署到五个策略 Cloud Run Jobs。Wave 3 `cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01` 已完成：12 个 regression 候选、Top5 回测/报告/诊断和 `19` QA 全部通过，Top5 全部 rejected，当前仍不建立 `cloud_run_python_baseline_v1`。后续建议进入 PRD04 下一模型族 / 特征增强路线，或先分析回撤过大原因。
 
 **OQ-005 非交易日 skip gate 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-nontrading-skip`，分支 `codex/oq005-nontrading-skip`。`ashare_daily_pipeline_v0.py` 已新增 scheduled `daily_current` 非交易日 gate，并完成 PR #83 review follow-up：`pipeline_start_status` 后查 `ashare_dim.dim_trade_calendar` 的 SSE 当日开市状态；非开市日进入实体 `PythonOperator` `skip_non_trading_day`，在 task body 写 `pipeline_task_status.status='skipped'`，跳过 ingestion、ODS readiness 和 transform；日历缺行或 `is_open` NULL 均 fail-closed。普通手工触发、`backfill`、`qa_only`、`full_rebuild` 和 legacy full refresh 不受影响；只有 smoke-only `force_non_trading_day_gate=true` 可手工强制测试 skip 分支。合并后验收必须是真正 scheduled run 或显式 smoke hook，普通 `dags trigger` 不算 skip gate smoke；上一交易日修复仍需显式 `backfill`。
 
@@ -53,6 +53,7 @@ Run ID: cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01
 - 使用 `--build-training-panel --force-replace` 重跑，训练面板构建成功：3,246,953 行，日期范围 `2019-04-03` 至 `2026-04-30`。
 - 定位并修复 `prepare_matrix.py` 在 Cloud Run 中引用函数外局部变量 `candidate_parallelism_arg` 的 NameError；requested parallelism 现显式传入函数并写入 work units / summary。
 - 补 `json_dumps_strict()` / `json_compatible()`，确保写入 BigQuery JSON 字符串列前将 NaN / inf 转成 null；清理本轮 5 条 Top5 registry 中已写入的非法 `roc_auc/log_loss` NaN。
+- 按 PR #82 review follow-up 补强 strict JSON helper：保留 `default=str` 兜底，将 `pd.NaT` / `pd.NA` / `NaN` / `inf` 转 `null`，支持 `np.ndarray` 和 pandas 标量，并把状态表 `params_json`、GCS lock payload、work-unit manifest/hash 等 runner JSON 路径统一到该 helper。
 - 使用 `--resume` 复用已成功的训练和 Top5 回测步骤，完成 comparison artifacts 上传和 acceptance 回写。
 - 构建最终镜像 `prd04-7d8daec-20260606-01` 并部署到五个策略 Cloud Run Jobs。
 - PR #82 已 rebase 到最新 `main`。
@@ -67,6 +68,9 @@ Run ID: cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01
 
 - `scripts/strategy1_cloudrun/prepare_matrix.py`
 - `scripts/strategy1_cloudrun/bq_io.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/state.py`
+- `scripts/strategy1_cloudrun/task_fanout.py`
 - `scripts/strategy1_cloudrun/train_predict.py`
 - `TODO.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
@@ -77,7 +81,7 @@ Run ID: cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01
 - `git diff --check` 通过。
 - `py_compile` 覆盖 `bq_io.py`、`train_predict.py`、`prepare_matrix.py`、`orchestrate_cloudrun_python_baseline_search.py`、`orchestrate_sklearn_native_search.py`。
 - `prepare_matrix.py --dry-run` 使用 regression manifest 和 `--candidate-parallelism 12` 通过，输出 `candidate_parallelism_requested=12` / `candidate_parallelism_resolved=12`。
-- strict JSON sanitizer 小测试通过：NaN / inf 输出为 JSON null。
+- strict JSON sanitizer 小测试通过：NaN / inf / `pd.NaT` 输出为 JSON null，`np.ndarray` 转为 JSON array。
 - Cloud Build 镜像 `prd04-318e79f-20260606-01` 和最终镜像 `prd04-7d8daec-20260606-01` 构建成功；最终镜像已部署到五个策略 Cloud Run Jobs。
 - Wave 3 真实执行：`prepare_matrix` succeeded；`train_candidate_fanout` 12/12 succeeded；Top5 `select_register_predict` 与 `backtest_report` 全部 succeeded。
 - `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql` 全部断言通过。
