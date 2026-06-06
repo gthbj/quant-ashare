@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-010 验收门 v2 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-prd`，分支 `codex/prd-strategy1-acceptance-gate-v2`，PR #97。新增 `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`，承接风险特征 Phase B0 `mixed_evidence` 诊断，先冻结下一版 accepted / needs_more_evidence / rejected 决策门，再决定是否启动第 4 波风险特征训练。PRD 明确当前 extended reference run 在 v2 下为 `rejected`，但只拒绝当前 top-30 long-only 组合实现，不否定信号家族；后续组合候选固定为 `target_holdings=10/20/30/40`，不包含 `50`，首轮单票权重上限仍为 5%。PR #97 review follow-up 已补：`10/5%` 是 `diagnostic_cash_control`，不参与 accepted 和满仓 implementation hard gate；accepted 需跑赢 `eligible_executable_benchmark`；test/final_holdout 标记已被多轮复用，正向证据不能单独支撑 accepted；新增 `score_orientation_audit.json`、low-price tilt 量化门槛和 exposure-adjusted 收益视图；v2 阈值和指标定义必须统一进入 `configs/strategy1/model_acceptance_contract_v2.yml`，Python acceptance 与 `18/19/22` QA 必须读取同一契约并写契约版本/hash。本文只写 PRD 和记忆/TODO，不改代码、不运行 BigQuery / Cloud Run。
+
 **OQ-010 风险特征入模 Phase B0 实现（2026-06-06）**：PR #94 已合并；工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-acceptance-diagnosis`。新增 `scripts/strategy1/diagnose_acceptance_window.py`，用于 PRD Phase B0 只读诊断：读取既有 ADS / artifact，重切 BQML historical reference 的 2025-only 指标，并汇总 sklearn native、LightGBM binary、LightGBM regression 三波已拒 Python Top5 候选；不训练模型、不重跑 BQML、不执行 `sql/ml/strategy1` SQL runner、不写 ADS。PR #96 review follow-up 已统一 maxDD 门口径：2025 excess 仍看 2025 段，风险 maxDD 门使用 full-period summary，报告同时展示 test maxDD 与 full maxDD。uploaded 模式已成功，artifact URI 为 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_window_diagnosis/diagnosis_id=riskfeat_acceptance_window_20260606_01`。诊断结论 `primary_blocker=mixed_evidence`：BQML historical reference 2025-only excess -23.43%、test maxDD -10.06%、full-period maxDD -14.48%；15 个 Python 候选中 10 个 2025 excess 未过、5 个 full-period maxDD 未过，same-side fraction 66.67% 低于 80% 阈值。后续不应自动启动第 4 波风险特征训练，应先由 owner / 审查者复核诊断结论。
 
 **OQ-010 风险特征入模 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-prd`，分支 `codex/prd-strategy1-risk-feature-baseline`，PR #94。新增 `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`，承接 PRD04 LightGBM binary/regression 均 rejected、尾部风险 P1 轻度改善但仍跑输、P2 v0 `skip_new_buys` 降收益且未改善回撤的事实。PRD 将下一步收敛为风险特征入模：新增 `feature_set_id=strategy1_pv_fin_risk_v0_20260606`，把个股尾部风险字段、`dws_market_state_daily` 市场状态字段和风险 flag 纳入 Cloud Run frozen matrix；P0 固定 `diagnostic_only`、40 候选 / 20 并发 / 2 vCPU 8Gi、LightGBM binary + regression、共享 acceptance contract；P1 才评估 `risk_score_penalty_v0` 候选风险评分。PR #94 review follow-up 已补 `test_reuse_wave_no=4` / final_holdout passed 要求、训练前只读 `acceptance_window_diagnosis`、`feature_delta_vs_base.json`、market-state 贡献展示，以及风险专项 accepted 目标 `max_drawdown >= -18%`。本次只写 PRD 和记忆/TODO，未改代码、未运行 BigQuery / Cloud Run。
@@ -61,6 +63,117 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: strategy1_acceptance_gate_v2_review_followup_20260606
+相关 issue/PR: PR #97 review
+
+### 已完成工作
+
+- 阅读 review 文本，认可全部实质问题，无反驳项。
+- 修改 `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`：
+  - `10/5%` 改为 `diagnostic_cash_control`，不参与 `accepted`，不适用满仓现金占比 hard gate。
+  - accepted 条件新增跑赢 `eligible_executable_benchmark`，并把 eligible benchmark 拆成 signal-pool 与 executable 两版。
+  - split 表新增 `reuse_status`，明确 2025 test / 2026 final_holdout 已被多轮查看，负向证据可 reject，正向证据不能单独 accepted。
+  - 新增 `score_orientation_audit.json` 与 QA 断言，检查 actual long side、top-minus-bottom 定义和 RankIC 使用字段。
+  - low-price tilt 从文字描述改为可计算字段和 needs_more_evidence / hard_failed 阈值。
+  - 新增 gross exposure / deployed capital / exposure-adjusted return 视图。
+  - 新增共享验收契约 v2 要求：`configs/strategy1/model_acceptance_contract_v2.yml` 是 v2 阈值和指标定义唯一事实来源，Python acceptance 与 `18/19/22` QA 必须读取同一契约。
+  - 修正 `full_period_excess_return_vs_000852=-3%` 的边界归属：`-3%` 属 hard reject，needs-more-evidence 下边界改为开区间。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md`、`DECISION_LOG.md` 和本交接文件。
+
+### 重要上下文
+
+- PRD 仍然只写方案，不改代码、不运行 BigQuery / Cloud Run。
+- 10/20/30/40 仍是唯一持股数集合；50 仍被明确排除。
+- 后续实现应先落 `model_acceptance_contract_v2.yml`，再做只读 `acceptance_gate_v2` 诊断和组合可行性模拟，之后再决定是否启动 PRD03 风险特征训练。
+
+### 改动文件
+
+- `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 复核后合并 PRD。
+- 合并后先实现 `model_acceptance_contract_v2.yml`，再实现 `acceptance_gate_v2` 诊断和组合可行性模拟。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: strategy1_acceptance_gate_v2_prd_20260606
+相关 issue/PR: OQ-010
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`。
+- PRD 明确当前 extended reference run `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` 在 v2 下为 `rejected`，但拒绝范围只针对当前 top-30 long-only 组合实现，不否定信号家族。
+- 按 owner 最新口径固定组合候选为 `target_holdings=10/20/30/40`，明确不包含 `50`；首轮单票权重上限仍为 5%。
+- PRD 新增 10 万 CNY、100 股整数手、实际持股数、现金占比、买入跳单率、低价股偏移和 eligible universe benchmark 诊断。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md`、`DECISION_LOG.md` 和本交接文件。
+
+### 重要上下文
+
+- 本文是 PRD03 风险特征训练前置门：先实现只读 `acceptance_gate_v2` 诊断和组合可行性模拟，再决定是否启动第 4 波风险特征训练。
+- `10/5%` 理论最多部署约 50% 资金，只作为低仓位 / 高现金 / 集中选股对照；`20/5%` 是 5% 上限下理论满仓边界；`30/5%` 是 current reference；`40/5%` 用于验证更分散组合。
+- 本次只写 PRD 和记忆/TODO，不改代码、不运行 BigQuery / Cloud Run。
+
+### 改动文件
+
+- `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `git diff --check`
+- `git diff --check --no-index /dev/null docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- review / 合并 PRD。
+- 合并后实现只读 `acceptance_gate_v2` 诊断、10/20/30/40 组合可行性模拟和 eligible universe benchmark，再决定是否启动风险特征入模。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 日期: 2026-06-06
 Agent ID: Codex

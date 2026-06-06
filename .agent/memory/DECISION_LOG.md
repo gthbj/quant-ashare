@@ -1407,3 +1407,77 @@ OQ-005 当前主 DAG `ashare_daily_pipeline_v0` 已承载生产采集、ODS read
 ### 相关文件
 
 `docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md`, `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`, `orchestration/composer/dags/ashare_daily_pipeline_v0.py`, `orchestration/composer/README.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260606-02: 策略 1 组合验收门先固定 10/20/30/40 持股数候选
+
+日期: 2026-06-06
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+策略 1 已完成 BQML historical reference、Cloud Run sklearn native、LightGBM binary、LightGBM regression、尾部风险 P1/P2 和风险特征 Phase B0 诊断。当前证据显示：RankIC 可以为正，但 current top-30 long-only 组合在 `2024-01-02` 至 `2026-04-30` full-period 和 2026 final holdout 上不能通过生产 baseline 验收。继续直接扩大模型 / 风险特征搜索前，需要先冻结组合验收门和小资金可行性诊断。
+
+### 决策
+
+1. 策略 1 下一版组合验收门的持股数候选固定为 `target_holdings in [10, 20, 30, 40]`。
+2. 不纳入 `target_holdings=50`，也不纳入 100 / 150 等更高持股数方案。
+3. 首轮单票权重上限仍为 5%。
+4. `10/5%` 因理论最多部署约 50% 资金，只作为低仓位 / 高现金 / 集中选股对照，不直接与满仓方案比较收益，不参与 production baseline accepted 判定，也不适用满仓候选的现金占比 hard gate。
+5. `20/5%` 是 5% 上限下的理论满仓边界；`30/5%` 是当前 historical reference；`40/5%` 用于验证更分散组合能否降低尾部风险。
+6. 所有候选必须进入 10 万 CNY、100 股整数手、实际持股数、现金占比、买入跳单率和低价股偏移诊断。
+7. 当前 extended reference run 在验收门 v2 下应判为 `rejected`，但该拒绝只针对当前 top-30 long-only 组合实现，不否定底层信号家族。
+
+### 理由
+
+50 只以上组合在 10 万资金下更容易被 100 股整数手和最低买入额扭曲，可能导致大量现金碎片、跳单或低价股偏移，且会把问题从“模型是否有信号”混成“资金规模是否足够”。先固定 10/20/30/40 可以覆盖集中、理论满仓、当前 reference 和更分散四个可解释点，同时保持首轮实验规模可控。
+
+### 影响
+
+新增 PRD `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`。后续 OQ-010 风险特征入模、组合参数实验、月度滚动重训和 baseline acceptance 必须引用该持股数候选集合；新增 QA 应拒绝 `target_holdings=50`、100、150 等未批准组合。PRD03 风险特征入模的后续实现顺序应调整到验收门 v2 和组合可行性诊断之后。accepted 候选必须跑赢 `eligible_executable_benchmark`；test/final_holdout 复用状态、score orientation audit、low-price tilt 和 exposure-adjusted 收益视图需要进入实现 artifact。
+
+### 备选方案
+
+继续使用 30 只固定组合；放弃，因为无法判断当前失败来自模型、组合集中度、资金手数约束还是基准暴露。加入 50 只；放弃，因为 owner 明确要求不要 50，且 10 万资金下 50 只会明显放大整数手失真。直接尝试 100 / 150 只；放弃，因为与小资金实盘目标不匹配。
+
+### 相关文件
+
+`docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`, `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260606-03: 策略 1 验收门 v2 使用版本化共享契约
+
+日期: 2026-06-06
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+策略 1 已有 `model_acceptance_contract_v1.yml`，但历史实现中 Python acceptance、BigQuery QA 和 PRD 阈值曾出现过漂移风险。验收门 v2 又新增 eligible benchmark、低价股偏移、exposure-adjusted 收益、score orientation audit、split 复用状态和 10/20/30/40 组合可行性门。如果不把阈值和指标口径沉到同一个版本化契约，后续实现很容易再次把 accepted / rejected 判定散落到 Python、SQL 和报告 artifact 中。
+
+### 决策
+
+1. 策略 1 验收门 v2 必须新增 `configs/strategy1/model_acceptance_contract_v2.yml`。
+2. `model_acceptance_contract_v2.yml` 是 v2 阈值、边界开闭口径和指标定义的唯一事实来源。
+3. 后续 `acceptance_gate_v2` 诊断、Python acceptance 模块、`22_qa_acceptance_gate_v2_outputs.sql` 和复用于 v2 新候选的 `18/19` QA 必须读取 / 注入同一契约，并在 artifact 中写 `acceptance_contract_version` 和 `acceptance_contract_sha256`。
+4. `model_acceptance_contract_v1.yml` 继续保留为已完成 sklearn native、LightGBM binary 和 LightGBM regression wave 的历史审计契约，不追溯改写旧结论。
+5. 同一 search / diagnosis / QA run 内不得混用 v1 与 v2；若报告对比历史 v1 结果，必须标注为 historical reference。
+
+### 理由
+
+验收门 v2 将作为后续 OQ-010 模型族搜索、风险特征训练、组合可行性诊断和月度滚动重训的共同判定口径。用版本化契约统一 Python / SQL / QA / artifact，可以避免阈值漂移、边界不一致和报告解释不一致。
+
+### 影响
+
+PR #97 的 PRD 已将共享契约写入 §6.5、QA 要求和实施顺序。后续实现必须先落 `model_acceptance_contract_v2.yml`，再实现只读 `acceptance_gate_v2` 诊断、组合可行性模拟和 `22` QA。PRD03 风险特征后续训练如果继续，也必须引用 v2 契约。
+
+### 备选方案
+
+继续把阈值写在 PRD、Python 和 SQL 各自实现中；放弃，因为会重复 PRD04 之前的阈值漂移问题。直接覆盖 v1；放弃，因为已完成 wave 的历史 artifact 需要保留原审计口径。
+
+### 相关文件
+
+`docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`, `configs/strategy1/model_acceptance_contract_v1.yml`, `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`, `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
