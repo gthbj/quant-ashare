@@ -161,6 +161,8 @@ python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search
 
 P1 个股风险过滤（PRD-20260606-01）：`tail_risk_profile_id` 默认是 `diagnostic_only`，不改变选股。需要做 P1 A/B 时，在 manifest experiment 中设为 `individual_risk_guard_v0`；`05_build_candidates.sql` 会在 candidate selection 层标记新买入风控候选，规则为 `ret_20d < -30%`、`drawdown_20d < -30%`、`limit_down_days_20d >= 2`、`one_word_limit_days_20d >= 1`、`total_mv_cny < 30e8`、`circ_mv_cny < 20e8`，以及必需风险字段 NULL 时 `tail_risk_required_field_null`；`vol_20d` p95 和 `turnover_rate_ma20` p98 只标记、不硬排除。风险标记股票仍可进入目标组合，避免候选层全量重构把已持仓风险股强制卖出；真正的买入拦截发生在 Ledger v1 执行层：若目标股带 `tail_risk:*` 且执行前没有持仓，则写 `BUY_SKIPPED_TAIL_RISK`，不成交、不候补、现金保留。已有持仓不因 P1 风控标记被强制卖出，仍按 Ledger v1 目标组合、实际持仓 netting 和 pending sell 语义处理。`tail_risk/` 会输出 `risk_filter_funnel_daily.csv` 和 `risk_filter_excluded_names.csv`。`10_qa_runner_outputs.sql` 与 `20_qa_tail_risk_outputs.sql` 会校验 summary/comparison profile 可追溯、P1 风险标记可审计，以及未持仓风险目标没有真实买入成交并留下 `BUY_SKIPPED_TAIL_RISK`。
 
+P2 市场状态 risk-off（PRD-20260606-01）：先构建 `sql/dws/08_dws_market_state_daily.sql`，并跑 `sql/qa/11_market_state_checks.sql`。该表按 `market_state_version='market_state_v0_20260606'` 记录中证1000趋势、宽度、跌停扩散等 risk-off 证据；信号在 `t` 日收盘后形成，只能影响 `t+1` 开盘执行。需要做 P2 A/B 时使用 `configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml`，其中 `market_risk_off_v0` 只开启市场 risk-off，`individual_and_market_risk_guard_v0` 同时开启 P1 个股风险和 P2 市场状态。P2 v0 动作固定为 `skip_new_buys`：risk-off 的下一开市日允许卖出和 pending sell 继续执行，但所有 BUY 侧新增/加仓订单写 `BUY_SKIPPED_MARKET_RISK_OFF`，不成交、不候补、现金保留；恢复 risk-on 后在下一次合法调仓日恢复买入。`tail_risk/market_risk_off_dates.csv` 会输出 risk-off 日期和触发指标，`10_qa_runner_outputs.sql` / `20_qa_tail_risk_outputs.sql` 会校验 risk-off 日期有市场状态证据、risk-off 执行日没有真实 BUY 成交，并且跳过买单留下可审计状态。
+
 ## 参数说明
 
 每个脚本顶部有 `DECLARE p_*` 参数块（`p_` 前缀避免与表列同名）。
@@ -182,7 +184,8 @@ P1 个股风险过滤（PRD-20260606-01）：`tail_risk_profile_id` 默认是 `d
 | `p_max_single_weight` | 单票权重上限（OQ-010 待确认，示例值 0.20） |
 | `p_feature_set_id` | 特征集合 ID；基础为 `strategy1_pv_v0_20260601`，财务扩展为 `strategy1_pv_fin_quality_v0_20260603` |
 | `p_feature_version` | `05` / Cloud Run tail-risk 使用的 DWS 特征版本，默认 `strategy1_pv_v0_20260601` |
-| `p_tail_risk_profile_id` | 尾部风险 profile。`diagnostic_only` 不改变选股；`individual_risk_guard_v0` 开启 P1 个股硬风险过滤 |
+| `p_tail_risk_profile_id` | 尾部风险 profile。`diagnostic_only` 不改变选股；`individual_risk_guard_v0` 开启 P1 个股新买入拦截；`market_risk_off_v0` 开启 P2 市场 risk-off 买入拦截；`individual_and_market_risk_guard_v0` 同时开启 P1+P2 |
+| `p_market_state_version` | P2 市场状态 DWS 版本，默认 `market_state_v0_20260606` |
 | `p_fin_feature_version` | 财务 DWS 来源版本，默认 `fin_default_v0_20260602`；仅 `p_feature_set_id` 为财务扩展时使用 |
 | `p_cost_profile_id` | OQ-010 默认成本 profile：`cn_a_share_wanyi_no_min_slip5_v20260602`（佣金万一免五 + 卖出印花税 5 bps + 买卖滑点各 5 bps） |
 | `p_commission_bps` | 佣金，默认 1.0（万一） |
@@ -481,6 +484,7 @@ P2 验收时执行 `15_qa_ledger_resume_consistency.sql`，比较 full fresh-sta
 | `FILLED_SCALED_CASH` | 因现金不足按比例缩放后成交 |
 | `BUY_SKIPPED_UNTRADABLE` | 买入不可交易，未成交且不候补 |
 | `BUY_SKIPPED_TAIL_RISK` | P1 尾部风险 profile 拦截未持仓新买入，未成交且不候补 |
+| `BUY_SKIPPED_MARKET_RISK_OFF` | P2 市场状态 risk-off 拦截 BUY 侧新增/加仓，未成交且不候补 |
 | `SELL_SKIPPED_UNTRADABLE` | rebalance execution_date 卖出不可交易，进入/维持 pending sell |
 | `PENDING_SELL_CARRY` | 非 rebalance 日继续尝试 pending sell 但仍不可卖 |
 | `CANCELLED_BY_NETTING` | pending sell 因目标提高/重新入选被 netting 取消 |

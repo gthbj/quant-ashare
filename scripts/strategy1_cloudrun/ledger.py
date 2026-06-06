@@ -18,6 +18,16 @@ from google.cloud import bigquery
 
 from scripts.strategy1_cloudrun.bq_io import ADS, execute_query, load_dataframe, query_dataframe
 
+ALLOWED_TAIL_RISK_PROFILES = frozenset({
+    "diagnostic_only",
+    "individual_risk_guard_v0",
+    "market_risk_off_v0",
+    "individual_and_market_risk_guard_v0",
+})
+INDIVIDUAL_RISK_PROFILES = frozenset({"individual_risk_guard_v0", "individual_and_market_risk_guard_v0"})
+MARKET_RISK_PROFILES = frozenset({"market_risk_off_v0", "individual_and_market_risk_guard_v0"})
+DEFAULT_MARKET_STATE_VERSION = "market_state_v0_20260606"
+
 
 @dataclasses.dataclass(frozen=True)
 class LedgerParams:
@@ -40,11 +50,14 @@ class LedgerParams:
     parent_backtest_id: str | None = None
     state_as_of_date: str | None = None
     tail_risk_profile_id: str = "diagnostic_only"
+    market_state_version: str = DEFAULT_MARKET_STATE_VERSION
 
 
 def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
     if params.initial_state_mode != "fresh":
         raise NotImplementedError("Cloud Run Python ledger P0 supports fresh-start only; resume is fail-fast")
+    if params.tail_risk_profile_id not in ALLOWED_TAIL_RISK_PROFILES:
+        raise ValueError(f"unsupported tail_risk_profile_id: {params.tail_risk_profile_id}")
     if params.force_replace:
         clear_ledger_outputs(client, params)
 
@@ -79,6 +92,7 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
         for signal_date, group in targets.groupby("rebalance_date")
     }
     tail_risk_buy_guards = load_tail_risk_buy_guards(client, params)
+    market_risk_off_signal_dates = load_market_risk_off_signal_dates(client, params)
 
     for exec_date in exec_days["trade_date"]:
         period = periods_by_exec.get(exec_date)
@@ -94,6 +108,7 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
             target_weights,
             pending_sell,
             tail_risk_buy_guards.get(period.signal_date, set()) if is_rebalance else set(),
+            period.signal_date in market_risk_off_signal_dates if is_rebalance else False,
             nav_before,
             px,
             params,
@@ -173,6 +188,7 @@ class PlanRow:
     sell_skip_shares: float
     buy_skip_value: float
     tail_risk_new_buy_blocked: bool
+    market_risk_buy_blocked: bool
     pending_noop: bool
     scale: float = 1.0
 
@@ -207,6 +223,7 @@ def build_daily_plan(
     target_weights: dict[str, float],
     pending_sell: set[str],
     tail_risk_blocked_new_buys: set[str],
+    market_risk_off_signal: bool,
     nav_before: float,
     px: PriceBook,
     params: LedgerParams,
@@ -229,23 +246,38 @@ def build_daily_plan(
         can_buy_now = can_buy and exec_open is not None and np.isfinite(exec_open)
         can_sell_now = can_sell and exec_open is not None and np.isfinite(exec_open)
         tail_risk_new_buy_blocked = (
-            params.tail_risk_profile_id == "individual_risk_guard_v0"
+            has_individual_risk_guard(params.tail_risk_profile_id)
             and is_rebalance
             and sec in tail_risk_blocked_new_buys
             and cur_shares <= 0.000001
+        )
+        market_risk_buy_blocked = (
+            has_market_risk_guard(params.tail_risk_profile_id)
+            and is_rebalance
+            and market_risk_off_signal
         )
         sell_shares = 0.0
         if cur_shares > 0 and (is_rebalance or sec in pending_sell) and cur_value - desired_value > 0.01 and can_sell_now:
             sell_shares = cur_shares if desired_value <= 0.01 else min(cur_shares, (cur_value - desired_value) / exec_open)
         want_value = 0.0
-        if is_rebalance and can_buy_now and desired_value - cur_value > 0.01 and not tail_risk_new_buy_blocked:
+        if (
+            is_rebalance
+            and can_buy_now
+            and desired_value - cur_value > 0.01
+            and not tail_risk_new_buy_blocked
+            and not market_risk_buy_blocked
+        ):
             want_value = desired_value - cur_value
         sell_skip_shares = 0.0
         if cur_shares > 0 and (is_rebalance or sec in pending_sell) and cur_value - desired_value > 0.01 and not can_sell_now:
             denom = exec_open if exec_open is not None and np.isfinite(exec_open) else val_price
             sell_skip_shares = cur_shares if desired_value <= 0.01 else min(cur_shares, safe_divide(cur_value - desired_value, denom))
         buy_skip_value = 0.0
-        if is_rebalance and desired_value - cur_value > 0.01 and (not can_buy_now or tail_risk_new_buy_blocked):
+        if is_rebalance and desired_value - cur_value > 0.01 and (
+            not can_buy_now
+            or tail_risk_new_buy_blocked
+            or market_risk_buy_blocked
+        ):
             buy_skip_value = desired_value - cur_value
         pending_noop = sec in pending_sell and cur_shares > 0 and not (cur_value - desired_value > 0.01)
         plan.append(PlanRow(
@@ -265,6 +297,7 @@ def build_daily_plan(
             sell_skip_shares=sell_skip_shares,
             buy_skip_value=buy_skip_value,
             tail_risk_new_buy_blocked=tail_risk_new_buy_blocked,
+            market_risk_buy_blocked=market_risk_buy_blocked,
             pending_noop=pending_noop,
         ))
     return plan
@@ -310,7 +343,12 @@ def execute_plan(
             status = "SELL_SKIPPED_UNTRADABLE" if is_rebalance else "PENDING_SELL_CARRY"
             rows.append(trade_row(params, exec_date, item, "SELL", item.sell_skip_shares, 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, status))
         if item.buy_skip_value > 0.000001:
-            status = "BUY_SKIPPED_TAIL_RISK" if item.tail_risk_new_buy_blocked else "BUY_SKIPPED_UNTRADABLE"
+            if item.market_risk_buy_blocked:
+                status = "BUY_SKIPPED_MARKET_RISK_OFF"
+            elif item.tail_risk_new_buy_blocked:
+                status = "BUY_SKIPPED_TAIL_RISK"
+            else:
+                status = "BUY_SKIPPED_UNTRADABLE"
             rows.append(trade_row(params, exec_date, item, "BUY", safe_divide(item.buy_skip_value, item.val_price), 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, status))
         if item.pending_noop:
             rows.append(trade_row(params, exec_date, item, "SELL", 0.0, 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, "CANCELLED_BY_NETTING"))
@@ -427,7 +465,7 @@ def load_targets(client: bigquery.Client, params: LedgerParams) -> pd.DataFrame:
 
 
 def load_tail_risk_buy_guards(client: bigquery.Client, params: LedgerParams) -> dict[Any, set[str]]:
-    if params.tail_risk_profile_id != "individual_risk_guard_v0":
+    if not has_individual_risk_guard(params.tail_risk_profile_id):
         return {}
     sql = f"""
     SELECT rebalance_date, sec_code
@@ -448,6 +486,26 @@ def load_tail_risk_buy_guards(client: bigquery.Client, params: LedgerParams) -> 
     for row in frame.itertuples(index=False):
         guards.setdefault(row.rebalance_date, set()).add(row.sec_code)
     return guards
+
+
+def load_market_risk_off_signal_dates(client: bigquery.Client, params: LedgerParams) -> set[Any]:
+    if not has_market_risk_guard(params.tail_risk_profile_id):
+        return set()
+    sql = """
+    SELECT trade_date
+    FROM `data-aquarium.ashare_dws.dws_market_state_daily`
+    WHERE trade_date BETWEEN @start AND @end
+      AND market_state_version = @market_state_version
+      AND is_risk_off
+      AND risk_off_action = 'skip_new_buys'
+    ORDER BY trade_date
+    """
+    frame = normalize_dates(query_dataframe(client, sql, [
+        bigquery.ScalarQueryParameter("start", "DATE", params.predict_start),
+        bigquery.ScalarQueryParameter("end", "DATE", params.predict_end),
+        bigquery.ScalarQueryParameter("market_state_version", "STRING", params.market_state_version),
+    ]), ["trade_date"])
+    return set(frame["trade_date"].tolist())
 
 
 def build_periods(targets: pd.DataFrame, cal: pd.DataFrame, params: LedgerParams) -> pd.DataFrame:
@@ -521,6 +579,14 @@ def safe_divide(numerator: Any, denominator: Any) -> float:
         return float(numerator) / float(denominator)
     except TypeError:
         return 0.0
+
+
+def has_individual_risk_guard(profile_id: str) -> bool:
+    return profile_id in INDIVIDUAL_RISK_PROFILES
+
+
+def has_market_risk_guard(profile_id: str) -> bool:
+    return profile_id in MARKET_RISK_PROFILES
 
 
 def slippage_sell(turnover: float, params: LedgerParams) -> float:

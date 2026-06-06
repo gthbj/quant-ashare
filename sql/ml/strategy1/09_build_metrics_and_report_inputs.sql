@@ -17,6 +17,7 @@ DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_horizon_natural_frequency STRING DEFAULT 'weekly';
 DECLARE p_feature_set_id STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_tail_risk_profile_id STRING DEFAULT 'diagnostic_only';
+DECLARE p_market_state_version STRING DEFAULT 'market_state_v0_20260606';
 DECLARE p_execution_backend STRING DEFAULT 'bqml_sql_ledger_v1';
 DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1';
 DECLARE p_ledger_executor STRING DEFAULT 'bigquery_sql';
@@ -91,7 +92,7 @@ SELECT
   COUNTIF(t.side = 'BUY')  AS buy_attempt_count,
   COUNTIF(t.side = 'BUY'  AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')) AS buy_filled_count,
   COUNTIF(t.side = 'BUY'  AND t.fill_status = 'FILLED_SCALED_CASH') AS buy_scaled_cash_count,
-  COUNTIF(t.side = 'BUY'  AND t.fill_status IN ('BUY_SKIPPED_UNTRADABLE', 'BUY_SKIPPED_TAIL_RISK', 'SKIPPED_CASH_INSUFFICIENT', 'SKIPPED_MIN_NOTIONAL')) AS buy_skipped_count,
+  COUNTIF(t.side = 'BUY'  AND t.fill_status IN ('BUY_SKIPPED_UNTRADABLE', 'BUY_SKIPPED_TAIL_RISK', 'BUY_SKIPPED_MARKET_RISK_OFF', 'SKIPPED_CASH_INSUFFICIENT', 'SKIPPED_MIN_NOTIONAL')) AS buy_skipped_count,
   COUNTIF(t.side = 'SELL') AS sell_attempt_count,
   COUNTIF(t.side = 'SELL' AND t.fill_status = 'FILLED') AS sell_filled_count,
   COUNTIF(t.side = 'SELL' AND t.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY')) AS sell_skipped_count,
@@ -99,7 +100,8 @@ SELECT
   COUNTIF(t.fill_status = 'CANCELLED_BY_NETTING') AS cancelled_by_netting_count,
   COUNTIF(t.fill_status = 'NOOP_ALREADY_TARGET') AS noop_already_target_count,
   COUNTIF(t.fill_status = 'SKIPPED_CASH_INSUFFICIENT') AS cash_insufficient_skip_count,
-  COUNTIF(t.fill_status = 'BUY_SKIPPED_TAIL_RISK') AS tail_risk_buy_skip_count
+  COUNTIF(t.fill_status = 'BUY_SKIPPED_TAIL_RISK') AS tail_risk_buy_skip_count,
+  COUNTIF(t.fill_status = 'BUY_SKIPPED_MARKET_RISK_OFF') AS market_risk_buy_skip_count
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
 WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end;
 
@@ -184,6 +186,8 @@ SELECT
     p_horizon_natural_frequency AS horizon_natural_frequency,
     p_feature_set_id AS feature_set_id,
     p_tail_risk_profile_id AS tail_risk_profile_id,
+    p_market_state_version AS market_state_version,
+    'skip_new_buys' AS market_risk_action,
     p_execution_backend AS execution_backend,
     a.n_days, a.annual_return, a.annual_vol,
     SAFE_DIVIDE(a.annual_return, a.annual_vol) AS sharpe,
@@ -215,6 +219,7 @@ SELECT
     ss.pending_sell_carry_count, ss.cancelled_by_netting_count,
     ss.noop_already_target_count, ss.cash_insufficient_skip_count,
     ss.tail_risk_buy_skip_count,
+    ss.market_risk_buy_skip_count,
     SAFE_DIVIDE(CAST(ss.sell_skipped_count AS FLOAT64), NULLIF(ss.sell_attempt_count, 0)) AS sell_skip_rate,
     a.total_turnover, a.total_cost,
     -- OQ-010 成本 profile

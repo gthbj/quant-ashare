@@ -51,6 +51,7 @@ REQUIRED_ARTIFACTS = [
     "risky_selected_names.csv",
     "risk_filter_funnel_daily.csv",
     "risk_filter_excluded_names.csv",
+    "market_risk_off_dates.csv",
     "candidate_overlap_by_signal_date.csv",
     "common_crash_names.csv",
     "search_tail_risk_summary.csv",
@@ -164,6 +165,7 @@ def main() -> int:
         selection_pool,
     )
     tail_risk_profile_id = tail_risk_profile_from_summary(summary)
+    market_state_version = market_state_version_from_summary(summary)
     risk_filter_candidates = fetch_risk_filter_candidates(
         client,
         args.project,
@@ -176,6 +178,14 @@ def main() -> int:
     risk_filter_funnel, risk_filter_excluded = build_risk_filter_outputs(
         risk_filter_candidates,
         tail_risk_profile_id=tail_risk_profile_id,
+    )
+    market_risk_off_dates = fetch_market_risk_off_dates(
+        client,
+        args.project,
+        start_date=start_date,
+        end_date=end_date,
+        tail_risk_profile_id=tail_risk_profile_id,
+        market_state_version=market_state_version,
     )
     candidate_overlap = empty_frame([
         "search_id", "signal_date", "left_run_id", "right_run_id",
@@ -203,6 +213,7 @@ def main() -> int:
     write_csv(out_dir / "risky_selected_names.csv", risky_names)
     write_csv(out_dir / "risk_filter_funnel_daily.csv", risk_filter_funnel)
     write_csv(out_dir / "risk_filter_excluded_names.csv", risk_filter_excluded)
+    write_csv(out_dir / "market_risk_off_dates.csv", market_risk_off_dates)
     write_csv(out_dir / "candidate_overlap_by_signal_date.csv", candidate_overlap)
     write_csv(out_dir / "common_crash_names.csv", common_crash_names)
     write_csv(out_dir / "search_tail_risk_summary.csv", pd.DataFrame([search_summary]))
@@ -236,6 +247,7 @@ def main() -> int:
         limit_exposure=limit_exposure,
         selection_summary=selection_summary,
         risk_filter_funnel=risk_filter_funnel,
+        market_risk_off_dates=market_risk_off_dates,
         guard=guard,
         local_path=str(out_dir),
         gcs_uri=None if args.skip_gcs_upload else artifact_gcs_uri(args),
@@ -243,7 +255,14 @@ def main() -> int:
     write_json(out_dir / "tail_risk_summary.json", tail_summary)
     write_text(
         out_dir / "tail_risk.md",
-        render_tail_risk_markdown(tail_summary, windows, limit_exposure, risky_names, risk_filter_funnel),
+        render_tail_risk_markdown(
+            tail_summary,
+            windows,
+            limit_exposure,
+            risky_names,
+            risk_filter_funnel,
+            market_risk_off_dates,
+        ),
     )
 
     manifest = build_artifact_manifest(out_dir)
@@ -1168,6 +1187,67 @@ def tail_risk_profile_from_summary(summary: dict[str, Any]) -> str:
     return str(metrics.get("tail_risk_profile_id") or TAIL_RISK_PROFILE_ID)
 
 
+def market_state_version_from_summary(summary: dict[str, Any]) -> str:
+    metrics = parse_json(summary.get("metrics_json"))
+    return str(metrics.get("market_state_version") or "market_state_v0_20260606")
+
+
+def has_market_risk_guard(profile_id: str) -> bool:
+    return profile_id in {"market_risk_off_v0", "individual_and_market_risk_guard_v0"}
+
+
+def fetch_market_risk_off_dates(
+    client: bigquery.Client,
+    project: str,
+    *,
+    start_date: str,
+    end_date: str,
+    tail_risk_profile_id: str,
+    market_state_version: str,
+) -> pd.DataFrame:
+    columns = [
+        "trade_date", "market_state_version", "market_regime", "risk_off_action",
+        "risk_off_reasons", "risk_off_trigger_count", "is_smallcap_trend_down",
+        "is_breadth_weak", "is_limit_down_diffusion", "csi1000_ret_20d",
+        "csi1000_drawdown_20d", "adv_ratio_1d", "above_ma20_ratio",
+        "new_low_20d_ratio", "limit_down_count", "limit_down_mv_ratio",
+    ]
+    if not has_market_risk_guard(tail_risk_profile_id):
+        return empty_frame(columns)
+    sql = f"""
+    SELECT
+      ms.trade_date,
+      ms.market_state_version,
+      ms.market_regime,
+      ms.risk_off_action,
+      ms.risk_off_reasons,
+      ms.risk_off_trigger_count,
+      ms.is_smallcap_trend_down,
+      ms.is_breadth_weak,
+      ms.is_limit_down_diffusion,
+      ms.csi1000_ret_20d,
+      ms.csi1000_drawdown_20d,
+      ms.adv_ratio_1d,
+      ms.above_ma20_ratio,
+      ms.new_low_20d_ratio,
+      ms.limit_down_count,
+      ms.limit_down_mv_ratio
+    FROM `{project}.ashare_dws.dws_market_state_daily` AS ms
+    WHERE ms.trade_date BETWEEN @start_date AND @end_date
+      AND ms.market_state_version = @market_state_version
+      AND ms.is_risk_off
+    ORDER BY ms.trade_date
+    """
+    df = query_dataframe(client, sql, [
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+        bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+        bigquery.ScalarQueryParameter("market_state_version", "STRING", market_state_version),
+    ])
+    if df.empty:
+        return empty_frame(columns)
+    return normalize_date_columns(df[columns], ["trade_date"])
+
+
 def recent_signal_dates_for_events(windows: list[dict[str, Any]], targets: pd.DataFrame) -> dict[int, Any]:
     out: dict[int, Any] = {}
     if targets.empty:
@@ -1332,6 +1412,7 @@ def build_tail_risk_summary(
     limit_exposure: pd.DataFrame,
     selection_summary: dict[str, Any],
     risk_filter_funnel: pd.DataFrame,
+    market_risk_off_dates: pd.DataFrame,
     guard: dict[str, Any],
     local_path: str,
     gcs_uri: str | None,
@@ -1368,6 +1449,9 @@ def build_tail_risk_summary(
         "limit_down_weight_peak": limit_peak,
         "selection_profile_summary": selection_summary,
         "risk_filter_summary": summarize_risk_filter_funnel(risk_filter_funnel),
+        "market_state_version": metrics_json.get("market_state_version") or "market_state_v0_20260606",
+        "market_risk_off_signal_count": int(len(market_risk_off_dates)),
+        "market_risk_action": metrics_json.get("market_risk_action") or "skip_new_buys",
         "ads_readonly_guard_status": guard["status"],
         "ads_readonly_guard": guard,
     }
@@ -1379,6 +1463,7 @@ def render_tail_risk_markdown(
     limit_exposure: pd.DataFrame,
     risky_names: pd.DataFrame,
     risk_filter_funnel: pd.DataFrame,
+    market_risk_off_dates: pd.DataFrame,
 ) -> str:
     top = windows[0] if windows else {}
     lines = [
@@ -1390,6 +1475,7 @@ def render_tail_risk_markdown(
         f"- feature_version: `{summary['feature_version']}`",
         f"- 诊断版本: `{summary['tail_risk_diagnosis_version']}`",
         f"- 诊断 profile: `{summary['tail_risk_profile_id']}`",
+        f"- 市场状态版本: `{summary.get('market_state_version')}`",
         f"- ADS 只读校验: `{summary['ads_readonly_guard_status']}`",
         "",
         "## 最大回撤",
@@ -1438,6 +1524,23 @@ def render_tail_risk_markdown(
             f"- 最终入选数: `{risk_summary.get('selected_count', 0)}`",
             "",
         ])
+    if not market_risk_off_dates.empty:
+        lines.extend([
+            "## 市场 risk-off 信号",
+            "",
+            f"- 风险关闭信号日数: `{summary.get('market_risk_off_signal_count', 0)}`",
+            f"- 执行动作: `{summary.get('market_risk_action')}`",
+            "",
+            "| trade_date | reasons | csi1000_ret_20d | adv_ratio | limit_down_count |",
+            "|---|---|---:|---:|---:|",
+        ])
+        for _, row in market_risk_off_dates.head(30).iterrows():
+            lines.append(
+                f"| {row.get('trade_date')} | {row.get('risk_off_reasons') or ''} | "
+                f"{fmt_pct(row.get('csi1000_ret_20d'))} | {fmt_pct(row.get('adv_ratio_1d'))} | "
+                f"{int(row.get('limit_down_count') or 0)} |"
+            )
+        lines.append("")
     lines.extend([
         "## 产物",
         "",
@@ -1447,6 +1550,7 @@ def render_tail_risk_markdown(
         "- `selection_profile_by_signal_date.csv`：回撤前信号日的选股画像。",
         "- `risk_filter_funnel_daily.csv`：P1 个股风险过滤漏斗。",
         "- `risk_filter_excluded_names.csv`：P1 个股风险过滤排除名单。",
+        "- `market_risk_off_dates.csv`：P2 市场 risk-off 信号日和触发证据。",
         "",
     ])
     return "\n".join(lines)

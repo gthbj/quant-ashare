@@ -1,0 +1,105 @@
+# Strategy 1 tail-risk P2 market risk-off A/B manifest.
+# This is a portfolio-only experiment set: it reuses the existing prediction
+# stream and changes only ledger execution risk controls.
+# 文档维护：GPT-5 Codex（最近更新 2026-06-06）
+
+project: data-aquarium
+region: asia-east2
+strategy_id: ml_pv_clf_v0
+execution_backend: cloud_run_sklearn_ledger_v1
+
+artifact_base_uri: gs://ashare-artifacts/reports/strategy1
+model_artifact_base_uri: gs://ashare-artifacts/models/strategy1
+local_mirror_root: reports/strategy1_cloudrun
+
+train_predict_job: strategy1-train-predict-job
+prepare_matrix_job: strategy1-prepare-matrix-job
+train_candidate_fanout_job: strategy1-train-candidate-fanout-job
+select_register_predict_job: strategy1-select-register-predict-job
+backtest_report_job: strategy1-backtest-report-job
+lock_bucket: ashare-artifacts
+lock_prefix: locks/strategy1/cloudrun
+lock_ttl_minutes: 30
+heartbeat_interval_seconds: 60
+
+manifest_version: tailrisk_p2_market_riskoff_ab_20260606
+baseline_experiment_id: oq010_bqml_baseline_pvfq_n30_bw_h5_extended
+baseline_run_id: s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01
+baseline_backtest_id: bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01
+market_state_version: market_state_v0_20260606
+
+default_windows:
+  train_start: "2019-04-03"
+  train_end: "2023-12-31"
+  valid_start: "2024-01-02"
+  valid_end: "2024-12-31"
+  test_start: "2025-01-02"
+  test_end: "2026-04-30"
+  final_holdout_start:
+  final_holdout_end:
+  predict_start: "2024-01-02"
+  predict_end: "2026-04-30"
+
+experiments:
+  - experiment_id: tailrisk_p2_diag_pvfq_n30_bw_h5_20260606
+    stage_id: tailrisk_p2
+    experiment_group: market_risk_off_ab
+    run_id: s1_tailrisk_p2_diag_pvfq_n30_bw_h5_20260606_01
+    prediction_run_id: s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01
+    backtest_id: bt_s1_tailrisk_p2_diag_pvfq_n30_bw_h5_20260606_01
+    baseline_experiment_id: oq010_bqml_baseline_pvfq_n30_bw_h5_extended
+    parent_experiment_id: tailrisk_p1_diag_pvfq_n30_bw_h5_20260606
+    parent_run_id: s1_tailrisk_p1_diag_pvfq_n30_bw_h5_20260606_01
+    rebalance_frequency: biweekly
+    target_holdings: 30
+    max_single_weight: 0.05
+    label_horizon: 5
+    horizon_natural_frequency: weekly
+    feature_set_id: strategy1_pv_fin_quality_v0_20260603
+    feature_version: strategy1_pv_v0_20260601
+    tail_risk_profile_id: diagnostic_only
+    market_state_version: market_state_v0_20260606
+    requires_retrain: false
+    status: planned
+
+  - experiment_id: tailrisk_p2_market_riskoff_pvfq_n30_bw_h5_20260606
+    stage_id: tailrisk_p2
+    experiment_group: market_risk_off_ab
+    run_id: s1_tailrisk_p2_mkt_pvfq_n30_bw_h5_20260606_01
+    prediction_run_id: s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01
+    backtest_id: bt_s1_tailrisk_p2_mkt_pvfq_n30_bw_h5_20260606_01
+    baseline_experiment_id: oq010_bqml_baseline_pvfq_n30_bw_h5_extended
+    parent_experiment_id: tailrisk_p2_diag_pvfq_n30_bw_h5_20260606
+    parent_run_id: s1_tailrisk_p2_diag_pvfq_n30_bw_h5_20260606_01
+    rebalance_frequency: biweekly
+    target_holdings: 30
+    max_single_weight: 0.05
+    label_horizon: 5
+    horizon_natural_frequency: weekly
+    feature_set_id: strategy1_pv_fin_quality_v0_20260603
+    feature_version: strategy1_pv_v0_20260601
+    tail_risk_profile_id: market_risk_off_v0
+    market_state_version: market_state_v0_20260606
+    requires_retrain: false
+    status: planned
+
+  - experiment_id: tailrisk_p2_individual_and_market_pvfq_n30_bw_h5_20260606
+    stage_id: tailrisk_p2
+    experiment_group: market_risk_off_ab
+    run_id: s1_tailrisk_p2_combo_pvfq_n30_bw_h5_20260606_01
+    prediction_run_id: s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01
+    backtest_id: bt_s1_tailrisk_p2_combo_pvfq_n30_bw_h5_20260606_01
+    baseline_experiment_id: oq010_bqml_baseline_pvfq_n30_bw_h5_extended
+    parent_experiment_id: tailrisk_p1_guard_pvfq_n30_bw_h5_20260606
+    parent_run_id: s1_tailrisk_p1_guard_pvfq_n30_bw_h5_20260606_01
+    rebalance_frequency: biweekly
+    target_holdings: 30
+    max_single_weight: 0.05
+    label_horizon: 5
+    horizon_natural_frequency: weekly
+    feature_set_id: strategy1_pv_fin_quality_v0_20260603
+    feature_version: strategy1_pv_v0_20260601
+    tail_risk_profile_id: individual_and_market_risk_guard_v0
+    market_state_version: market_state_v0_20260606
+    requires_retrain: false
+    status: planned
