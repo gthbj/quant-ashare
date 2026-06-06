@@ -253,12 +253,13 @@
 **场景：** 周末或节假日触发 daily_current 模式。
 
 **当前行为：**
-- `daily_current` 模式不自动把 `business_date` 改成上一交易日；如果触发到非交易日，应先确认是否需要补上一交易日。
+- scheduled `daily_current` 会先查 SSE 交易日历；若当天不是交易日，自动跳过 ingestion、ODS readiness 和 transform，并写入 `skip_non_trading_day` task 状态。
+- 手工触发的 `daily_current` 不作为自动跳过入口；如果触发到非交易日，应先确认是否需要补上一交易日。
 - 需要修复上一交易日时，显式使用 `backfill` 并设置 `date_from`/`date_to`。
 - 非交易日不会因为 weak endpoint 缺失写入 warning；strong endpoint 若归一到的最近交易日 ODS 缺失，仍会阻断。
 - `qa_only` 模式继续执行只读检查。
 
-**待补强项：** 后续可增加交易日 gate，在非交易日自动跳过 ingestion / transform 并写 `skip_non_trading_day` 状态行。
+**生产验收：** DAG 合并部署后，用周末/节假日 scheduled 口径 smoke 验证 `skip_non_trading_day` 状态写入；上一交易日修复仍走显式 `backfill`。
 
 **手动触发非交易日：**
 ```bash

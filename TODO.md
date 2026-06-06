@@ -28,8 +28,9 @@
 
 ## 工程 / 调度
 
-- [~] OQ-005 GCP 数据流水线落地：Phase 0/1/1.5/1.6/1.7/2.0/2.2 已完成并部署到 Composer。每日 `ashare_daily_pipeline_v0` 已修复 scheduled run 默认日期：20:00 CST 使用 Asia/Shanghai 当天 `data_interval_end`，手动 `dag_run.conf` 仍可覆盖；`sql/qa/09_ods_daily_partition_readiness.sql` 已按 strong/weak endpoint 重整，strong 缺失阻断，weak 缺失和 API 单次上限命中写 `pipeline_task_status` warning，且 PR #80 follow-up 已补 warning 写入在 ASSERT 前、dry-run 不写状态、非交易日弱缺失不写 warning。PR #80 已部署到 Composer bucket，`2026-06-05` daily_current 生产路径和 qa_only smoke 均通过；20 个交易日估值链路 `2026-05-11..2026-06-05` ODS/DWD/DWS 行数一致。告警/观测主链路和 checker heartbeat / dead-man's-switch 已部署验收。OQ-005 仍 open；下一步进入 Dataform definitions、补跑/resume 自动化、非交易日自动 skip gate、策略 runner/report 可选分支和完整 ODS→ADS 运维观测闭环
-- [ ] 为 `ashare_daily_pipeline_v0` 增加交易日 gate：非交易日 scheduled `daily_current` 自动跳过 ingestion / transform，写 `skip_non_trading_day` 状态行；上一交易日修复必须显式 `backfill`
+- [~] OQ-005 GCP 数据流水线落地：Phase 0/1/1.5/1.6/1.7/2.0/2.2 已完成并部署到 Composer。每日 `ashare_daily_pipeline_v0` 已修复 scheduled run 默认日期：20:00 CST 使用 Asia/Shanghai 当天 `data_interval_end`，手动 `dag_run.conf` 仍可覆盖；`sql/qa/09_ods_daily_partition_readiness.sql` 已按 strong/weak endpoint 重整，strong 缺失阻断，weak 缺失和 API 单次上限命中写 `pipeline_task_status` warning，且 PR #80 follow-up 已补 warning 写入在 ASSERT 前、dry-run 不写状态、非交易日弱缺失不写 warning。PR #80 已部署到 Composer bucket，`2026-06-05` daily_current 生产路径和 qa_only smoke 均通过；20 个交易日估值链路 `2026-05-11..2026-06-05` ODS/DWD/DWS 行数一致。告警/观测主链路和 checker heartbeat / dead-man's-switch 已部署验收。本分支已实现 scheduled 非交易日 `daily_current` 自动 skip gate，待合并部署后做 Composer smoke。OQ-005 仍 open；下一步进入 Dataform definitions、补跑/resume 自动化、策略 runner/report 可选分支和完整 ODS→ADS 运维观测闭环
+- [x] 为 `ashare_daily_pipeline_v0` 增加交易日 gate：非交易日 scheduled `daily_current` 自动跳过 ingestion / readiness / transform，写 `skip_non_trading_day` 状态行；上一交易日修复必须显式 `backfill`。本分支已实现，待合并部署 smoke
+- [ ] 合并后部署非交易日 skip gate 到 Composer，并用周末/节假日 scheduled 口径 smoke 验证 `skip_non_trading_day` 状态写入
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算 / 调度配置
 - [ ] 写"从 ODS 继承字段描述"脚本（`bq show` -> 映射 -> `bq update`）
 - [ ] 增量调度（dbt 或 Airflow + SQL）与数据质量断言
