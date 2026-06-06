@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 验收门 v2 实现（2026-06-06）**：PR #97 已合并；当前实现工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-impl`，分支 `codex/implement-acceptance-gate-v2`。已新增 `configs/strategy1/model_acceptance_contract_v2.yml`、只读脚本 `scripts/strategy1/diagnose_acceptance_gate_v2.py` 和 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，并扩展 `scripts/strategy1_cloudrun/acceptance.py` 支持 contract hash / v2 SQL 参数。诊断脚本只读 ADS/DWD/DWS，不训练、不改 prediction、不写 ADS；默认 reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，输出 `acceptance_gate_v2/` artifact、10/20/30/40 组合可行性、eligible benchmark、score orientation audit、低价股偏移、现金/实际持仓和风格暴露诊断。uploaded 模式成功，GCS URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01`，16 个对象；`22_qa_acceptance_gate_v2_outputs.sql` 真实执行 9 个 ASSERT 全部通过。当前 v2 结论：reference run 为 `rejected`，原因是跑输 `000852.SH`、full-period IR 为负、2026 final_holdout 严重跑输；拒绝范围仅限当前 top-30 long-only 实现，不否定信号家族。`10/5%` 是 `diagnostic_only`，`20/30/40` 因局部现金峰值为 `needs_more_evidence`，没有 implementation hard fail。下一步应 review/merge 实现 PR，再决定继续 PRD03 风险特征训练还是先复核组合现金/执行语义。
+**OQ-010 验收门 v2 实现（2026-06-06）**：PR #97 已合并；当前实现工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-impl`，分支 `codex/implement-acceptance-gate-v2`。已新增 `configs/strategy1/model_acceptance_contract_v2.yml`、只读脚本 `scripts/strategy1/diagnose_acceptance_gate_v2.py` 和 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，并扩展 `scripts/strategy1_cloudrun/acceptance.py` 支持 contract hash / v2 SQL 参数。诊断脚本只读 ADS/DWD/DWS，不训练、不改 prediction、不写 ADS；默认 reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，输出 `acceptance_gate_v2/` artifact、10/20/30/40 组合可行性、eligible benchmark、score orientation audit、低价股偏移、现金/实际持仓和风格暴露诊断。uploaded 模式成功，GCS URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01`，16 个对象；`22_qa_acceptance_gate_v2_outputs.sql` 注入真实 contract hash 后真实执行 9 个 ASSERT 全部通过，默认 standalone placeholder 已改为在 `QA-V2-1` fail-loud。当前 v2 结论：reference run 为 `rejected`，原因是跑输 `000852.SH`、full-period IR 为负、2026 final_holdout 严重跑输；拒绝范围仅限当前 top-30 long-only 实现，不否定信号家族。`10/5%` 是 `diagnostic_only`，`20/30/40` 因局部现金峰值为 `needs_more_evidence`，没有 implementation hard fail。下一步应 review/merge 实现 PR，再决定继续 PRD03 风险特征训练还是先复核组合现金/执行语义。
 
 **OQ-010 风险特征入模 Phase B0 实现（2026-06-06）**：PR #94 已合并；工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-acceptance-diagnosis`。新增 `scripts/strategy1/diagnose_acceptance_window.py`，用于 PRD Phase B0 只读诊断：读取既有 ADS / artifact，重切 BQML historical reference 的 2025-only 指标，并汇总 sklearn native、LightGBM binary、LightGBM regression 三波已拒 Python Top5 候选；不训练模型、不重跑 BQML、不执行 `sql/ml/strategy1` SQL runner、不写 ADS。PR #96 review follow-up 已统一 maxDD 门口径：2025 excess 仍看 2025 段，风险 maxDD 门使用 full-period summary，报告同时展示 test maxDD 与 full maxDD。uploaded 模式已成功，artifact URI 为 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_window_diagnosis/diagnosis_id=riskfeat_acceptance_window_20260606_01`。诊断结论 `primary_blocker=mixed_evidence`：BQML historical reference 2025-only excess -23.43%、test maxDD -10.06%、full-period maxDD -14.48%；15 个 Python 候选中 10 个 2025 excess 未过、5 个 full-period maxDD 未过，same-side fraction 66.67% 低于 80% 阈值。后续不应自动启动第 4 波风险特征训练，应先由 owner / 审查者复核诊断结论。
 
@@ -107,7 +107,8 @@ Run ID: strategy1_acceptance_gate_v2_implementation_20260606
 - `python3 -m py_compile scripts/strategy1/diagnose_acceptance_gate_v2.py scripts/strategy1_cloudrun/acceptance.py`
 - `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`
 - `python3 scripts/strategy1/diagnose_acceptance_gate_v2.py --project data-aquarium --skip-gcs-upload`
-- `bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`（9 个 ASSERT 全部 successful）
+- `bq query --use_legacy_sql=false --location=asia-east2 < /tmp/22_qa_acceptance_gate_v2_outputs.injected.sql`（注入真实 contract hash 后 9 个 ASSERT 全部 successful）
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`（默认 standalone placeholder 预期在 `QA-V2-1` fail-loud）
 - `python3 scripts/strategy1/diagnose_acceptance_gate_v2.py --project data-aquarium`（uploaded 成功，16 个 GCS artifact）
 - `gcloud storage ls gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01/`
 - `git diff --check`
@@ -120,6 +121,57 @@ Run ID: strategy1_acceptance_gate_v2_implementation_20260606
 
 - 创建并 review/merge 实现 PR。
 - 合并后根据 v2 结论决定：继续 PRD03 风险特征训练，或先复核组合现金/执行语义（尤其 `20/30/40` 的局部现金峰值）。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+---
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: strategy1_acceptance_gate_v2_qa_hash_hardening_20260606
+相关 issue/PR: PR #98
+
+### 已完成工作
+
+- 采纳 PR #98 review 的可选加固建议：`sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql` 的 `QA-V2-1` 明确拒绝 standalone placeholder hash。
+- 保持 production / 真实验证路径不变：由契约注入真实 `acceptance_contract_sha256` 后执行 `22` QA。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`KNOWN_CONSTRAINTS.md` 和当前交接摘要。
+
+### 重要上下文
+
+- 默认直接执行 `22_qa_acceptance_gate_v2_outputs.sql` 现在会在 `QA-V2-1` fail-loud；这是预期行为，用于防止忘记注入真实契约 hash。
+- 当前 v2 契约 hash 为 `e7f26a5f33713d9c740abaf9f4a60aa3d3adba119aad514519c30761d3cb8608`。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+- `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1/diagnose_acceptance_gate_v2.py scripts/strategy1_cloudrun/acceptance.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 < /tmp/22_qa_acceptance_gate_v2_outputs.injected.sql`（注入真实 contract hash 后 9 个 ASSERT 全部 successful）
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`（默认 standalone placeholder 预期在 `QA-V2-1` fail-loud）
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- PR #98 可继续按 review 结论合并；合并后删除不再使用的 `codex/implement-acceptance-gate-v2` 本地/远端分支。
 
 ### 已更新记忆文件
 

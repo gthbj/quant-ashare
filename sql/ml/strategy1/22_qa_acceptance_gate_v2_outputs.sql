@@ -5,6 +5,8 @@
 -- The DECLARE defaults are standalone fallbacks, not the source of truth.
 -- Production runs should inject them from
 -- configs/strategy1/model_acceptance_contract_v2.yml.
+-- The placeholder contract hash intentionally fails QA-V2-1 so standalone
+-- execution is fail-loud unless the real contract hash is injected.
 
 DECLARE p_acceptance_gate_version STRING DEFAULT 'strategy1_acceptance_gate_v2';
 DECLARE p_acceptance_contract_version STRING DEFAULT 'model_acceptance_contract_v2';
@@ -32,6 +34,7 @@ CREATE TEMP FUNCTION qa_required(condition BOOL) AS (IFNULL(condition, FALSE));
 ASSERT (
   p_acceptance_gate_version = 'strategy1_acceptance_gate_v2'
   AND p_acceptance_contract_version = 'model_acceptance_contract_v2'
+  AND p_acceptance_contract_sha256 != 'standalone_contract_hash_required'
   AND LENGTH(p_acceptance_contract_sha256) >= 16
 ) AS 'QA-V2-1: acceptance gate v2 must use model_acceptance_contract_v2 with a non-empty hash';
 
