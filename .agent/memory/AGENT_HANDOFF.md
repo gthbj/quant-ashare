@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 尾部风险 P2 market risk-off 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-tailrisk-p2-market-riskoff`，分支 `codex/implement-tailrisk-p2-market-riskoff`，PR #92。已新增 `sql/dws/08_dws_market_state_daily.sql`、`sql/qa/11_market_state_checks.sql`、P2 A/B manifest，并让 Cloud Run Python ledger、SQL fallback `08_run_backtest.sql`、候选 / 汇总 / QA / 报告 / tail-risk 诊断支持 `market_risk_off_v0` 与 `individual_and_market_risk_guard_v0`。风险动作固定为 `risk_off_action='skip_new_buys'`：risk-off 执行日只禁止新买 / 加仓，卖出和 pending sell 继续执行，成交失败写 `BUY_SKIPPED_MARKET_RISK_OFF`。已通过 Python `py_compile`、manifest 解析、`backtest_report.py --dry-run`、相关 BigQuery SQL dry-run 和 `git diff --check`。尚未合并、尚未物化 DWS、尚未部署新 runner、尚未跑 P2 A/B。
+**OQ-010 尾部风险 P2 market risk-off 实跑结论（2026-06-06）**：PR #92 已合并；`dws_market_state_daily` 已物化并通过 `sql/qa/11_market_state_checks.sql`（562 行，risk-off 91 日）。已构建/部署 runner 镜像 `tailrisk-p2-6db6bd9-20260606-01`，并用 `configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml` 并发跑完 diagnostic-only、`market_risk_off_v0`、`individual_and_market_risk_guard_v0` 三条 portfolio-only A/B。结果：diagnostic-only total_return 38.25%、Sharpe 0.882、max_drawdown -14.46%；market-only total_return 28.20%、Sharpe 0.734、max_drawdown -15.72%，market skip 217 笔；combo total_return 30.04%、Sharpe 0.773、max_drawdown -14.71%，market skip 217 笔、tail-risk skip 3 笔。三条 report / model diagnosis / tail-risk diagnosis / `10` / `12` / `20` 均 succeeded 并上传 GCS。结论：P2 v0 `skip_new_buys` 降低仓位但未改善回撤且显著拖累收益，不采纳为默认策略；后续若继续市场风控，应另写 v1 风险动作/阈值。
 
 **Dataform definitions 与调度运行命名清理（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dataform-definitions`，分支 `codex/oq005-dataform-definitions`，PR #91。已新增 Dataform 首版 `workflow_settings.yaml`、`action_manifest.json`、生成器 `scripts/dataform/generate_sqlx_from_sql.py` 和 45 个 `definitions/**/*.sqlx`，以 canonical `sql/` 生成 31 个 Dataform operations；`npx --yes @dataform/cli compile dataform` 通过。按 owner 要求清理调度运行代码中的阶段性命名：告警 DAG 文件改为 `ashare_pipeline_alert_checker.py`，QA/metadata SQL 改为 `01_core_smoke_checks.sql`、`03_index_benchmark_checks.sql`、`05_unit_contract_checks.sql`、`01_core_table_column_descriptions.sql`，Composer task_id / Dataform action/tag 改为 `core_*`、`index_benchmark_checks`、`unit_contract_checks`、`qa_core`、`qa_contract` 等稳定命名。PR #91 review follow-up 已补运行命名 cutover runbook、Dataform `--check` 防漂移检查和“线上旧名 vs 目标新名”记忆说明。未部署 Composer / Dataform，未运行 BigQuery DML；生产 cutover 前，2026-06-05 / PR #75 历史线上告警/checker 仍按旧 `oq005_*` / `oq005_alert_checker` 名称审计。
 
@@ -18,7 +18,7 @@
 
 **OQ-005 Composer DAG 拆分生产切换（2026-06-06）**：PR #86 已合并并完成 Composer 部署 / smoke。已应用 meta DDL 与观测视图，部署 `ashare_common.py`、`ashare_ods_ingestion_daily.py`、`ashare_warehouse_window_refresh.py`、`ashare_warehouse_full_rebuild.py` 和仓库 `sql/` 到 Composer bucket。旧 `ashare_daily_pipeline_v0` 已暂停，新 scheduled DAG `ashare_ods_ingestion_daily` 已 unpause；`ashare_warehouse_window_refresh` 与 `ashare_warehouse_full_rebuild` 无 schedule。`setup_alerts.py` 已补真实 GCP apply 兼容修复，`ashare_pipeline_warehouse_refresh_missing` metric 与 `Ashare Pipeline: Warehouse Refresh Missing` policy 已创建 / 对齐。Smoke：`manual_split_skip_gate_20260606_01` 非交易日 gate 成功且 Cloud Run 未触发；`manual_split_qa_only_20260605_01` 5 个 QA success；`manual_split_backfill_20260605_01` 1 日窗口刷新和全部 QA success；refresh-missing synthetic transaction smoke 通过；`check_alerts.py --lookback-minutes 20` 返回空。后续只剩新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然观察，以及 Dataform 生产接入 / shadow 验证、完整 ODS→ADS 运维观测闭环和后续自然 scheduled 观察。
 
-**OQ-010 尾部风险 P0 诊断实现（2026-06-06）**：PR #84（`docs/prd/PRD_20260606_01_策略1尾部风险控制.md`）已合并，PRD 分支已清理。当前实现工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-impl`，分支 `codex/implement-tail-risk-diagnostics-p0`，PR #87。已新增只读 `scripts/strategy1/analyze_tail_risk.py`、Cloud Run `backtest_report.py` 自动执行入口、TopK comparison 尾部风险摘要和 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`；产物写入 `tail_risk/` local/GCS artifact，覆盖最大回撤窗口、持仓贡献、跌停 / 不可卖暴露、选股画像、风险股票名单和 ADS pre/post hash guard，不改变候选、订单、成交、持仓、NAV 或 summary。PR #87 review follow-up 已补：DWS 特征 join 按 `feature_version` 过滤；非 guard 类诊断异常 fail-soft 并写 `tail_risk_failure.json`，ADS read-only guard 失败仍 hard fail；最大回撤窗口保留首次高点日期。已用 Wave 3 regression Top1 完成本地 artifact smoke 和真实 `20` QA。P1 个股硬风险过滤 profile A/B 已完成；P2 市场状态 risk-off 已在 PR #92 实现到待审阶段。
+**OQ-010 尾部风险 P0/P1/P2 当前版收口（2026-06-06）**：PR #84（`docs/prd/PRD_20260606_01_策略1尾部风险控制.md`）已合并，P0 固定最大回撤诊断已由 PR #87 实现并通过真实 `20` QA；P1 个股硬风险过滤 profile A/B 已完成，`individual_risk_guard_v0` 对回撤有轻度改善但仍跑输中证1000；P2 market risk-off 已由 PR #92 合并、物化 DWS 并完成 A/B。当前可复用的事实链路是 `tail_risk/` artifact、`20_qa_tail_risk_outputs.sql` 和 P1/P2 A/B 结果；当前不应把 P2 v0 `skip_new_buys` 设为默认策略。
 
 **OQ-005 Composer DAG 拆分 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dag-split-prd`，分支 `codex/oq005-dag-split-prd`。新增 `docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md`，定义将当前 `ashare_daily_pipeline_v0` 拆成 `ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh`、`ashare_warehouse_full_rebuild`、`ashare_research_model_experiment`、`ashare_research_model_fanout`，`ashare_pipeline_alert_checker` 继续独立。本次只写 PRD 和记忆/TODO，不改 DAG、不部署 Composer、不运行 BigQuery / Dataform / Cloud Run。后续建议先实现 production DAG 拆分 Phase B/C/D：抽共享 helper，新增 ingestion daily DAG 与 warehouse window refresh DAG，完成开市日、非交易日和 backfill smoke 后再继续 Dataform 生产接入 / shadow 验证 / resume 自动化。
 
@@ -28,7 +28,7 @@
 
 **OQ-005 PR #83 记忆一致性 follow-up（2026-06-06）**：PR #83 review comment `4637354942` 指出 `IMPLEMENTATION_STATUS.md` 已完成区仍残留旧的部署等待状态。已将相关 durable bullet 改为“后续已由 PR #80/PR #83 部署与 smoke 覆盖”，并把几条历史补充明确标为部署前状态，避免同一记忆文件内当前状态自相矛盾。
 
-**OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-cloudrun-python-baseline`，分支 `codex/implement-prd04-cloudrun-python-baseline`。PR #79 review follow-up 与 residual follow-up 已完成：共享验收契约阈值注入 `18/19` QA、final_holdout 缺证据改为 `needs_more_evidence`、QA NULL 空过和数据上界断言补齐、split 边界对齐 `2024-01-02` / `2025-01-02`、auto-next-wave 改为当前 wave QA 后非阻断触发，并补资源元数据和 LightGBM convergence 元数据。运行手册已同步 40 候选 / 20 并发 / 2 vCPU 8Gi，`config.py` / `ledger.py` / `01` / `10` 的 fallback 默认日期已对齐 Jan 2 交易日起点，`18/19` 已用 `qa_required()` 让单行 NULL 也 fail，并声明 SQL `DECLARE` 默认只是 standalone fallback、生产必须由 orchestrator 从共享契约注入。真实 LightGBM binary wave 2 search `cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01` 已按 `candidate_count=40`、`candidate_parallelism=20`、单 task `2 vCPU / 8Gi` 完成，Top5 均 rejected，不建立 `cloud_run_python_baseline_v1`；`18/19` 真实 QA 均通过。合并部署 PR #79 follow-up 后下一步：执行 `lightgbm_regression` wave 3。
+**OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-06）**：PR #79 review follow-up、PR #82 runtime 修复和真实 wave 2 / wave 3 执行均已完成。真实 LightGBM binary wave 2 `cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01` 与 regression wave 3 `cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01` 均完成 Top5 回测/报告/诊断和 QA，Top5 全部 rejected，当前不建立 `cloud_run_python_baseline_v1`。运行资源口径为 40 候选 / 20 并发 / 2 vCPU 8Gi；后续建议进入下一模型族、特征增强或训练目标改造，而不是继续围绕已拒绝的两波 LightGBM 搜索。
 
 **项目记忆瘦身归档（2026-06-05）**：`AGENT_HANDOFF.md` 已按 owner 要求整理，当前文件只保留启动摘要、归档清理交接和最近 3 条交接；较早的 30 条交接已追加到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动优先读本文件；需要审计历史时再读 archive。
 
@@ -55,6 +55,61 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: tailrisk_p2_market_riskoff_run_20260606
+相关 issue/PR: PR #92 / OQ-010 尾部风险 P2
+
+### 已完成工作
+
+- 合并后的 `main` 上物化 `sql/dws/08_dws_market_state_daily.sql`，并跑通 `sql/qa/11_market_state_checks.sql`。
+- 构建 Cloud Run runner 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:tailrisk-p2-6db6bd9-20260606-01`，Cloud Build `564b6223-908c-4123-a7b4-f59e7d5fe8dc` succeeded。
+- 将 `strategy1-backtest-report-job` 更新到该镜像，使用 `configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml` 跑完 3 条 P2 portfolio-only A/B。
+- 查询 ADS summary、trade、NAV 和 tail-risk summary，完成结果判断，并同步 TODO / memory。
+
+### 重要上下文
+
+- `dws_market_state_daily` 结果：`market_state_v0_20260606` 在 `2024-01-02` 至 `2026-04-30` 窗口共 562 行，risk-off 91 日。
+- P2 diagnostic-only：run `s1_tailrisk_p2_diag_pvfq_n30_bw_h5_20260606_01` / backtest `bt_s1_tailrisk_p2_diag_pvfq_n30_bw_h5_20260606_01`，total_return 38.25%、excess_return -4.13% vs `000852.SH`、Sharpe 0.882、max_drawdown -14.46%。
+- P2 market-only：run `s1_tailrisk_p2_mkt_pvfq_n30_bw_h5_20260606_01` / backtest `bt_s1_tailrisk_p2_mkt_pvfq_n30_bw_h5_20260606_01`，total_return 28.20%、excess_return -14.18% vs `000852.SH`、Sharpe 0.734、max_drawdown -15.72%，`BUY_SKIPPED_MARKET_RISK_OFF` 217 笔。
+- P2 combo：run `s1_tailrisk_p2_combo_pvfq_n30_bw_h5_20260606_01` / backtest `bt_s1_tailrisk_p2_combo_pvfq_n30_bw_h5_20260606_01`，total_return 30.04%、excess_return -12.34% vs `000852.SH`、Sharpe 0.773、max_drawdown -14.71%，market skip 217 笔、tail-risk skip 3 笔。
+- 最大回撤窗口均落在 2024-05 至 2024-09；market-only 最大回撤更深。P2 v0 `skip_new_buys` 降低平均仓位和交易成本，但错过买点/反弹，当前不应作为默认策略。
+- Tail-risk artifact 成功上传，但路径带 `search_id=...`；summary 表的 `tail_risk_report_uri` 仍为空，这是可追溯性小缺口，不影响本轮结论。
+
+### 改动文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/08_dws_market_state_daily.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/11_market_state_checks.sql`
+- `python -m scripts.strategy1_cloudrun.orchestrate_experiments --project data-aquarium --region asia-east2 --manifest configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml --config configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml --stage-id tailrisk_p2 --dry-run`
+- Cloud Build succeeded：`564b6223-908c-4123-a7b4-f59e7d5fe8dc`
+- Cloud Run executions succeeded：`strategy1-backtest-report-job-fg7kr`、`strategy1-backtest-report-job-p8phq`、`strategy1-backtest-report-job-jnzjc`
+- Orchestrator final status：`succeeded`，failure_count 0。
+
+### 阻塞项
+
+- 无执行阻塞。策略结论是 P2 v0 不应默认启用。
+
+### 下一步建议
+
+- OQ-010 继续寻找可接受的 Cloud Run Python baseline：下一模型族、特征增强或训练目标改造优先于启用 P2 v0。
+- 若继续做市场风控，单独写 P2 v1 方案，考虑更强但可验证的动作，例如风险仓位缩放、风险恢复条件、或按市场状态切换持股/行业暴露，而不是复用当前 `skip_new_buys`。
+- 保留 P1 个股风险过滤作为可继续观察的候选 profile；它改善了回撤但收益仍跑输中证1000。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 日期: 2026-06-06
 Agent ID: Codex
