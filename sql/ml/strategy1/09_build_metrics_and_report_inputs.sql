@@ -16,6 +16,7 @@ DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
 DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_horizon_natural_frequency STRING DEFAULT 'weekly';
 DECLARE p_feature_set_id STRING DEFAULT 'strategy1_pv_v0_20260601';
+DECLARE p_tail_risk_profile_id STRING DEFAULT 'diagnostic_only';
 DECLARE p_execution_backend STRING DEFAULT 'bqml_sql_ledger_v1';
 DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1';
 DECLARE p_ledger_executor STRING DEFAULT 'bigquery_sql';
@@ -181,6 +182,7 @@ SELECT
     p_label_horizon AS label_horizon,
     p_horizon_natural_frequency AS horizon_natural_frequency,
     p_feature_set_id AS feature_set_id,
+    p_tail_risk_profile_id AS tail_risk_profile_id,
     p_execution_backend AS execution_backend,
     a.n_days, a.annual_return, a.annual_vol,
     SAFE_DIVIDE(a.annual_return, a.annual_vol) AS sharpe,

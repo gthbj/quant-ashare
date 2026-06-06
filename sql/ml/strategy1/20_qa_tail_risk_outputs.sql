@@ -13,10 +13,15 @@ DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_backtest_id STRING DEFAULT 'bt_s1_cloudrun_python_example';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-02';
 DECLARE p_predict_end DATE DEFAULT DATE '2026-04-30';
+DECLARE p_tail_risk_profile_id STRING DEFAULT 'diagnostic_only';
 DECLARE p_expected_summary_hash STRING DEFAULT NULL;
 DECLARE p_expected_nav_hash STRING DEFAULT NULL;
 
 SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
+
+IF p_tail_risk_profile_id NOT IN ('diagnostic_only', 'individual_risk_guard_v0') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_tail_risk_profile_id: ', p_tail_risk_profile_id);
+END IF;
 
 CREATE TEMP TABLE summary_row AS
 SELECT bs.*
@@ -169,6 +174,38 @@ ASSERT (
     AND pt.run_id = p_run_id
     AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
 ) AS 'QA-TAIL-8: selected target rows must exist for the latest signal date';
+
+ASSERT (
+  SELECT COUNT(*) = 1
+    AND LOGICAL_AND(COALESCE(JSON_VALUE(metrics_json, '$.tail_risk_profile_id'), 'diagnostic_only') = p_tail_risk_profile_id)
+  FROM summary_row
+) AS 'QA-TAIL-P1-1: backtest summary metrics_json must record tail_risk_profile_id';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
+  JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
+    ON pt.strategy_id = cand.strategy_id
+   AND pt.run_id = cand.run_id
+   AND pt.rebalance_date = cand.rebalance_date
+   AND pt.sec_code = cand.sec_code
+   AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
+  WHERE cand.strategy_id = p_strategy_id
+    AND cand.run_id = p_run_id
+    AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
+    AND STARTS_WITH(COALESCE(cand.filter_reason, ''), 'tail_risk:')
+) AS 'QA-TAIL-P1-2: tail-risk filtered candidates must not enter same-day portfolio targets';
+
+IF p_tail_risk_profile_id = 'individual_risk_guard_v0' THEN
+  ASSERT (
+    SELECT COUNT(*) > 0
+    FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
+    WHERE cand.strategy_id = p_strategy_id
+      AND cand.run_id = p_run_id
+      AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
+      AND cand.filter_reason LIKE 'tail_risk:%'
+  ) AS 'QA-TAIL-P1-3: individual_risk_guard_v0 must leave auditable tail-risk exclusions';
+END IF;
 
 CREATE TEMP TABLE guard_hash AS
 WITH summary_guard AS (

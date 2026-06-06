@@ -49,6 +49,8 @@ REQUIRED_ARTIFACTS = [
     "selection_profile_by_signal_date.csv",
     "selection_profile_summary.json",
     "risky_selected_names.csv",
+    "risk_filter_funnel_daily.csv",
+    "risk_filter_excluded_names.csv",
     "candidate_overlap_by_signal_date.csv",
     "common_crash_names.csv",
     "search_tail_risk_summary.csv",
@@ -161,6 +163,20 @@ def main() -> int:
         signal_dates,
         selection_pool,
     )
+    tail_risk_profile_id = tail_risk_profile_from_summary(summary)
+    risk_filter_candidates = fetch_risk_filter_candidates(
+        client,
+        args.project,
+        strategy_id=args.strategy_id,
+        run_id=args.run_id,
+        start_date=start_date,
+        end_date=end_date,
+        feature_version=args.feature_version,
+    )
+    risk_filter_funnel, risk_filter_excluded = build_risk_filter_outputs(
+        risk_filter_candidates,
+        tail_risk_profile_id=tail_risk_profile_id,
+    )
     candidate_overlap = empty_frame([
         "search_id", "signal_date", "left_run_id", "right_run_id",
         "left_selected_count", "right_selected_count", "overlap_count",
@@ -185,6 +201,8 @@ def main() -> int:
     write_csv(out_dir / "selection_profile_by_signal_date.csv", selection_profile)
     write_json(out_dir / "selection_profile_summary.json", selection_summary)
     write_csv(out_dir / "risky_selected_names.csv", risky_names)
+    write_csv(out_dir / "risk_filter_funnel_daily.csv", risk_filter_funnel)
+    write_csv(out_dir / "risk_filter_excluded_names.csv", risk_filter_excluded)
     write_csv(out_dir / "candidate_overlap_by_signal_date.csv", candidate_overlap)
     write_csv(out_dir / "common_crash_names.csv", common_crash_names)
     write_csv(out_dir / "search_tail_risk_summary.csv", pd.DataFrame([search_summary]))
@@ -217,12 +235,16 @@ def main() -> int:
         windows=windows,
         limit_exposure=limit_exposure,
         selection_summary=selection_summary,
+        risk_filter_funnel=risk_filter_funnel,
         guard=guard,
         local_path=str(out_dir),
         gcs_uri=None if args.skip_gcs_upload else artifact_gcs_uri(args),
     )
     write_json(out_dir / "tail_risk_summary.json", tail_summary)
-    write_text(out_dir / "tail_risk.md", render_tail_risk_markdown(tail_summary, windows, limit_exposure, risky_names))
+    write_text(
+        out_dir / "tail_risk.md",
+        render_tail_risk_markdown(tail_summary, windows, limit_exposure, risky_names, risk_filter_funnel),
+    )
 
     manifest = build_artifact_manifest(out_dir)
     missing = [name for name in REQUIRED_ARTIFACTS if name not in manifest]
@@ -623,6 +645,81 @@ def fetch_selection_pool(
     return normalize_date_columns(df, ["signal_date"])
 
 
+def fetch_risk_filter_candidates(
+    client: bigquery.Client,
+    project: str,
+    *,
+    strategy_id: str,
+    run_id: str,
+    start_date: str,
+    end_date: str,
+    feature_version: str,
+) -> pd.DataFrame:
+    sql = f"""
+    SELECT
+      cand.rebalance_date,
+      cand.sec_code,
+      st.sec_name,
+      st.industry,
+      COALESCE(feat.board, st.board) AS board,
+      cand.score,
+      cand.rank_raw,
+      cand.rank_pct,
+      cand.in_universe_default,
+      cand.is_selected_candidate,
+      cand.filter_reason,
+      pt.target_weight,
+      feat.market,
+      feat.list_age_td,
+      feat.is_st,
+      feat.is_tradable_hard,
+      feat.in_universe_default AS feature_in_universe_default,
+      feat.ret_5d,
+      feat.ret_20d,
+      feat.ret_60d,
+      feat.drawdown_20d,
+      feat.vol_20d,
+      feat.vol_60d,
+      feat.hl_range_20d,
+      feat.amount_ma20_cny,
+      feat.turnover_rate_ma20,
+      feat.volume_ratio,
+      feat.limit_down_days_20d,
+      feat.one_word_limit_days_20d,
+      feat.total_mv_cny,
+      feat.circ_mv_cny,
+      feat.log_total_mv,
+      feat.log_circ_mv,
+      feat.has_full_history_60d
+    FROM `{project}.ashare_ads.ads_stock_candidate_daily` AS cand
+    LEFT JOIN `{project}.ashare_ads.ads_portfolio_target_daily` AS pt
+      ON pt.strategy_id = cand.strategy_id
+     AND pt.run_id = cand.run_id
+     AND pt.rebalance_date = cand.rebalance_date
+     AND pt.sec_code = cand.sec_code
+     AND pt.rebalance_date BETWEEN @start_date AND @end_date
+    LEFT JOIN `{project}.ashare_dws.dws_stock_feature_daily_v0` AS feat
+      ON feat.trade_date = cand.rebalance_date
+     AND feat.sec_code = cand.sec_code
+     AND feat.feature_version = @feature_version
+     AND feat.trade_date BETWEEN @start_date AND @end_date
+    LEFT JOIN `{project}.ashare_dim.dim_stock` AS st
+      ON st.sec_code = cand.sec_code
+    WHERE cand.strategy_id = @strategy_id
+      AND cand.run_id = @run_id
+      AND cand.rebalance_date BETWEEN @start_date AND @end_date
+    ORDER BY cand.rebalance_date, cand.is_selected_candidate DESC, cand.rank_raw, cand.sec_code
+    """
+    df = query_dataframe(client, sql, [
+        bigquery.ScalarQueryParameter("strategy_id", "STRING", strategy_id),
+        bigquery.ScalarQueryParameter("run_id", "STRING", run_id),
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+        bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+        bigquery.ScalarQueryParameter("feature_version", "STRING", feature_version),
+    ])
+    return normalize_date_columns(df, ["rebalance_date"])
+
+
 def compute_drawdown_windows(nav_df: pd.DataFrame, *, top_k: int) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     rows = nav_df.sort_values("trade_date").reset_index(drop=True)
@@ -969,6 +1066,107 @@ def build_selection_profile(
     return profile, summary, risky_df
 
 
+RISK_FILTER_REASON_COLUMNS = [
+    "tail_risk_feature_missing_count",
+    "ret_20d_lt_30pct_count",
+    "drawdown_20d_lt_30pct_count",
+    "limit_down_days_20d_gte_2_count",
+    "one_word_limit_days_20d_gte_1_count",
+    "total_mv_cny_lt_30e8_count",
+    "circ_mv_cny_lt_20e8_count",
+]
+
+
+def build_risk_filter_outputs(
+    candidates: pd.DataFrame,
+    *,
+    tail_risk_profile_id: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    funnel_cols = [
+        "rebalance_date", "tail_risk_profile_id", "prediction_count",
+        "not_in_universe_count", "risk_excluded_count", "eligible_count",
+        "selected_count", "vol_20d_pool_p95", "vol_20d_mark_count",
+        "turnover_rate_ma20_pool_p98", "turnover_rate_ma20_mark_count",
+        *RISK_FILTER_REASON_COLUMNS,
+    ]
+    excluded_cols = [
+        "rebalance_date", "tail_risk_profile_id", "sec_code", "sec_name",
+        "industry", "board", "score", "rank_raw", "rank_pct",
+        "filter_reason", "risk_reasons", *PROFILE_FIELDS,
+    ]
+    if candidates.empty:
+        return empty_frame(funnel_cols), empty_frame(excluded_cols)
+
+    frame = candidates.copy()
+    frame["rebalance_date"] = to_datetime_date(frame["rebalance_date"])
+    frame["filter_reason"] = frame["filter_reason"].fillna("")
+    frame["is_selected_candidate"] = frame["is_selected_candidate"].fillna(False).astype(bool)
+    frame["is_risk_excluded"] = frame["filter_reason"].str.startswith("tail_risk:")
+    frame["is_not_in_universe"] = frame["filter_reason"].eq("not_in_default_universe")
+    frame["is_eligible_after_risk_filter"] = ~frame["is_not_in_universe"] & ~frame["is_risk_excluded"]
+    for col in RISK_FILTER_REASON_COLUMNS:
+        reason = col.removesuffix("_count")
+        frame[col] = frame["filter_reason"].str.contains(reason, regex=False)
+
+    funnel_rows = []
+    for rebalance_date, group in frame.groupby("rebalance_date", dropna=False):
+        vol_threshold = series_stat(to_numeric(group.get("vol_20d")), "p95")
+        turnover_threshold = series_stat(to_numeric(group.get("turnover_rate_ma20")), "p98")
+        row = {
+            "rebalance_date": date_str(rebalance_date),
+            "tail_risk_profile_id": tail_risk_profile_id,
+            "prediction_count": int(len(group)),
+            "not_in_universe_count": int(group["is_not_in_universe"].sum()),
+            "risk_excluded_count": int(group["is_risk_excluded"].sum()),
+            "eligible_count": int(group["is_eligible_after_risk_filter"].sum()),
+            "selected_count": int(group["is_selected_candidate"].sum()),
+            "vol_20d_pool_p95": vol_threshold,
+            "vol_20d_mark_count": int((to_numeric(group.get("vol_20d")) > vol_threshold).sum()) if vol_threshold is not None else 0,
+            "turnover_rate_ma20_pool_p98": turnover_threshold,
+            "turnover_rate_ma20_mark_count": int((to_numeric(group.get("turnover_rate_ma20")) > turnover_threshold).sum()) if turnover_threshold is not None else 0,
+        }
+        for col in RISK_FILTER_REASON_COLUMNS:
+            row[col] = int(group[col].sum())
+        funnel_rows.append(row)
+
+    excluded = frame[frame["is_risk_excluded"]].copy()
+    if excluded.empty:
+        excluded_df = empty_frame(excluded_cols)
+    else:
+        excluded["tail_risk_profile_id"] = tail_risk_profile_id
+        excluded["risk_reasons"] = excluded["filter_reason"].str.replace("tail_risk:", "", n=1, regex=False)
+        excluded["rebalance_date"] = excluded["rebalance_date"].map(date_str)
+        for field in PROFILE_FIELDS:
+            if field not in excluded:
+                excluded[field] = None
+        excluded_df = excluded[excluded_cols].sort_values(["rebalance_date", "rank_raw", "sec_code"]).reset_index(drop=True)
+    funnel = pd.DataFrame(funnel_rows, columns=funnel_cols).sort_values("rebalance_date").reset_index(drop=True)
+    return funnel, excluded_df
+
+
+def summarize_risk_filter_funnel(funnel: pd.DataFrame) -> dict[str, Any]:
+    if funnel.empty:
+        return {
+            "rebalance_day_count": 0,
+            "risk_excluded_count": 0,
+            "selected_count": 0,
+        }
+    return {
+        "rebalance_day_count": int(len(funnel)),
+        "prediction_count": int(to_numeric(funnel["prediction_count"]).sum()),
+        "not_in_universe_count": int(to_numeric(funnel["not_in_universe_count"]).sum()),
+        "risk_excluded_count": int(to_numeric(funnel["risk_excluded_count"]).sum()),
+        "eligible_count": int(to_numeric(funnel["eligible_count"]).sum()),
+        "selected_count": int(to_numeric(funnel["selected_count"]).sum()),
+        "max_daily_risk_excluded_count": int(to_numeric(funnel["risk_excluded_count"]).max()),
+    }
+
+
+def tail_risk_profile_from_summary(summary: dict[str, Any]) -> str:
+    metrics = parse_json(summary.get("metrics_json"))
+    return str(metrics.get("tail_risk_profile_id") or TAIL_RISK_PROFILE_ID)
+
+
 def recent_signal_dates_for_events(windows: list[dict[str, Any]], targets: pd.DataFrame) -> dict[int, Any]:
     out: dict[int, Any] = {}
     if targets.empty:
@@ -1096,6 +1294,7 @@ def build_search_tail_risk_summary(
     limit_exposure: pd.DataFrame,
 ) -> dict[str, Any]:
     top = windows[0] if windows else {}
+    tail_risk_profile_id = tail_risk_profile_from_summary(summary)
     limit_peak = None
     if not limit_exposure.empty and "limit_down_weight_eod" in limit_exposure:
         limit_peak = scalar(to_numeric(limit_exposure["limit_down_weight_eod"]).max())
@@ -1106,7 +1305,7 @@ def build_search_tail_risk_summary(
         "backtest_id": args.backtest_id,
         "strategy_id": args.strategy_id,
         "feature_version": args.feature_version,
-        "tail_risk_profile_id": TAIL_RISK_PROFILE_ID,
+        "tail_risk_profile_id": tail_risk_profile_id,
         "total_return": scalar(summary.get("total_return")),
         "excess_return": scalar(summary.get("excess_return")),
         "sharpe": scalar(summary.get("sharpe")),
@@ -1131,18 +1330,20 @@ def build_tail_risk_summary(
     windows: list[dict[str, Any]],
     limit_exposure: pd.DataFrame,
     selection_summary: dict[str, Any],
+    risk_filter_funnel: pd.DataFrame,
     guard: dict[str, Any],
     local_path: str,
     gcs_uri: str | None,
 ) -> dict[str, Any]:
     metrics_json = parse_json(summary.get("metrics_json"))
+    tail_risk_profile_id = tail_risk_profile_from_summary(summary)
     top = windows[0] if windows else {}
     limit_peak = None
     if not limit_exposure.empty:
         limit_peak = scalar(to_numeric(limit_exposure["limit_down_weight_eod"]).max())
     return {
         "tail_risk_diagnosis_version": TAIL_RISK_VERSION,
-        "tail_risk_profile_id": TAIL_RISK_PROFILE_ID,
+        "tail_risk_profile_id": tail_risk_profile_id,
         "strategy_id": args.strategy_id,
         "search_id": args.search_id,
         "run_id": args.run_id,
@@ -1165,6 +1366,7 @@ def build_tail_risk_summary(
         "drawdown_event_count": len(windows),
         "limit_down_weight_peak": limit_peak,
         "selection_profile_summary": selection_summary,
+        "risk_filter_summary": summarize_risk_filter_funnel(risk_filter_funnel),
         "ads_readonly_guard_status": guard["status"],
         "ads_readonly_guard": guard,
     }
@@ -1175,6 +1377,7 @@ def render_tail_risk_markdown(
     windows: list[dict[str, Any]],
     limit_exposure: pd.DataFrame,
     risky_names: pd.DataFrame,
+    risk_filter_funnel: pd.DataFrame,
 ) -> str:
     top = windows[0] if windows else {}
     lines = [
@@ -1221,6 +1424,19 @@ def render_tail_risk_markdown(
                 f"{fmt_pct(row.get('target_weight'))} | {row.get('rank_raw')} | {row.get('risk_reasons')} |"
             )
         lines.append("")
+    if not risk_filter_funnel.empty:
+        risk_summary = summary.get("risk_filter_summary") or {}
+        lines.extend([
+            "## 个股风险过滤漏斗",
+            "",
+            f"- profile: `{summary['tail_risk_profile_id']}`",
+            f"- 调仓日数: `{risk_summary.get('rebalance_day_count', 0)}`",
+            f"- 预测样本数: `{risk_summary.get('prediction_count', 0)}`",
+            f"- 风险排除数: `{risk_summary.get('risk_excluded_count', 0)}`",
+            f"- 可选样本数: `{risk_summary.get('eligible_count', 0)}`",
+            f"- 最终入选数: `{risk_summary.get('selected_count', 0)}`",
+            "",
+        ])
     lines.extend([
         "## 产物",
         "",
@@ -1228,6 +1444,8 @@ def render_tail_risk_markdown(
         "- `drawdown_position_contribution.csv`：回撤窗口内 BOD 权重近似持仓贡献。",
         "- `limit_down_exposure_daily.csv`：每日跌停/一字板/不可卖仓位暴露。",
         "- `selection_profile_by_signal_date.csv`：回撤前信号日的选股画像。",
+        "- `risk_filter_funnel_daily.csv`：P1 个股风险过滤漏斗。",
+        "- `risk_filter_excluded_names.csv`：P1 个股风险过滤排除名单。",
         "",
     ])
     return "\n".join(lines)
@@ -1331,6 +1549,10 @@ def series_stat(values: pd.Series, stat: str) -> float | None:
         return scalar(values.quantile(0.10))
     if stat == "p90":
         return scalar(values.quantile(0.90))
+    if stat == "p95":
+        return scalar(values.quantile(0.95))
+    if stat == "p98":
+        return scalar(values.quantile(0.98))
     raise ValueError(stat)
 
 

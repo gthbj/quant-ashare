@@ -8,6 +8,14 @@ DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_rebalance_frequency STRING DEFAULT 'weekly';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
+DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
+DECLARE p_tail_risk_profile_id STRING DEFAULT 'diagnostic_only';
+DECLARE p_tail_risk_ret_20d_min FLOAT64 DEFAULT -0.30;
+DECLARE p_tail_risk_drawdown_20d_min FLOAT64 DEFAULT -0.30;
+DECLARE p_tail_risk_limit_down_days_20d_min INT64 DEFAULT 2;
+DECLARE p_tail_risk_one_word_limit_days_20d_min INT64 DEFAULT 1;
+DECLARE p_tail_risk_total_mv_min_cny FLOAT64 DEFAULT 30e8;
+DECLARE p_tail_risk_circ_mv_min_cny FLOAT64 DEFAULT 20e8;
 DECLARE p_target_holdings INT64 DEFAULT 5;  -- OQ-010 示例值
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 
@@ -24,6 +32,10 @@ END IF;
 
 IF p_target_holdings <= 0 THEN
   RAISE USING MESSAGE = 'p_target_holdings must be positive';
+END IF;
+
+IF p_tail_risk_profile_id NOT IN ('diagnostic_only', 'individual_risk_guard_v0') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_tail_risk_profile_id: ', p_tail_risk_profile_id);
 END IF;
 
 SET p_selected_model_id = (
@@ -88,6 +100,13 @@ WITH scored AS (
     pred.sec_code,
     pred.score,
     COALESCE(u.in_universe_default, FALSE) AS in_universe_default,
+    feat.sec_code IS NOT NULL AS has_risk_feature_row,
+    feat.ret_20d,
+    feat.drawdown_20d,
+    feat.limit_down_days_20d,
+    feat.one_word_limit_days_20d,
+    feat.total_mv_cny,
+    feat.circ_mv_cny,
     CASE
       WHEN NOT COALESCE(u.in_universe_default, FALSE) THEN 'not_in_default_universe'
       ELSE NULL
@@ -102,10 +121,62 @@ WITH scored AS (
     ON u.sec_code = pred.sec_code
    AND u.trade_date = r.rebalance_date
    AND u.trade_date BETWEEN p_predict_start AND p_predict_end
+  LEFT JOIN `data-aquarium.ashare_dws.dws_stock_feature_daily_v0` AS feat
+    ON feat.sec_code = pred.sec_code
+   AND feat.trade_date = r.rebalance_date
+   AND feat.feature_version = p_feature_version
+   AND feat.trade_date BETWEEN p_predict_start AND p_predict_end
+),
+risk_eval AS (
+  SELECT
+    scored.* EXCEPT(filter_reason),
+    scored.filter_reason AS universe_filter_reason,
+    ARRAY_CONCAT(
+      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+         AND scored.filter_reason IS NULL
+         AND NOT scored.has_risk_feature_row,
+         ['tail_risk_feature_missing'], []),
+      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+         AND scored.filter_reason IS NULL
+         AND scored.ret_20d < p_tail_risk_ret_20d_min,
+         ['ret_20d_lt_30pct'], []),
+      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+         AND scored.filter_reason IS NULL
+         AND scored.drawdown_20d < p_tail_risk_drawdown_20d_min,
+         ['drawdown_20d_lt_30pct'], []),
+      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+         AND scored.filter_reason IS NULL
+         AND scored.limit_down_days_20d >= p_tail_risk_limit_down_days_20d_min,
+         ['limit_down_days_20d_gte_2'], []),
+      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+         AND scored.filter_reason IS NULL
+         AND scored.one_word_limit_days_20d >= p_tail_risk_one_word_limit_days_20d_min,
+         ['one_word_limit_days_20d_gte_1'], []),
+      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+         AND scored.filter_reason IS NULL
+         AND scored.total_mv_cny < p_tail_risk_total_mv_min_cny,
+         ['total_mv_cny_lt_30e8'], []),
+      IF(p_tail_risk_profile_id = 'individual_risk_guard_v0'
+         AND scored.filter_reason IS NULL
+         AND scored.circ_mv_cny < p_tail_risk_circ_mv_min_cny,
+         ['circ_mv_cny_lt_20e8'], [])
+    ) AS tail_risk_exclusion_reasons
+  FROM scored
+),
+classified AS (
+  SELECT
+    risk_eval.*,
+    CASE
+      WHEN universe_filter_reason IS NOT NULL THEN universe_filter_reason
+      WHEN ARRAY_LENGTH(tail_risk_exclusion_reasons) > 0
+        THEN CONCAT('tail_risk:', ARRAY_TO_STRING(tail_risk_exclusion_reasons, ';'))
+      ELSE NULL
+    END AS filter_reason
+  FROM risk_eval
 ),
 universe_only AS (
   SELECT *, ROW_NUMBER() OVER (PARTITION BY rebalance_date ORDER BY score DESC, sec_code) AS rk
-  FROM scored
+  FROM classified
   WHERE filter_reason IS NULL
 )
 SELECT p_strategy_id, rebalance_date, sec_code, p_selected_model_id, p_label_horizon,
@@ -121,4 +192,4 @@ UNION ALL
 SELECT p_strategy_id, rebalance_date, sec_code, p_selected_model_id, p_label_horizon,
        score, NULL, NULL, in_universe_default, FALSE,
        filter_reason, p_run_id, CURRENT_TIMESTAMP()
-FROM scored WHERE filter_reason IS NOT NULL;
+FROM classified WHERE filter_reason IS NOT NULL;

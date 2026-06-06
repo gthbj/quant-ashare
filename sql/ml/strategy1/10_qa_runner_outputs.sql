@@ -21,6 +21,7 @@ DECLARE p_predict_start DATE DEFAULT DATE '2024-01-02';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;  -- NULL 表示按 p_predict_start 作为调仓周序锚点
 DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
+DECLARE p_tail_risk_profile_id STRING DEFAULT 'diagnostic_only';
 DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_backtest
 DECLARE p_parent_backtest_id STRING DEFAULT NULL;
 DECLARE p_state_as_of_date DATE DEFAULT NULL;
@@ -42,6 +43,10 @@ END IF;
 
 IF p_initial_state_mode NOT IN ('fresh', 'resume_from_backtest') THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_initial_state_mode: ', p_initial_state_mode);
+END IF;
+
+IF p_tail_risk_profile_id NOT IN ('diagnostic_only', 'individual_risk_guard_v0') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_tail_risk_profile_id: ', p_tail_risk_profile_id);
 END IF;
 
 IF p_initial_state_mode = 'resume_from_backtest' THEN
@@ -189,6 +194,7 @@ ASSERT (
     AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.target_holdings') AS INT64) = p_target_holdings)
     AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.label_horizon') AS INT64) = p_label_horizon)
     AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.feature_set_id') IS NOT NULL)
+    AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.tail_risk_profile_id'), 'diagnostic_only') = p_tail_risk_profile_id)
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
 ) AS 'QA-EXP-1: summary metrics_json must contain OQ-010 experiment identity and parameters';
@@ -257,6 +263,32 @@ ASSERT (
       AND (e.rebalance_date IS NULL OR a.rebalance_date IS NULL)
   )
 ) AS 'QA-EXP-4: rebalance dates must match p_rebalance_frequency definition';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
+  JOIN `data-aquarium.ashare_ads.ads_portfolio_target_daily` AS pt
+    ON pt.strategy_id = cand.strategy_id
+   AND pt.run_id = cand.run_id
+   AND pt.rebalance_date = cand.rebalance_date
+   AND pt.sec_code = cand.sec_code
+   AND pt.rebalance_date BETWEEN p_predict_start AND p_predict_end
+  WHERE cand.strategy_id = p_strategy_id
+    AND cand.run_id = p_run_id
+    AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
+    AND STARTS_WITH(COALESCE(cand.filter_reason, ''), 'tail_risk:')
+) AS 'QA-TAIL-P1-1: tail-risk filtered candidates must not enter same-day portfolio targets';
+
+IF p_tail_risk_profile_id = 'individual_risk_guard_v0' THEN
+  ASSERT (
+    SELECT COUNT(*) > 0
+    FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
+    WHERE cand.strategy_id = p_strategy_id
+      AND cand.run_id = p_run_id
+      AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
+      AND cand.filter_reason LIKE 'tail_risk:%'
+  ) AS 'QA-TAIL-P1-2: individual_risk_guard_v0 should produce auditable tail_risk exclusions in this run';
+END IF;
 
 -- ── 数据侧 PIT 验证：t+1 不可买但仍入选的统计 ──
 SELECT

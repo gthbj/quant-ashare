@@ -898,6 +898,7 @@ def write_registry(
             "estimator_params": candidate.model_params,
             "label_horizon": experiment.label_horizon,
             "feature_set_id": experiment.feature_set_id,
+            "tail_risk_profile_id": experiment.tail_risk_profile_id,
             "preprocess_version": config.preprocess_version,
             "class_weight": candidate.metrics.get("class_weight"),
             "train_start_date": experiment.train_start,
@@ -925,6 +926,7 @@ def write_registry(
         metrics_json["preprocess_artifact_uri"] = join_gs_uri(model_uri, "preprocess.joblib") if model_uri else None
         metrics_json["selected_candidate_id"] = selected.candidate_id
         metrics_json["execution_backend"] = config.execution_backend
+        metrics_json["tail_risk_profile_id"] = experiment.tail_risk_profile_id
         rows.append({
             "model_id": model_id,
             "strategy_id": config.strategy_id,
