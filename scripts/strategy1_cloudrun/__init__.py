@@ -7,4 +7,4 @@ Cloud Run Jobs.
 
 __all__ = ["__version__"]
 
-__version__ = "strategy1_cloudrun_runner_v0_20260604"
+__version__ = "strategy1_cloudrun_runner_v0_20260606_lot100"

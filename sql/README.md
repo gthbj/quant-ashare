@@ -56,6 +56,9 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/08_run_
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/09_build_metrics_and_report_inputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql
 python scripts/strategy1/render_report.py --project data-aquarium --backtest-id bt_s1_bqml_20260601_01 --run-id s1_bqml_20260601_01 --artifact-base-uri gs://ashare-artifacts/reports/strategy1
+
+# Cloud Run Python lot-aware ledger 路径额外执行
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql
 ```
 
 ## 范围参数

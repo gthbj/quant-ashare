@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 整数手交易执行 PRD（2026-06-06）**：PR #98 已合并后，复核发现当前 extended reference backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` 的 1291 笔 `FILLED` 成交全部为 FLOAT shares，约 98.2% 四舍五入后也不是 100 股整数倍。新增工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-prd`，分支 `codex/prd-strategy1-lot-aware-ledger`，新增 PRD `docs/prd/PRD_20260606_05_策略1整数手交易执行.md`。本文定义 Cloud Run Python `ledger_exec_v1_lot100`：买入 100 股整数手、清仓 odd-lot 可全额卖出、部分卖出向下取整并保留残股、P0 不做余现金二次分配。后续 production acceptance 不得再用 FLOAT-shares backtest 判定 accepted；进入下一轮风险特征训练前，必须先实现 lot-aware ledger、补 lot-aware QA、跑 `2024-01-02` 至 `2026-04-30` fixed-prediction lot-aware reference，并重跑 acceptance gate v2。
+**OQ-010 整数手交易执行实现（2026-06-06）**：实现工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-impl`，分支 `codex/implement-lot-aware-ledger`。Cloud Run Python 默认回测路径已切到 `ledger_exec_v1_lot100` / `cloud_run_sklearn_ledger_v1_lot100`：买入 100 股整数手向下取整，below-lot / 现金不足回退写显式状态，清仓卖出允许 odd-lot，部分卖出按 100 股取整并保留残股；legacy FLOAT 路径只能通过显式 `--use-float-ledger` 或 `--use-bq-ledger` 作为 audit 运行。同步扩展 summary/report、acceptance gate v2 required ledger、`10/16/22` QA、运行手册，并新增 `sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql` 与 `tests/strategy1_cloudrun/test_lot_aware_ledger.py` golden-case 测试。验证已通过 Python 单测、py_compile、Cloud Run wrapper dry-run 和 `09/10/16/22/23` BigQuery dry-run；尚未执行真实 fixed-prediction lot-aware reference、未部署 Cloud Run 镜像。下一步合并后复用当前 prediction stream 跑 `2024-01-02` 至 `2026-04-30` reference，并重跑 `23` 和 acceptance gate v2。
 
 **OQ-010 验收门 v2 实现（2026-06-06）**：PR #98 已合并；实现工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-impl`、分支 `codex/implement-acceptance-gate-v2` 的 v2 契约、只读诊断脚本和 `22` QA 已进入 `main`。已新增 `configs/strategy1/model_acceptance_contract_v2.yml`、只读脚本 `scripts/strategy1/diagnose_acceptance_gate_v2.py` 和 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，并扩展 `scripts/strategy1_cloudrun/acceptance.py` 支持 contract hash / v2 SQL 参数。诊断脚本只读 ADS/DWD/DWS，不训练、不改 prediction、不写 ADS；默认 reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，输出 `acceptance_gate_v2/` artifact、10/20/30/40 组合可行性、eligible benchmark、score orientation audit、低价股偏移、现金/实际持仓和风格暴露诊断。uploaded 模式成功，GCS URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01`，16 个对象；`22_qa_acceptance_gate_v2_outputs.sql` 注入真实 contract hash 后真实执行 9 个 ASSERT 全部通过，默认 standalone placeholder 已改为在 `QA-V2-1` fail-loud。当前 v2 结论：reference run 为 `rejected`，原因是跑输 `000852.SH`、full-period IR 为负、2026 final_holdout 严重跑输；拒绝范围仅限当前 top-30 long-only 实现，不否定信号家族。`10/5%` 是 `diagnostic_only`，`20/30/40` 因局部现金峰值为 `needs_more_evidence`，没有 implementation hard fail。后续已转为先实现整数手 lot-aware ledger。
 
@@ -65,6 +65,87 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: strategy1_lot_aware_ledger_implementation_20260606
+相关 issue/PR: PR #99 / 待创建实现 PR
+
+### 已完成工作
+
+- 新建实现工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-impl` 与分支 `codex/implement-lot-aware-ledger`。
+- 将 Cloud Run Python 默认回测路径切到 `ledger_exec_v1_lot100` / `cloud_run_sklearn_ledger_v1_lot100`；保留显式 `--use-float-ledger` 与 `--use-bq-ledger` 作为 legacy / audit 路径。
+- 在 `scripts/strategy1_cloudrun/ledger.py` 实现 lot-aware 执行：买入按 100 股整数手向下取整、below-lot 跳单、现金缩放后低于 1 手跳单、现金仍不足时按 rank 优先级回退低优先级买单、清仓 odd-lot 全额卖出、部分卖出向下取整到 100 股并保留残股、未成交 full-exit pending sell 继续重试。
+- 在 `scripts/strategy1_cloudrun/backtest_report.py` 注入 `p_ledger_version` / `p_lot_size` / `p_min_buy_lot`，默认在 lot100 路径追加执行 `sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql`。
+- 扩展 `sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`、`10_qa_runner_outputs.sql`、`16_qa_cloudrun_runner_outputs.sql`、`22_qa_acceptance_gate_v2_outputs.sql` 和 `configs/strategy1/model_acceptance_contract_v2.yml`，让 summary、runner QA 和 v2 acceptance gate 都能识别并要求 lot-aware ledger。
+- 扩展 `scripts/strategy1/render_report.py`，在中文报告中展示 ledger version、整数手参数、跳单状态、odd-lot 清仓和现金权重。
+- 新增 `sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql`，验证 BUY filled shares 为 100 股整数倍、skipped 零成交、odd-lot 只出现在清仓 SELL、部分卖出 below-lot 后仍保留持仓、现金/暴露/持仓唯一性等。
+- 新增 `tests/strategy1_cloudrun/test_lot_aware_ledger.py` golden-case 单元测试，覆盖买入取整、低于 1 手跳单、现金缩放后低于 1 手、现金回退、odd-lot 清仓、partial sell 残股保留和 pending sell 重试。
+- 更新 `sql/README.md`、`sql/ml/strategy1/README.md` 和 `docs/策略1CloudRun训练回测运行手册.md`。
+
+### 重要上下文
+
+- 本 PR 只完成代码、QA 和文档实现；尚未部署 Cloud Run 镜像，尚未执行 `2024-01-02` 至 `2026-04-30` 的 fixed-prediction lot-aware reference。
+- 后续 production acceptance 不得使用 FLOAT-shares backtest；需要先跑 lot-aware reference、执行 `23` QA，并重跑 acceptance gate v2。
+- 余股的来源是历史买入 / 现金缩放 / corporate action 或历史 FLOAT position 等造成的非 100 股整数持仓；lot100 P0 允许清仓 odd-lot，但 partial sell 不卖碎股。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+- `configs/strategy1/cloudrun_runner_default.yml`
+- `configs/strategy1/model_acceptance_contract_v2.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `scripts/strategy1/diagnose_acceptance_gate_v2.py`
+- `scripts/strategy1/render_report.py`
+- `scripts/strategy1_cloudrun/__init__.py`
+- `scripts/strategy1_cloudrun/acceptance.py`
+- `scripts/strategy1_cloudrun/backtest_report.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/ledger.py`
+- `sql/README.md`
+- `sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`
+- `sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`
+- `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`
+- `sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql`
+- `sql/ml/strategy1/README.md`
+- `tests/strategy1_cloudrun/test_lot_aware_ledger.py`
+
+### 测试 / 验证
+
+- `python3 -m unittest tests/strategy1_cloudrun/test_lot_aware_ledger.py`
+- `python3 -m py_compile scripts/strategy1_cloudrun/ledger.py scripts/strategy1_cloudrun/backtest_report.py scripts/strategy1/render_report.py scripts/strategy1/diagnose_acceptance_gate_v2.py scripts/strategy1_cloudrun/acceptance.py scripts/strategy1_cloudrun/config.py scripts/strategy1_cloudrun/__init__.py`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`
+- `python3 -m scripts.strategy1_cloudrun.backtest_report --project data-aquarium --region asia-east2 --experiment-id oq010_a0_n5_w20 --dry-run`
+
+### 阻塞项
+
+- 无代码阻塞；真实 reference / Cloud Run 部署留待 PR 合并后执行。
+
+### 下一步建议
+
+- 创建并 review/merge 实现 PR。
+- 合并后构建并部署 Cloud Run runner 镜像，复用当前 prediction stream 跑 `2024-01-02` 至 `2026-04-30` fixed-prediction lot-aware reference。
+- reference 成功后执行 `23` QA、报告/诊断和 acceptance gate v2，确认能否进入下一轮风险特征训练或模型搜索。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+---
 
 日期: 2026-06-06
 Agent ID: Codex

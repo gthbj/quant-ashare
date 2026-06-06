@@ -23,6 +23,9 @@ DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;  -- NULL 表示按 p_predict
 DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
 DECLARE p_tail_risk_profile_id STRING DEFAULT 'diagnostic_only';
 DECLARE p_market_state_version STRING DEFAULT 'market_state_v0_20260606';
+DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1';
+DECLARE p_lot_size INT64 DEFAULT NULL;
+DECLARE p_min_buy_lot INT64 DEFAULT NULL;
 DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_backtest
 DECLARE p_parent_backtest_id STRING DEFAULT NULL;
 DECLARE p_state_as_of_date DATE DEFAULT NULL;
@@ -538,10 +541,24 @@ ASSERT (
 
 -- ── Ledger v1 P0: execution semantics and order-status QA ──
 ASSERT (
-  SELECT COUNT(*) > 0 AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.ledger_version') != 'ledger_exec_v1') = 0
+  SELECT COUNT(*) > 0 AND COUNTIF(COALESCE(JSON_VALUE(bs.metrics_json, '$.ledger_version'), '') != p_ledger_version) = 0
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
-) AS 'QA-LEDGER-1: summary metrics_json.ledger_version must be ledger_exec_v1';
+) AS 'QA-LEDGER-1: summary metrics_json.ledger_version must match p_ledger_version';
+
+IF p_ledger_version = 'ledger_exec_v1_lot100' THEN
+  ASSERT (
+    SELECT COUNT(*) > 0
+      AND LOGICAL_AND(IFNULL(SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.lot_size') AS INT64) = p_lot_size, FALSE))
+      AND LOGICAL_AND(IFNULL(SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.min_buy_lot') AS INT64) = p_min_buy_lot, FALSE))
+      AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.buy_rounding') = 'floor_to_lot', FALSE))
+      AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.sell_odd_lot_policy') = 'allow_full_exit_odd_lot', FALSE))
+      AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.partial_sell_rounding') = 'floor_to_lot_keep_residual', FALSE))
+      AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.cash_redistribution') = 'none_v1', FALSE))
+    FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+    WHERE bs.backtest_id = p_backtest_id
+  ) AS 'QA-LEDGER-1b: lot-aware summary metrics_json must record lot parameters';
+END IF;
 
 ASSERT (
   SELECT COUNT(*) > 0
@@ -607,7 +624,11 @@ ASSERT (
       'BUY_SKIPPED_UNTRADABLE',
       'BUY_SKIPPED_TAIL_RISK',
       'BUY_SKIPPED_MARKET_RISK_OFF',
+      'BUY_SKIPPED_BELOW_LOT',
+      'BUY_SKIPPED_BELOW_LOT_AFTER_SCALE',
+      'BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING',
       'SELL_SKIPPED_UNTRADABLE',
+      'SELL_SKIPPED_BELOW_LOT_PARTIAL',
       'PENDING_SELL_CARRY',
       'CANCELLED_BY_NETTING',
       'SKIPPED_CASH_INSUFFICIENT',
@@ -625,7 +646,11 @@ ASSERT (
       'BUY_SKIPPED_UNTRADABLE',
       'BUY_SKIPPED_TAIL_RISK',
       'BUY_SKIPPED_MARKET_RISK_OFF',
+      'BUY_SKIPPED_BELOW_LOT',
+      'BUY_SKIPPED_BELOW_LOT_AFTER_SCALE',
+      'BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING',
       'SELL_SKIPPED_UNTRADABLE',
+      'SELL_SKIPPED_BELOW_LOT_PARTIAL',
       'PENDING_SELL_CARRY',
       'CANCELLED_BY_NETTING',
       'SKIPPED_CASH_INSUFFICIENT',

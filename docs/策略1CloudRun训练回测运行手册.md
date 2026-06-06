@@ -9,7 +9,7 @@
 当前 Cloud Run runner 已提供：
 
 1. `scripts/strategy1_cloudrun/train_predict.py`：读取既有 `ads_ml_training_panel_daily`，用 scikit-learn logistic regression 训练候选，做 valid 选型、score orientation、sklearn vs BQML parity，写 `ads_model_registry` 与 `ads_model_prediction_daily`。
-2. `scripts/strategy1_cloudrun/backtest_report.py`：复用现有 `05-07` SQL 生成候选 / 组合 / 订单，默认使用 Cloud Run Python `ledger_exec_v1` fresh-start 回测，随后跑 `09`、报告、诊断和 QA。
+2. `scripts/strategy1_cloudrun/backtest_report.py`：复用现有 `05-07` SQL 生成候选 / 组合 / 订单，默认使用 Cloud Run Python `ledger_exec_v1_lot100` fresh-start 回测，随后跑 `09`、报告、诊断和 QA。
 3. `scripts/strategy1_cloudrun/orchestrate_experiments.py`：按 manifest 启动 Cloud Run Jobs，并写 `ashare_meta.strategy1_experiment_run_status`、使用 GCS generation-guarded lock。未设置 `--max-parallel-experiments` 或传 `0` 时，resolved 并发数等于本次可执行实验数。
 4. `scripts/strategy1_cloudrun/prepare_matrix.py`、`train_candidate_task.py`、`select_register_predict.py`：task fan-out 训练路径。`prepare_matrix` 一次性读取 BigQuery 训练面板并生成 GCS frozen matrix；每个 Cloud Run task 只训练一个 candidate；reducer 统一选型、登记模型并写预测。
 5. `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`：按 sklearn native PRD 执行 36 候选 search，valid-only 选 Top5，再为 Top5 生成独立 prediction / backtest / report / diagnosis；同一 orchestrator 也承载 Cloud Run Python baseline search 的通用 TopK 流程。
@@ -21,12 +21,13 @@
 11. `scripts/strategy1/analyze_tail_risk.py` 与 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`：在 TopK 回测完成后只读 ADS/DWD/DIM，输出最大回撤窗口、持仓贡献、跌停/不可卖暴露和选股画像，并校验 ADS pre/post hash 未变化。
 12. `sql/dws/08_dws_market_state_daily.sql` 与 `sql/qa/11_market_state_checks.sql`：生成并校验 P2 市场状态 risk-off 证据表；`backtest_report.py` 在 `tail_risk_profile_id=market_risk_off_v0` 或 `individual_and_market_risk_guard_v0` 时由 Python ledger 读取该表并跳过 risk-off 次日买单。
 13. `scripts/strategy1/diagnose_acceptance_gate_v2.py` 与 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`：按 `model_acceptance_contract_v2` 只读生成验收门 v2、10/20/30/40 组合可行性、eligible benchmark 和 score orientation audit artifact；不训练、不改 prediction、不写 ADS。
+14. `sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql`：校验 Cloud Run Python `ledger_exec_v1_lot100` 的整数手成交、odd-lot 清仓、below-lot 跳单、现金和 summary lot 参数。
 
 当前限制：
 
 1. 训练面板仍由现有 `01_build_training_panel.sql` 生成。
 2. `05-07` 仍使用 BigQuery SQL。
-3. Python ledger P0 先支持 fresh-start；resume 路径 fail-fast，等 fresh-start 与 BigQuery ledger 等价验证通过后再扩展。
+3. Python ledger P0 先支持 fresh-start；resume 路径 fail-fast。`ledger_exec_v1_lot100` 是 Python-only 执行语义，不再要求与 SQL FLOAT-shares runner 等价。
 4. Cloud Run Jobs、Artifact Registry、IAM 和服务账号需按本文部署，不在代码中保存任何凭据。
 
 ## 2. 本地 dry-run
@@ -458,6 +459,7 @@ Cloud Run smoke 后执行：
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/20_qa_tail_risk_outputs.sql

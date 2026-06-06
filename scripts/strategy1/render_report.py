@@ -515,9 +515,25 @@ def compute_execution_diagnostics(client: bigquery.Client, project: str,
     SELECT
       COUNTIF(t.side = 'BUY' AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')) AS buy_filled,
       COUNTIF(t.side = 'BUY' AND t.fill_status = 'FILLED_SCALED_CASH') AS buy_scaled_cash,
-      COUNTIF(t.side = 'BUY' AND t.fill_status IN ('BUY_SKIPPED_UNTRADABLE', 'BUY_SKIPPED_TAIL_RISK', 'BUY_SKIPPED_MARKET_RISK_OFF', 'SKIPPED_CASH_INSUFFICIENT', 'SKIPPED_MIN_NOTIONAL')) AS buy_skip,
+      COUNTIF(t.side = 'BUY' AND t.fill_status IN (
+        'BUY_SKIPPED_UNTRADABLE',
+        'BUY_SKIPPED_TAIL_RISK',
+        'BUY_SKIPPED_MARKET_RISK_OFF',
+        'BUY_SKIPPED_BELOW_LOT',
+        'BUY_SKIPPED_BELOW_LOT_AFTER_SCALE',
+        'BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING',
+        'SKIPPED_CASH_INSUFFICIENT',
+        'SKIPPED_MIN_NOTIONAL'
+      )) AS buy_skip,
+      COUNTIF(t.fill_status = 'BUY_SKIPPED_BELOW_LOT') AS buy_below_lot_skip,
+      COUNTIF(t.fill_status = 'BUY_SKIPPED_BELOW_LOT_AFTER_SCALE') AS buy_below_lot_after_scale_skip,
+      COUNTIF(t.fill_status = 'BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING') AS buy_cash_rounding_skip,
       COUNTIF(t.side = 'SELL' AND t.fill_status = 'FILLED') AS sell_filled,
-      COUNTIF(t.side = 'SELL' AND t.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY')) AS sell_skip,
+      COUNTIF(t.side = 'SELL' AND t.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'SELL_SKIPPED_BELOW_LOT_PARTIAL', 'PENDING_SELL_CARRY')) AS sell_skip,
+      COUNTIF(t.fill_status = 'SELL_SKIPPED_BELOW_LOT_PARTIAL') AS sell_below_lot_partial,
+      COUNTIF(t.side = 'SELL'
+        AND t.fill_status = 'FILLED'
+        AND MOD(CAST(ROUND(t.filled_shares) AS INT64), 100) != 0) AS odd_lot_full_exit,
       COUNTIF(t.fill_status = 'PENDING_SELL_CARRY') AS pending_sell_carry,
       COUNTIF(t.fill_status = 'CANCELLED_BY_NETTING') AS cancelled_by_netting,
       COUNTIF(t.fill_status = 'NOOP_ALREADY_TARGET') AS noop_already_target
@@ -533,7 +549,12 @@ def compute_execution_diagnostics(client: bigquery.Client, project: str,
     d = diag.iloc[0] if not diag.empty else {}
 
     nav_sql = f"""
-    SELECT MIN(n.cash_cny) AS min_cash, MAX(n.gross_exposure) AS max_gross
+    SELECT
+      MIN(n.cash_cny) AS min_cash,
+      AVG(n.cash_cny / NULLIF(n.net_value_cny, 0)) AS avg_cash_weight,
+      MAX(n.cash_cny / NULLIF(n.net_value_cny, 0)) AS max_cash_weight,
+      COUNTIF(n.cash_cny / NULLIF(n.net_value_cny, 0) > 0.10) AS cash_gt_10pct_days,
+      MAX(n.gross_exposure) AS max_gross
     FROM `{project}.ashare_ads.ads_backtest_nav_daily` AS n
     WHERE n.backtest_id = @bid AND n.trade_date BETWEEN @sd AND @ed
     """
@@ -548,12 +569,20 @@ def compute_execution_diagnostics(client: bigquery.Client, project: str,
         "buy_filled_count": int(d.get("buy_filled", 0) or 0),
         "buy_scaled_cash_count": int(d.get("buy_scaled_cash", 0) or 0),
         "buy_skip_count": int(d.get("buy_skip", 0) or 0),
+        "buy_below_lot_skip_count": int(d.get("buy_below_lot_skip", 0) or 0),
+        "buy_below_lot_after_scale_skip_count": int(d.get("buy_below_lot_after_scale_skip", 0) or 0),
+        "buy_cash_rounding_skip_count": int(d.get("buy_cash_rounding_skip", 0) or 0),
         "sell_filled_count": int(d.get("sell_filled", 0) or 0),
         "sell_skip_count": int(d.get("sell_skip", 0) or 0),
+        "sell_below_lot_partial_count": int(d.get("sell_below_lot_partial", 0) or 0),
+        "odd_lot_full_exit_count": int(d.get("odd_lot_full_exit", 0) or 0),
         "pending_sell_carry_count": int(d.get("pending_sell_carry", 0) or 0),
         "cancelled_by_netting_count": int(d.get("cancelled_by_netting", 0) or 0),
         "noop_already_target_count": int(d.get("noop_already_target", 0) or 0),
         "min_cash_cny": round(float(n.get("min_cash", 0) or 0), 2),
+        "avg_cash_weight": round(float(n.get("avg_cash_weight", 0) or 0), 6),
+        "max_cash_weight": round(float(n.get("max_cash_weight", 0) or 0), 6),
+        "cash_gt_10pct_days": int(n.get("cash_gt_10pct_days", 0) or 0),
         "max_gross_exposure": round(float(n.get("max_gross", 0) or 0), 6),
     }
 
@@ -1192,6 +1221,7 @@ def render_markdown(summary: dict, model_info: dict, evidence: dict,
     sections.append(f"- **回测窗口**: {summary.get('start_date', '')} 至 {summary.get('end_date', '')}")
     sections.append(f"- **初始资金**: ¥100,000")
     sections.append(f"- **成本 profile**: `{m.get('cost_profile_id', 'N/A')}`")
+    sections.append(f"- **Ledger version**: `{m.get('ledger_version', 'N/A')}`")
     sections.append("")
     sections.append(f"**一句话结论**: {_one_line_verdict(summary, bench_ret, disp_ret)}")
     sections.append("")
@@ -1233,6 +1263,20 @@ def render_markdown(summary: dict, model_info: dict, evidence: dict,
     sections.append(f"- 最大总暴露: {exec_d.get('max_gross_exposure', 0):.2%}")
     sections.append("")
 
+    if m.get("ledger_version") == "ledger_exec_v1_lot100":
+        sections.append("### 交易现实性\n")
+        sections.append(f"- lot size: {m.get('lot_size', 'N/A')} 股，最小买入: {m.get('min_buy_lot', 'N/A')} 手")
+        sections.append(f"- 平均现金占比: {exec_d.get('avg_cash_weight', 0):.2%}，"
+                         f"最大现金占比: {exec_d.get('max_cash_weight', 0):.2%}，"
+                         f"现金大于 10% 天数: {exec_d.get('cash_gt_10pct_days', 0)}")
+        sections.append(f"- below-lot 买入跳单: {exec_d.get('buy_below_lot_skip_count', 0)}，"
+                         f"缩放后 below-lot 跳单: {exec_d.get('buy_below_lot_after_scale_skip_count', 0)}，"
+                         f"现金/取整回退跳单: {exec_d.get('buy_cash_rounding_skip_count', 0)}")
+        sections.append(f"- odd-lot 清仓卖出: {exec_d.get('odd_lot_full_exit_count', 0)}，"
+                         f"部分卖出不足一手保留: {exec_d.get('sell_below_lot_partial_count', 0)}")
+        sections.append("- FLOAT-shares historical reference 只作审计对照，不能与 lot-aware production 口径混用。")
+        sections.append("")
+
     # §8.3 图表
     sections.append("## 图表\n")
     sections.append("![策略净值 vs 基准](assets/nav_vs_benchmark.png)\n")
@@ -1242,7 +1286,7 @@ def render_markdown(summary: dict, model_info: dict, evidence: dict,
 
     # §8.4 买卖细节
     sections.append("## 买卖细节\n")
-    filled = trades_df[trades_df["fill_status"] == "FILLED"].copy() if not trades_df.empty else pd.DataFrame()
+    filled = trades_df[trades_df["fill_status"].isin(["FILLED", "FILLED_SCALED_CASH"])].copy() if not trades_df.empty else pd.DataFrame()
 
     if not filled.empty:
         sections.append("### 最近 20 笔成交\n")

@@ -20,6 +20,7 @@ from scripts.strategy1_cloudrun.config import (
     experiment_from_b64,
 )
 from scripts.strategy1_cloudrun.ledger import LedgerParams, run_ledger
+from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_FLOAT, LEDGER_VERSION_LOT100
 from scripts.strategy1_cloudrun.sql_runner import run_sql_script
 
 
@@ -34,12 +35,14 @@ def main() -> int:
     args = parse_args()
     config = apply_cli_overrides(load_runner_config(args.config), args)
     experiment = resolve_experiment(args)
-    execution_backend, ledger_executor = resolve_backend_tags(args.use_bq_ledger)
+    execution_backend, ledger_executor, ledger_version = resolve_backend_tags(args.use_bq_ledger, args.use_float_ledger)
     plan = {
         "entrypoint": "backtest_report",
         "execution_backend": execution_backend,
-        "ledger_version": "ledger_exec_v1",
+        "ledger_version": ledger_version,
         "ledger_executor": ledger_executor,
+        "lot_size": None if ledger_version == LEDGER_VERSION_FLOAT else args.lot_size,
+        "min_buy_lot": None if ledger_version == LEDGER_VERSION_FLOAT else args.min_buy_lot,
         "project": config.project,
         "region": config.region,
         "experiment": experiment.to_params(),
@@ -55,7 +58,7 @@ def main() -> int:
         return 0
 
     client = make_client(config.project, config.region)
-    sql_params = build_sql_params(experiment, args.force_replace, args.use_bq_ledger)
+    sql_params = build_sql_params(experiment, args.force_replace, args.use_bq_ledger, args.use_float_ledger, args)
     job_ids = []
     for script in SQL_STEPS:
         job_ids.append({"script": script, "job_id": run_sql_script(client, script, sql_params)})
@@ -65,7 +68,7 @@ def main() -> int:
             "job_id": run_sql_script(client, "sql/ml/strategy1/08_run_backtest.sql", sql_params),
         })
     else:
-        ledger_result = run_ledger(client, build_ledger_params(config.project, experiment, args.force_replace))
+        ledger_result = run_ledger(client, build_ledger_params(config.project, experiment, args.force_replace, ledger_version, args))
         job_ids.append({"script": "python_ledger_exec_v1", "result": ledger_result})
     job_ids.append({
         "script": "sql/ml/strategy1/09_build_metrics_and_report_inputs.sql",
@@ -78,6 +81,11 @@ def main() -> int:
             "script": "sql/ml/strategy1/10_qa_runner_outputs.sql",
             "job_id": run_sql_script(client, "sql/ml/strategy1/10_qa_runner_outputs.sql", sql_params),
         })
+        if ledger_version == LEDGER_VERSION_LOT100:
+            job_ids.append({
+                "script": "sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql",
+                "job_id": run_sql_script(client, "sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql", sql_params),
+            })
     if not args.skip_diagnosis:
         run_subprocess(diagnosis_command(config, experiment, args.skip_gcs_upload))
         if not args.skip_qa:
@@ -115,6 +123,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-tail-risk", action="store_true")
     parser.add_argument("--skip-qa", action="store_true")
     parser.add_argument("--use-bq-ledger", action="store_true", help="Fallback path for equivalence tests")
+    parser.add_argument("--use-float-ledger", action="store_true", help="Explicit legacy/audit Python float-share ledger")
+    parser.add_argument("--lot-size", type=int, default=100)
+    parser.add_argument("--min-buy-lot", type=int, default=1)
     return parser.parse_args()
 
 
@@ -142,14 +153,24 @@ def resolve_experiment(args: argparse.Namespace) -> Experiment:
     return exp
 
 
-def resolve_backend_tags(use_bq_ledger: bool) -> tuple[str, str]:
+def resolve_backend_tags(use_bq_ledger: bool, use_float_ledger: bool = False) -> tuple[str, str, str]:
+    if use_bq_ledger and use_float_ledger:
+        raise ValueError("--use-bq-ledger and --use-float-ledger are mutually exclusive")
     if use_bq_ledger:
-        return "cloud_run_sklearn_bq_sql_ledger_v1", "bigquery_sql"
-    return "cloud_run_sklearn_ledger_v1", "cloud_run_python"
+        return "cloud_run_sklearn_bq_sql_ledger_v1", "bigquery_sql", LEDGER_VERSION_FLOAT
+    if use_float_ledger:
+        return "cloud_run_sklearn_ledger_v1_legacy_float", "cloud_run_python", LEDGER_VERSION_FLOAT
+    return "cloud_run_sklearn_ledger_v1_lot100", "cloud_run_python", LEDGER_VERSION_LOT100
 
 
-def build_sql_params(exp: Experiment, force_replace: bool, use_bq_ledger: bool) -> dict[str, object]:
-    execution_backend, ledger_executor = resolve_backend_tags(use_bq_ledger)
+def build_sql_params(
+    exp: Experiment,
+    force_replace: bool,
+    use_bq_ledger: bool,
+    use_float_ledger: bool,
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    execution_backend, ledger_executor, ledger_version = resolve_backend_tags(use_bq_ledger, use_float_ledger)
     return {
         "p_run_id": exp.run_id,
         "p_prediction_run_id": exp.prediction_run_id,
@@ -170,8 +191,10 @@ def build_sql_params(exp: Experiment, force_replace: bool, use_bq_ledger: bool) 
         "p_tail_risk_profile_id": exp.tail_risk_profile_id,
         "p_market_state_version": exp.market_state_version,
         "p_execution_backend": execution_backend,
-        "p_ledger_version": "ledger_exec_v1",
+        "p_ledger_version": ledger_version,
         "p_ledger_executor": ledger_executor,
+        "p_lot_size": None if ledger_version == LEDGER_VERSION_FLOAT else args.lot_size,
+        "p_min_buy_lot": None if ledger_version == LEDGER_VERSION_FLOAT else args.min_buy_lot,
         "p_train_start": exp.train_start,
         "p_train_end": exp.train_end,
         "p_valid_start": exp.valid_start,
@@ -186,13 +209,22 @@ def build_sql_params(exp: Experiment, force_replace: bool, use_bq_ledger: bool) 
     }
 
 
-def build_ledger_params(project: str, exp: Experiment, force_replace: bool) -> LedgerParams:
+def build_ledger_params(
+    project: str,
+    exp: Experiment,
+    force_replace: bool,
+    ledger_version: str,
+    args: argparse.Namespace,
+) -> LedgerParams:
     return LedgerParams(
         project=project,
         run_id=exp.run_id,
         backtest_id=exp.backtest_id or f"bt_{exp.run_id}",
         predict_start=exp.predict_start,
         predict_end=exp.predict_end,
+        ledger_version=ledger_version,
+        lot_size=args.lot_size,
+        min_buy_lot=args.min_buy_lot,
         force_replace=force_replace,
         tail_risk_profile_id=exp.tail_risk_profile_id,
         market_state_version=exp.market_state_version,

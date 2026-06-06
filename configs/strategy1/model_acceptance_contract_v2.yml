@@ -129,6 +129,7 @@ score_orientation_audit:
     - signal_top_tail_mismatch
 
 required:
+  required_ledger_version: ledger_exec_v1_lot100
   allowed_score_orientation:
     - identity
     - reverse_probability
