@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-005 alert setup review follow-up（2026-06-06）**：分支 `codex/oq005-alert-logmetric-alreadyexists`。针对 `fd8aefe` review 的 Low finding，`scripts/alerting/setup_alerts.py` 已将 log metric 已存在的幂等判断从异常 message substring 改为显式捕获 `google.api_core.exceptions.AlreadyExists`，其他异常仍 fail-fast。该分支只改告警配置脚本和记忆，不改 Composer DAG、BigQuery SQL 或生产调度状态；验证为 `python3 -m py_compile scripts/alerting/setup_alerts.py` 和 `git diff --check`。
+
 **OQ-005 Composer DAG 拆分生产切换（2026-06-06）**：PR #86 已合并并完成 Composer 部署 / smoke。已应用 meta DDL 与观测视图，部署 `ashare_common.py`、`ashare_ods_ingestion_daily.py`、`ashare_warehouse_window_refresh.py`、`ashare_warehouse_full_rebuild.py` 和仓库 `sql/` 到 Composer bucket。旧 `ashare_daily_pipeline_v0` 已暂停，新 scheduled DAG `ashare_ods_ingestion_daily` 已 unpause；`ashare_warehouse_window_refresh` 与 `ashare_warehouse_full_rebuild` 无 schedule。`setup_alerts.py` 已补真实 GCP apply 兼容修复，`oq005_warehouse_refresh_missing` metric 与 `OQ-005: Warehouse Refresh Missing` policy 已创建 / 对齐。Smoke：`manual_split_skip_gate_20260606_01` 非交易日 gate 成功且 Cloud Run 未触发；`manual_split_qa_only_20260605_01` 5 个 QA success；`manual_split_backfill_20260605_01` 1 日窗口刷新和全部 QA success；refresh-missing synthetic transaction smoke 通过；`check_alerts.py --lookback-minutes 20` 返回空。后续只剩新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然观察，以及 Dataform definitions、补跑/resume 自动化和完整 ODS→ADS 运维观测闭环。
 
 **OQ-010 尾部风险 P0 诊断实现（2026-06-06）**：PR #84（`docs/prd/PRD_20260606_01_策略1尾部风险控制.md`）已合并，PRD 分支已清理。当前实现工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-impl`，分支 `codex/implement-tail-risk-diagnostics-p0`，PR #87。已新增只读 `scripts/strategy1/analyze_tail_risk.py`、Cloud Run `backtest_report.py` 自动执行入口、TopK comparison 尾部风险摘要和 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`；产物写入 `tail_risk/` local/GCS artifact，覆盖最大回撤窗口、持仓贡献、跌停 / 不可卖暴露、选股画像、风险股票名单和 ADS pre/post hash guard，不改变候选、订单、成交、持仓、NAV 或 summary。PR #87 review follow-up 已补：DWS 特征 join 按 `feature_version` 过滤；非 guard 类诊断异常 fail-soft 并写 `tail_risk_failure.json`，ADS read-only guard 失败仍 hard fail；最大回撤窗口保留首次高点日期。已用 Wave 3 regression Top1 完成本地 artifact smoke 和真实 `20` QA。P1 个股硬风险过滤 profile A/B 与 P2 市场状态 risk-off 仍待后续独立实现。
@@ -1420,3 +1422,47 @@ Run ID: oq005_dag_split_deploy_smoke_20260606
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: oq005_alert_setup_alreadyexists_followup_20260606
+相关 issue/PR: OQ-005 / fd8aefe review follow-up
+
+### 已完成工作
+
+- 评估 `fd8aefe` review：认同 code finding，`create_log_metric()` 不应继续依赖异常 message substring 判断 log metric already exists。
+- 在分支 `codex/oq005-alert-logmetric-alreadyexists` 修改 `scripts/alerting/setup_alerts.py`，导入并显式捕获 `google.api_core.exceptions.AlreadyExists`。
+- 保留其他异常 fail-fast 行为，不改变告警策略定义、Cloud Monitoring policy 语义或生产调度状态。
+- 同步 `IMPLEMENTATION_STATUS.md` 和本交接。
+
+### 重要上下文
+
+- process note 也成立：这次 follow-up 通过分支 / PR 提交，不再直接推 `main`。
+- 本分支是对告警配置脚本的稳健性修复；不需要重新部署 Composer DAG，也不触发 BigQuery / Cloud Run。
+
+### 改动文件
+
+- `scripts/alerting/setup_alerts.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/alerting/setup_alerts.py`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 合并 PR 后如需重新应用告警配置，可直接运行 `python scripts/alerting/setup_alerts.py --notification-channels ...`，预期已存在的 log metric 会被类型化 `AlreadyExists` 分支幂等跳过。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
