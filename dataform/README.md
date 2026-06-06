@@ -30,8 +30,11 @@
 
 ```bash
 python3 scripts/dataform/generate_sqlx_from_sql.py
+python3 scripts/dataform/generate_sqlx_from_sql.py --check
 npx --yes @dataform/cli compile dataform > /tmp/quant_ashare_dataform_compile.json
 ```
+
+Any PR that changes canonical `sql/` files covered by `dataform/action_manifest.json` must rerun the generator and include the generated `dataform/definitions/**/*.sqlx` diff. Use `--check` to fail fast when generated SQLX files are stale or missing.
 
 ## Production Notes
 

@@ -566,3 +566,121 @@ SELECT * FROM `data-aquarium.ashare_meta.v_pipeline_daily_health`;
 通知渠道建议：Email + Slack/PagerDuty（按严重程度分级）。
 
 详见 `scripts/alerting/` 下的告警配置脚本。
+
+---
+
+## 15. 调度运行命名切换
+
+本节用于将已部署的阶段性运行资源名切换为稳定业务名。切换对象包括 Composer DAG 文件、Composer bucket 中的 `data/sql/`、Cloud Logging log-based metrics、Cloud Monitoring alert policies 和 alert checker heartbeat。
+
+切换前确认：
+
+- `main` 已包含本次命名变更，且本地工作树 clean。
+- 当前没有运行中的 `ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh`、`ashare_warehouse_full_rebuild`、`ashare_pipeline_alert_checker` 或旧 `oq005_alert_checker` DAG run。
+- 维护窗口内有人值守 Airflow UI、Cloud Logging、Cloud Monitoring 和 BigQuery `ashare_meta.pipeline_run` / `pipeline_task_status`。
+
+切换顺序：
+
+1. **暂停旧 checker DAG 和 scheduled ingestion DAG：**
+   ```bash
+   gcloud composer environments run ashare-composer \
+     --project=data-aquarium --location=asia-east2 \
+     dags -- pause oq005_alert_checker
+
+   gcloud composer environments run ashare-composer \
+     --project=data-aquarium --location=asia-east2 \
+     dags -- pause ashare_ods_ingestion_daily
+   ```
+
+2. **同步仓库 SQL 到 Composer bucket：**
+   ```bash
+   gcloud storage rsync -r sql \
+     gs://asia-east2-ashare-composer-b2629133-bucket/data/sql
+   ```
+
+   SQL 同步必须覆盖重命名后的 QA / metadata 文件，例如 `sql/qa/01_core_smoke_checks.sql`、`sql/qa/03_index_benchmark_checks.sql`、`sql/qa/05_unit_contract_checks.sql` 和 `sql/metadata/01_core_table_column_descriptions.sql`。新 DAG 读取这些新路径，不能只部署 DAG 而不先同步 `data/sql/`。
+
+3. **同步新 DAG 与告警脚本：**
+   ```bash
+   gcloud storage cp orchestration/composer/dags/ashare_pipeline_alert_checker.py \
+     gs://asia-east2-ashare-composer-b2629133-bucket/dags/
+   gcloud storage cp orchestration/composer/dags/ashare_common.py \
+     gs://asia-east2-ashare-composer-b2629133-bucket/dags/
+   gcloud storage cp orchestration/composer/dags/ashare_ods_ingestion_daily.py \
+     gs://asia-east2-ashare-composer-b2629133-bucket/dags/
+   gcloud storage cp orchestration/composer/dags/ashare_warehouse_window_refresh.py \
+     gs://asia-east2-ashare-composer-b2629133-bucket/dags/
+   gcloud storage cp orchestration/composer/dags/ashare_warehouse_full_rebuild.py \
+     gs://asia-east2-ashare-composer-b2629133-bucket/dags/
+   gcloud storage cp scripts/alerting/check_alerts.py \
+     gs://asia-east2-ashare-composer-b2629133-bucket/data/scripts/alerting/
+   ```
+
+4. **移除旧 checker DAG 文件，避免新旧 checker 同时写告警：**
+   ```bash
+   gcloud storage rm \
+     gs://asia-east2-ashare-composer-b2629133-bucket/dags/oq005_alert_checker.py
+   ```
+
+   如 Airflow UI 仍展示旧 DAG，确认没有 active run 后再按环境需要删除或保留历史 metadata。生产调度以 bucket 中不存在旧 DAG 文件为准。
+
+5. **检查 DAG import：**
+   ```bash
+   gcloud composer environments run ashare-composer \
+     --project=data-aquarium --location=asia-east2 \
+     dags -- list-import-errors
+   ```
+
+6. **应用稳定命名的告警配置：**
+   ```bash
+   python3 scripts/alerting/setup_alerts.py
+   ```
+
+   新资源名应为 `ashare_pipeline_failure`、`ashare_pipeline_task_failure`、`ashare_pipeline_ingestion_failed`、`ashare_pipeline_warehouse_refresh_missing`、`ashare_pipeline_alert_checker_heartbeat`，policy display name 使用 `Ashare Pipeline: ...`，幂等键使用 `user_labels.ashare_pipeline_policy`。
+
+7. **触发新 checker heartbeat 并验证新 metric 有点：**
+   ```bash
+   gcloud composer environments run ashare-composer \
+     --project=data-aquarium --location=asia-east2 \
+     dags -- unpause ashare_pipeline_alert_checker
+
+   gcloud composer environments run ashare-composer \
+     --project=data-aquarium --location=asia-east2 \
+     dags -- trigger ashare_pipeline_alert_checker \
+     --run-id "manual_pipeline_alert_checker_cutover_$(date +%Y%m%d_%H%M%S)"
+   ```
+
+   验证 Cloud Logging 中存在 `resource.type="global"` 且 `jsonPayload.resource_id="ashare_pipeline_alert_checker"` 的 heartbeat；再确认 Cloud Monitoring `logging.googleapis.com/user/ashare_pipeline_alert_checker_heartbeat` 有最新 global timeSeries 点。heartbeat 验证完成前不要删除旧 heartbeat 告警资源或解除维护窗口静默。
+
+8. **删除旧阶段性告警资源：**
+   ```bash
+   gcloud logging metrics delete oq005_pipeline_failure --project=data-aquarium
+   gcloud logging metrics delete oq005_task_failure --project=data-aquarium
+   gcloud logging metrics delete oq005_ingestion_failed --project=data-aquarium
+   gcloud logging metrics delete oq005_warehouse_refresh_missing --project=data-aquarium
+   gcloud logging metrics delete oq005_alert_checker_heartbeat --project=data-aquarium
+   ```
+
+   同步在 Cloud Monitoring 中删除或停用旧 display name 为 `OQ-005: ...` 的 alert policies。保留新的 `Ashare Pipeline: ...` policies。
+
+9. **恢复 scheduled ingestion DAG 并做 smoke：**
+   ```bash
+   gcloud composer environments run ashare-composer \
+     --project=data-aquarium --location=asia-east2 \
+     dags -- unpause ashare_ods_ingestion_daily
+
+   gcloud composer environments run ashare-composer \
+     --project=data-aquarium --location=asia-east2 \
+     dags -- trigger ashare_warehouse_window_refresh \
+     --conf '{"warehouse_mode":"qa_only","business_date":"2026-06-05"}' \
+     --run-id "manual_pipeline_cutover_qa_only_20260605"
+   ```
+
+   `qa_only` smoke 应读取新命名 SQL 文件并成功。失败时先恢复 Composer bucket 中的旧 DAG/SQL 文件，再排查路径和 import。
+
+切换后检查：
+
+- Airflow 中只有 `ashare_pipeline_alert_checker` 定时 checker active，旧 `oq005_alert_checker` 不再产生新 run。
+- `ashare_ods_ingestion_daily` 处于 unpaused；旧 `ashare_daily_pipeline_v0` 保持 paused。
+- Cloud Monitoring 只保留 `Ashare Pipeline: ...` 生产告警策略；旧 `OQ-005: ...` 策略已删除或停用。
+- `v_alert_summary` 为空，`ashare_pipeline_alert_checker` 最近一次 run success，heartbeat metric 有新点。

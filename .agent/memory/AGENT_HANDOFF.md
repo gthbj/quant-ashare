@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**Dataform definitions 与调度运行命名清理（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dataform-definitions`，分支 `codex/oq005-dataform-definitions`。已新增 Dataform 首版 `workflow_settings.yaml`、`action_manifest.json`、生成器 `scripts/dataform/generate_sqlx_from_sql.py` 和 45 个 `definitions/**/*.sqlx`，以 canonical `sql/` 生成 31 个 Dataform operations；`npx --yes @dataform/cli compile dataform` 通过。按 owner 要求清理调度运行代码中的阶段性命名：告警 DAG 文件改为 `ashare_pipeline_alert_checker.py`，QA/metadata SQL 改为 `01_core_smoke_checks.sql`、`03_index_benchmark_checks.sql`、`05_unit_contract_checks.sql`、`01_core_table_column_descriptions.sql`，Composer task_id / Dataform action/tag 改为 `core_*`、`index_benchmark_checks`、`unit_contract_checks`、`qa_core`、`qa_contract` 等稳定命名。未部署 Composer / Dataform，未运行 BigQuery DML。
+**Dataform definitions 与调度运行命名清理（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-dataform-definitions`，分支 `codex/oq005-dataform-definitions`，PR #91。已新增 Dataform 首版 `workflow_settings.yaml`、`action_manifest.json`、生成器 `scripts/dataform/generate_sqlx_from_sql.py` 和 45 个 `definitions/**/*.sqlx`，以 canonical `sql/` 生成 31 个 Dataform operations；`npx --yes @dataform/cli compile dataform` 通过。按 owner 要求清理调度运行代码中的阶段性命名：告警 DAG 文件改为 `ashare_pipeline_alert_checker.py`，QA/metadata SQL 改为 `01_core_smoke_checks.sql`、`03_index_benchmark_checks.sql`、`05_unit_contract_checks.sql`、`01_core_table_column_descriptions.sql`，Composer task_id / Dataform action/tag 改为 `core_*`、`index_benchmark_checks`、`unit_contract_checks`、`qa_core`、`qa_contract` 等稳定命名。PR #91 review follow-up 已补运行命名 cutover runbook、Dataform `--check` 防漂移检查和“线上旧名 vs 目标新名”记忆说明。未部署 Composer / Dataform，未运行 BigQuery DML；生产 cutover 前，2026-06-05 / PR #75 历史线上告警/checker 仍按旧 `oq005_*` / `oq005_alert_checker` 名称审计。
 
 **OQ-010 尾部风险 P1 comment follow-up（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-tail-risk-p1`，分支 `codex/implement-tail-risk-p1`，PR #88 已 rebase 到最新 `origin/main` 并按 review comment 修正。最新语义：`05_build_candidates.sql` 只写 `tail_risk:*` 风险标记，不把风险标记股票从 TopN / target 剔除；必需风险字段 NULL 记为 `tail_risk_required_field_null`。Python Ledger v1 与 BigQuery SQL fallback 均新增 `BUY_SKIPPED_TAIL_RISK`：未持仓风险目标跳过新买入，已有持仓不因 P1 标记被强制卖出。`10` / `20` QA 已改为验证未持仓风险目标无真实买入成交且留下 skip 状态。验证：Python `py_compile`、`05/08/09/10/11/20` dry-run 均通过；短区间 smoke 因跳过报告触发 `10` report guard 失败，已确认是 smoke 参数问题并清理临时 ADS 残留为 0。另已在 `KNOWN_CONSTRAINTS.md` 写入 BigQuery 分区表查询/删除/更新必须显式带分区列过滤的项目硬约束。
 
@@ -34,7 +34,7 @@
 
 **OQ-010 Cloud Run Python baseline 搜索 PRD（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-cloudrun-python-baseline-search`，分支 `codex/prd-cloudrun-python-baseline-search`。新增 `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`：本轮数据截止 `2026-04-30`；train/valid/test/final_holdout 为 `2019-04-03..2023-12-31` / 2024 / 2025 / `2026-01-05..2026-04-30`；固定 `pv_fin_quality + 30/5% + biweekly + 5d`、沪深主板股票池、成本 profile 和 Ledger v1；P0 推荐 LightGBM wave 2。PR #78 review follow-up 后，候选排序改为 2021/2022/2023 三折 purged walk-forward CV + 2024 valid confirmation，2025 test 做硬接受门，2026 final_holdout 只做明显坏结果 veto / holdout watch；实现 smoke 后当前资源口径已从最初 40 并发 / 1 vCPU 4Gi 调整为 40 候选 / 20 并发 / 2 vCPU 8Gi；若 binary LightGBM rejected，后续优先试 `lightgbm_regression`。
 
-**OQ-005 告警/观测生产闭环部署与 PR #75 follow-up（2026-06-05）**：PR #75 已合并并完成生产部署；后续代码收敛工作树 `/private/tmp/oq005-alerting-deploy-followup`，分支 `codex/oq005-alerting-deploy-followup`。已完成：8 个 BigQuery 观测视图创建、3 个 Cloud Logging log-based metrics 创建、3 个 Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到告警策略、定时 checker DAG `ashare_pipeline_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。PR #75 follow-up 已部署并验收：Composer bucket 已同步 DAG 与 `check_alerts.py`；新增 `ashare_pipeline_alert_checker_heartbeat` log-based metric 和 `Ashare Pipeline: Alert Checker Heartbeat Missing` 30 分钟 absence policy，策略已启用并绑定 1 个 Email 通知渠道；`check_alerts.py` 显式使用 `resource.type=global` 写业务告警与 heartbeat，避免 Composer 默认 `k8s_container` resource 与现有告警策略不匹配。PR #77 review follow-up 已修复告警策略幂等键：`setup_alerts.py` 使用稳定 `user_labels.ashare_pipeline_policy` 并兼容旧 display name 迁移，避免旧名环境重复创建新旧两份策略。manual smoke `manual_ashare_pipeline_alert_checker_heartbeat_global_20260605_01` 成功，随后的 scheduled run 也成功；Cloud Logging 中 heartbeat 为 `resource.type=global`、`lookback_minutes=20`、`alerts_count=0`，Cloud Monitoring global timeSeries 已有点。下一步：继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
+**OQ-005 告警/观测生产闭环部署与 PR #75 follow-up（2026-06-05）**：PR #75 已合并并完成生产部署；后续代码收敛工作树 `/private/tmp/oq005-alerting-deploy-followup`，分支 `codex/oq005-alerting-deploy-followup`。已完成：8 个 BigQuery 观测视图创建、旧线上名 `oq005_pipeline_failure` / `oq005_task_failure` / `oq005_ingestion_failed` log-based metrics 创建、3 个 `OQ-005: ...` Cloud Monitoring alert policies 启用（Ingestion severity 已从 CRITICAL 修正为 WARNING）、Email 通知渠道配置并关联到告警策略、定时 checker DAG `oq005_alert_checker` 部署（每 10 分钟）、三类告警 smoke 验证（pipeline_failure / task_failure / ingestion_failed 均在 timeSeries 中 value=1）。PR #75 follow-up 已部署并验收：Composer bucket 已同步旧 checker DAG 与 `check_alerts.py`；新增旧线上名 `oq005_alert_checker_heartbeat` log-based metric 和 `OQ-005: Alert Checker Heartbeat Missing` 30 分钟 absence policy，策略已启用并绑定 1 个 Email 通知渠道；`check_alerts.py` 显式使用 `resource.type=global` 写业务告警与 heartbeat，避免 Composer 默认 `k8s_container` resource 与现有告警策略不匹配。PR #77 review follow-up 已修复告警策略幂等键：`setup_alerts.py` 使用稳定 `user_labels.oq005_policy` 并兼容旧 display name 迁移，避免旧名环境重复创建新旧两份策略。manual smoke `manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功，随后的 scheduled run 也成功；Cloud Logging 中 heartbeat 为 `resource.type=global`、`lookback_minutes=20`、`alerts_count=0`，Cloud Monitoring global timeSeries 已有点。PR #91 的 `ashare_pipeline_*` 是后续 cutover 目标名。下一步：继续 Dataform definitions、补跑和完整 ODS→ADS 运维观测闭环。
 
 **OQ-005 告警/观测 PR #72 review follow-up（2026-06-05）**：工作树 `/Users/luna/Desktop/git/quant-ashare-oq005-alerts-runbook`，分支 `codex/oq005-alerts-runbook`。PR #72 新增 BigQuery 观测视图、Cloud Logging / Cloud Monitoring 告警配置脚本、告警查询脚本和补跑 runbook。本轮按 comment 修复：`setup_alerts.py` 的 `LogMetric` 使用正确 `filter` 字段；`check_alerts.py` 查询失败和缺 `google-cloud-logging` 写日志路径均 fail-closed，默认 lookback 改 10 分钟并用稳定 `insert_id` 降低重复日志；runbook §9 的 `task_failure` / `ingestion_failed` 与 SQL 实现一致；`v_alert_probe` 注释改为固定 24 小时手工健康检查口径。验证通过 Python `py_compile`、观测 SQL BigQuery dry-run、`git diff --check`；本机缺 `google-cloud-logging`，未做真实 log metric API apply。合并后仍需部署视图、配置 Cloud Scheduler/Cloud Run checker、log-based metrics、alert policies，并做生产 smoke。
 
@@ -242,6 +242,7 @@ Run ID: tail_risk_p1_comment_followup_20260606
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
+
 
 日期: 2026-06-06
 Agent ID: Codex
@@ -949,7 +950,7 @@ Agent ID: Codex
 Agent 实例 ID: Codex desktop session
 模型: GPT-5 Codex
 运行环境: Codex desktop
-Run ID: manual_ashare_pipeline_alert_checker_heartbeat_global_20260605_01
+Run ID: manual_oq005_alert_checker_heartbeat_global_20260605_01
 相关 issue/PR: PR #77 / OQ-005 alert checker liveness deployment follow-up
 
 ### 已完成工作
@@ -957,14 +958,14 @@ Run ID: manual_ashare_pipeline_alert_checker_heartbeat_global_20260605_01
 - 在 PR #75 合并后完成 OQ-005 alert checker liveness 生产部署验收，并把仓库脚本与生产状态对齐。
 - 修复 `check_alerts.py`，让业务告警与 heartbeat 显式写入 Cloud Logging global resource。
 - 修复 `setup_alerts.py`：正确导入 Logging Metrics client / LogMetric，设置 alert policy combiner，threshold / absence filter 统一加 `resource.type="global"`。
-- 按 PR #77 review comment 修复告警策略幂等：使用稳定 `user_labels.ashare_pipeline_policy` 做幂等键，并兼容旧 display name 迁移，避免旧名环境重复创建新旧两份策略。
+- 按 PR #77 review comment 修复告警策略幂等：使用当时旧线上稳定键 `user_labels.oq005_policy` 做幂等，并兼容旧 display name 迁移，避免旧名环境重复创建新旧两份策略。
 - 更新 alerting README、TODO 和 OQ-005 记忆状态。
 
 ### 重要上下文
 
-- 生产 smoke `manual_ashare_pipeline_alert_checker_heartbeat_global_20260605_01` 成功；随后 scheduled run 也成功。
+- 生产 smoke `manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功；随后 scheduled run 也成功。
 - Cloud Logging 中 heartbeat 已确认为 `resource.type=global`、`lookback_minutes=20`、`alerts_count=0`。
-- Cloud Monitoring `logging.googleapis.com/user/ashare_pipeline_alert_checker_heartbeat` 的 global timeSeries 已有点；旧的 `k8s_container` heartbeat 只来自修复前第一次 smoke。
+- Cloud Monitoring `logging.googleapis.com/user/oq005_alert_checker_heartbeat` 的 global timeSeries 已有点；旧的 `k8s_container` heartbeat 只来自修复前第一次 smoke。PR #91 的 `ashare_pipeline_alert_checker_heartbeat` 是后续 cutover 目标名。
 - OQ-005 告警主链路和 checker liveness 均已上线；OQ-005 仍 open，剩余 Dataform 生产链路、补跑与完整 ODS→ADS 运维观测闭环。
 
 ### 改动文件
@@ -979,10 +980,10 @@ Run ID: manual_ashare_pipeline_alert_checker_heartbeat_global_20260605_01
 
 ### 测试 / 验证
 
-- Composer manual smoke：`manual_ashare_pipeline_alert_checker_heartbeat_global_20260605_01` 成功。
+- Composer manual smoke：`manual_oq005_alert_checker_heartbeat_global_20260605_01` 成功。
 - Composer scheduled run 成功。
 - Cloud Logging 查询确认 heartbeat 使用 global resource。
-- Cloud Monitoring timeSeries 查询确认 `ashare_pipeline_alert_checker_heartbeat` global metric 有数据点。
+- Cloud Monitoring timeSeries 查询确认 `oq005_alert_checker_heartbeat` global metric 有数据点。
 - Cloud Monitoring alert policies 查询确认 4 个 OQ-005 policy 均启用并绑定通知渠道。
 - 本地 py_compile、`setup_alerts.py --dry-run`、只读 `check_alerts.py --lookback-minutes 20 --json`、观测 SQL dry-run、旧名 policy 匹配断言和 `git diff --check` 均通过。
 
@@ -1666,6 +1667,61 @@ Run ID: dataform_definitions_runtime_naming_cleanup_20260606
 - 对 Dataform definitions 做 shadow / diff 方案，明确 Composer 如何传 tag / workflow invocation id 并写入 `pipeline_task_status`。
 - 部署新命名后的 alert checker DAG 与告警配置前，先确认旧命名资源的迁移 / 清理顺序，避免新旧 policy 并存。
 - 新 DAG 继续等待至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然观察。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: pr91_dataform_naming_review_followup_20260606
+相关 issue/PR: PR #91 / OQ-005 Dataform definitions / scheduler runtime naming
+
+### 已完成工作
+
+- 按 PR #91 review comment 补 `docs/Pipeline-补跑与故障恢复-Runbook.md` 的调度运行命名 cutover checklist。
+- `scripts/dataform/generate_sqlx_from_sql.py` 新增 `--check` 模式，用于检查 generated SQLX 是否和 canonical `sql/` / manifest 一致；`dataform/README.md` 补对应命令和 PR 规则。
+- `KNOWN_CONSTRAINTS.md` 新增 Dataform 生成物约束：改 manifest 覆盖范围内 canonical SQL 时必须重跑生成器并通过 `--check`。
+- 记忆中补充“线上旧名 vs 目标新名”说明：PR #91 尚未部署，2026-06-05 / PR #75 历史线上资源仍按旧 `oq005_*` / `oq005_alert_checker` 名称审计；`ashare_pipeline_*` 是 cutover 后目标稳定名。
+
+### 重要上下文
+
+- 本次仍未部署 Composer / Dataform，未运行 BigQuery DML，未触发 Cloud Run。
+- 生产 cutover 必须在同一维护窗口同步 Composer bucket `data/sql/`、新 DAG / alert checker、`ashare_pipeline_*` alert resources，并清理旧 `oq005_*` metrics / policies / checker DAG 文件；新 heartbeat metric 有点前不要视为切换完成。
+- Dataform definitions 仍是生成产物，canonical 来源是 `sql/` 和 `dataform/action_manifest.json`。
+
+### 改动文件
+
+- `docs/Pipeline-补跑与故障恢复-Runbook.md`
+- `scripts/dataform/generate_sqlx_from_sql.py`
+- `dataform/README.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`
+- `npx --yes @dataform/cli compile dataform`
+- `python3 -m py_compile scripts/dataform/generate_sqlx_from_sql.py`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- PR #91 合并后，按 runbook 在维护窗口执行命名 cutover，并验证 `ashare_pipeline_alert_checker` heartbeat、`qa_only` smoke 和旧 `oq005_*` 资源清理。
 
 ### 已更新记忆文件
 
