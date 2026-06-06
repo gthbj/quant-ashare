@@ -4,7 +4,7 @@
 project: data-aquarium
 region: asia-east2
 strategy_id: ml_pv_clf_v0
-execution_backend: cloud_run_sklearn_ledger_v1
+execution_backend: cloud_run_sklearn_ledger_v1_lot100
 
 artifact_base_uri: gs://ashare-artifacts/reports/strategy1
 model_artifact_base_uri: gs://ashare-artifacts/models/strategy1

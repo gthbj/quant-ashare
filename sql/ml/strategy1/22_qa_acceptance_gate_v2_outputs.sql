@@ -12,6 +12,7 @@ DECLARE p_acceptance_gate_version STRING DEFAULT 'strategy1_acceptance_gate_v2';
 DECLARE p_acceptance_contract_version STRING DEFAULT 'model_acceptance_contract_v2';
 DECLARE p_acceptance_contract_sha256 STRING DEFAULT 'standalone_contract_hash_required';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
+DECLARE p_required_ledger_version STRING DEFAULT 'ledger_exec_v1_lot100';
 DECLARE p_reference_run_id STRING DEFAULT 's1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01';
 DECLARE p_reference_backtest_id STRING DEFAULT 'bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01';
 DECLARE p_prediction_run_id STRING DEFAULT 's1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01';
@@ -191,3 +192,13 @@ ASSERT (
     AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') = 'accepted'
     AND JSON_VALUE(reg.metrics_json, '$.model_backend') IN ('bqml', 'bigquery_ml', 'sql_runner')
 ) AS 'QA-V2-9: BQML/SQL runner must not register new production accepted baseline under v2';
+
+-- QA-V2-10: any v2 accepted production record must use the required lot-aware ledger.
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  WHERE reg.strategy_id = p_strategy_id
+    AND JSON_VALUE(reg.metrics_json, '$.acceptance_contract_version') = p_acceptance_contract_version
+    AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') = 'accepted'
+    AND COALESCE(JSON_VALUE(reg.metrics_json, '$.ledger_version'), '') != p_required_ledger_version
+) AS 'QA-V2-10: v2 accepted production records must use required lot-aware ledger_version';

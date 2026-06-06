@@ -111,6 +111,7 @@ def contract_sql_params(contract: dict[str, Any]) -> dict[str, Any]:
         "p_low_price_contribution_share_hard_fail": implementation.get("low_price_contribution_share_hard_fail", 0.50),
         "p_required_valid_signal_status": required.get("valid_signal_status", "stable"),
         "p_required_cv_confirmation_status": required.get("cv_confirmation_status", "passed"),
+        "p_required_ledger_version": required.get("required_ledger_version", "ledger_exec_v1_lot100"),
         "p_final_holdout_required_after_wave": test_reuse.get("final_holdout_required_after_wave", 3),
         "p_final_holdout_passed_status": test_reuse.get("final_holdout_passed_status", "passed"),
     }

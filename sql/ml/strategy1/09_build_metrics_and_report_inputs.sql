@@ -21,6 +21,8 @@ DECLARE p_market_state_version STRING DEFAULT 'market_state_v0_20260606';
 DECLARE p_execution_backend STRING DEFAULT 'bqml_sql_ledger_v1';
 DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1';
 DECLARE p_ledger_executor STRING DEFAULT 'bigquery_sql';
+DECLARE p_lot_size INT64 DEFAULT NULL;
+DECLARE p_min_buy_lot INT64 DEFAULT NULL;
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;
@@ -92,14 +94,30 @@ SELECT
   COUNTIF(t.side = 'BUY')  AS buy_attempt_count,
   COUNTIF(t.side = 'BUY'  AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')) AS buy_filled_count,
   COUNTIF(t.side = 'BUY'  AND t.fill_status = 'FILLED_SCALED_CASH') AS buy_scaled_cash_count,
-  COUNTIF(t.side = 'BUY'  AND t.fill_status IN ('BUY_SKIPPED_UNTRADABLE', 'BUY_SKIPPED_TAIL_RISK', 'BUY_SKIPPED_MARKET_RISK_OFF', 'SKIPPED_CASH_INSUFFICIENT', 'SKIPPED_MIN_NOTIONAL')) AS buy_skipped_count,
+  COUNTIF(t.side = 'BUY'  AND t.fill_status IN (
+    'BUY_SKIPPED_UNTRADABLE',
+    'BUY_SKIPPED_TAIL_RISK',
+    'BUY_SKIPPED_MARKET_RISK_OFF',
+    'BUY_SKIPPED_BELOW_LOT',
+    'BUY_SKIPPED_BELOW_LOT_AFTER_SCALE',
+    'BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING',
+    'SKIPPED_CASH_INSUFFICIENT',
+    'SKIPPED_MIN_NOTIONAL'
+  )) AS buy_skipped_count,
   COUNTIF(t.side = 'SELL') AS sell_attempt_count,
   COUNTIF(t.side = 'SELL' AND t.fill_status = 'FILLED') AS sell_filled_count,
-  COUNTIF(t.side = 'SELL' AND t.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY')) AS sell_skipped_count,
+  COUNTIF(t.side = 'SELL' AND t.fill_status IN ('SELL_SKIPPED_UNTRADABLE', 'SELL_SKIPPED_BELOW_LOT_PARTIAL', 'PENDING_SELL_CARRY')) AS sell_skipped_count,
   COUNTIF(t.fill_status = 'PENDING_SELL_CARRY') AS pending_sell_carry_count,
   COUNTIF(t.fill_status = 'CANCELLED_BY_NETTING') AS cancelled_by_netting_count,
   COUNTIF(t.fill_status = 'NOOP_ALREADY_TARGET') AS noop_already_target_count,
-  COUNTIF(t.fill_status = 'SKIPPED_CASH_INSUFFICIENT') AS cash_insufficient_skip_count,
+  COUNTIF(t.fill_status IN ('SKIPPED_CASH_INSUFFICIENT', 'BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING')) AS cash_insufficient_skip_count,
+  COUNTIF(t.fill_status = 'BUY_SKIPPED_BELOW_LOT') AS buy_below_lot_skip_count,
+  COUNTIF(t.fill_status = 'BUY_SKIPPED_BELOW_LOT_AFTER_SCALE') AS buy_below_lot_after_scale_skip_count,
+  COUNTIF(t.fill_status = 'BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING') AS buy_cash_rounding_skip_count,
+  COUNTIF(t.fill_status = 'SELL_SKIPPED_BELOW_LOT_PARTIAL') AS sell_below_lot_partial_count,
+  COUNTIF(t.side = 'SELL'
+    AND t.fill_status = 'FILLED'
+    AND MOD(CAST(ROUND(t.filled_shares) AS INT64), 100) != 0) AS odd_lot_full_exit_count,
   COUNTIF(t.fill_status = 'BUY_SKIPPED_TAIL_RISK') AS tail_risk_buy_skip_count,
   COUNTIF(t.fill_status = 'BUY_SKIPPED_MARKET_RISK_OFF') AS market_risk_buy_skip_count
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
@@ -204,6 +222,12 @@ SELECT
     -- ledger_exec_v1 成交口径（与 ads_backtest_trade_daily 1:1 可对账）
     p_ledger_version AS ledger_version,
     p_ledger_executor AS ledger_executor,
+    IF(p_ledger_version = 'ledger_exec_v1_lot100', p_lot_size, NULL) AS lot_size,
+    IF(p_ledger_version = 'ledger_exec_v1_lot100', p_min_buy_lot, NULL) AS min_buy_lot,
+    IF(p_ledger_version = 'ledger_exec_v1_lot100', 'floor_to_lot', NULL) AS buy_rounding,
+    IF(p_ledger_version = 'ledger_exec_v1_lot100', 'allow_full_exit_odd_lot', NULL) AS sell_odd_lot_policy,
+    IF(p_ledger_version = 'ledger_exec_v1_lot100', 'floor_to_lot_keep_residual', NULL) AS partial_sell_rounding,
+    IF(p_ledger_version = 'ledger_exec_v1_lot100', 'none_v1', NULL) AS cash_redistribution,
     'signal_date_next_open_execution' AS execution_semantics,
     p_initial_state_mode AS initial_state_mode,
     p_parent_backtest_id AS parent_backtest_id,
@@ -218,6 +242,11 @@ SELECT
     ss.sell_attempt_count, ss.sell_filled_count, ss.sell_skipped_count,
     ss.pending_sell_carry_count, ss.cancelled_by_netting_count,
     ss.noop_already_target_count, ss.cash_insufficient_skip_count,
+    ss.buy_below_lot_skip_count,
+    ss.buy_below_lot_after_scale_skip_count,
+    ss.buy_cash_rounding_skip_count,
+    ss.sell_below_lot_partial_count,
+    ss.odd_lot_full_exit_count,
     ss.tail_risk_buy_skip_count,
     ss.market_risk_buy_skip_count,
     SAFE_DIVIDE(CAST(ss.sell_skipped_count AS FLOAT64), NULLIF(ss.sell_attempt_count, 0)) AS sell_skip_rate,

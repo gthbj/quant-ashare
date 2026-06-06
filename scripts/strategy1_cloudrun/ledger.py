@@ -1,8 +1,9 @@
-"""Python implementation of Strategy 1 `ledger_exec_v1`.
+"""Python implementation of Strategy 1 Cloud Run ledger.
 
-The implementation follows `sql/ml/strategy1/08_run_backtest.sql` for the
-fresh-start path. Resume support is intentionally fail-fast until the Cloud Run
-runner passes the fresh-start equivalence gate against the BigQuery ledger.
+The default implementation is the lot-aware `ledger_exec_v1_lot100` path.  The
+legacy float-share `ledger_exec_v1` path is kept only for explicit audit runs.
+Resume support is intentionally fail-fast until the lot-aware fresh-start path
+has its own production reference run.
 """
 
 from __future__ import annotations
@@ -27,6 +28,22 @@ ALLOWED_TAIL_RISK_PROFILES = frozenset({
 INDIVIDUAL_RISK_PROFILES = frozenset({"individual_risk_guard_v0", "individual_and_market_risk_guard_v0"})
 MARKET_RISK_PROFILES = frozenset({"market_risk_off_v0", "individual_and_market_risk_guard_v0"})
 DEFAULT_MARKET_STATE_VERSION = "market_state_v0_20260606"
+LEDGER_VERSION_FLOAT = "ledger_exec_v1"
+LEDGER_VERSION_LOT100 = "ledger_exec_v1_lot100"
+FILLED_STATUSES = frozenset({"FILLED", "FILLED_SCALED_CASH"})
+LOT_AWARE_ZERO_FILL_STATUSES = frozenset({
+    "BUY_SKIPPED_UNTRADABLE",
+    "BUY_SKIPPED_TAIL_RISK",
+    "BUY_SKIPPED_MARKET_RISK_OFF",
+    "BUY_SKIPPED_BELOW_LOT",
+    "BUY_SKIPPED_BELOW_LOT_AFTER_SCALE",
+    "BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING",
+    "SELL_SKIPPED_UNTRADABLE",
+    "SELL_SKIPPED_BELOW_LOT_PARTIAL",
+    "PENDING_SELL_CARRY",
+    "CANCELLED_BY_NETTING",
+    "NOOP_ALREADY_TARGET",
+})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -45,6 +62,14 @@ class LedgerParams:
     stamp_tax_sell_bps: float = 5.0
     slippage_buy_bps: float = 5.0
     slippage_sell_bps: float = 5.0
+    ledger_version: str = LEDGER_VERSION_LOT100
+    lot_size: int = 100
+    min_buy_lot: int = 1
+    sell_odd_lot_policy: str = "allow_full_exit_odd_lot"
+    partial_sell_rounding: str = "floor_to_lot_keep_residual"
+    buy_rounding: str = "floor_to_lot"
+    cash_redistribution: str = "none_v1"
+    min_notional_cny: float = 0.0
     force_replace: bool = False
     initial_state_mode: str = "fresh"
     parent_backtest_id: str | None = None
@@ -56,6 +81,7 @@ class LedgerParams:
 def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
     if params.initial_state_mode != "fresh":
         raise NotImplementedError("Cloud Run Python ledger P0 supports fresh-start only; resume is fail-fast")
+    validate_ledger_params(params)
     if params.tail_risk_profile_id not in ALLOWED_TAIL_RISK_PROFILES:
         raise ValueError(f"unsupported tail_risk_profile_id: {params.tail_risk_profile_id}")
     if params.force_replace:
@@ -79,7 +105,7 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
 
     cash = float(params.initial_capital)
     holdings: dict[str, float] = {}
-    target_weights: dict[str, float] = {}
+    target_weights: dict[str, dict[str, Any]] = {}
     pending_sell: set[str] = set()
     trade_rows: list[dict[str, Any]] = []
     position_rows: list[dict[str, Any]] = []
@@ -87,10 +113,7 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
     previous_nav_value: float | None = None
 
     periods_by_exec = {row.exec_date: row for row in periods.itertuples(index=False)}
-    targets_by_signal = {
-        signal_date: group.set_index("sec_code")["target_weight"].astype(float).to_dict()
-        for signal_date, group in targets.groupby("rebalance_date")
-    }
+    targets_by_signal = build_target_specs_by_signal(targets)
     tail_risk_buy_guards = load_tail_risk_buy_guards(client, params)
     market_risk_off_signal_dates = load_market_risk_off_signal_dates(client, params)
 
@@ -141,8 +164,8 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
         daily_return = None if previous_nav_value is None else nav_value / previous_nav_value - 1.0
         previous_nav_value = nav_value
         bench_ret = benchmark.get(exec_date, 0.0)
-        day_turnover = sum(row["turnover_cny"] for row in daily_trade_rows if row["fill_status"] in ("FILLED", "FILLED_SCALED_CASH"))
-        day_cost = sum(row["fee_cny"] for row in daily_trade_rows if row["fill_status"] in ("FILLED", "FILLED_SCALED_CASH"))
+        day_turnover = sum(row["turnover_cny"] for row in daily_trade_rows if row["fill_status"] in FILLED_STATUSES)
+        day_cost = sum(row["fee_cny"] for row in daily_trade_rows if row["fill_status"] in FILLED_STATUSES)
         nav_rows.append({
             "backtest_id": params.backtest_id,
             "trade_date": exec_date,
@@ -190,6 +213,10 @@ class PlanRow:
     tail_risk_new_buy_blocked: bool
     market_risk_buy_blocked: bool
     pending_noop: bool
+    target_rank_raw: float | None = None
+    sell_skip_status: str | None = None
+    filled_sell_shares: float = 0.0
+    filled_buy_shares: float = 0.0
     scale: float = 1.0
 
 
@@ -220,7 +247,7 @@ def build_daily_plan(
     exec_date: Any,
     is_rebalance: bool,
     holdings: dict[str, float],
-    target_weights: dict[str, float],
+    target_weights: dict[str, dict[str, Any]],
     pending_sell: set[str],
     tail_risk_blocked_new_buys: set[str],
     market_risk_off_signal: bool,
@@ -240,7 +267,9 @@ def build_daily_plan(
         can_buy = bool(getattr(row, "can_buy_open", False)) if row is not None else False
         can_sell = bool(getattr(row, "can_sell_open", False)) if row is not None else False
         val_price = px.valuation_price(sec, exec_date)
-        w = float(target_weights.get(sec, 0.0))
+        target_spec = target_weights.get(sec, {})
+        w = float(target_spec.get("target_weight", 0.0) or 0.0)
+        rank_raw = target_spec.get("rank_raw")
         cur_value = cur_shares * val_price
         desired_value = w * nav_before
         can_buy_now = can_buy and exec_open is not None and np.isfinite(exec_open)
@@ -257,8 +286,18 @@ def build_daily_plan(
             and market_risk_off_signal
         )
         sell_shares = 0.0
-        if cur_shares > 0 and (is_rebalance or sec in pending_sell) and cur_value - desired_value > 0.01 and can_sell_now:
-            sell_shares = cur_shares if desired_value <= 0.01 else min(cur_shares, (cur_value - desired_value) / exec_open)
+        sell_skip_status = None
+        sell_gap_value = cur_value - desired_value
+        has_sell_intent = cur_shares > 0 and (is_rebalance or sec in pending_sell) and sell_gap_value > 0.01
+        if has_sell_intent and can_sell_now:
+            raw_sell_shares = cur_shares if desired_value <= 0.01 else min(cur_shares, sell_gap_value / exec_open)
+            if is_lot_aware(params) and desired_value > 0.01:
+                sell_shares = round_down_to_lot(raw_sell_shares, params.lot_size)
+                if sell_shares < params.lot_size and raw_sell_shares > 0.000001:
+                    sell_shares = 0.0
+                    sell_skip_status = "SELL_SKIPPED_BELOW_LOT_PARTIAL"
+            else:
+                sell_shares = raw_sell_shares
         want_value = 0.0
         if (
             is_rebalance
@@ -269,9 +308,12 @@ def build_daily_plan(
         ):
             want_value = desired_value - cur_value
         sell_skip_shares = 0.0
-        if cur_shares > 0 and (is_rebalance or sec in pending_sell) and cur_value - desired_value > 0.01 and not can_sell_now:
+        if sell_skip_status == "SELL_SKIPPED_BELOW_LOT_PARTIAL":
+            sell_skip_shares = min(cur_shares, safe_divide(sell_gap_value, exec_open))
+        elif has_sell_intent and not can_sell_now:
             denom = exec_open if exec_open is not None and np.isfinite(exec_open) else val_price
-            sell_skip_shares = cur_shares if desired_value <= 0.01 else min(cur_shares, safe_divide(cur_value - desired_value, denom))
+            sell_skip_shares = cur_shares if desired_value <= 0.01 else min(cur_shares, safe_divide(sell_gap_value, denom))
+            sell_skip_status = "SELL_SKIPPED_UNTRADABLE" if is_rebalance else "PENDING_SELL_CARRY"
         buy_skip_value = 0.0
         if is_rebalance and desired_value - cur_value > 0.01 and (
             not can_buy_now
@@ -299,11 +341,26 @@ def build_daily_plan(
             tail_risk_new_buy_blocked=tail_risk_new_buy_blocked,
             market_risk_buy_blocked=market_risk_buy_blocked,
             pending_noop=pending_noop,
+            target_rank_raw=float(rank_raw) if rank_raw is not None and pd.notna(rank_raw) else None,
+            sell_skip_status=sell_skip_status,
         ))
     return plan
 
 
 def execute_plan(
+    exec_date: Any,
+    cash: float,
+    plan: list[PlanRow],
+    params: LedgerParams,
+    *,
+    is_rebalance: bool,
+) -> tuple[float, list[dict[str, Any]]]:
+    if is_lot_aware(params):
+        return execute_plan_lot_aware(exec_date, cash, plan, params)
+    return execute_plan_float(exec_date, cash, plan, params, is_rebalance=is_rebalance)
+
+
+def execute_plan_float(
     exec_date: Any,
     cash: float,
     plan: list[PlanRow],
@@ -319,6 +376,7 @@ def execute_plan(
             tax = turnover * params.stamp_tax_sell_bps / 10000.0
             cash_effect = turnover - fee - tax
             cash += cash_effect
+            item.filled_sell_shares = item.sell_shares
             rows.append(trade_row(params, exec_date, item, "SELL", item.sell_shares, item.sell_shares, item.sell_fill_price, turnover, fee, tax, slippage_sell(turnover, params), cash_effect, "FILLED"))
     required_cash = 0.0
     for item in plan:
@@ -336,11 +394,12 @@ def execute_plan(
             cash += cash_effect
             planned_shares = safe_divide(item.want_value, item.exec_open)
             filled_shares = safe_divide(item.want_value * scale, item.exec_open)
+            item.filled_buy_shares = filled_shares
             rows.append(trade_row(params, exec_date, item, "BUY", planned_shares, filled_shares, item.buy_fill_price, gross, fee, tax, slippage_buy(gross, params), cash_effect, "FILLED_SCALED_CASH" if scale < 0.999999 else "FILLED"))
         elif item.want_value > 0.000001 and scale <= 0.000001:
             rows.append(trade_row(params, exec_date, item, "BUY", safe_divide(item.want_value, item.exec_open), 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, "SKIPPED_CASH_INSUFFICIENT"))
         if item.sell_skip_shares > 0.000001:
-            status = "SELL_SKIPPED_UNTRADABLE" if is_rebalance else "PENDING_SELL_CARRY"
+            status = item.sell_skip_status or ("SELL_SKIPPED_UNTRADABLE" if is_rebalance else "PENDING_SELL_CARRY")
             rows.append(trade_row(params, exec_date, item, "SELL", item.sell_skip_shares, 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, status))
         if item.buy_skip_value > 0.000001:
             if item.market_risk_buy_blocked:
@@ -355,12 +414,107 @@ def execute_plan(
     return cash, rows
 
 
+@dataclasses.dataclass
+class BuyExecution:
+    item: PlanRow
+    planned_shares: float
+    filled_shares: float
+    turnover: float
+    fee: float
+    tax: float
+    slippage: float
+    cash_required: float
+    fill_status: str
+
+
+def execute_plan_lot_aware(
+    exec_date: Any,
+    cash: float,
+    plan: list[PlanRow],
+    params: LedgerParams,
+) -> tuple[float, list[dict[str, Any]]]:
+    rows: list[dict[str, Any]] = []
+    for item in plan:
+        if item.sell_shares > 0.000001:
+            turnover = item.sell_shares * item.sell_fill_price
+            fee = max(turnover * params.commission_bps / 10000.0, params.min_commission_cny)
+            tax = turnover * params.stamp_tax_sell_bps / 10000.0
+            cash_effect = turnover - fee - tax
+            cash += cash_effect
+            item.filled_sell_shares = item.sell_shares
+            rows.append(trade_row(
+                params, exec_date, item, "SELL", item.sell_shares, item.sell_shares,
+                item.sell_fill_price, turnover, fee, tax, slippage_sell(turnover, params),
+                cash_effect, "FILLED",
+            ))
+
+    buy_items = [item for item in plan if item.want_value > 0.000001]
+    provisional: list[BuyExecution] = []
+    for item in buy_items:
+        planned_shares = round_down_to_lot(safe_divide(item.want_value, item.exec_open), params.lot_size)
+        if planned_shares < min_buy_shares(params):
+            rows.append(trade_row(
+                params, exec_date, item, "BUY", safe_divide(item.want_value, item.exec_open),
+                0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, "BUY_SKIPPED_BELOW_LOT",
+            ))
+            continue
+        provisional.append(build_buy_execution(item, planned_shares, params, "FILLED"))
+
+    required_cash = sum(order.cash_required for order in provisional)
+    scale = min(1.0, safe_divide(cash, required_cash)) if required_cash > 0 else 1.0
+    executable: list[BuyExecution] = []
+    if scale >= 0.999999:
+        executable = provisional
+    else:
+        for order in provisional:
+            item = order.item
+            item.scale = scale
+            scaled_shares = round_down_to_lot(safe_divide(item.want_value * scale, item.exec_open), params.lot_size)
+            if scaled_shares < min_buy_shares(params):
+                rows.append(trade_row(
+                    params, exec_date, item, "BUY", order.planned_shares, 0.0, None,
+                    0.0, 0.0, 0.0, 0.0, 0.0, "BUY_SKIPPED_BELOW_LOT_AFTER_SCALE",
+                ))
+                continue
+            executable.append(build_buy_execution(item, scaled_shares, params, "FILLED_SCALED_CASH"))
+
+    executable = drop_buys_until_cash_nonnegative(executable, cash, params, exec_date, rows)
+    for order in executable:
+        item = order.item
+        cash -= order.cash_required
+        item.filled_buy_shares = order.filled_shares
+        rows.append(trade_row(
+            params, exec_date, item, "BUY", order.planned_shares, order.filled_shares,
+            item.buy_fill_price, order.turnover, order.fee, order.tax, order.slippage,
+            -order.cash_required, order.fill_status,
+        ))
+
+    for item in plan:
+        if item.sell_skip_shares > 0.000001:
+            rows.append(trade_row(
+                params, exec_date, item, "SELL", item.sell_skip_shares, 0.0, None,
+                0.0, 0.0, 0.0, 0.0, 0.0, item.sell_skip_status or "SELL_SKIPPED_UNTRADABLE",
+            ))
+        if item.buy_skip_value > 0.000001:
+            if item.market_risk_buy_blocked:
+                status = "BUY_SKIPPED_MARKET_RISK_OFF"
+            elif item.tail_risk_new_buy_blocked:
+                status = "BUY_SKIPPED_TAIL_RISK"
+            else:
+                status = "BUY_SKIPPED_UNTRADABLE"
+            rows.append(trade_row(params, exec_date, item, "BUY", safe_divide(item.buy_skip_value, item.val_price), 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, status))
+        if item.pending_noop:
+            rows.append(trade_row(params, exec_date, item, "SELL", 0.0, 0.0, None, 0.0, 0.0, 0.0, 0.0, 0.0, "CANCELLED_BY_NETTING"))
+
+    if cash < -1.0:
+        raise RuntimeError(f"lot-aware ledger produced negative cash {cash:.4f} on {exec_date}")
+    return cash, rows
+
+
 def update_holdings(plan: list[PlanRow]) -> dict[str, float]:
     holdings = {}
     for item in plan:
-        shares = item.cur_shares - item.sell_shares
-        if item.want_value > 0.000001 and item.scale > 0.000001:
-            shares += safe_divide(item.want_value * item.scale, item.exec_open)
+        shares = item.cur_shares - item.filled_sell_shares + item.filled_buy_shares
         if shares > 0.000001:
             holdings[item.sec_code] = shares
     return holdings
@@ -369,7 +523,9 @@ def update_holdings(plan: list[PlanRow]) -> dict[str, float]:
 def update_pending_sell(plan: list[PlanRow], is_rebalance: bool) -> set[str]:
     pending = set()
     for item in plan:
-        remaining_shares = item.cur_shares - item.sell_shares
+        if item.sell_skip_status == "SELL_SKIPPED_BELOW_LOT_PARTIAL":
+            continue
+        remaining_shares = item.cur_shares - item.filled_sell_shares
         remaining_value = remaining_shares * item.val_price
         if remaining_shares > 0.000001 and remaining_value - item.desired_value > 0.01 and (
             item.sell_skip_shares > 0.000001 or item.was_pending or is_rebalance
@@ -450,11 +606,21 @@ def load_calendar(client: bigquery.Client, start: str, end: str) -> pd.DataFrame
 
 def load_targets(client: bigquery.Client, params: LedgerParams) -> pd.DataFrame:
     sql = f"""
-    SELECT rebalance_date, sec_code, target_weight
-    FROM `{ADS}.ads_portfolio_target_daily`
-    WHERE strategy_id=@strategy_id AND run_id=@run_id
-      AND rebalance_date BETWEEN @start AND @end
-    ORDER BY rebalance_date, sec_code
+    SELECT
+      pt.rebalance_date,
+      pt.sec_code,
+      pt.target_weight,
+      cand.rank_raw
+    FROM `{ADS}.ads_portfolio_target_daily` AS pt
+    LEFT JOIN `{ADS}.ads_stock_candidate_daily` AS cand
+      ON cand.strategy_id = pt.strategy_id
+     AND cand.run_id = pt.run_id
+     AND cand.rebalance_date = pt.rebalance_date
+     AND cand.sec_code = pt.sec_code
+     AND cand.rebalance_date BETWEEN @start AND @end
+    WHERE pt.strategy_id=@strategy_id AND pt.run_id=@run_id
+      AND pt.rebalance_date BETWEEN @start AND @end
+    ORDER BY pt.rebalance_date, COALESCE(cand.rank_raw, 999999), pt.sec_code
     """
     return normalize_dates(query_dataframe(client, sql, [
         bigquery.ScalarQueryParameter("strategy_id", "STRING", params.strategy_id),
@@ -462,6 +628,19 @@ def load_targets(client: bigquery.Client, params: LedgerParams) -> pd.DataFrame:
         bigquery.ScalarQueryParameter("start", "DATE", params.predict_start),
         bigquery.ScalarQueryParameter("end", "DATE", params.predict_end),
     ]), ["rebalance_date"])
+
+
+def build_target_specs_by_signal(targets: pd.DataFrame) -> dict[Any, dict[str, dict[str, Any]]]:
+    by_signal: dict[Any, dict[str, dict[str, Any]]] = {}
+    for signal_date, group in targets.groupby("rebalance_date"):
+        specs: dict[str, dict[str, Any]] = {}
+        for row in group.itertuples(index=False):
+            specs[row.sec_code] = {
+                "target_weight": float(row.target_weight or 0.0),
+                "rank_raw": getattr(row, "rank_raw", None),
+            }
+        by_signal[signal_date] = specs
+    return by_signal
 
 
 def load_tail_risk_buy_guards(client: bigquery.Client, params: LedgerParams) -> dict[Any, set[str]]:
@@ -579,6 +758,102 @@ def safe_divide(numerator: Any, denominator: Any) -> float:
         return float(numerator) / float(denominator)
     except TypeError:
         return 0.0
+
+
+def validate_ledger_params(params: LedgerParams) -> None:
+    if params.ledger_version not in {LEDGER_VERSION_FLOAT, LEDGER_VERSION_LOT100}:
+        raise ValueError(f"unsupported ledger_version: {params.ledger_version}")
+    if is_lot_aware(params):
+        if params.lot_size <= 0:
+            raise ValueError("lot_size must be positive")
+        if params.min_buy_lot <= 0:
+            raise ValueError("min_buy_lot must be positive")
+        if params.buy_rounding != "floor_to_lot":
+            raise ValueError(f"unsupported buy_rounding: {params.buy_rounding}")
+        if params.sell_odd_lot_policy != "allow_full_exit_odd_lot":
+            raise ValueError(f"unsupported sell_odd_lot_policy: {params.sell_odd_lot_policy}")
+        if params.partial_sell_rounding != "floor_to_lot_keep_residual":
+            raise ValueError(f"unsupported partial_sell_rounding: {params.partial_sell_rounding}")
+        if params.cash_redistribution != "none_v1":
+            raise ValueError(f"unsupported cash_redistribution: {params.cash_redistribution}")
+
+
+def is_lot_aware(params: LedgerParams) -> bool:
+    return params.ledger_version == LEDGER_VERSION_LOT100
+
+
+def min_buy_shares(params: LedgerParams) -> int:
+    return int(params.lot_size * params.min_buy_lot)
+
+
+def round_down_to_lot(shares: Any, lot_size: int) -> float:
+    try:
+        value = float(shares)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(value) or value <= 0:
+        return 0.0
+    return float(math.floor(value / lot_size) * lot_size)
+
+
+def buy_cost_components(shares: float, fill_price: float | None, params: LedgerParams) -> tuple[float, float, float, float]:
+    if fill_price is None or not np.isfinite(fill_price) or shares <= 0:
+        return 0.0, 0.0, 0.0, 0.0
+    turnover = shares * fill_price
+    fee = max(turnover * params.commission_bps / 10000.0, params.min_commission_cny)
+    tax = turnover * params.stamp_tax_buy_bps / 10000.0
+    slippage = slippage_buy(turnover, params)
+    return turnover, fee, tax, slippage
+
+
+def build_buy_execution(item: PlanRow, shares: float, params: LedgerParams, fill_status: str) -> BuyExecution:
+    turnover, fee, tax, slippage = buy_cost_components(shares, item.buy_fill_price, params)
+    return BuyExecution(
+        item=item,
+        planned_shares=round_down_to_lot(safe_divide(item.want_value, item.exec_open), params.lot_size),
+        filled_shares=shares,
+        turnover=turnover,
+        fee=fee,
+        tax=tax,
+        slippage=slippage,
+        cash_required=turnover + fee + tax,
+        fill_status=fill_status,
+    )
+
+
+def drop_buys_until_cash_nonnegative(
+    executable: list[BuyExecution],
+    cash: float,
+    params: LedgerParams,
+    exec_date: Any,
+    rows: list[dict[str, Any]],
+) -> list[BuyExecution]:
+    remaining = list(executable)
+    while sum(order.cash_required for order in remaining) - cash > 1e-6 and remaining:
+        drop_idx = max(range(len(remaining)), key=lambda idx: buy_drop_priority(remaining[idx]))
+        dropped = remaining.pop(drop_idx)
+        rows.append(trade_row(
+            params,
+            exec_date,
+            dropped.item,
+            "BUY",
+            dropped.planned_shares,
+            0.0,
+            None,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            "BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING",
+        ))
+    return remaining
+
+
+def buy_drop_priority(order: BuyExecution) -> tuple[float, str]:
+    rank_raw = order.item.target_rank_raw
+    rank_key = float(rank_raw) if rank_raw is not None and math.isfinite(float(rank_raw)) else 1_000_000.0
+    return rank_key, order.item.sec_code
 
 
 def has_individual_risk_guard(profile_id: str) -> bool:

@@ -438,7 +438,13 @@ def fetch_reference_metrics(client: bigquery.Client, args: argparse.Namespace) -
     )
     if frame.empty:
         raise RuntimeError(f"no NAV/summary rows found for backtest_id={args.reference_backtest_id}")
-    return normalize_record(frame.iloc[0].to_dict())
+    record = normalize_record(frame.iloc[0].to_dict())
+    summary_metrics = parse_json(record.get("metrics_json"))
+    record["summary_metrics"] = summary_metrics
+    record["ledger_version"] = summary_metrics.get("ledger_version")
+    record["lot_size"] = summary_metrics.get("lot_size")
+    record["min_buy_lot"] = summary_metrics.get("min_buy_lot")
+    return record
 
 
 def fetch_signal_metrics(
@@ -1205,6 +1211,7 @@ def decide_acceptance_v2(
     score_audit: dict[str, Any],
 ) -> tuple[str, list[str]]:
     thresholds = contract.get("thresholds") or {}
+    required = contract.get("required") or {}
     hard: list[str] = []
     evidence: list[str] = []
     accepted_missing: list[str] = []
@@ -1234,6 +1241,13 @@ def decide_acceptance_v2(
             hard.append(f"{name}{'<=' if op == 'le' else '<'}{threshold}")
     if not score_audit.get("selected_top_n_matches_bucket_side"):
         hard.append("selected_top_n_matches_bucket_side=false")
+
+    required_ledger_version = required.get("required_ledger_version")
+    if required_ledger_version and reference_metrics.get("ledger_version") != required_ledger_version:
+        evidence.append(
+            f"ledger_version!={required_ledger_version}"
+            f"(actual={reference_metrics.get('ledger_version') or 'missing'})"
+        )
 
     viable = portfolio_summary[
         portfolio_summary.get("portfolio_candidate_role", pd.Series(dtype=str)).ne("diagnostic_cash_control")
@@ -1296,6 +1310,9 @@ def build_summary(
         "strategy_id": args.strategy_id,
         "reference_run_id": args.reference_run_id,
         "reference_backtest_id": args.reference_backtest_id,
+        "ledger_version": reference_metrics.get("ledger_version"),
+        "lot_size": reference_metrics.get("lot_size"),
+        "min_buy_lot": reference_metrics.get("min_buy_lot"),
         "prediction_run_id": args.prediction_run_id,
         "model_id": model_meta.get("model_id"),
         "model_backend": model_meta.get("model_backend"),
@@ -1377,6 +1394,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- acceptance_contract_sha256: `{summary['acceptance_contract_sha256']}`",
         f"- reference_run_id: `{summary['reference_run_id']}`",
         f"- reference_backtest_id: `{summary['reference_backtest_id']}`",
+        f"- ledger_version: `{summary.get('ledger_version')}`",
         f"- v2_status: `{summary['v2_acceptance_status']}`",
         f"- rejection_scope: `{summary['rejection_scope']}`",
         "",
