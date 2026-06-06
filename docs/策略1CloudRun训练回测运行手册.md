@@ -420,9 +420,10 @@ python -m scripts.strategy1_cloudrun.backtest_report \
 1. `analyze_tail_risk.py` 只读 `ashare_ads` / `ashare_dwd` / `ashare_dim`，不写 ADS，不改变回测结果。
 2. 单候选 artifact 写到 `reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/tail_risk/`；uploaded 模式同步到对应 GCS 报告路径下的 `tail_risk/`。
 3. 主要产物包括 `max_drawdown_windows.*`、`drawdown_position_contribution.csv`、`limit_down_exposure_daily.csv`、`selection_profile_by_signal_date.csv`、`risky_selected_names.csv`、`ads_readonly_guard.json` 和中文 `tail_risk.md`。
-4. `ads_readonly_guard.json` 记录 summary / NAV hash 和 ADS 相关行数的 pre/post 对比；pre/post 不一致时脚本 fail-fast。
+4. `ads_readonly_guard.json` 记录 summary / NAV hash 和 ADS 相关行数的 pre/post 对比；pre/post 不一致时脚本 fail-fast，不能降级跳过。
 5. `20_qa_tail_risk_outputs.sql` 复算最大回撤、持仓覆盖、跌停/不可卖权重和 summary/NAV hash；由 `backtest_report.py` 自动注入脚本产出的 expected hash。
-6. 若只想跳过本诊断，可传 `--skip-tail-risk`；这只影响尾部风险 artifact，不影响原报告和模型诊断。
+6. `backtest_report.py` 对非 guard 类尾部风险诊断失败采用 fail-soft：原报告、模型诊断和 `10` / `12` 已完成时不回滚，写入 `tail_risk/tail_risk_failure.json` 并跳过 `20`；后续可单独复跑尾部风险诊断。
+7. 若只想跳过本诊断，可传 `--skip-tail-risk`；这只影响尾部风险 artifact，不影响原报告和模型诊断。
 
 ## 8. QA
 

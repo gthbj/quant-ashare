@@ -98,6 +98,7 @@ python scripts/strategy1/analyze_tail_risk.py \
     --prediction-run-id s1_cloudrun_python_lgbm_reg_example \
     --backtest-id bt_s1_cloudrun_python_lgbm_reg_example \
     --search-id cloudrun_python_lgbm_reg_search_example \
+    --feature-version strategy1_pv_v0_20260601 \
     --artifact-base-uri gs://ashare-artifacts/reports/strategy1 \
     --local-mirror-root reports/strategy1 \
     --skip-gcs-upload
@@ -156,7 +157,7 @@ python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search
 
 该入口会先按 PRD04 窗口构建训练面板，再由 `prepare_matrix` 生成 frozen matrix，并发训练候选、按 2021/2022/2023 purged walk-forward CV + 2024 valid confirmation 选 Top5。Top5 完整 prediction / portfolio / ledger / report / diagnosis 后，由 `19_qa_cloudrun_python_baseline_search_outputs.sql` 校验 Cloud Run Python backend、LightGBM 模型族、CV 证据、uploaded 报告/诊断、共享验收契约、2025 test reuse 和 2026 final_holdout watch。若 Top5 存在 `needs_more_evidence` 且无 accepted 候选，当前 wave 的 QA 先完成；随后才可按 manifest 触发 `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 的 `lightgbm_regression` 下一波，且下一波失败只记录在 orchestrator 输出中，不覆盖当前 wave 结论。
 
-尾部风险诊断（PRD-20260606-01）：`scripts/strategy1/analyze_tail_risk.py` 是 P0 只读诊断入口，不改变 candidate、target、order、trade、position、NAV 或 summary。Cloud Run `backtest_report.py` 默认在报告、模型诊断和 `12` QA 后执行该脚本；若只需要复跑原报告链路，可显式传 `--skip-tail-risk`。诊断 artifact 写入单候选报告目录下的 `tail_risk/`，包含最大回撤事件、持仓贡献、行业/板块贡献、跌停和不可卖暴露、选股画像、风险股票名单、ADS 只读 guard 和中文 `tail_risk.md`。TopK 搜索比较报告会额外写 `tail_risk/search_tail_risk_summary.csv`，并在 comparison markdown 的 Top5 表中展示最大回撤窗口和跌停仓位峰值。P0 验收用 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`；该 QA 只复算 ADS/DWD 派生不变量，artifact 文件存在性和 ADS pre/post hash 由脚本本身强制校验。
+尾部风险诊断（PRD-20260606-01）：`scripts/strategy1/analyze_tail_risk.py` 是 P0 只读诊断入口，不改变 candidate、target、order、trade、position、NAV 或 summary。Cloud Run `backtest_report.py` 默认在报告、模型诊断和 `12` QA 后执行该脚本，并把 experiment 的 `feature_version` 传给诊断脚本，避免多版本 `dws_stock_feature_daily_v0` join 扩行时行数扇出；若只需要复跑原报告链路，可显式传 `--skip-tail-risk`。诊断 artifact 写入单候选报告目录下的 `tail_risk/`，包含最大回撤事件、持仓贡献、行业/板块贡献、跌停和不可卖暴露、选股画像、风险股票名单、ADS 只读 guard 和中文 `tail_risk.md`。TopK 搜索比较报告会额外写 `tail_risk/search_tail_risk_summary.csv`，并在 comparison markdown 的 Top5 表中展示最大回撤窗口和跌停仓位峰值。P0 验收用 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`；该 QA 只复算 ADS/DWD 派生不变量，artifact 文件存在性和 ADS pre/post hash 由脚本本身强制校验。ADS pre/post hash 变化必须 hard fail；其他尾部风险诊断异常在 `backtest_report.py` 中 fail-soft，写入 `tail_risk/tail_risk_failure.json` 并跳过 `20`，不使已成功的报告和模型诊断链路失败。
 
 ## 参数说明
 

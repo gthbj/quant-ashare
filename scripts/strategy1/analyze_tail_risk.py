@@ -86,6 +86,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prediction-run-id", default=None, help="Prediction source run_id; defaults to --run-id")
     parser.add_argument("--backtest-id", required=True)
     parser.add_argument("--search-id", default=None)
+    parser.add_argument("--feature-version", default="strategy1_pv_v0_20260601")
     parser.add_argument("--benchmark-sec-code", default="000852.SH")
     parser.add_argument("--analysis-start-date", default=None)
     parser.add_argument("--analysis-end-date", default=None)
@@ -124,7 +125,14 @@ def main() -> int:
     windows = compute_drawdown_windows(nav_df, top_k=args.max_drawdown_top_k)
     validate_max_drawdown(summary, windows)
 
-    positions = fetch_positions_enriched(client, args.project, args.backtest_id, start_date, end_date)
+    positions = fetch_positions_enriched(
+        client,
+        args.project,
+        args.backtest_id,
+        start_date,
+        end_date,
+        feature_version=args.feature_version,
+    )
     targets = fetch_targets(
         client,
         args.project,
@@ -146,6 +154,7 @@ def main() -> int:
         candidate_run_id=args.run_id,
         prediction_run_id=args.prediction_run_id,
         signal_dates=sorted(set(signal_dates.values())),
+        feature_version=args.feature_version,
     )
     selection_profile, selection_summary, risky_names = build_selection_profile(
         windows,
@@ -395,7 +404,15 @@ def fetch_ads_readonly_guard(
     return {key: scalar(row.get(key)) for key in row}
 
 
-def fetch_positions_enriched(client: bigquery.Client, project: str, backtest_id: str, start_date: str, end_date: str) -> pd.DataFrame:
+def fetch_positions_enriched(
+    client: bigquery.Client,
+    project: str,
+    backtest_id: str,
+    start_date: str,
+    end_date: str,
+    *,
+    feature_version: str,
+) -> pd.DataFrame:
     sql = f"""
     WITH base AS (
       SELECT
@@ -463,6 +480,7 @@ def fetch_positions_enriched(client: bigquery.Client, project: str, backtest_id:
     LEFT JOIN `{project}.ashare_dws.dws_stock_feature_daily_v0` AS feat
       ON feat.sec_code = b.sec_code
      AND feat.trade_date = b.trade_date
+     AND feat.feature_version = @feature_version
      AND feat.trade_date BETWEEN @start_date AND @end_date
     LEFT JOIN `{project}.ashare_dim.dim_stock` AS st
       ON st.sec_code = b.sec_code
@@ -472,6 +490,7 @@ def fetch_positions_enriched(client: bigquery.Client, project: str, backtest_id:
         bigquery.ScalarQueryParameter("backtest_id", "STRING", backtest_id),
         bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
         bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+        bigquery.ScalarQueryParameter("feature_version", "STRING", feature_version),
     ])
     return normalize_date_columns(df, ["trade_date"])
 
@@ -527,6 +546,7 @@ def fetch_selection_pool(
     candidate_run_id: str,
     prediction_run_id: str,
     signal_dates: list[Any],
+    feature_version: str,
 ) -> pd.DataFrame:
     if not signal_dates:
         return empty_frame(["signal_date", "sec_code", "is_selected"])
@@ -582,6 +602,7 @@ def fetch_selection_pool(
     LEFT JOIN `{project}.ashare_dws.dws_stock_feature_daily_v0` AS feat
       ON feat.trade_date = pred.predict_date
      AND feat.sec_code = pred.sec_code
+     AND feat.feature_version = @feature_version
      AND feat.trade_date BETWEEN @min_date AND @max_date
     LEFT JOIN `{project}.ashare_dim.dim_stock` AS st
       ON st.sec_code = pred.sec_code
@@ -596,6 +617,7 @@ def fetch_selection_pool(
         bigquery.ScalarQueryParameter("prediction_run_id", "STRING", prediction_run_id),
         bigquery.ScalarQueryParameter("min_date", "DATE", min_date),
         bigquery.ScalarQueryParameter("max_date", "DATE", max_date),
+        bigquery.ScalarQueryParameter("feature_version", "STRING", feature_version),
         bigquery.ArrayQueryParameter("signal_dates", "DATE", signal_dates),
     ])
     return normalize_date_columns(df, ["signal_date"])
@@ -616,8 +638,9 @@ def compute_drawdown_windows(nav_df: pd.DataFrame, *, top_k: int) -> list[dict[s
             if current is not None:
                 events.append(finalize_drawdown_event(current, rows))
                 current = None
-            peak_date = trade_date
-            peak_nav = nav
+            if nav > peak_nav:
+                peak_date = trade_date
+                peak_nav = nav
             continue
         drawdown = nav / peak_nav - 1.0
         if current is None:
@@ -1082,6 +1105,7 @@ def build_search_tail_risk_summary(
         "prediction_run_id": args.prediction_run_id,
         "backtest_id": args.backtest_id,
         "strategy_id": args.strategy_id,
+        "feature_version": args.feature_version,
         "tail_risk_profile_id": TAIL_RISK_PROFILE_ID,
         "total_return": scalar(summary.get("total_return")),
         "excess_return": scalar(summary.get("excess_return")),
@@ -1124,6 +1148,7 @@ def build_tail_risk_summary(
         "run_id": args.run_id,
         "prediction_run_id": args.prediction_run_id,
         "backtest_id": args.backtest_id,
+        "feature_version": args.feature_version,
         "model_id": summary.get("model_id"),
         "benchmark_sec_code": benchmark_sec_code,
         "ledger_version": metrics_json.get("ledger_version"),
@@ -1158,6 +1183,7 @@ def render_tail_risk_markdown(
         f"- run_id: `{summary['run_id']}`",
         f"- prediction_run_id: `{summary['prediction_run_id']}`",
         f"- backtest_id: `{summary['backtest_id']}`",
+        f"- feature_version: `{summary['feature_version']}`",
         f"- 诊断版本: `{summary['tail_risk_diagnosis_version']}`",
         f"- 诊断 profile: `{summary['tail_risk_profile_id']}`",
         f"- ADS 只读校验: `{summary['ads_readonly_guard_status']}`",

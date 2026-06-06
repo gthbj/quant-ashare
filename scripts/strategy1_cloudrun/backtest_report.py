@@ -86,8 +86,9 @@ def main() -> int:
                 "job_id": run_sql_script(client, "sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql", sql_params),
             })
     if not args.skip_tail_risk:
-        run_subprocess(tail_risk_command(config, experiment, args.skip_gcs_upload, args.search_id))
-        if not args.skip_qa:
+        tail_risk_result = run_tail_risk_step(config, experiment, args.skip_gcs_upload, args.search_id)
+        job_ids.append({"script": "scripts/strategy1/analyze_tail_risk.py", "result": tail_risk_result})
+        if tail_risk_result["status"] == "succeeded" and not args.skip_qa:
             tail_risk_params = {**sql_params, **tail_risk_guard_sql_params(experiment)}
             job_ids.append({
                 "script": "sql/ml/strategy1/20_qa_tail_risk_outputs.sql",
@@ -231,6 +232,7 @@ def tail_risk_command(config, exp: Experiment, skip_gcs_upload: bool, search_id:
         "--run-id", exp.run_id,
         "--prediction-run-id", exp.prediction_run_id,
         "--backtest-id", exp.backtest_id,
+        "--feature-version", exp.feature_version,
         "--artifact-base-uri", config.artifact_base_uri,
         "--local-mirror-root", "reports/strategy1",
     ]
@@ -266,6 +268,52 @@ def tail_risk_guard_sql_params(exp: Experiment) -> dict[str, str | None]:
 
 def run_subprocess(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True)
+
+
+def run_tail_risk_step(config, exp: Experiment, skip_gcs_upload: bool, search_id: str | None) -> dict[str, object]:
+    cmd = tail_risk_command(config, exp, skip_gcs_upload, search_id)
+    proc = subprocess.run(cmd, check=False, text=True, capture_output=True)
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, file=sys.stderr, end="")
+    if proc.returncode == 0:
+        return {"status": "succeeded", "command": cmd}
+
+    combined_output = "\n".join(part for part in (proc.stdout, proc.stderr) if part)
+    if "ADS read-only guard failed" in combined_output:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, output=proc.stdout, stderr=proc.stderr)
+
+    failure_dir = tail_risk_local_dir(exp)
+    failure_dir.mkdir(parents=True, exist_ok=True)
+    failure_path = failure_dir / "tail_risk_failure.json"
+    failure = {
+        "status": "failed_soft",
+        "returncode": proc.returncode,
+        "command": cmd,
+        "stdout_tail": tail_text(proc.stdout),
+        "stderr_tail": tail_text(proc.stderr),
+    }
+    failure_path.write_text(json.dumps(failure, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "status": "warning",
+                "tail_risk_status": "failed_soft",
+                "failure_path": str(failure_path),
+                "message": "tail-risk diagnostics failed after core report/QA; continuing without 20_qa_tail_risk_outputs.sql",
+            },
+            ensure_ascii=False,
+        ),
+        file=sys.stderr,
+    )
+    return {"status": "failed_soft", "returncode": proc.returncode, "failure_path": str(failure_path)}
+
+
+def tail_text(value: str | None, max_chars: int = 4000) -> str:
+    if not value:
+        return ""
+    return value[-max_chars:]
 
 
 if __name__ == "__main__":
