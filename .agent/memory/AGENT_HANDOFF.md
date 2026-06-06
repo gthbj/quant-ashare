@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 整数手交易执行实现（2026-06-06）**：实现工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-impl`，分支 `codex/implement-lot-aware-ledger`。Cloud Run Python 默认回测路径已切到 `ledger_exec_v1_lot100` / `cloud_run_sklearn_ledger_v1_lot100`：买入 100 股整数手向下取整，below-lot / 现金不足回退写显式状态，清仓卖出允许 odd-lot，部分卖出按 100 股取整并保留残股；legacy FLOAT 路径只能通过显式 `--use-float-ledger` 或 `--use-bq-ledger` 作为 audit 运行。同步扩展 summary/report、acceptance gate v2 required ledger、`10/16/22` QA、运行手册，并新增 `sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql` 与 `tests/strategy1_cloudrun/test_lot_aware_ledger.py` golden-case 测试。验证已通过 Python 单测、py_compile、Cloud Run wrapper dry-run 和 `09/10/16/22/23` BigQuery dry-run；尚未执行真实 fixed-prediction lot-aware reference、未部署 Cloud Run 镜像。下一步合并后复用当前 prediction stream 跑 `2024-01-02` 至 `2026-04-30` reference，并重跑 `23` 和 acceptance gate v2。
+**OQ-010 整数手交易执行实现（2026-06-07）**：PR #100 `feat(strategy1): implement lot-aware ledger` 已合并进入 `main`（merge commit `4a1657d`），远端分支 `codex/implement-lot-aware-ledger`、本地分支和实现工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-impl` 已清理。Cloud Run Python 默认回测路径已切到 `ledger_exec_v1_lot100` / `cloud_run_sklearn_ledger_v1_lot100`：买入 100 股整数手向下取整，below-lot / 现金不足回退写显式状态，清仓卖出允许 odd-lot，部分卖出按 100 股取整并保留残股；legacy FLOAT 路径只能通过显式 `--use-float-ledger` 或 `--use-bq-ledger` 作为 audit 运行。`23_qa_lot_aware_ledger_outputs.sql`、golden-case 单测、report / summary / acceptance gate v2 对齐和运行手册均已进入 `main`。尚未部署 Cloud Run 镜像，也尚未执行真实 fixed-prediction lot-aware reference；下一步应复用当前 prediction stream 跑 `2024-01-02` 至 `2026-04-30` reference，并重跑 `23` 和 acceptance gate v2。
 
 **OQ-010 验收门 v2 实现（2026-06-06）**：PR #98 已合并；实现工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-impl`、分支 `codex/implement-acceptance-gate-v2` 的 v2 契约、只读诊断脚本和 `22` QA 已进入 `main`。已新增 `configs/strategy1/model_acceptance_contract_v2.yml`、只读脚本 `scripts/strategy1/diagnose_acceptance_gate_v2.py` 和 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，并扩展 `scripts/strategy1_cloudrun/acceptance.py` 支持 contract hash / v2 SQL 参数。诊断脚本只读 ADS/DWD/DWS，不训练、不改 prediction、不写 ADS；默认 reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，输出 `acceptance_gate_v2/` artifact、10/20/30/40 组合可行性、eligible benchmark、score orientation audit、低价股偏移、现金/实际持仓和风格暴露诊断。uploaded 模式成功，GCS URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01`，16 个对象；`22_qa_acceptance_gate_v2_outputs.sql` 注入真实 contract hash 后真实执行 9 个 ASSERT 全部通过，默认 standalone placeholder 已改为在 `QA-V2-1` fail-loud。当前 v2 结论：reference run 为 `rejected`，原因是跑输 `000852.SH`、full-period IR 为负、2026 final_holdout 严重跑输；拒绝范围仅限当前 top-30 long-only 实现，不否定信号家族。`10/5%` 是 `diagnostic_only`，`20/30/40` 因局部现金峰值为 `needs_more_evidence`，没有 implementation hard fail。后续已转为先实现整数手 lot-aware ledger。
 
@@ -65,6 +65,61 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-07
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: strategy1_lot_aware_ledger_merge_20260607
+相关 issue/PR: PR #100
+
+### 已完成工作
+
+- 合并 PR #100 `feat(strategy1): implement lot-aware ledger` 到 `main`，merge commit 为 `4a1657d`。
+- 本地 `main` 已 `git pull --ff-only origin main` 同步到 merge commit。
+- 删除远端分支 `codex/implement-lot-aware-ledger`。
+- 移除实现工作树 `/Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-impl`。
+- 删除本地分支 `codex/implement-lot-aware-ledger`。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md` 和当前交接摘要，明确 PR #100 已合并但 fixed-prediction lot-aware reference 尚未执行。
+
+### 重要上下文
+
+- `ledger_exec_v1_lot100` 代码、`sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql`、golden-case 单测、report / summary / acceptance gate v2 对齐和运行手册已进入 `main`。
+- PR #100 合并不等于策略 reference 已重跑；尚未部署 Cloud Run 镜像，也尚未执行 `2024-01-02` 至 `2026-04-30` 的 fixed-prediction lot-aware reference。
+- 下一步策略训练 / 风险特征工作前，应先部署 runner 镜像，跑 lot-aware reference，执行 `23` QA 和 acceptance gate v2。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `gh pr view 100 --json state,mergedAt,mergeCommit,url,headRefName`
+- `git pull --ff-only origin main`
+- `git push origin --delete codex/implement-lot-aware-ledger`
+- `git worktree remove /Users/luna/Desktop/git/quant-ashare-lot-aware-ledger-impl`
+- `git branch -d codex/implement-lot-aware-ledger`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 构建并部署包含 PR #100 的 Cloud Run runner 镜像。
+- 复用当前 prediction stream 跑 `2024-01-02` 至 `2026-04-30` fixed-prediction lot-aware reference。
+- 执行 `23_qa_lot_aware_ledger_outputs.sql`、报告/诊断和 acceptance gate v2。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
+
+---
 
 日期: 2026-06-06
 Agent ID: Codex
