@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 风险特征入模 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-prd`，分支 `codex/prd-strategy1-risk-feature-baseline`。新增 `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`，承接 PRD04 LightGBM binary/regression 均 rejected、尾部风险 P1 轻度改善但仍跑输、P2 v0 `skip_new_buys` 降收益且未改善回撤的事实。PRD 将下一步收敛为风险特征入模：新增 `feature_set_id=strategy1_pv_fin_risk_v0_20260606`，把个股尾部风险字段、`dws_market_state_daily` 市场状态字段和风险 flag 纳入 Cloud Run frozen matrix；P0 固定 `diagnostic_only`、40 候选 / 20 并发 / 2 vCPU 8Gi、LightGBM binary + regression、共享 acceptance contract；P1 才评估 `risk_score_penalty_v0` 候选风险评分。本次只写 PRD 和记忆/TODO，未改代码、未运行 BigQuery / Cloud Run。
+**OQ-010 风险特征入模 PRD（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-prd`，分支 `codex/prd-strategy1-risk-feature-baseline`，PR #94。新增 `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`，承接 PRD04 LightGBM binary/regression 均 rejected、尾部风险 P1 轻度改善但仍跑输、P2 v0 `skip_new_buys` 降收益且未改善回撤的事实。PRD 将下一步收敛为风险特征入模：新增 `feature_set_id=strategy1_pv_fin_risk_v0_20260606`，把个股尾部风险字段、`dws_market_state_daily` 市场状态字段和风险 flag 纳入 Cloud Run frozen matrix；P0 固定 `diagnostic_only`、40 候选 / 20 并发 / 2 vCPU 8Gi、LightGBM binary + regression、共享 acceptance contract；P1 才评估 `risk_score_penalty_v0` 候选风险评分。PR #94 review follow-up 已补 `test_reuse_wave_no=4` / final_holdout passed 要求、训练前只读 `acceptance_window_diagnosis`、`feature_delta_vs_base.json`、market-state 贡献展示，以及风险专项 accepted 目标 `max_drawdown >= -18%`。本次只写 PRD 和记忆/TODO，未改代码、未运行 BigQuery / Cloud Run。
 
 **OQ-010 尾部风险 P2 market risk-off 实跑结论（2026-06-06）**：PR #92 已合并；`dws_market_state_daily` 已物化并通过 `sql/qa/11_market_state_checks.sql`（562 行，risk-off 91 日）。已构建/部署 runner 镜像 `tailrisk-p2-6db6bd9-20260606-01`，并用 `configs/strategy1/tailrisk_p2_market_riskoff_ab_20260606.yml` 并发跑完 diagnostic-only、`market_risk_off_v0`、`individual_and_market_risk_guard_v0` 三条 portfolio-only A/B。结果：diagnostic-only total_return 38.25%、Sharpe 0.882、max_drawdown -14.46%；market-only total_return 28.20%、Sharpe 0.734、max_drawdown -15.72%，market skip 217 笔；combo total_return 30.04%、Sharpe 0.773、max_drawdown -14.71%，market skip 217 笔、tail-risk skip 3 笔。三条 report / model diagnosis / tail-risk diagnosis / `10` / `12` / `20` 均 succeeded 并上传 GCS。结论：P2 v0 `skip_new_buys` 降低仓位但未改善回撤且显著拖累收益，不采纳为默认策略；后续若继续市场风控，应另写 v1 风险动作/阈值。
 
@@ -57,6 +57,58 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: risk_feature_prd_review_followup_20260606
+相关 issue/PR: PR #94 / OQ-010 风险特征入模
+
+### 已完成工作
+
+- 查看 PR #94 comment `4638193883`，认可其中 test 复用、个股风险特征增量、回撤目标和零成本前置诊断建议。
+- 修改 `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`：
+  - 明确本轮是 `model_search_wave_no=4` / `test_reuse_wave_no=4`，accepted 必须 `final_holdout_status='passed'`。
+  - 增加 Cloud Run 训练前只读 `acceptance_window_diagnosis`，重切既有 BQML historical reference 的 2025-only 指标并汇总已拒 Python 候选。
+  - 明确多数个股风险字段可能已在 base feature set 中，必须输出 `feature_delta_vs_base.json`。
+  - 明确 market-state 在 hard-action A/B 中为净负，P0 只作特征，必须单独展示贡献。
+  - 将共享 `max_drawdown >= -25%` 定义为拒绝地板，本文风险专项 accepted 目标为 `max_drawdown >= -18%`。
+- 同步 `TODO.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md` 和本交接文件。
+
+### 重要上下文
+
+- 不再新增或扩展 BQML / `sql/ml/strategy1` 策略执行路线；PRD 中涉及 BQML 只读 historical reference 是读取已产出 ADS/GCS artifact，不重跑。
+- 若 `acceptance_window_diagnosis` 输出 `primary_blocker='acceptance_window_risk'`，后续实现应先停下让 owner 复核接受门 / 年份区间，不应直接启动第 4 波 Cloud Run 训练。
+- 如果继续实现 P0，`21_qa_risk_feature_search_outputs.sql` 需校验 `test_reuse_wave_no=4`、final_holdout passed、`risk_feature_max_drawdown_target=-0.18`、`feature_delta_vs_base.json` 和 `acceptance_window_diagnosis.json`。
+
+### 改动文件
+
+- `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- 待提交前执行 `git diff --check`。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 等 PR #94 review 通过并合并后，先实现只读 `acceptance_window_diagnosis`，再决定是否启动风险特征 Cloud Run search。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 日期: 2026-06-06
 Agent ID: Codex
