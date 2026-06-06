@@ -32,6 +32,7 @@ import sys
 from typing import Any
 
 try:
+    from google.api_core.exceptions import AlreadyExists
     from google.cloud.logging_v2.services.metrics_service_v2 import MetricsServiceV2Client
     from google.cloud.logging_v2.types import LogMetric
 except ImportError:
@@ -265,12 +266,11 @@ def create_log_metric(
     try:
         client.create_log_metric(parent=parent, metric=metric)
         print(f"  + 创建日志指标：{metric_def['name']}")
+    except AlreadyExists:
+        print(f"  = 日志指标已存在：{metric_def['name']}")
     except Exception as e:
-        if "already exists" in str(e).lower():
-            print(f"  = 日志指标已存在：{metric_def['name']}")
-        else:
-            print(f"  x 创建日志指标失败：{metric_def['name']}：{e}")
-            raise
+        print(f"  x 创建日志指标失败：{metric_def['name']}：{e}")
+        raise
 
 
 def create_alert_policy(
