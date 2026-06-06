@@ -213,7 +213,7 @@ downstream_refresh_exempt AS (
   SELECT DISTINCT pipeline_run_id
   FROM `data-aquarium.ashare_meta.pipeline_task_status`
   WHERE task_id = 'skip_downstream_refresh'
-    AND status = 'success'
+    AND status IN ('success', 'skipped')
     AND started_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
 ),
 warehouse_refresh AS (

@@ -758,6 +758,10 @@ def _write_skip_non_trading_day_status(**context) -> None:
     _write_pipeline_task_status(context, "skipped")
 
 
+def _write_skip_downstream_refresh_status(**context) -> None:
+    _write_pipeline_task_status(context, "skipped")
+
+
 def _require_full_rebuild_confirmed(**context) -> None:
     conf = _runtime_conf(context)
     if not _truthy(conf.get("confirm_full_rebuild", False)):
@@ -990,6 +994,14 @@ def build_skip_non_trading_day_task() -> PythonOperator:
     return PythonOperator(
         task_id="skip_non_trading_day",
         python_callable=_write_skip_non_trading_day_status,
+        on_success_callback=_task_skipped_status_callback,
+    )
+
+
+def build_skip_downstream_refresh_task() -> PythonOperator:
+    return PythonOperator(
+        task_id="skip_downstream_refresh",
+        python_callable=_write_skip_downstream_refresh_status,
         on_success_callback=_task_skipped_status_callback,
     )
 
