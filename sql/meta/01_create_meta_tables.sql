@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_meta.pipeline_run` (
   run_label           STRING,
   warehouse_mode      STRING,
   transform_backend   STRING,
+  upstream_pipeline_run_id STRING,
+  triggered_by_dag_id STRING,
   status              STRING      NOT NULL,
   started_at          TIMESTAMP   NOT NULL,
   finished_at         TIMESTAMP,
@@ -92,6 +94,8 @@ ADD COLUMN IF NOT EXISTS date_to STRING,
 ADD COLUMN IF NOT EXISTS run_label STRING,
 ADD COLUMN IF NOT EXISTS warehouse_mode STRING,
 ADD COLUMN IF NOT EXISTS transform_backend STRING,
+ADD COLUMN IF NOT EXISTS upstream_pipeline_run_id STRING,
+ADD COLUMN IF NOT EXISTS triggered_by_dag_id STRING,
 ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
 
 ALTER TABLE `data-aquarium.ashare_meta.pipeline_run`
@@ -103,6 +107,8 @@ ALTER COLUMN date_to SET OPTIONS (description='区间补跑结束日期（YYYY-M
 ALTER COLUMN run_label SET OPTIONS (description='production_daily / manual_smoke / backfill / maintenance 等运行标签'),
 ALTER COLUMN warehouse_mode SET OPTIONS (description='daily_current / full_rebuild / full_rebuild_compat / backfill / qa_only'),
 ALTER COLUMN transform_backend SET OPTIONS (description='bq_sql / dataform'),
+ALTER COLUMN upstream_pipeline_run_id SET OPTIONS (description='触发本 DAG run 的上游 pipeline_run_id；如 ODS ingestion run 触发 warehouse refresh'),
+ALTER COLUMN triggered_by_dag_id SET OPTIONS (description='触发本 DAG run 的上游 DAG 名称；手工触发可空'),
 ALTER COLUMN status SET OPTIONS (description='running / success / failed / partial'),
 ALTER COLUMN started_at SET OPTIONS (description='开始时间'),
 ALTER COLUMN finished_at SET OPTIONS (description='结束时间'),

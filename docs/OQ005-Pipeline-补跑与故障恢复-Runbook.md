@@ -6,7 +6,14 @@
 
 ---
 
-## 0. DAG 参数速查
+## 0. DAG 与参数速查
+
+| DAG | 用途 |
+|---|---|
+| `ashare_ods_ingestion_daily` | 当前范围 ODS 采集、非交易日 gate、ODS readiness；真实采集成功后触发窗口刷新 |
+| `ashare_warehouse_window_refresh` | `daily_current` / `backfill` 窗口刷新和 `qa_only` 只读 QA |
+| `ashare_warehouse_full_rebuild` | 手工全量维护重建，必须显式确认 |
+| `oq005_alert_checker` | 告警 checker 和 heartbeat |
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
@@ -14,18 +21,21 @@
 | `date_from` | 空 | backfill 起始日期 |
 | `date_to` | `data_interval_end`（Asia/Shanghai 当天） | backfill 结束日期 |
 | `warehouse_mode` | `daily_current` | `daily_current` / `backfill` / `qa_only` / `full_rebuild` |
-| `skip_ingestion` | `false` | 跳过 Cloud Run 采集 |
+| `skip_ingestion` | `false` | 仅 `ashare_ods_ingestion_daily` 使用，跳过 Cloud Run 采集 |
 | `pipeline_dry_run` | `true` | 采集 dry-run 模式 |
 | `skip_transform` | `false` | 跳过 DWD/DWS 转换 |
 | `run_label` | `production_daily` | 运行标签 |
 | `require_business_partition` | 空（dry-run=false 时默认 true） | 强制要求精确分区 |
+| `confirm_full_rebuild` | `false` | 仅 `ashare_warehouse_full_rebuild` 使用，必须为 `true` 才允许全量维护 |
 
 **调度语义：**
 - 20:00 CST scheduled run：`business_date` 默认为当天（Asia/Shanghai）
 - 手动触发：`dag_run.conf` 中的参数最高优先级
 - `backfill` 模式：必须显式指定 `date_from`/`date_to`
-- 非交易日：当前 DAG 仍按给定 `business_date` 进入 readiness；不要依赖它自动补上一交易日，需要修复上一交易日时显式触发 `backfill`
+- 非交易日：scheduled `ashare_ods_ingestion_daily` 自动 skip，不补上一交易日；需要修复上一交易日时显式触发 `ashare_warehouse_window_refresh` 的 `backfill`
 - `pipeline_dry_run=true` 时，readiness 只做检查，不写 `pipeline_task_status` warning 行
+- `ashare_ods_ingestion_daily` 新建后默认 paused；生产迁移时必须先暂停旧 `ashare_daily_pipeline_v0`，再 unpause 新 DAG，任一时刻只保留一个 production scheduled DAG active
+- `ashare_warehouse_window_refresh` 串行运行；手工 backfill 与日更窗口重叠时会排队等待，避免并发 DWD/DWS DML 冲突
 
 ---
 
@@ -80,8 +90,8 @@
    ```bash
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
-     dags -- trigger ashare_daily_pipeline_v0 \
-     --conf '{"skip_ingestion": true, "warehouse_mode": "daily_current", "business_date": "2026-06-05"}' \
+     dags -- trigger ashare_warehouse_window_refresh \
+     --conf '{"warehouse_mode": "daily_current", "business_date": "2026-06-05", "pipeline_dry_run": false}' \
      --run-id "manual_oq005_recovery_20260605"
    ```
 
@@ -186,7 +196,7 @@
    ```bash
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
-     tasks -- states-for-dag-run ashare_daily_pipeline_v0 "manual_oq005_xxx" --output table
+     tasks -- states-for-dag-run <dag_id> "manual_oq005_xxx" --output table
    ```
 
 2. **检查是否为 zombie job：**
@@ -202,14 +212,14 @@
    # 清理卡住的 task
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
-     tasks -- clear ashare_daily_pipeline_v0 \
+     tasks -- clear <dag_id> \
      -t "windowed_dim" -s "2026-06-05" -e "2026-06-05" -y --yes
 
    # 重新触发 DAG
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
-     dags -- trigger ashare_daily_pipeline_v0 \
-     --conf '{"skip_ingestion": true, "warehouse_mode": "daily_current", "business_date": "2026-06-05"}' \
+     dags -- trigger ashare_warehouse_window_refresh \
+     --conf '{"warehouse_mode": "daily_current", "business_date": "2026-06-05", "pipeline_dry_run": false}' \
      --run-id "manual_oq005_recovery_20260605_2"
    ```
 
@@ -225,8 +235,8 @@
    ```bash
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
-     dags -- trigger ashare_daily_pipeline_v0 \
-     --conf '{"skip_ingestion": true, "pipeline_dry_run": false, "warehouse_mode": "backfill", "business_date": "2026-06-04", "date_from": "2026-05-08", "date_to": "2026-06-04", "run_label": "manual_backfill"}' \
+     dags -- trigger ashare_warehouse_window_refresh \
+     --conf '{"pipeline_dry_run": false, "warehouse_mode": "backfill", "business_date": "2026-06-04", "date_from": "2026-05-08", "date_to": "2026-06-04", "run_label": "manual_backfill"}' \
      --run-id "manual_oq005_backfill_20260508_20260604"
    ```
 
@@ -234,7 +244,7 @@
    ```bash
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
-     dags -- list-runs -d ashare_daily_pipeline_v0 --output table
+     dags -- list-runs -d ashare_warehouse_window_refresh --output table
    ```
 
 3. **验证数据：**
@@ -267,22 +277,22 @@
 # 非交易日只跑 QA
 gcloud composer environments run ashare-composer \
   --project=data-aquarium --location=asia-east2 \
-  dags -- trigger ashare_daily_pipeline_v0 \
+  dags -- trigger ashare_warehouse_window_refresh \
   --conf '{"warehouse_mode": "qa_only", "business_date": "2026-06-07"}' \
   --run-id "manual_qa_only_weekend"
 
 # smoke-only：手工强制测试 scheduled 非交易日 skip 分支
 gcloud composer environments run ashare-composer \
   --project=data-aquarium --location=asia-east2 \
-  dags -- trigger ashare_daily_pipeline_v0 \
-  --conf '{"warehouse_mode": "daily_current", "business_date": "2026-06-07", "force_non_trading_day_gate": true}' \
+  dags -- trigger ashare_ods_ingestion_daily \
+  --conf '{"business_date": "2026-06-07", "force_non_trading_day_gate": true, "pipeline_dry_run": false}' \
   --run-id "manual_smoke_skip_non_trading_day"
 
 # 补跑上一交易日（必须显式 backfill）
 gcloud composer environments run ashare-composer \
   --project=data-aquarium --location=asia-east2 \
-  dags -- trigger ashare_daily_pipeline_v0 \
-  --conf '{"warehouse_mode": "backfill", "date_from": "2026-06-05", "date_to": "2026-06-05", "skip_ingestion": true}' \
+  dags -- trigger ashare_warehouse_window_refresh \
+  --conf '{"warehouse_mode": "backfill", "date_from": "2026-06-05", "date_to": "2026-06-05", "business_date": "2026-06-05", "pipeline_dry_run": false}' \
   --run-id "manual_backfill_friday"
 ```
 
@@ -324,8 +334,8 @@ gcloud composer environments run ashare-composer \
    ```bash
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
-     dags -- trigger ashare_daily_pipeline_v0 \
-     --conf '{"skip_ingestion": true, "warehouse_mode": "daily_current", "business_date": "2026-06-05"}' \
+     dags -- trigger ashare_warehouse_window_refresh \
+     --conf '{"warehouse_mode": "daily_current", "business_date": "2026-06-05", "pipeline_dry_run": false}' \
      --run-id "manual_recovery_strong_20260605"
    ```
 
@@ -381,14 +391,14 @@ gcloud run jobs execute ashare-ingest-current-scope \
    # 清理卡住的 task
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
-     tasks -- clear ashare_daily_pipeline_v0 \
+     tasks -- clear <dag_id> \
      -t "windowed_dim" -s "2026-06-05" -e "2026-06-05" -y --yes
 
    # 重新触发 DAG
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
-     dags -- trigger ashare_daily_pipeline_v0 \
-     --conf '{"skip_ingestion": true, "warehouse_mode": "daily_current", "business_date": "2026-06-05"}' \
+     dags -- trigger ashare_warehouse_window_refresh \
+     --conf '{"warehouse_mode": "daily_current", "business_date": "2026-06-05", "pipeline_dry_run": false}' \
      --run-id "manual_recovery_queued_20260605"
    ```
 
@@ -405,7 +415,7 @@ gcloud run jobs execute ashare-ingest-current-scope \
 **backfill 模式特点：**
 - 必须显式指定 `date_from`/`date_to`
 - 不依赖 `ds` 或 `data_interval_end`
-- 使用 `skip_ingestion: true` 跳过已采集数据
+- 直接触发 `ashare_warehouse_window_refresh`，不执行 ODS 采集
 - 使用 `pipeline_dry_run: false` 确保写入
 
 **示例：**
@@ -413,11 +423,11 @@ gcloud run jobs execute ashare-ingest-current-scope \
 # 回填 20 个交易日窗口
 gcloud composer environments run ashare-composer \
   --project=data-aquarium --location=asia-east2 \
-  dags -- trigger ashare_daily_pipeline_v0 \
+  dags -- trigger ashare_warehouse_window_refresh \
   --conf '{
-    "skip_ingestion": true,
     "pipeline_dry_run": false,
     "warehouse_mode": "backfill",
+    "business_date": "2026-06-04",
     "date_from": "2026-05-08",
     "date_to": "2026-06-04",
     "run_label": "manual_backfill_20d"
@@ -427,10 +437,10 @@ gcloud composer environments run ashare-composer \
 # 只补 ODS（不跑 warehouse）
 gcloud composer environments run ashare-composer \
   --project=data-aquarium --location=asia-east2 \
-  dags -- trigger ashare_daily_pipeline_v0 \
+  dags -- trigger ashare_ods_ingestion_daily \
   --conf '{
     "pipeline_dry_run": false,
-    "skip_transform": true,
+    "skip_downstream_refresh": true,
     "business_date": "2026-06-05",
     "run_label": "ods_only_20260605"
   }' \
@@ -439,7 +449,7 @@ gcloud composer environments run ashare-composer \
 # 只跑 QA（不写数据）
 gcloud composer environments run ashare-composer \
   --project=data-aquarium --location=asia-east2 \
-  dags -- trigger ashare_daily_pipeline_v0 \
+  dags -- trigger ashare_warehouse_window_refresh \
   --conf '{
     "warehouse_mode": "qa_only",
     "business_date": "2026-06-05"
@@ -476,6 +486,11 @@ SELECT * FROM `data-aquarium.ashare_meta.v_ingestion_failures`;
 SELECT * FROM `data-aquarium.ashare_meta.v_alert_summary`;
 ```
 
+### ODS 成功但窗口刷新缺失
+```sql
+SELECT * FROM `data-aquarium.ashare_meta.v_pipeline_refresh_missing`;
+```
+
 ### 每日 pipeline 健康仪表盘
 ```sql
 SELECT * FROM `data-aquarium.ashare_meta.v_pipeline_daily_health`;
@@ -483,13 +498,14 @@ SELECT * FROM `data-aquarium.ashare_meta.v_pipeline_daily_health`;
 
 ---
 
-## 9. 告警规则配置
+## 14. 告警规则配置
 
 告警规则基于 `v_alert_summary` 视图，配置在 Cloud Monitoring 中：
 
 1. **pipeline_failure：** `pipeline_run.status = 'failed'`
 2. **task_failure：** `pipeline_task_status.status = 'failed'`（所有失败 task；QA/readiness/windowed 明细见 `v_pipeline_qa_failures`）
 3. **ingestion_failed：** `ingestion_run.status = 'failed'`（不含 `empty_return`，空返回见 `v_ingestion_empty_returns` 并按 endpoint/date 判断）
+4. **warehouse_refresh_missing：** `ashare_ods_ingestion_daily` 成功后 60 分钟内没有对应 `ashare_warehouse_window_refresh` run；已触发但失败的下游 run 由 pipeline/task failure 告警承载
 
 通知渠道建议：Email + Slack/PagerDuty（按严重程度分级）。
 

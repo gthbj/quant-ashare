@@ -70,6 +70,11 @@ LOG_METRICS = [
         "filter": 'jsonPayload.alert_type="ingestion_failed"',
     },
     {
+        "name": "oq005_warehouse_refresh_missing",
+        "description": "ODS ingestion succeeded but linked warehouse window refresh is missing",
+        "filter": 'jsonPayload.alert_type="warehouse_refresh_missing"',
+    },
+    {
         "name": "oq005_alert_checker_heartbeat",
         "description": "OQ-005 alert checker heartbeat for liveness monitoring",
         "filter": (
@@ -134,6 +139,23 @@ ALERT_POLICIES = [
         "threshold_value": 0,
         "duration_seconds": 0,
         "severity": "WARNING",
+    },
+    {
+        "policy_key": "warehouse_refresh_missing",
+        "display_name": "OQ-005: Warehouse Refresh Missing",
+        "description": (
+            "ODS ingestion 已成功，但 60 分钟内没有对应 "
+            "`ashare_warehouse_window_refresh` run 记录。\n\n"
+            "检查 `ashare_meta.v_pipeline_refresh_missing`，确认是否为跨 DAG 触发失败、"
+            "warehouse DAG pause、Composer 调度异常或状态回写失败。\n\n"
+            "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
+        ),
+        "condition_display_name": "warehouse_refresh_missing",
+        "condition_type": "threshold",
+        "log_metric_name": "oq005_warehouse_refresh_missing",
+        "threshold_value": 0,
+        "duration_seconds": 0,
+        "severity": "ERROR",
     },
     {
         "policy_key": "alert_checker_heartbeat_missing",
