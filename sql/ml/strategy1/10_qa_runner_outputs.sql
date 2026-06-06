@@ -11,13 +11,13 @@ DECLARE p_target_holdings INT64 DEFAULT 5;
 DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_train_start DATE DEFAULT DATE '2019-04-03';
 DECLARE p_train_end DATE DEFAULT DATE '2023-12-31';
-DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
+DECLARE p_valid_start DATE DEFAULT DATE '2024-01-02';
 DECLARE p_valid_end DATE DEFAULT DATE '2024-12-31';
-DECLARE p_test_start DATE DEFAULT DATE '2025-01-01';
+DECLARE p_test_start DATE DEFAULT DATE '2025-01-02';
 DECLARE p_test_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_final_holdout_start DATE DEFAULT NULL;
 DECLARE p_final_holdout_end DATE DEFAULT NULL;
-DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
+DECLARE p_predict_start DATE DEFAULT DATE '2024-01-02';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;  -- NULL 表示按 p_predict_start 作为调仓周序锚点
 DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;

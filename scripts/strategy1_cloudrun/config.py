@@ -102,13 +102,13 @@ class Experiment:
     status: str = "planned"
     train_start: str = "2019-04-03"
     train_end: str = "2023-12-31"
-    valid_start: str = "2024-01-01"
+    valid_start: str = "2024-01-02"
     valid_end: str = "2024-12-31"
-    test_start: str = "2025-01-01"
+    test_start: str = "2025-01-02"
     test_end: str = "2025-12-31"
     final_holdout_start: str | None = None
     final_holdout_end: str | None = None
-    predict_start: str = "2024-01-01"
+    predict_start: str = "2024-01-02"
     predict_end: str = "2025-12-31"
     raw: dict[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -301,13 +301,13 @@ def experiment_from_b64(value: str) -> Experiment:
         status=raw.get("status", "planned"),
         train_start=raw.get("train_start", "2019-04-03"),
         train_end=raw.get("train_end", "2023-12-31"),
-        valid_start=raw.get("valid_start", "2024-01-01"),
+        valid_start=raw.get("valid_start", "2024-01-02"),
         valid_end=raw.get("valid_end", "2024-12-31"),
-        test_start=raw.get("test_start", "2025-01-01"),
+        test_start=raw.get("test_start", "2025-01-02"),
         test_end=raw.get("test_end", "2025-12-31"),
         final_holdout_start=raw.get("final_holdout_start"),
         final_holdout_end=raw.get("final_holdout_end"),
-        predict_start=raw.get("predict_start", "2024-01-01"),
+        predict_start=raw.get("predict_start", "2024-01-02"),
         predict_end=raw.get("predict_end", "2025-12-31"),
         raw=raw,
     )
@@ -357,13 +357,13 @@ def _experiment_from_mapping(
         status=value("status", "planned"),
         train_start=value("train_start", "2019-04-03"),
         train_end=value("train_end", "2023-12-31"),
-        valid_start=value("valid_start", "2024-01-01"),
+        valid_start=value("valid_start", "2024-01-02"),
         valid_end=value("valid_end", "2024-12-31"),
-        test_start=value("test_start", "2025-01-01"),
+        test_start=value("test_start", "2025-01-02"),
         test_end=value("test_end", "2025-12-31"),
         final_holdout_start=value("final_holdout_start"),
         final_holdout_end=value("final_holdout_end"),
-        predict_start=value("predict_start", "2024-01-01"),
+        predict_start=value("predict_start", "2024-01-02"),
         predict_end=value("predict_end", "2025-12-31"),
         raw=dict(raw_exp),
     )

@@ -25,7 +25,7 @@ class LedgerParams:
     run_id: str
     backtest_id: str
     strategy_id: str = "ml_pv_clf_v0"
-    predict_start: str = "2024-01-01"
+    predict_start: str = "2024-01-02"
     predict_end: str = "2025-12-31"
     initial_capital: float = 100000.0
     benchmark: str = "000852.SH"

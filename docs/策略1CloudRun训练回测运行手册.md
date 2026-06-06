@@ -258,26 +258,26 @@ gcloud run jobs deploy strategy1-train-candidate-fanout-job \
   --image asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:latest \
   --command python \
   --args="-m,scripts.strategy1_cloudrun.train_candidate_task" \
-  --memory 4Gi \
-  --cpu 1 \
-  --parallelism 40 \
+  --memory 8Gi \
+  --cpu 2 \
+  --parallelism 20 \
   --task-timeout 3600 \
   --max-retries 0
 
-当前 OQ-010 Cloud Run Python baseline search 的 P0 口径固定为 40 个候选、40 并发。`strategy1-train-candidate-fanout-job` 的共享 Job spec 应保持 `parallelism=40`；若后续扩到 60 / 80 / 100 个候选，需要先更新对应 PRD、Cloud Run 区域配额和本部署命令。
+当前 OQ-010 Cloud Run Python baseline search 的 P0 口径固定为 40 个候选、20 并发、单 task `2 vCPU / 8Gi`。`strategy1-train-candidate-fanout-job` 的共享 Job spec 应保持 `parallelism=20`；40 个候选仍由一次 `--tasks=40` execution 启动，实际同时运行的 task 数由 Job spec 控制。若后续扩到 60 / 80 / 100 个候选，需要先更新对应 PRD、Cloud Run 区域配额和本部署命令。
 
-若 LightGBM CV smoke 发现单个 candidate task 的 `1 vCPU / 4Gi` 不足，先提高单 task 内存并降低并发，而不是直接维持 40 并发：
+若后续模型族发现单个 candidate task 的 `2 vCPU / 8Gi` 仍不足，先提高单 task 内存并按区域配额降低并发，而不是直接维持原并发：
 
 ```bash
 gcloud run jobs update strategy1-train-candidate-fanout-job \
   --project data-aquarium \
   --region asia-east2 \
-  --cpu 1 \
-  --memory 8Gi \
-  --parallelism 20
+  --cpu 4 \
+  --memory 16Gi \
+  --parallelism 10
 ```
 
-调整后，执行 search 时显式传 `--candidate-parallelism 20`，并在 PR / 交接中记录 smoke 证据。若 8Gi 仍不够，继续提高单 task 内存并按区域内存配额反向计算并发。
+调整后，manifest 和执行参数中的 `candidate_parallelism` 必须同步改为新的并发值，并在 PR / 交接中记录 smoke 证据。
 
 gcloud run jobs deploy strategy1-select-register-predict-job \
   --project data-aquarium \

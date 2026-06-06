@@ -37,13 +37,18 @@ DECLARE p_required_cv_confirmation_status STRING DEFAULT 'passed';
 DECLARE p_final_holdout_required_after_wave INT64 DEFAULT 3;
 DECLARE p_final_holdout_passed_status STRING DEFAULT 'passed';
 
+-- The DECLARE defaults are standalone fallbacks, not the source of truth.
+-- Production orchestrators must inject these values from
+-- configs/strategy1/model_acceptance_contract_v1.yml.
+CREATE TEMP FUNCTION qa_required(condition BOOL) AS (IFNULL(condition, FALSE));
+
 -- QA-PY-1: Top-K registry 记录必须完整追溯 search/source/candidate_count。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id)
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.source_run_id') = p_source_run_id)
-    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.work_unit_count') AS INT64) = p_expected_candidate_count)
-    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.succeeded_task_count') AS INT64) = p_expected_candidate_count)
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.source_run_id') = p_source_run_id))
+    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.work_unit_count') AS INT64) = p_expected_candidate_count))
+    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.succeeded_task_count') AS INT64) = p_expected_candidate_count))
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
@@ -53,15 +58,15 @@ ASSERT (
 -- QA-PY-2: 本轮必须是 Cloud Run Python LightGBM 搜索，且 task fan-out 不扫 BigQuery 全量训练面板。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.task_fanout_mode') = 'task_fanout')
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_backend') = 'cloud_run_python')
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_family') = p_expected_model_family)
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_library') = 'lightgbm')
-    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.model_search_wave_no') AS INT64) = p_expected_model_search_wave_no)
-    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_parallelism_resolved') AS INT64) = p_expected_candidate_parallelism)
-    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_task_cpu') AS INT64) = p_expected_candidate_task_cpu)
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.candidate_task_memory') = p_expected_candidate_task_memory)
-    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_task_bq_forbidden_table_query_count') AS INT64) = 0)
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.task_fanout_mode') = 'task_fanout'))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.model_backend') = 'cloud_run_python'))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.model_family') = p_expected_model_family))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.model_library') = 'lightgbm'))
+    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.model_search_wave_no') AS INT64) = p_expected_model_search_wave_no))
+    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_parallelism_resolved') AS INT64) = p_expected_candidate_parallelism))
+    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_task_cpu') AS INT64) = p_expected_candidate_task_cpu))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.candidate_task_memory') = p_expected_candidate_task_memory))
+    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.candidate_task_bq_forbidden_table_query_count') AS INT64) = 0))
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
@@ -71,15 +76,15 @@ ASSERT (
 -- QA-PY-3: matrix 和 split 边界必须固定到 PRD04 口径。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.data_end_date') = CAST(p_data_end_date AS STRING))
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.final_holdout_start_date') = CAST(p_final_holdout_start_date AS STRING))
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.final_holdout_end_date') = CAST(p_final_holdout_end_date AS STRING))
-    AND LOGICAL_AND(reg.train_start_date = DATE '2019-04-03')
-    AND LOGICAL_AND(reg.train_end_date = DATE '2023-12-31')
-    AND LOGICAL_AND(reg.valid_start_date = p_valid_start_date)
-    AND LOGICAL_AND(reg.valid_end_date = p_valid_end_date)
-    AND LOGICAL_AND(JSON_VALUE(reg.model_params_json, '$.test_start_date') = CAST(p_test_start_date AS STRING))
-    AND LOGICAL_AND(JSON_VALUE(reg.model_params_json, '$.test_end_date') = CAST(p_test_end_date AS STRING))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.data_end_date') = CAST(p_data_end_date AS STRING)))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.final_holdout_start_date') = CAST(p_final_holdout_start_date AS STRING)))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.final_holdout_end_date') = CAST(p_final_holdout_end_date AS STRING)))
+    AND LOGICAL_AND(qa_required(reg.train_start_date = DATE '2019-04-03'))
+    AND LOGICAL_AND(qa_required(reg.train_end_date = DATE '2023-12-31'))
+    AND LOGICAL_AND(qa_required(reg.valid_start_date = p_valid_start_date))
+    AND LOGICAL_AND(qa_required(reg.valid_end_date = p_valid_end_date))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.model_params_json, '$.test_start_date') = CAST(p_test_start_date AS STRING)))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.model_params_json, '$.test_end_date') = CAST(p_test_end_date AS STRING)))
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
@@ -89,10 +94,10 @@ ASSERT (
 -- QA-PY-4: Top-K 排名不得使用 test/final_holdout，且必须有 CV confirmation 证据。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.shortlist_ranking_uses_test_metrics') = 'false')
-    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.shortlist_rank_valid_only') AS INT64) IS NOT NULL)
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.cv_confirmation_status') IS NOT NULL)
-    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.cv_fold_count') AS INT64) >= 3)
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.shortlist_ranking_uses_test_metrics') = 'false'))
+    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.shortlist_rank_valid_only') AS INT64) IS NOT NULL))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.cv_confirmation_status') IS NOT NULL))
+    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.cv_fold_count') AS INT64) >= 3))
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
@@ -102,10 +107,10 @@ ASSERT (
 -- QA-PY-5: Top-K 候选报告和诊断均 uploaded。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.report_upload_status') = 'uploaded')
-    AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.model_diagnosis_upload_status') = 'uploaded')
-    AND LOGICAL_AND(STARTS_WITH(JSON_VALUE(bs.metrics_json, '$.report_uri'), 'gs://'))
-    AND LOGICAL_AND(STARTS_WITH(JSON_VALUE(bs.metrics_json, '$.model_diagnosis_uri'), 'gs://'))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(bs.metrics_json, '$.report_upload_status') = 'uploaded'))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(bs.metrics_json, '$.model_diagnosis_upload_status') = 'uploaded'))
+    AND LOGICAL_AND(qa_required(STARTS_WITH(JSON_VALUE(bs.metrics_json, '$.report_uri'), 'gs://')))
+    AND LOGICAL_AND(qa_required(STARTS_WITH(JSON_VALUE(bs.metrics_json, '$.model_diagnosis_uri'), 'gs://')))
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   JOIN `data-aquarium.ashare_ads.ads_model_registry` AS reg
     ON reg.model_id = bs.model_id
@@ -117,11 +122,11 @@ ASSERT (
 -- QA-PY-6: acceptance 状态必须互斥完整并追溯共享契约。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') IN (
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') IN (
       'accepted', 'rejected', 'needs_more_evidence', 'failed'
-    ))
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.native_acceptance_reason') IS NOT NULL)
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.acceptance_contract_version') = p_acceptance_contract_version)
+    )))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.native_acceptance_reason') IS NOT NULL))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.acceptance_contract_version') = p_acceptance_contract_version))
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
@@ -170,8 +175,8 @@ ASSERT (
 -- QA-PY-9: wave 2+ 复用 2025 test 必须记录 owner approval ref，且 wave_no 与调用参数一致。
 ASSERT (
   SELECT COUNT(*) = p_top_k
-    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_reuse_wave_no') AS INT64) = p_test_reuse_wave_no)
-    AND LOGICAL_AND(NULLIF(JSON_VALUE(reg.metrics_json, '$.test_reuse_approval_ref'), '') IS NOT NULL)
+    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_reuse_wave_no') AS INT64) = p_test_reuse_wave_no))
+    AND LOGICAL_AND(qa_required(NULLIF(JSON_VALUE(reg.metrics_json, '$.test_reuse_approval_ref'), '') IS NOT NULL))
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'

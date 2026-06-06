@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-**OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-cloudrun-python-baseline`，分支 `codex/implement-prd04-cloudrun-python-baseline`。PR #79 review follow-up 已完成：共享验收契约阈值注入 `18/19` QA、final_holdout 缺证据改为 `needs_more_evidence`、QA NULL 空过和数据上界断言补齐、split 边界对齐 `2024-01-02` / `2025-01-02`、auto-next-wave 改为当前 wave QA 后非阻断触发，并补资源元数据和 LightGBM convergence 元数据。真实 LightGBM binary wave 2 search `cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01` 已按 `candidate_count=40`、`candidate_parallelism=20`、单 task `2 vCPU / 8Gi` 完成，Top5 均 rejected，不建立 `cloud_run_python_baseline_v1`；`18/19` 真实 QA 均通过。合并部署 PR #79 follow-up 后下一步：执行 `lightgbm_regression` wave 3。
+**OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-cloudrun-python-baseline`，分支 `codex/implement-prd04-cloudrun-python-baseline`。PR #79 review follow-up 与 residual follow-up 已完成：共享验收契约阈值注入 `18/19` QA、final_holdout 缺证据改为 `needs_more_evidence`、QA NULL 空过和数据上界断言补齐、split 边界对齐 `2024-01-02` / `2025-01-02`、auto-next-wave 改为当前 wave QA 后非阻断触发，并补资源元数据和 LightGBM convergence 元数据。运行手册已同步 40 候选 / 20 并发 / 2 vCPU 8Gi，`config.py` / `ledger.py` / `01` / `10` 的 fallback 默认日期已对齐 Jan 2 交易日起点，`18/19` 已用 `qa_required()` 让单行 NULL 也 fail，并声明 SQL `DECLARE` 默认只是 standalone fallback、生产必须由 orchestrator 从共享契约注入。真实 LightGBM binary wave 2 search `cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01` 已按 `candidate_count=40`、`candidate_parallelism=20`、单 task `2 vCPU / 8Gi` 完成，Top5 均 rejected，不建立 `cloud_run_python_baseline_v1`；`18/19` 真实 QA 均通过。合并部署 PR #79 follow-up 后下一步：执行 `lightgbm_regression` wave 3。
 
 **项目记忆瘦身归档（2026-06-05）**：`AGENT_HANDOFF.md` 已按 owner 要求整理，当前文件只保留启动摘要、归档清理交接和最近 3 条交接；较早的 30 条交接已追加到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动优先读本文件；需要审计历史时再读 archive。
 
@@ -52,6 +52,8 @@ Run ID: cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01
 - 接入 `allowed_score_orientation` 和 `weak_valid_rank_ic_threshold`，补 `unmatched_acceptance_state` 兜底和 QA。
 - 根据真实 LightGBM smoke，将 P0 资源口径从 40 并发 / 1 vCPU 4Gi 调整为 40 候选 / 20 并发 / 2 vCPU 8Gi；Cloud Run Job spec `parallelism=20`，manifest 默认不再二次分批。
 - 已把 wave 2 ADS metadata / run status 表中的资源、split、contract、convergence 元数据补齐，真实 `18_qa_sklearn_native_search_outputs.sql` 和 `19_qa_cloudrun_python_baseline_search_outputs.sql` 均通过。
+- 继续完成 residual follow-up：运行手册部署命令和兜底示例已同步到 `parallelism=20` / `2 CPU / 8Gi`；`config.py`、Python ledger、`01_build_training_panel.sql` 和 `10_qa_runner_outputs.sql` 的 fallback 默认日期已对齐为 `2024-01-02` / `2025-01-02`；`18/19` QA 用 `qa_required()` 包住 remaining `LOGICAL_AND` 条件，单行 NULL 不再被聚合忽略。
+- `18/19` QA 的 `DECLARE` 默认仍保留为 standalone fallback；生产和 orchestrator 路径的事实来源是 `configs/strategy1/model_acceptance_contract_v1.yml` 注入，已在 SQL 注释中写明。
 
 ### 重要上下文
 
@@ -64,14 +66,18 @@ Run ID: cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01
 - `Dockerfile.strategy1-cloudrun`
 - `configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml`
 - `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
 - `docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`
 - `scripts/strategy1_cloudrun/acceptance.py`
 - `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/ledger.py`
 - `scripts/strategy1_cloudrun/orchestrate_experiments.py`
 - `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
 - `scripts/strategy1_cloudrun/prepare_matrix.py`
 - `scripts/strategy1_cloudrun/select_register_predict.py`
 - `scripts/strategy1_cloudrun/train_predict.py`
+- `sql/ml/strategy1/01_build_training_panel.sql`
+- `sql/ml/strategy1/10_qa_runner_outputs.sql`
 - `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`
 - `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`
 - `sql/ml/strategy1/README.md`
@@ -86,8 +92,10 @@ Run ID: cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01
 
 - Python `py_compile` 通过。
 - `git diff --check` 通过。
+- `01_build_training_panel.sql` / `10_qa_runner_outputs.sql` BigQuery dry-run 通过。
 - `18_qa_sklearn_native_search_outputs.sql` / `19_qa_cloudrun_python_baseline_search_outputs.sql` BigQuery dry-run 通过。
 - Orchestrator dry-run 确认 manifest 默认 `candidate_parallelism=20` 时产生单个 `--tasks=40` train fan-out step，不再拆两批。
+- Orchestrator dry-run 确认 wave 3 regression manifest 解析为 12 候选 / 12 并发 / 2 CPU / 8Gi，split 日期为 `2024-01-02` / `2025-01-02`。
 - 真实 BigQuery `18` / `19` QA 均通过。
 
 ### 阻塞项
