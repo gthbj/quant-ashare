@@ -10,6 +10,8 @@
 
 **OQ-005 非交易日 skip gate 已部署验收（2026-06-06）**：PR #83 已合并到 `main`（`3723f52`），`ashare_daily_pipeline_v0.py` 已同步到 Composer bucket `gs://asia-east2-ashare-composer-b2629133-bucket/dags/`，本地与 bucket SHA256 均为 `e4b07ba402716b914bfbd6fe27fa38f97fab8e1c12f6a0bcce9e5fd8c58696af`。`manual_smoke_skip_non_trading_day_pr83_20260606_02` 使用 `business_date=2026-06-06`、`warehouse_mode=daily_current`、`force_non_trading_day_gate=true`、`pipeline_dry_run=true` 成功：`non_trading_day_gate=success`、`skip_non_trading_day=success`，`pipeline_task_status` 写入 `skip_non_trading_day status='skipped'`，ingestion/readiness/transform 全部 skipped，Cloud Run 最新 execution 仍为 01:53 的旧 PR #80 run，未被 smoke 触发。DAG 当前 active/unpaused、无 import errors。首次 smoke `manual_smoke_skip_non_trading_day_pr83_20260606_01` 在 Composer 新旧 serialized DAG 切换窗口内走到旧路径，已中止、确认未触发 Cloud Run，并在 `pipeline_run` 标为 `partial` 防止假告警；`v_alert_summary` 对两次 smoke 为空。
 
+**OQ-005 PR #83 记忆一致性 follow-up（2026-06-06）**：PR #83 review comment `4637354942` 指出 `IMPLEMENTATION_STATUS.md` 已完成区仍残留旧的部署等待状态。已将相关 durable bullet 改为“后续已由 PR #80/PR #83 部署与 smoke 覆盖”，并把几条历史补充明确标为部署前状态，避免同一记忆文件内当前状态自相矛盾。
+
 **OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-06）**：工作树 `/Users/luna/Desktop/git/quant-ashare-prd04-cloudrun-python-baseline`，分支 `codex/implement-prd04-cloudrun-python-baseline`。PR #79 review follow-up 与 residual follow-up 已完成：共享验收契约阈值注入 `18/19` QA、final_holdout 缺证据改为 `needs_more_evidence`、QA NULL 空过和数据上界断言补齐、split 边界对齐 `2024-01-02` / `2025-01-02`、auto-next-wave 改为当前 wave QA 后非阻断触发，并补资源元数据和 LightGBM convergence 元数据。运行手册已同步 40 候选 / 20 并发 / 2 vCPU 8Gi，`config.py` / `ledger.py` / `01` / `10` 的 fallback 默认日期已对齐 Jan 2 交易日起点，`18/19` 已用 `qa_required()` 让单行 NULL 也 fail，并声明 SQL `DECLARE` 默认只是 standalone fallback、生产必须由 orchestrator 从共享契约注入。真实 LightGBM binary wave 2 search `cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01` 已按 `candidate_count=40`、`candidate_parallelism=20`、单 task `2 vCPU / 8Gi` 完成，Top5 均 rejected，不建立 `cloud_run_python_baseline_v1`；`18/19` 真实 QA 均通过。合并部署 PR #79 follow-up 后下一步：执行 `lightgbm_regression` wave 3。
 
 **项目记忆瘦身归档（2026-06-05）**：`AGENT_HANDOFF.md` 已按 owner 要求整理，当前文件只保留启动摘要、归档清理交接和最近 3 条交接；较早的 30 条交接已追加到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动优先读本文件；需要审计历史时再读 archive。
@@ -874,6 +876,50 @@ Run ID: N/A
 - `.agent/memory/ARCHITECTURE_MEMORY.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+日期: 2026-06-06
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: manual_smoke_skip_non_trading_day_pr83_20260606_02
+相关 issue/PR: PR #83 / issuecomment-4637354942 / OQ-005 memory consistency follow-up
+
+### 已完成工作
+
+- 复核 PR #83 review comment `4637354942`，采纳 low finding。
+- 修正 `.agent/memory/IMPLEMENTATION_STATUS.md` 已完成区残留的部署等待状态。
+- 将几条 OQ-005 历史补充改为明确的部署前记录，并指向后续 PR #70 / PR #80 / PR #83 部署和 smoke 状态，避免和顶部当前状态冲突。
+
+### 重要上下文
+
+- 本次只修项目记忆一致性，不改 DAG / SQL / Python 代码，不重新部署 Composer，不重跑 BigQuery。
+- PR #83 DAG 实现和 `manual_smoke_skip_non_trading_day_pr83_20260606_02` 验收结论不变。
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `rg` 检查当前 OQ-005 记忆中不再有部署等待语义的自相矛盾状态。
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 继续 OQ-005 Dataform definitions、补跑/resume 自动化和完整 ODS→ADS 运维观测闭环。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 
 ---
