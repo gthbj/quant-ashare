@@ -1,7 +1,7 @@
 -- 文档维护：Claude Opus 4.8（最近更新 2026-06-02）
 -- BigQuery Standard SQL
 -- 资产负债表 DWD（PIT 版本事实表）：从 20170101 报告期起读取，支撑 2019+ PIT。
--- 可见日 ann_date_eff = COALESCE(f_ann_date, ann_date)；按 OQ-003 保留 report_type 并派生口径字段。
+-- 可见日 ann_date_eff = COALESCE(f_ann_date, ann_date)；保留 report_type 并派生口径字段。
 -- 实测：当前 ODS ods_tushare_balancesheet 仅含 report_type='1'（合并报表）。
 -- 金额单位为元（Tushare 原始口径），资产负债表为时点值（period-end snapshot）。
 

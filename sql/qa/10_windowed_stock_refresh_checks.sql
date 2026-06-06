@@ -1,6 +1,6 @@
 -- 文档维护：GPT-5（最近更新 2026-06-05）
 -- BigQuery Standard SQL
--- OQ-005 Phase 2.2: 股票 DWD/DWS 窗口化刷新后的轻量 QA。
+-- Daily warehouse pipeline: 股票 DWD/DWS 窗口化刷新后的轻量 QA。
 --
 -- Parameters:
 --   @business_date: STRING, YYYY-MM-DD

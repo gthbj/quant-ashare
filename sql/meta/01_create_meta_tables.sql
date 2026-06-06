@@ -1,4 +1,4 @@
--- BigQuery Standard SQL · GCP Pipeline Phase 0
+-- BigQuery Standard SQL · GCP pipeline meta tables
 -- 创建 ashare_meta 下的采集与流水线运行记录表。
 
 -- ── 采集运行记录 ──

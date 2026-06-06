@@ -1,0 +1,10 @@
+-- Generated from canonical sql/ by scripts/dataform/generate_sqlx_from_sql.py.
+-- Source declaration for `data-aquarium.ashare_ods.ods_tushare_stock_basic`.
+
+config {
+  type: "declaration",
+  database: "data-aquarium",
+  schema: "ashare_ods",
+  name: "ods_tushare_stock_basic",
+  tags: ["source", "ods"]
+}

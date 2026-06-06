@@ -1,0 +1,65 @@
+-- Generated from canonical sql/ by scripts/dataform/generate_sqlx_from_sql.py.
+-- Canonical source: sql/dim/03_dim_stock_name_hist.sql
+
+config {
+  type: "operations",
+  schema: "ashare_dim",
+  name: "dim_stock_name_hist",
+  hasOutput: true,
+  tags: ["dim_core"],
+  dependencies: ["ods_tushare_namechange"]
+}
+
+-- 文档维护：GPT-5（最近更新 2026-05-31）
+-- BigQuery Standard SQL
+-- 股票名称历史维表：全量保留 namechange 事件，用于 SCD2 名称/ST 状态还原。
+
+CREATE OR REPLACE TABLE `data-aquarium.ashare_dim.dim_stock_name_hist`
+CLUSTER BY sec_code, valid_from
+OPTIONS (
+  description = 'Stock name history SCD2 dimension from Tushare namechange'
+) AS
+WITH base AS (
+  SELECT
+    ts_code AS sec_code,
+    name AS sec_name,
+    SAFE.PARSE_DATE('%Y%m%d', NULLIF(start_date, '')) AS valid_from,
+    COALESCE(SAFE.PARSE_DATE('%Y%m%d', NULLIF(end_date, '')), DATE '9999-12-31') AS valid_to,
+    SAFE.PARSE_DATE('%Y%m%d', NULLIF(ann_date, '')) AS ann_date,
+    change_reason,
+    REGEXP_CONTAINS(name, r'\*ST|ST|退') AS is_st,
+    REGEXP_CONTAINS(name, r'\*ST') AS is_star_st,
+    COALESCE(_source, 'tushare') AS source_system,
+    partition_date AS source_partition_date,
+    SAFE_CAST(_ingested_at AS TIMESTAMP) AS ingested_at
+  FROM `data-aquarium.ashare_ods.ods_tushare_namechange`
+  WHERE endpoint = 'namechange'
+    AND partition_date BETWEEN '00000000' AND '99999999'
+    AND ts_code IS NOT NULL
+    AND start_date IS NOT NULL
+)
+SELECT
+  sec_code,
+  sec_name,
+  valid_from,
+  valid_to,
+  ann_date,
+  change_reason,
+  is_st,
+  is_star_st,
+  source_system,
+  source_partition_date,
+  ingested_at
+FROM base
+WHERE valid_from IS NOT NULL
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY sec_code, valid_from, sec_name
+  ORDER BY source_partition_date DESC, ingested_at DESC
+) = 1;
+
+ALTER TABLE `data-aquarium.ashare_dim.dim_stock_name_hist`
+ALTER COLUMN sec_code SET OPTIONS (description = '证券代码，Tushare ts_code 格式'),
+ALTER COLUMN sec_name SET OPTIONS (description = '历史证券简称'),
+ALTER COLUMN valid_from SET OPTIONS (description = '名称生效日期'),
+ALTER COLUMN valid_to SET OPTIONS (description = '名称失效日期；9999-12-31 表示当前有效'),
+ALTER COLUMN is_st SET OPTIONS (description = '名称是否包含 ST/*ST/退 市场风险标识');

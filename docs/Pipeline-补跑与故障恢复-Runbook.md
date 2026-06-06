@@ -1,8 +1,8 @@
-# OQ-005 Pipeline 补跑与故障恢复 Runbook
+# Ashare Pipeline 补跑与故障恢复 Runbook
 
 > 文档维护：GPT-5 Codex（最近更新 2026-06-06）
 
-本 runbook 覆盖 OQ-005 日常调度链路的常见故障与恢复步骤。
+本 runbook 覆盖 Ashare pipeline 日常调度链路的常见故障与恢复步骤。
 
 ---
 
@@ -13,7 +13,7 @@
 | `ashare_ods_ingestion_daily` | 当前范围 ODS 采集、非交易日 gate、ODS readiness；真实采集成功后触发窗口刷新 |
 | `ashare_warehouse_window_refresh` | `daily_current` / `backfill` 窗口刷新和 `qa_only` 只读 QA |
 | `ashare_warehouse_full_rebuild` | 手工全量维护重建，必须显式确认 |
-| `oq005_alert_checker` | 告警 checker 和 heartbeat |
+| `ashare_pipeline_alert_checker` | 告警 checker 和 heartbeat |
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
@@ -92,7 +92,7 @@
      --project=data-aquarium --location=asia-east2 \
      dags -- trigger ashare_warehouse_window_refresh \
      --conf '{"warehouse_mode": "daily_current", "business_date": "2026-06-05", "pipeline_dry_run": false}' \
-     --run-id "manual_oq005_recovery_20260605"
+     --run-id "manual_pipeline_recovery_20260605"
    ```
 
 ---
@@ -141,7 +141,7 @@
    ```sql
    SELECT task_id, bigquery_job_id, bigquery_job_url, error_summary
    FROM `data-aquarium.ashare_meta.pipeline_task_status`
-   WHERE pipeline_run_id = 'manual_oq005_xxx'
+   WHERE pipeline_run_id = 'manual_pipeline_xxx'
      AND task_id = 'windowed_transform.stock_dwd_dws_window';
    ```
 
@@ -166,7 +166,7 @@
    ```sql
    SELECT task_id, error_summary, bigquery_job_url
    FROM `data-aquarium.ashare_meta.pipeline_task_status`
-   WHERE pipeline_run_id = 'manual_oq005_xxx'
+   WHERE pipeline_run_id = 'manual_pipeline_xxx'
      AND task_id LIKE '%qa%'
      AND status = 'failed';
    ```
@@ -196,7 +196,7 @@
    ```bash
    gcloud composer environments run ashare-composer \
      --project=data-aquarium --location=asia-east2 \
-     tasks -- states-for-dag-run <dag_id> "manual_oq005_xxx" --output table
+     tasks -- states-for-dag-run <dag_id> "manual_pipeline_xxx" --output table
    ```
 
 2. **检查是否为 zombie job：**
@@ -220,7 +220,7 @@
      --project=data-aquarium --location=asia-east2 \
      dags -- trigger ashare_warehouse_window_refresh \
      --conf '{"warehouse_mode": "daily_current", "business_date": "2026-06-05", "pipeline_dry_run": false}' \
-     --run-id "manual_oq005_recovery_20260605_2"
+     --run-id "manual_pipeline_recovery_20260605_2"
    ```
 
 ---
@@ -258,7 +258,7 @@
      --project=data-aquarium --location=asia-east2 \
      dags -- trigger ashare_warehouse_window_refresh \
      --conf '{"pipeline_dry_run": false, "warehouse_mode": "backfill", "business_date": "2026-06-04", "date_from": "2026-05-08", "date_to": "2026-06-04", "run_label": "manual_backfill"}' \
-     --run-id "manual_oq005_backfill_20260508_20260604"
+     --run-id "manual_pipeline_backfill_20260508_20260604"
    ```
 
 4. **监控执行状态：**

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate windowed stock refresh against canonical full SQL.
 
-This is a periodic QA for OQ-005 Phase 2.2. It renders the existing canonical
+This is a periodic QA for the warehouse window refresh. It renders the existing canonical
 full-refresh SQL into scratch "_full" tables, copies those tables to "_window",
 runs the windowed refresh SQL against "_window", then compares the affected
 window row-by-row and column-by-column.

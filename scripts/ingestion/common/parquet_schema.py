@@ -1,4 +1,4 @@
-"""Parquet schema 校验与 cast。Phase 0 stub，Phase 1 实现。"""
+"""Parquet schema 校验与 cast。"""
 
 from __future__ import annotations
 

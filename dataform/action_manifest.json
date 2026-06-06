@@ -1,0 +1,57 @@
+{
+  "sources": [
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_adj_factor", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_balancesheet", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_cashflow", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_daily", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_daily_basic", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_fina_indicator", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_income", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_index_daily", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_index_dailybasic", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_namechange", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_stk_limit", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_stock_basic", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_suspend_d", "tags": ["source", "ods"]},
+    {"database": "data-aquarium", "schema": "ashare_ods", "name": "ods_tushare_trade_cal", "tags": ["source", "ods"]}
+  ],
+  "actions": [
+    {"sql": "sql/meta/01_create_meta_tables.sql", "path": "definitions/setup/01_create_meta_tables.sqlx", "name": "create_meta_tables", "type": "operations", "tags": ["setup"]},
+    {"sql": "sql/meta/04_ods_field_unit_map.sql", "path": "definitions/setup/04_ods_field_unit_map.sqlx", "name": "ods_field_unit_map", "schema": "ashare_meta", "type": "operations", "hasOutput": true, "tags": ["setup"], "dependencies": ["create_meta_tables"]},
+
+    {"sql": "sql/dim/01_dim_trade_calendar.sql", "path": "definitions/dim/01_dim_trade_calendar.sqlx", "name": "dim_trade_calendar", "schema": "ashare_dim", "type": "operations", "hasOutput": true, "tags": ["dim_core"], "dependencies": ["ods_tushare_trade_cal"]},
+    {"sql": "sql/dim/02_dim_stock.sql", "path": "definitions/dim/02_dim_stock.sqlx", "name": "dim_stock", "schema": "ashare_dim", "type": "operations", "hasOutput": true, "tags": ["dim_core"], "dependencies": ["ods_tushare_stock_basic", "ods_tushare_daily"]},
+    {"sql": "sql/dim/03_dim_stock_name_hist.sql", "path": "definitions/dim/03_dim_stock_name_hist.sqlx", "name": "dim_stock_name_hist", "schema": "ashare_dim", "type": "operations", "hasOutput": true, "tags": ["dim_core"], "dependencies": ["ods_tushare_namechange"]},
+    {"sql": "sql/dim/04_dim_index.sql", "path": "definitions/dim/04_dim_index.sqlx", "name": "dim_index", "schema": "ashare_dim", "type": "operations", "hasOutput": true, "tags": ["dim_core"], "dependencies": ["ods_tushare_index_daily", "ods_tushare_index_dailybasic"]},
+
+    {"sql": "sql/dwd/01_dwd_stock_eod_price.sql", "path": "definitions/dwd/01_dwd_stock_eod_price.sqlx", "name": "dwd_stock_eod_price", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_market"], "dependencies": ["dim_trade_calendar", "dim_stock", "ods_tushare_daily", "ods_tushare_adj_factor", "ods_tushare_stk_limit", "ods_tushare_suspend_d"]},
+    {"sql": "sql/dwd/02_dwd_stock_eod_valuation.sql", "path": "definitions/dwd/02_dwd_stock_eod_valuation.sqlx", "name": "dwd_stock_eod_valuation", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_market"], "dependencies": ["ods_tushare_daily_basic"]},
+    {"sql": "sql/dwd/04_dwd_index_eod.sql", "path": "definitions/dwd/04_dwd_index_eod.sqlx", "name": "dwd_index_eod", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_market"], "dependencies": ["dim_index", "ods_tushare_index_daily", "ods_tushare_index_dailybasic"]},
+
+    {"sql": "sql/dwd/03_dwd_fin_indicator.sql", "path": "definitions/dwd/03_dwd_fin_indicator.sqlx", "name": "dwd_fin_indicator", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_finance"], "dependencies": ["dim_trade_calendar", "ods_tushare_fina_indicator"]},
+    {"sql": "sql/dwd/05_dwd_fin_indicator_latest.sql", "path": "definitions/dwd/05_dwd_fin_indicator_latest.sqlx", "name": "dwd_fin_indicator_latest", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_finance"], "dependencies": ["dwd_fin_indicator"]},
+    {"sql": "sql/dwd/06_dwd_fin_income.sql", "path": "definitions/dwd/06_dwd_fin_income.sqlx", "name": "dwd_fin_income", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_finance"], "dependencies": ["dim_trade_calendar", "ods_tushare_income"]},
+    {"sql": "sql/dwd/07_dwd_fin_income_latest.sql", "path": "definitions/dwd/07_dwd_fin_income_latest.sqlx", "name": "dwd_fin_income_latest", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_finance"], "dependencies": ["dwd_fin_income"]},
+    {"sql": "sql/dwd/08_dwd_fin_balancesheet.sql", "path": "definitions/dwd/08_dwd_fin_balancesheet.sqlx", "name": "dwd_fin_balancesheet", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_finance"], "dependencies": ["dim_trade_calendar", "ods_tushare_balancesheet"]},
+    {"sql": "sql/dwd/09_dwd_fin_balancesheet_latest.sql", "path": "definitions/dwd/09_dwd_fin_balancesheet_latest.sqlx", "name": "dwd_fin_balancesheet_latest", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_finance"], "dependencies": ["dwd_fin_balancesheet"]},
+    {"sql": "sql/dwd/10_dwd_fin_cashflow.sql", "path": "definitions/dwd/10_dwd_fin_cashflow.sqlx", "name": "dwd_fin_cashflow", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_finance"], "dependencies": ["dim_trade_calendar", "ods_tushare_cashflow"]},
+    {"sql": "sql/dwd/11_dwd_fin_cashflow_latest.sql", "path": "definitions/dwd/11_dwd_fin_cashflow_latest.sqlx", "name": "dwd_fin_cashflow_latest", "schema": "ashare_dwd", "type": "operations", "hasOutput": true, "tags": ["dwd_finance"], "dependencies": ["dwd_fin_cashflow"]},
+
+    {"sql": "sql/dws/01_dws_stock_universe_daily.sql", "path": "definitions/dws/01_dws_stock_universe_daily.sqlx", "name": "dws_stock_universe_daily", "schema": "ashare_dws", "type": "operations", "hasOutput": true, "tags": ["strategy1_dws"], "dependencies": ["dim_stock", "dim_stock_name_hist", "dim_trade_calendar", "dwd_stock_eod_price"]},
+    {"sql": "sql/dws/02_dws_stock_feature_price_daily.sql", "path": "definitions/dws/02_dws_stock_feature_price_daily.sqlx", "name": "dws_stock_feature_price_daily", "schema": "ashare_dws", "type": "operations", "hasOutput": true, "tags": ["strategy1_dws"], "dependencies": ["dwd_stock_eod_price"]},
+    {"sql": "sql/dws/03_dws_stock_feature_valuation_daily.sql", "path": "definitions/dws/03_dws_stock_feature_valuation_daily.sqlx", "name": "dws_stock_feature_valuation_daily", "schema": "ashare_dws", "type": "operations", "hasOutput": true, "tags": ["strategy1_dws"], "dependencies": ["dwd_stock_eod_valuation"]},
+    {"sql": "sql/dws/04_dws_stock_label_daily.sql", "path": "definitions/dws/04_dws_stock_label_daily.sqlx", "name": "dws_stock_label_daily", "schema": "ashare_dws", "type": "operations", "hasOutput": true, "tags": ["strategy1_dws"], "dependencies": ["dim_trade_calendar", "dwd_stock_eod_price", "dws_stock_universe_daily"]},
+    {"sql": "sql/dws/05_dws_stock_feature_daily_v0.sql", "path": "definitions/dws/05_dws_stock_feature_daily_v0.sqlx", "name": "dws_stock_feature_daily_v0", "schema": "ashare_dws", "type": "operations", "hasOutput": true, "tags": ["strategy1_dws"], "dependencies": ["dws_stock_universe_daily", "dws_stock_feature_price_daily", "dws_stock_feature_valuation_daily"]},
+    {"sql": "sql/dws/06_dws_stock_sample_daily.sql", "path": "definitions/dws/06_dws_stock_sample_daily.sqlx", "name": "dws_stock_sample_daily", "schema": "ashare_dws", "type": "operations", "hasOutput": true, "tags": ["strategy1_dws"], "dependencies": ["dws_stock_feature_daily_v0", "dws_stock_label_daily"]},
+    {"sql": "sql/dws/07_dws_stock_feature_fin_daily.sql", "path": "definitions/dws/07_dws_stock_feature_fin_daily.sqlx", "name": "dws_stock_feature_fin_daily", "schema": "ashare_dws", "type": "operations", "hasOutput": true, "tags": ["strategy1_dws"], "dependencies": ["dwd_fin_indicator", "dwd_fin_income", "dwd_fin_balancesheet", "dwd_fin_cashflow", "dws_stock_universe_daily"]},
+
+    {"sql": "sql/metadata/01_core_table_column_descriptions.sql", "path": "definitions/metadata/01_core_table_column_descriptions.sqlx", "name": "core_table_column_descriptions", "type": "operations", "tags": ["metadata"], "dependencies": ["dim_trade_calendar", "dim_stock", "dim_stock_name_hist", "dim_index", "dwd_stock_eod_price", "dwd_stock_eod_valuation", "dwd_fin_indicator", "dwd_fin_indicator_latest", "dwd_index_eod"]},
+    {"sql": "sql/metadata/02_finance_table_column_descriptions.sql", "path": "definitions/metadata/02_finance_table_column_descriptions.sqlx", "name": "finance_table_column_descriptions", "type": "operations", "tags": ["metadata"], "dependencies": ["dwd_fin_income", "dwd_fin_income_latest", "dwd_fin_balancesheet", "dwd_fin_balancesheet_latest", "dwd_fin_cashflow", "dwd_fin_cashflow_latest", "dws_stock_feature_fin_daily"]},
+
+    {"sql": "sql/qa/01_core_smoke_checks.sql", "path": "definitions/assertions/01_core_smoke_checks.sqlx", "name": "core_smoke_checks", "type": "operations", "tags": ["qa_core"], "dependencies": ["core_table_column_descriptions", "finance_table_column_descriptions"]},
+    {"sql": "sql/qa/02_strategy1_dws_ads_checks.sql", "path": "definitions/assertions/02_strategy1_dws_ads_checks.sqlx", "name": "strategy1_dws_ads_checks", "type": "operations", "tags": ["assertion_strategy1"], "dependencies": ["dws_stock_universe_daily", "dws_stock_feature_price_daily", "dws_stock_feature_valuation_daily", "dws_stock_label_daily", "dws_stock_feature_daily_v0", "dws_stock_sample_daily", "dws_stock_feature_fin_daily"]},
+    {"sql": "sql/qa/03_index_benchmark_checks.sql", "path": "definitions/assertions/03_index_benchmark_checks.sqlx", "name": "index_benchmark_checks", "type": "operations", "tags": ["qa_contract"], "dependencies": ["dim_index", "dwd_index_eod"]},
+    {"sql": "sql/qa/04_finance_caliber_checks.sql", "path": "definitions/assertions/04_finance_caliber_checks.sqlx", "name": "finance_caliber_checks", "type": "operations", "tags": ["qa_contract"], "dependencies": ["finance_table_column_descriptions", "dws_stock_feature_fin_daily"]},
+    {"sql": "sql/qa/05_unit_contract_checks.sql", "path": "definitions/assertions/05_unit_contract_checks.sqlx", "name": "unit_contract_checks", "type": "operations", "tags": ["qa_contract"], "dependencies": ["ods_field_unit_map", "dwd_stock_eod_price", "dwd_stock_eod_valuation", "dwd_index_eod", "dwd_fin_indicator", "dwd_fin_income", "dwd_fin_balancesheet", "dwd_fin_cashflow"]}
+  ]
+}

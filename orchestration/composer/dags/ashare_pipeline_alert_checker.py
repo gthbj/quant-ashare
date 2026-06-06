@@ -1,4 +1,4 @@
-"""OQ-005 Pipeline Alert Checker DAG.
+"""Ashare Pipeline Alert Checker DAG.
 
 Periodically checks for pipeline failures and writes alerts to Cloud Logging.
 This enables the Cloud Monitoring alert pipeline:
@@ -71,13 +71,13 @@ def _run_alert_check(**context) -> None:
 
 
 with DAG(
-    dag_id="oq005_alert_checker",
-    description="OQ-005 periodic alert checker. Queries v_alert_summary and writes to Cloud Logging.",
+    dag_id="ashare_pipeline_alert_checker",
+    description="Ashare pipeline periodic alert checker. Queries v_alert_summary and writes to Cloud Logging.",
     start_date=pendulum.datetime(2026, 6, 5, tz="Asia/Shanghai"),
     schedule="*/10 * * * *",
     catchup=False,
     max_active_runs=1,
-    tags=["quant-ashare", "oq005", "alerting"],
+    tags=["quant-ashare", "pipeline", "alerting"],
 ) as dag:
     check_alerts = PythonOperator(
         task_id="check_alerts",

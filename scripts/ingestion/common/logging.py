@@ -1,4 +1,4 @@
-"""结构化日志（自动脱敏）。Phase 0 实现基础脱敏 filter。"""
+"""结构化日志（自动脱敏）。"""
 
 from __future__ import annotations
 

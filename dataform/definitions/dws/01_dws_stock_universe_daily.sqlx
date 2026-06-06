@@ -1,0 +1,182 @@
+-- Generated from canonical sql/ by scripts/dataform/generate_sqlx_from_sql.py.
+-- Canonical source: sql/dws/01_dws_stock_universe_daily.sql
+
+config {
+  type: "operations",
+  schema: "ashare_dws",
+  name: "dws_stock_universe_daily",
+  hasOutput: true,
+  tags: ["strategy1_dws"],
+  dependencies: ["dim_stock", "dim_stock_name_hist", "dim_trade_calendar", "dwd_stock_eod_price"]
+}
+
+-- 文档维护：GPT-5（最近更新 2026-06-01）
+-- BigQuery Standard SQL
+-- 策略 1 通用股票池底座：保留全样本骨架，过滤条件全部输出为掩码。
+
+DECLARE dws_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE dws_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
+DECLARE universe_version STRING DEFAULT 'universe_pv_v0_20260601';
+DECLARE min_list_age_td INT64 DEFAULT 120;
+DECLARE min_amount_ma20_cny FLOAT64 DEFAULT 50000000.0;
+DECLARE min_close_price FLOAT64 DEFAULT 3.0;
+-- 首个基线仅沪深主板，不含北交所、创业板、科创板。
+DECLARE board_allowlist ARRAY<STRING> DEFAULT ['SSE_MAIN', 'SZSE_MAIN'];
+
+CREATE OR REPLACE TABLE `data-aquarium.ashare_dws.dws_stock_universe_daily`
+PARTITION BY DATE_TRUNC(trade_date, MONTH)
+CLUSTER BY sec_code
+OPTIONS (
+  description = 'Daily stock universe base for cross-sectional ML strategies; keeps lifecycle/tradability/filter masks and writes 2019+ rows',
+  require_partition_filter = TRUE
+) AS
+WITH price_base AS (
+  SELECT
+    trade_date,
+    sec_code,
+    close,
+    amount_cny,
+    is_suspended,
+    is_one_word_limit_up,
+    is_one_word_limit_down,
+    can_buy_open,
+    can_sell_open,
+    is_tradable
+  FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price`
+  WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+),
+price_roll AS (
+  SELECT
+    *,
+    AVG(amount_cny) OVER (
+      PARTITION BY sec_code
+      ORDER BY trade_date
+      ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+    ) AS amount_ma20_cny,
+    COUNT(amount_cny) OVER (
+      PARTITION BY sec_code
+      ORDER BY trade_date
+      ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+    ) AS amount_obs_20d
+  FROM price_base
+),
+first_list_trade AS (
+  SELECT
+    s.sec_code,
+    MIN(c.cal_date) AS first_list_trade_date,
+    MIN(c.trade_date_seq) AS first_list_trade_seq
+  FROM `data-aquarium.ashare_dim.dim_stock` AS s
+  JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS c
+    ON c.exchange = 'SSE'
+   AND c.is_open = 1
+   AND c.cal_date >= COALESCE(s.list_date, DATE '1900-01-01')
+   AND (s.delist_date IS NULL OR c.cal_date < s.delist_date)
+  GROUP BY s.sec_code
+),
+st_daily AS (
+  SELECT
+    p.trade_date,
+    p.sec_code,
+    LOGICAL_OR(COALESCE(n.is_st, FALSE)) AS is_st,
+    LOGICAL_OR(COALESCE(n.is_star_st, FALSE)) AS is_star_st
+  FROM price_roll AS p
+  LEFT JOIN `data-aquarium.ashare_dim.dim_stock_name_hist` AS n
+    ON p.sec_code = n.sec_code
+   AND p.trade_date >= n.valid_from
+   AND p.trade_date < n.valid_to
+  GROUP BY p.trade_date, p.sec_code
+),
+joined AS (
+  SELECT
+    p.trade_date,
+    p.sec_code,
+    s.exchange,
+    s.market,
+    s.board,
+    s.list_date,
+    s.delist_date,
+    s.first_trade_date,
+    s.last_trade_date,
+    s.is_delisted,
+    c.trade_date_seq,
+    f.first_list_trade_seq,
+    p.close,
+    p.amount_cny,
+    p.amount_ma20_cny,
+    p.amount_obs_20d,
+    p.is_suspended,
+    p.is_one_word_limit_up,
+    p.is_one_word_limit_down,
+    COALESCE(p.is_one_word_limit_up, FALSE) OR COALESCE(p.is_one_word_limit_down, FALSE) AS is_one_word_limit,
+    p.can_buy_open,
+    p.can_sell_open,
+    p.is_tradable,
+    COALESCE(st.is_st, FALSE) AS is_st,
+    COALESCE(st.is_star_st, FALSE) AS is_star_st
+  FROM price_roll AS p
+  JOIN `data-aquarium.ashare_dim.dim_stock` AS s
+    ON p.sec_code = s.sec_code
+  JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS c
+    ON c.exchange = 'SSE'
+   AND c.is_open = 1
+   AND p.trade_date = c.cal_date
+  LEFT JOIN first_list_trade AS f
+    ON p.sec_code = f.sec_code
+  LEFT JOIN st_daily AS st
+    ON p.trade_date = st.trade_date
+   AND p.sec_code = st.sec_code
+)
+SELECT
+  trade_date,
+  sec_code,
+  exchange,
+  market,
+  board,
+  list_date,
+  delist_date,
+  first_trade_date,
+  last_trade_date,
+  is_delisted,
+  trade_date >= COALESCE(list_date, DATE '1900-01-01')
+    AND (delist_date IS NULL OR trade_date < delist_date) AS is_listed,
+  SAFE_CAST(trade_date_seq - first_list_trade_seq + 1 AS INT64) AS list_age_td,
+  close,
+  amount_cny,
+  amount_ma20_cny,
+  amount_obs_20d,
+  is_suspended,
+  is_one_word_limit_up,
+  is_one_word_limit_down,
+  is_one_word_limit,
+  can_buy_open,
+  can_sell_open,
+  COALESCE(is_tradable, FALSE)
+    AND trade_date >= COALESCE(list_date, DATE '1900-01-01')
+    AND (delist_date IS NULL OR trade_date < delist_date) AS is_tradable_hard,
+  is_st,
+  is_star_st,
+  board IN UNNEST(board_allowlist) AS pass_board,
+  SAFE_CAST(trade_date_seq - first_list_trade_seq + 1 AS INT64) >= min_list_age_td AS pass_list_age,
+  amount_obs_20d >= 20 AND amount_ma20_cny >= min_amount_ma20_cny AS pass_liquidity,
+  close >= min_close_price AS pass_price,
+  COALESCE(is_tradable, FALSE)
+    AND trade_date >= COALESCE(list_date, DATE '1900-01-01')
+    AND (delist_date IS NULL OR trade_date < delist_date)
+    AND NOT is_st
+    AND board IN UNNEST(board_allowlist)
+    AND SAFE_CAST(trade_date_seq - first_list_trade_seq + 1 AS INT64) >= min_list_age_td
+    AND amount_obs_20d >= 20
+    AND amount_ma20_cny >= min_amount_ma20_cny
+    AND close >= min_close_price AS in_universe_default,
+  universe_version,
+  CURRENT_TIMESTAMP() AS created_at
+FROM joined;
+
+ALTER TABLE `data-aquarium.ashare_dws.dws_stock_universe_daily`
+ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'),
+ALTER COLUMN sec_code SET OPTIONS (description = '统一证券代码，Tushare ts_code 格式'),
+ALTER COLUMN list_age_td SET OPTIONS (description = '上市后交易日数，基于 dim_trade_calendar.trade_date_seq 计算'),
+ALTER COLUMN amount_ma20_cny SET OPTIONS (description = '过去 20 个市场交易日成交额均值，元；2019 年初无 2018 buffer 时显式用 amount_obs_20d 标记不完整'),
+ALTER COLUMN is_tradable_hard SET OPTIONS (description = '硬可交易掩码：在市且 DWD is_tradable 为 TRUE'),
+ALTER COLUMN in_universe_default SET OPTIONS (description = '策略 1 默认股票池掩码：硬可交易、非 ST、上市满 120 交易日、20 日均额不低于 5000 万、收盘价不低于 3 元、主板白名单'),
+ALTER COLUMN universe_version SET OPTIONS (description = '股票池规则版本');

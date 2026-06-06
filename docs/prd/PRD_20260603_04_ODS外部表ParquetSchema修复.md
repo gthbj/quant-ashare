@@ -297,9 +297,9 @@ WHERE endpoint = 'stk_limit'
 `ods_tushare_stk_limit` 修复发布后，执行：
 
 - `sql/dwd/01_dwd_stock_eod_price.sql` dry-run；
-- `sql/qa/01_p0_smoke_checks.sql`；
+- `sql/qa/01_core_smoke_checks.sql`；
 - `sql/qa/02_strategy1_dws_ads_checks.sql`；
-- `sql/qa/05_oq006_unit_checks.sql` 中与价格 / 单位相关的现有断言。
+- `sql/qa/05_unit_contract_checks.sql` 中与价格 / 单位相关的现有断言。
 
 若只修 raw schema、不重建 DWD，可先执行 dry-run 与 ODS 读取 QA；重建 DWD 时再跑完整 P0 / 策略 1 QA。
 

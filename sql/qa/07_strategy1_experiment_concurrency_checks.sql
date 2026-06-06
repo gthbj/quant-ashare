@@ -1,5 +1,5 @@
 -- BigQuery Standard SQL
--- OQ-010: 策略 1 实验并发串号 QA
+-- 策略 1 实验并发串号 QA
 -- 在并发执行后运行，校验同一 stage 内 run_id / backtest_id 唯一性、
 -- ADS 表按 run_id / backtest_id 无串号、portfolio-only 实验未改写 registry
 -- 以及 resume 后无重复输出。

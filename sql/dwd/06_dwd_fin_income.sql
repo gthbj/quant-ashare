@@ -2,8 +2,8 @@
 -- BigQuery Standard SQL
 -- 利润表 DWD（PIT 版本事实表）：从 20170101 报告期起读取，支撑 2019+ PIT 和同比/基期。
 -- 三大报表有 f_ann_date：可见日 ann_date_eff = COALESCE(f_ann_date, ann_date)（区别于 fina_indicator 仅 ann_date）。
--- 按 OQ-003（docs/prd/PRD_20260601_03_财务报表口径维度.md）保留源 report_type 并派生
--- report_caliber / is_default_report_caliber；版本事实表不按 report_type 预过滤，去重键含 report_type。
+-- 保留源 report_type 并派生 report_caliber / is_default_report_caliber；
+-- 版本事实表不按 report_type 预过滤，去重键含 report_type。
 -- 实测：当前 ODS ods_tushare_income 仅含 report_type='1'（合并报表）；>'1' 的口径映射为前向兼容。
 -- 金额单位为元（Tushare 三大报表原始口径，未做单位换算），每股收益单位为元/股；income 为累计（YTD）口径。
 

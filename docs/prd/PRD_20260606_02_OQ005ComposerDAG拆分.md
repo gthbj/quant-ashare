@@ -17,7 +17,7 @@ OQ-005 生产调度已经完成 current-scope ODS 采集、ODS readiness、DWD/D
 3. 将每日生产采集与 DIM/DWD/DWS 窗口刷新解耦，允许 ingestion 成功后触发 warehouse refresh，也允许手工触发 backfill。
 4. 将全量重建从日更 DAG 中移出，变成显式手工维护 DAG。
 5. 将研究实验 DAG 与生产数仓 DAG 分离，避免实验 runner / report 逻辑污染每日生产调度。
-6. 保留 `oq005_alert_checker` 独立运行，不并入生产 DAG。
+6. 保留 `ashare_pipeline_alert_checker` 独立运行，不并入生产 DAG。
 7. 继续使用 `ashare_meta.pipeline_run` / `ashare_meta.pipeline_task_status` 作为统一观测事实表，必要时补充跨 DAG 链路字段。
 
 ## 3. 非目标
@@ -37,7 +37,7 @@ OQ-005 生产调度已经完成 current-scope ODS 采集、ODS readiness、DWD/D
 | `ashare_warehouse_full_rebuild` | 手工触发，默认无 schedule | 维护型全量重建；显式确认后重建 DIM/DWD/DWS；跑 P0 / 策略 / OQ QA | 不被每日调度自动触发；不执行 ODS 采集；不跑研究实验 |
 | `ashare_research_model_experiment` | 手工触发 | 单次策略研究实验；读取已冻结或可复用数据；写 ADS 实验产物、报告、诊断和 QA 状态 | 不写生产 DIM/DWD/DWS；不负责每日 ODS readiness |
 | `ashare_research_model_fanout` | 手工触发 | 批量候选搜索 / fan-out；控制候选并发；写 ADS 搜索产物、报告、诊断和 QA 状态 | 不写生产 DIM/DWD/DWS；不触发生产日更 |
-| `oq005_alert_checker` | 每 10 分钟 scheduled | 查询观测视图，写 Cloud Logging 业务告警和 heartbeat | 不编排生产任务 |
+| `ashare_pipeline_alert_checker` | 每 10 分钟 scheduled | 查询观测视图，写 Cloud Logging 业务告警和 heartbeat | 不编排生产任务 |
 
 ## 5. 生产链路
 
@@ -146,7 +146,7 @@ P1 建议补充可选字段：
 | `data_interval_start` / `data_interval_end` | `pipeline_run` | scheduled run 审计 |
 | `task_attempt` | `pipeline_task_status` | 更清晰地区分 Airflow retry |
 
-跨 DAG 缺失检测是 P0：观测视图或 `oq005_alert_checker` 必须检查 “ingestion run succeeded，但指定时间内没有对应 `upstream_pipeline_run_id` 的 warehouse refresh running / succeeded” 的情况，并写入业务告警。默认检测窗口建议为 ingestion terminal success 后 60 分钟，可在部署 smoke 后按实际运行耗时调整。
+跨 DAG 缺失检测是 P0：观测视图或 `ashare_pipeline_alert_checker` 必须检查 “ingestion run succeeded，但指定时间内没有对应 `upstream_pipeline_run_id` 的 warehouse refresh running / succeeded” 的情况，并写入业务告警。默认检测窗口建议为 ingestion terminal success 后 60 分钟，可在部署 smoke 后按实际运行耗时调整。
 
 `daily_current` 默认刷新最近 20 个交易日，因此单日 warehouse refresh 丢失且 ODS 已采集成功时，次日 refresh 会覆盖上一日窗口；这能降低数据长期缺口风险，但不能替代 refresh-missing watchdog。
 
@@ -158,7 +158,7 @@ P1 建议补充可选字段：
    - `ashare_warehouse_full_rebuild.py`
    - `ashare_research_model_experiment.py`
    - `ashare_research_model_fanout.py`
-   - `oq005_alert_checker.py` 保持独立
+   - `ashare_pipeline_alert_checker.py` 保持独立
 2. 抽取共享 helper 到 `orchestration/composer/dags/ashare_common.py` 或同级包，复用：
    - conf 参数读取和类型转换
    - `business_date` / `data_interval_end` 口径
@@ -226,7 +226,7 @@ P0 验收条件：
 7. `daily_current` 仍默认覆盖当天往前 20 个交易日，估值链路 QA-WIN-16/17/18 通过。
 8. `ashare_warehouse_full_rebuild` 未显式确认时 fail-closed。
 9. ingestion success 后若 warehouse refresh 缺失，watchdog 能在约定窗口后产生日志 / 告警证据。
-10. `oq005_alert_checker` 继续每 10 分钟运行，heartbeat 和 absence policy 不受 DAG 拆分影响。
+10. `ashare_pipeline_alert_checker` 继续每 10 分钟运行，heartbeat 和 absence policy 不受 DAG 拆分影响。
 11. `ashare_daily_pipeline_v0` 暂停后，不再出现同一业务日新旧 DAG 双写。
 
 ## 11. 风险与控制
@@ -246,7 +246,7 @@ P0 验收条件：
 1. `docs/prd/PRD_20260603_03_GCP数据流水线方案.md` 仍是 GCP 总体目标架构。
 2. `docs/prd/PRD_20260605_01_OQ005剩余调度链路.md` 仍是 ODS→ADS 生产链路能力清单；本文补充 Composer DAG 拆分后的执行边界。
 3. `orchestration/composer/README.md` 在实现时需要更新为多 DAG 运行手册。
-4. `docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md` 在实现时需要按新 DAG 名称改写触发命令和排障入口。
+4. `docs/Pipeline-补跑与故障恢复-Runbook.md` 在实现时需要按新 DAG 名称改写触发命令和排障入口。
 5. `.agent/memory/ARCHITECTURE_MEMORY.md` 需要记录多 DAG 目标边界，避免后续继续把新能力塞回 `ashare_daily_pipeline_v0`。
 
 ## 13. 下一步

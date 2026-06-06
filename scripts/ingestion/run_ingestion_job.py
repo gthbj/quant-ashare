@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Cloud Run Job entrypoint for OQ-005 ingestion.
+"""Cloud Run Job entrypoint for Ashare ingestion.
 
-Phase 1 starts with deployable dry-run plumbing. Live endpoint ingestion still
+Production ingestion starts with deployable dry-run plumbing. Live endpoint ingestion
 depends on the endpoint group implementations under scripts/ingestion/endpoints.
 """
 
@@ -164,7 +164,7 @@ def _resolve_endpoint_groups(endpoint_group: str) -> list[str]:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run OQ-005 ingestion endpoint group.")
+    parser = argparse.ArgumentParser(description="Run Ashare ingestion endpoint group.")
     parser.add_argument("--manifest", default=os.environ.get("INGESTION_MANIFEST", "configs/ingestion/ods_current_scope_v0.yml"))
     parser.add_argument("--endpoint-group", choices=_endpoint_group_choices(), required=True)
     parser.add_argument("--endpoint", action="append", help="Restrict execution to one endpoint name. Repeatable.")

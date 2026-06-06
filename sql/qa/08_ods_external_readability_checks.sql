@@ -1,6 +1,6 @@
 -- 文档维护：GPT-5（最近更新 2026-06-04）
 -- BigQuery Standard SQL
--- OQ-005: 当前生产采集范围 ODS 外部表可读性检查。
+-- 当前生产采集范围 ODS 外部表可读性检查。
 --
 -- 范围：configs/ingestion/ods_current_scope_v0.yml 中当前 SQL 消费的 14 个 ODS endpoint。
 -- 目的：在 ODS -> DIM/DWD/DWS/ADS 转换前，先确认外部表和 2019+ 分区可读。
@@ -10,9 +10,9 @@ DECLARE p_min_partition_date STRING DEFAULT '20190101';
 DECLARE p_require_smoke_partition BOOL DEFAULT FALSE;
 DECLARE p_smoke_endpoint STRING DEFAULT 'index_daily_000852_SH';
 DECLARE p_smoke_partition_date STRING DEFAULT '20260603';
-DECLARE p_smoke_run_id STRING DEFAULT 'oq005_gcs_smoke_index_daily_000852_20260603_01';
+DECLARE p_smoke_run_id STRING DEFAULT 'pipeline_gcs_smoke_index_daily_000852_20260603_01';
 
-CREATE TEMP TABLE oq005_ods_readability AS
+CREATE TEMP TABLE pipeline_ods_readability AS
 SELECT 'ods_tushare_daily' AS table_name, COUNT(*) AS sample_rows
 FROM (
   SELECT 1
@@ -155,12 +155,12 @@ FROM (
 
 ASSERT (
   SELECT COUNT(*) = 14
-  FROM oq005_ods_readability
-) AS 'QA-ODS-READ-1: OQ-005 readability scope must contain 14 ODS tables';
+  FROM pipeline_ods_readability
+) AS 'QA-ODS-READ-1: pipeline readability scope must contain 14 ODS tables';
 
 ASSERT (
   SELECT COUNTIF(sample_rows > 0) = COUNT(*)
-  FROM oq005_ods_readability
+  FROM pipeline_ods_readability
 ) AS 'QA-ODS-READ-2: every current-scope ODS external table must have at least one readable 2019+ row';
 
 IF p_require_smoke_partition THEN
@@ -170,9 +170,9 @@ IF p_require_smoke_partition THEN
     WHERE endpoint = p_smoke_endpoint
       AND partition_date = p_smoke_partition_date
       AND _run_id = p_smoke_run_id
-  ) AS 'QA-ODS-READ-3: OQ-005 smoke partition must be readable with the expected run_id';
+  ) AS 'QA-ODS-READ-3: pipeline smoke partition must be readable with the expected run_id';
 END IF;
 
 SELECT *
-FROM oq005_ods_readability
+FROM pipeline_ods_readability
 ORDER BY table_name;

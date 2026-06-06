@@ -61,7 +61,7 @@ with DAG(
         "on_failure_callback": _task_failure_callback,
     },
     on_failure_callback=_write_pipeline_run_failed,
-    tags=["quant-ashare", "oq005", "ods", "ingestion"],
+    tags=["quant-ashare", "pipeline", "ods", "ingestion"],
 ) as dag:
     start = EmptyOperator(task_id="start")
     finish = EmptyOperator(

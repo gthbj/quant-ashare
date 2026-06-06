@@ -1,6 +1,6 @@
 # scripts/ingestion — Tushare 兼容 API → GCS Parquet 采集框架
 #
-# Phase 1: endpoint-group worker、分页 API client、schema cast、GCS staging/publish。
+# ODS 采集：endpoint-group worker、分页 API client、schema cast、GCS staging/publish。
 #
 # 目录结构：
 #   common/

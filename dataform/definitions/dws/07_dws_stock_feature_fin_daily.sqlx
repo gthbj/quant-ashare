@@ -1,0 +1,226 @@
+-- Generated from canonical sql/ by scripts/dataform/generate_sqlx_from_sql.py.
+-- Canonical source: sql/dws/07_dws_stock_feature_fin_daily.sql
+
+config {
+  type: "operations",
+  schema: "ashare_dws",
+  name: "dws_stock_feature_fin_daily",
+  hasOutput: true,
+  tags: ["strategy1_dws"],
+  dependencies: ["dwd_fin_indicator", "dwd_fin_income", "dwd_fin_balancesheet", "dwd_fin_cashflow", "dws_stock_universe_daily"]
+}
+
+-- 文档维护：Claude Opus 4.8（最近更新 2026-06-02）
+-- BigQuery Standard SQL
+-- 财务特征 DWS（P0 默认合并口径）：把 dwd_fin_indicator 与三大报表（income/balancesheet/cashflow）
+-- 的 PIT 版本事实表 as-of 到每个 universe 交易日。粒度 (sec_code, trade_date, feature_version)。
+--
+-- 口径：
+--   * 三大报表只消费默认合并口径（is_default_report_caliber=TRUE，report_type=1）；过滤在预过滤 CTE 内，
+--     再 LEFT JOIN universe，绝不写进 WHERE，避免把 LEFT JOIN 退化成 inner join 丢掉暂无财报的股票日期。
+--   * fina_indicator 无 report_type，按 source_default 口径统一消费，只用 visible_trade_date<=trade_date 截点。
+--   * report_caliber / is_default_report_caliber 描述本表“消费口径契约”（恒为 consolidated / TRUE）；某只股票某日
+--     是否真有某来源的财报由 has_fin_* 掩码和各来源 *_report_period 标识。
+--
+-- PIT 防线：as-of 一律用 visible_trade_date<=trade_date；同 universe 日内按
+--   report_period DESC, ann_date_eff DESC, update_flag DESC, ingested_at DESC, source_partition_date DESC 取当时已可见的最新版本。
+--   不使用任何 *_latest 便捷表构造回测特征。
+-- 简化（P0，已文档化）：as-of 限制 visible_trade_date 在 [trade_date - asof_lookback_days, trade_date] 内，
+--   即财报超过 asof_lookback_days（默认 900 日 ≈ 2.5 年）未更新视为缺失（has_fin_*=FALSE），用于约束 as-of 扇出成本；
+--   正常季度披露的股票最新财报远在该窗口内，不受影响。
+
+DECLARE dws_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE dws_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
+DECLARE feature_version STRING DEFAULT 'fin_default_v0_20260602';
+DECLARE asof_lookback_days INT64 DEFAULT 900;
+
+CREATE OR REPLACE TABLE `data-aquarium.ashare_dws.dws_stock_feature_fin_daily`
+PARTITION BY DATE_TRUNC(trade_date, MONTH)
+CLUSTER BY sec_code, feature_version
+OPTIONS (
+  description = 'P0 默认合并口径 PIT 财务特征宽表：dwd_fin_indicator + 三大报表 as-of 到每个 universe 交易日。粒度 (sec_code, trade_date, feature_version)；report_caliber/is_default_report_caliber 为消费口径契约（consolidated/TRUE），各来源可用性见 has_fin_* 与 *_report_period。不读 *_latest，回测安全。',
+  require_partition_filter = TRUE
+) AS
+WITH u AS (
+  SELECT sec_code, trade_date
+  FROM `data-aquarium.ashare_dws.dws_stock_universe_daily`
+  WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+),
+-- 预过滤：三大报表只取默认合并口径；fina_indicator 全量（无 report_type，source_default 口径）。
+ind_src AS (
+  SELECT
+    sec_code, report_period, ann_date_eff, visible_trade_date, update_flag, ingested_at, source_partition_date,
+    roe, roe_deducted, roa, roic, grossprofit_margin, netprofit_margin,
+    debt_to_assets, current_ratio, quick_ratio, assets_to_equity,
+    ocf_to_or, ocf_to_profit, cash_ratio,
+    netprofit_yoy, operating_revenue_yoy, total_revenue_yoy, basic_eps_yoy,
+    q_roe, q_netprofit_margin, q_grossprofit_margin
+  FROM `data-aquarium.ashare_dwd.dwd_fin_indicator`
+),
+inc_src AS (
+  SELECT
+    sec_code, report_period, ann_date_eff, visible_trade_date, update_flag, ingested_at, source_partition_date,
+    total_revenue, revenue, operate_profit, total_profit, n_income, n_income_attr_p, ebit, ebitda, basic_eps
+  FROM `data-aquarium.ashare_dwd.dwd_fin_income`
+  WHERE is_default_report_caliber = TRUE
+),
+bs_src AS (
+  SELECT
+    sec_code, report_period, ann_date_eff, visible_trade_date, update_flag, ingested_at, source_partition_date,
+    total_assets, total_cur_assets, total_cur_liab, total_liab,
+    total_hldr_eqy_exc_min_int, total_hldr_eqy_inc_min_int, minority_int,
+    money_cap, inventories, accounts_receiv, goodwill
+  FROM `data-aquarium.ashare_dwd.dwd_fin_balancesheet`
+  WHERE is_default_report_caliber = TRUE
+),
+cf_src AS (
+  SELECT
+    sec_code, report_period, ann_date_eff, visible_trade_date, update_flag, ingested_at, source_partition_date,
+    n_cashflow_act, n_cashflow_inv_act, n_cash_flows_fnc_act, free_cashflow, net_profit AS cf_net_profit
+  FROM `data-aquarium.ashare_dwd.dwd_fin_cashflow`
+  WHERE is_default_report_caliber = TRUE
+),
+-- as-of：每个 universe (sec_code, trade_date) 取当时已可见的最新版本（含 update_flag 修正版优先）。
+ind_asof AS (
+  SELECT u.sec_code, u.trade_date,
+    s.report_period AS ind_report_period,
+    s.ann_date_eff AS ind_ann_date_eff,
+    s.visible_trade_date AS ind_visible_trade_date,
+    s.roe, s.roe_deducted, s.roa, s.roic, s.grossprofit_margin, s.netprofit_margin,
+    s.debt_to_assets, s.current_ratio, s.quick_ratio, s.assets_to_equity,
+    s.ocf_to_or, s.ocf_to_profit, s.cash_ratio,
+    s.netprofit_yoy, s.operating_revenue_yoy, s.total_revenue_yoy, s.basic_eps_yoy,
+    s.q_roe, s.q_netprofit_margin, s.q_grossprofit_margin
+  FROM u
+  JOIN ind_src AS s
+    ON s.sec_code = u.sec_code
+   AND s.visible_trade_date <= u.trade_date
+   AND s.visible_trade_date >= DATE_SUB(u.trade_date, INTERVAL asof_lookback_days DAY)
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY u.sec_code, u.trade_date
+    ORDER BY s.report_period DESC, s.ann_date_eff DESC, s.update_flag DESC, s.ingested_at DESC, s.source_partition_date DESC
+  ) = 1
+),
+inc_asof AS (
+  SELECT u.sec_code, u.trade_date,
+    s.report_period AS inc_report_period,
+    s.ann_date_eff AS inc_ann_date_eff,
+    s.visible_trade_date AS inc_visible_trade_date,
+    s.total_revenue, s.revenue, s.operate_profit, s.total_profit,
+    s.n_income, s.n_income_attr_p, s.ebit, s.ebitda, s.basic_eps
+  FROM u
+  JOIN inc_src AS s
+    ON s.sec_code = u.sec_code
+   AND s.visible_trade_date <= u.trade_date
+   AND s.visible_trade_date >= DATE_SUB(u.trade_date, INTERVAL asof_lookback_days DAY)
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY u.sec_code, u.trade_date
+    ORDER BY s.report_period DESC, s.ann_date_eff DESC, s.update_flag DESC, s.ingested_at DESC, s.source_partition_date DESC
+  ) = 1
+),
+bs_asof AS (
+  SELECT u.sec_code, u.trade_date,
+    s.report_period AS bs_report_period,
+    s.ann_date_eff AS bs_ann_date_eff,
+    s.visible_trade_date AS bs_visible_trade_date,
+    s.total_assets, s.total_cur_assets, s.total_cur_liab, s.total_liab,
+    s.total_hldr_eqy_exc_min_int, s.total_hldr_eqy_inc_min_int, s.minority_int,
+    s.money_cap, s.inventories, s.accounts_receiv, s.goodwill
+  FROM u
+  JOIN bs_src AS s
+    ON s.sec_code = u.sec_code
+   AND s.visible_trade_date <= u.trade_date
+   AND s.visible_trade_date >= DATE_SUB(u.trade_date, INTERVAL asof_lookback_days DAY)
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY u.sec_code, u.trade_date
+    ORDER BY s.report_period DESC, s.ann_date_eff DESC, s.update_flag DESC, s.ingested_at DESC, s.source_partition_date DESC
+  ) = 1
+),
+cf_asof AS (
+  SELECT u.sec_code, u.trade_date,
+    s.report_period AS cf_report_period,
+    s.ann_date_eff AS cf_ann_date_eff,
+    s.visible_trade_date AS cf_visible_trade_date,
+    s.n_cashflow_act, s.n_cashflow_inv_act, s.n_cash_flows_fnc_act, s.free_cashflow, s.cf_net_profit
+  FROM u
+  JOIN cf_src AS s
+    ON s.sec_code = u.sec_code
+   AND s.visible_trade_date <= u.trade_date
+   AND s.visible_trade_date >= DATE_SUB(u.trade_date, INTERVAL asof_lookback_days DAY)
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY u.sec_code, u.trade_date
+    ORDER BY s.report_period DESC, s.ann_date_eff DESC, s.update_flag DESC, s.ingested_at DESC, s.source_partition_date DESC
+  ) = 1
+)
+SELECT
+  u.trade_date,
+  u.sec_code,
+  feature_version,
+  -- 主报告期元数据（以利润表为准；income/bs/cf 同期同步披露，差异由各来源 *_report_period 暴露）
+  inc.inc_report_period AS report_period,
+  inc.inc_ann_date_eff AS ann_date_eff,
+  inc.inc_visible_trade_date AS visible_trade_date,
+  'consolidated' AS report_caliber,
+  TRUE AS is_default_report_caliber,
+  DATE_DIFF(u.trade_date, inc.inc_report_period, DAY) AS report_age_days,
+  DATE_DIFF(inc.inc_visible_trade_date, inc.inc_report_period, DAY) AS fin_report_lag_days,
+  -- 来源可用性掩码
+  ind.ind_report_period IS NOT NULL AS has_fin_indicator,
+  inc.inc_report_period IS NOT NULL AS has_fin_income,
+  bs.bs_report_period IS NOT NULL AS has_fin_balancesheet,
+  cf.cf_report_period IS NOT NULL AS has_fin_cashflow,
+  -- fina_indicator 口径（source_default）+ 各来源报告期（可与主报告期不同）
+  'source_default' AS ind_report_caliber,
+  ind.ind_report_period,
+  ind.ind_visible_trade_date,
+  bs.bs_report_period,
+  bs.bs_visible_trade_date,
+  cf.cf_report_period,
+  cf.cf_visible_trade_date,
+  -- 盈利质量 / 成长 / 杠杆 / 现金流比率（来自 dwd_fin_indicator）
+  ind.roe, ind.roe_deducted, ind.roa, ind.roic,
+  ind.grossprofit_margin, ind.netprofit_margin,
+  ind.debt_to_assets, ind.current_ratio, ind.quick_ratio, ind.assets_to_equity,
+  ind.ocf_to_or, ind.ocf_to_profit, ind.cash_ratio,
+  ind.netprofit_yoy, ind.operating_revenue_yoy, ind.total_revenue_yoy, ind.basic_eps_yoy,
+  ind.q_roe, ind.q_netprofit_margin, ind.q_grossprofit_margin,
+  -- 利润表绝对值（元，累计/YTD）
+  inc.total_revenue, inc.revenue, inc.operate_profit, inc.total_profit,
+  inc.n_income, inc.n_income_attr_p, inc.ebit, inc.ebitda, inc.basic_eps,
+  -- 资产负债表绝对值（元，时点值）
+  bs.total_assets, bs.total_cur_assets, bs.total_cur_liab, bs.total_liab,
+  bs.total_hldr_eqy_exc_min_int, bs.total_hldr_eqy_inc_min_int, bs.minority_int,
+  bs.money_cap, bs.inventories, bs.accounts_receiv, bs.goodwill,
+  -- 现金流量表绝对值（元，累计/YTD）
+  cf.n_cashflow_act, cf.n_cashflow_inv_act, cf.n_cash_flows_fnc_act, cf.free_cashflow, cf.cf_net_profit,
+  CURRENT_TIMESTAMP() AS created_at
+FROM u
+LEFT JOIN ind_asof AS ind ON ind.sec_code = u.sec_code AND ind.trade_date = u.trade_date
+LEFT JOIN inc_asof AS inc ON inc.sec_code = u.sec_code AND inc.trade_date = u.trade_date
+LEFT JOIN bs_asof AS bs ON bs.sec_code = u.sec_code AND bs.trade_date = u.trade_date
+LEFT JOIN cf_asof AS cf ON cf.sec_code = u.sec_code AND cf.trade_date = u.trade_date;
+
+ALTER TABLE `data-aquarium.ashare_dws.dws_stock_feature_fin_daily`
+ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'),
+ALTER COLUMN sec_code SET OPTIONS (description = '统一证券代码，Tushare ts_code 格式'),
+ALTER COLUMN feature_version SET OPTIONS (description = '财务特征版本'),
+ALTER COLUMN report_period SET OPTIONS (description = '主报告期（利润表 as-of 选中的报告期）；无可见财报时为空'),
+ALTER COLUMN ann_date_eff SET OPTIONS (description = '主报告期被选中版本的公告生效日'),
+ALTER COLUMN visible_trade_date SET OPTIONS (description = '主报告期被选中版本的可见交易日，PIT 防线：恒 <= trade_date'),
+ALTER COLUMN report_caliber SET OPTIONS (description = '消费口径契约：三大报表恒为 consolidated（默认合并口径）'),
+ALTER COLUMN is_default_report_caliber SET OPTIONS (description = '消费口径契约：恒为 TRUE，表示本表三大报表特征只来自默认合并口径；可用性见 has_fin_*'),
+ALTER COLUMN report_age_days SET OPTIONS (description = 'trade_date 与主报告期之差（天），财务新鲜度'),
+ALTER COLUMN fin_report_lag_days SET OPTIONS (description = '主报告期可见交易日与报告期之差（天），披露时滞'),
+ALTER COLUMN has_fin_indicator SET OPTIONS (description = '该交易日是否有可见的 fina_indicator 版本'),
+ALTER COLUMN has_fin_income SET OPTIONS (description = '该交易日是否有可见的默认口径利润表'),
+ALTER COLUMN has_fin_balancesheet SET OPTIONS (description = '该交易日是否有可见的默认口径资产负债表'),
+ALTER COLUMN has_fin_cashflow SET OPTIONS (description = '该交易日是否有可见的默认口径现金流量表'),
+ALTER COLUMN ind_report_caliber SET OPTIONS (description = 'fina_indicator 口径标识，恒为 source_default（源无 report_type）'),
+ALTER COLUMN roe SET OPTIONS (description = '净资产收益率（fina_indicator），as-of PIT'),
+ALTER COLUMN netprofit_yoy SET OPTIONS (description = '净利润同比增速（fina_indicator），as-of PIT'),
+ALTER COLUMN total_revenue SET OPTIONS (description = '营业总收入，元，累计/YTD（利润表 as-of）'),
+ALTER COLUMN n_income_attr_p SET OPTIONS (description = '归母净利润，元，累计/YTD（利润表 as-of）'),
+ALTER COLUMN total_assets SET OPTIONS (description = '资产总计，元，时点值（资产负债表 as-of）'),
+ALTER COLUMN total_hldr_eqy_exc_min_int SET OPTIONS (description = '归母股东权益合计，元，时点值（资产负债表 as-of）'),
+ALTER COLUMN n_cashflow_act SET OPTIONS (description = '经营活动现金流量净额，元，累计/YTD（现金流量表 as-of）'),
+ALTER COLUMN created_at SET OPTIONS (description = '本表构建时间戳');

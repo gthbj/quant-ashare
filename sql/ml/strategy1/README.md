@@ -9,7 +9,7 @@
 - `ashare_dws` 6 张 DWS 表已物化（`sql/dws/01-06`）
 - `ashare_ads` 11 张 ADS 契约表已创建（`sql/ads/01`）
 - `sql/qa/02_strategy1_dws_ads_checks.sql` 通过
-- `ashare_dim.dim_index` 与 `ashare_dwd.dwd_index_eod` 已按 OQ-004 口径重建，`sql/qa/03_oq004_index_checks.sql` 通过
+- `ashare_dim.dim_index` 与 `ashare_dwd.dwd_index_eod` 已按 OQ-004 口径重建，`sql/qa/03_index_benchmark_checks.sql` 通过
 - `pip install google-cloud-bigquery google-cloud-storage matplotlib pandas requests db-dtypes`
 
 ## 执行顺序
