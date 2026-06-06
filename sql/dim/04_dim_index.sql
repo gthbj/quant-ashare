@@ -3,7 +3,7 @@
 -- 指数主维表：维护 canonical 指数代码、ODS 实际代码、端点可用性和 benchmark 候选状态。
 -- 只 seed 当前 ODS index_daily source URI 中真实存在的端点；中证2000、国证2000等候选指数
 -- 当前未见可用 ODS 端点，需上游补采后再加入 dim_index，不能提前写入默认 benchmark。
--- 字段描述由 sql/metadata/01_p0_table_column_descriptions.sql 统一维护。
+-- 字段描述由 sql/metadata/01_core_table_column_descriptions.sql 统一维护。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');

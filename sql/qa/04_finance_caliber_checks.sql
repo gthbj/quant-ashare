@@ -1,6 +1,6 @@
 -- 文档维护：Claude Opus 4.8（最近更新 2026-06-02）
 -- BigQuery Standard SQL
--- OQ-003 财务报表口径 DWD/DWS 落地断言（PRD_20260601_03 §8）。
+-- 财务报表口径 DWD/DWS 落地断言。
 -- 覆盖三大报表 income/balancesheet/cashflow 版本事实表 + 默认口径 latest + dws_stock_feature_fin_daily。
 -- 全部通过才算财务口径维度落地完成。
 

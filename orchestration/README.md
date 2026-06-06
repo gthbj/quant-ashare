@@ -1,4 +1,4 @@
-# orchestration - OQ-005 GCP 调度流水线
+# orchestration - A 股 GCP 调度流水线
 
 > 文档维护：GPT-5（最近更新 2026-06-05）
 
@@ -9,7 +9,7 @@
 
 采集 worker 代码仍位于 `scripts/ingestion/`，ODS 到 DIM/DWD/DWS/ADS 的 SQL/建模资产仍位于现有 `sql/`、`configs/`、`docs/` 目录。本目录只承载调度和部署入口，不保存 token、service account key 或任何凭据。
 
-当前 Phase 2.2 已提供可部署 jobs、真实 worker、每日窗口刷新和 Composer DAG 的 BigQuery SQL 兼容调度闭环：
+当前调度体系已提供可部署 jobs、真实 worker、每日窗口刷新和 Composer DAG 的 BigQuery SQL 兼容调度闭环：
 
 - Cloud Run Jobs 使用 `TUSHARE_TOKEN` Secret Manager 注入方式；每日生产入口使用 `ashare-ingest-current-scope` 单 execution 顺序执行当前 14 个 ODS endpoint；Jobs 通过 Direct VPC egress + Cloud NAT + 区域静态 IP 固定出口。
 - Tushare 官方或兼容 API 地址通过 `TUSHARE_HTTP_URL` 环境变量注入。

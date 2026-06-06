@@ -1,5 +1,5 @@
 -- BigQuery Standard SQL
--- OQ-010: strategy1_experiment_run_status
+-- strategy1_experiment_run_status
 -- 实验并发调度状态表，记录每个 step 的调度生命周期、锁状态和审计信息。
 -- 该表只用于审计追踪和 resume 输入，不承担低延迟锁管理职责。
 -- 锁的原语是 GCS object create-if-not-exists (ifGenerationMatch=0)。
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_meta.strategy1_experiment_run_s
   error_message STRING OPTIONS(description="脱敏错误摘要")
 )
 OPTIONS (
-  description = 'OQ-010 策略 1 实验并发调度状态表。记录每个实验 step 的调度生命周期、锁、审计与产物信息。该表只用于审计追踪和 resume 输入，不承担低延迟锁管理职责；锁原语是 GCS object create-if-not-exists (ifGenerationMatch=0)。'
+  description = '策略 1 实验并发调度状态表。记录每个实验 step 的调度生命周期、锁、审计与产物信息。该表只用于审计追踪和 resume 输入，不承担低延迟锁管理职责；锁原语是 GCS object create-if-not-exists (ifGenerationMatch=0)。'
 );
 
 -- 表级过期（非分区表，用 expiration_timestamp 或 TTL 在调度器侧清理过期记录）

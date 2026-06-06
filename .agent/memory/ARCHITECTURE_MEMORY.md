@@ -16,7 +16,7 @@ Tushare 等数据源
 
 2026-06-05 已合并剩余 ODS→ADS 生产调度链路 PRD：`docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`。该文档是 Phase 1.7 生产采集之后的实现依据，定义 ODS gate、BigQuery SQL 兼容路径、Dataform definitions、ADS 契约隔离、刷新窗口、metadata、QA、pipeline 状态、告警、补跑、策略 runner/report 可选分支和 OQ-005 关闭标准。Phase 2.0 BigQuery SQL 兼容路径已由 PR #61 进入 `main` 并部署到 Composer；`skip_ingestion` / `qa_only` / `daily_current` 生产 smoke 已完成。
 
-2026-06-06 新增 Composer DAG 拆分目标 PRD：`docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md`。后续 OQ-005 调度边界应拆为 `ashare_ods_ingestion_daily`（生产采集 + ODS readiness）、`ashare_warehouse_window_refresh`（daily_current / backfill 的 DIM/DWD/DWS 窗口刷新）、`ashare_warehouse_full_rebuild`（手工全量维护）、`ashare_research_model_experiment`（手工单次研究实验）、`ashare_research_model_fanout`（手工批量候选搜索），`oq005_alert_checker` 继续独立。新增生产能力应优先落到对应 DAG，不继续扩大 `ashare_daily_pipeline_v0`；跨 DAG 触发必须在 P0 记录 `upstream_pipeline_run_id` 并配置 refresh-missing watchdog。
+2026-06-06 新增 Composer DAG 拆分目标 PRD：`docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md`。后续 OQ-005 调度边界应拆为 `ashare_ods_ingestion_daily`（生产采集 + ODS readiness）、`ashare_warehouse_window_refresh`（daily_current / backfill 的 DIM/DWD/DWS 窗口刷新）、`ashare_warehouse_full_rebuild`（手工全量维护）、`ashare_research_model_experiment`（手工单次研究实验）、`ashare_research_model_fanout`（手工批量候选搜索），`ashare_pipeline_alert_checker` 继续独立。新增生产能力应优先落到对应 DAG，不继续扩大 `ashare_daily_pipeline_v0`；跨 DAG 触发必须在 P0 记录 `upstream_pipeline_run_id` 并配置 refresh-missing watchdog。
 
 2026-06-06 OQ-005 Composer DAG 拆分实现已由 PR #86 合入并完成生产部署 / 切换。`orchestration/composer/dags/ashare_common.py` 是共享 helper；production scheduled 入口为 `ashare_ods_ingestion_daily`，每日 20:00 CST 采集当前 14 个 ODS endpoint、执行非交易日 gate 和 ODS readiness，并在成功后触发 `ashare_warehouse_window_refresh`；`ashare_warehouse_window_refresh` 负责 `daily_current` / `backfill` 的 DIM/DWD/DWS 窗口刷新和 `qa_only` 只读 QA，`max_active_runs=1` 串行；`ashare_warehouse_full_rebuild` 是无 schedule 的手工全量维护 DAG。旧 `ashare_daily_pipeline_v0` 已暂停，仅保留为迁移期回滚参考。P0 跨 DAG 触发使用 `TriggerDagRunOperator`，并通过 `pipeline_run.upstream_pipeline_run_id` / `triggered_by_dag_id`、`v_pipeline_refresh_missing` 和 `warehouse_refresh_missing` 告警补可观测链路；refresh-missing 只在完全没有 linked warehouse run 时触发，已触发但失败的下游 run 交给 failure 告警。2026-06-06 已完成 Composer import 检查、非交易日 skip、`qa_only`、2026-06-05 1 日 backfill 和 refresh-missing synthetic transaction smoke；仍需等待新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然通过。
 
@@ -116,9 +116,9 @@ DWS/ADS 统一版本字段：`universe_version`、`feature_version`、`label_ver
 ## SQL 代码布局
 
 - 根目录 `sql/` 存放 P0 BigQuery Standard SQL：`00_create_datasets.sql`、`dim/*.sql`、`dwd/*.sql`、`dws/*.sql`、`ads/*.sql`。
-- 现有脚本覆盖 4 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表，使用 `CREATE OR REPLACE TABLE` + CTAS/DDL + 字段描述；`sql/qa/01_p0_smoke_checks.sql` 存放 DIM/DWD 基础断言，`sql/qa/02_strategy1_dws_ads_checks.sql` 存放策略 1 DWS/ADS 断言，`sql/qa/03_oq004_index_checks.sql` 存放 OQ-004 指数映射与 benchmark 覆盖断言。
+- 现有脚本覆盖 4 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表，使用 `CREATE OR REPLACE TABLE` + CTAS/DDL + 字段描述；`sql/qa/01_core_smoke_checks.sql` 存放 DIM/DWD 基础断言，`sql/qa/02_strategy1_dws_ads_checks.sql` 存放策略 1 DWS/ADS 断言，`sql/qa/03_index_benchmark_checks.sql` 存放 OQ-004 指数映射与 benchmark 覆盖断言。
 - `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 是 OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新脚本；`sql/qa/10_windowed_stock_refresh_checks.sql` 是对应窗口 QA；`scripts/qa/run_windowed_refresh_equivalence.py` 是定期/发布前 full-vs-window 数值等价 QA。
-- `sql/metadata/01_p0_table_column_descriptions.sql` 统一维护 P0 DIM/DWD 表级和字段级中文说明；每次重建 P0 表后都应重新执行该 metadata 脚本。
+- `sql/metadata/01_core_table_column_descriptions.sql` 统一维护 P0 DIM/DWD 表级和字段级中文说明；每次重建 P0 表后都应重新执行该 metadata 脚本。
 - 当前脚本是 bootstrap SQL，不关闭 OQ-005；后续仍可迁移为 dbt 或纳入 Airflow 调度。
 - 2026-05-31 P0 已物化到 BigQuery；`dwd_index_eod` 已恢复读取 `index_dailybasic`。该接口市值/股本单位为元/股，不做 `*10000` 换算。
 - `dim_index` 统一维护指数 canonical 代码、ODS 实际 `source_sec_code`、端点可用性、起止日期和 benchmark 候选标记。`dwd_index_eod` 从 `dim_index` 读取可用端点与映射；双代码指数如沪深300由 `399300.SZ -> 000300.SH` 输出。策略 runner 使用 benchmark 前必须校验 `dim_index` 和完整 NAV 窗口覆盖。

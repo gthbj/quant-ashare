@@ -5,7 +5,7 @@
 ## 评审对象
 
 - Commit `d810ec4` "fix: 完善 P0 建表 SQL 并物化验证"。
-- 范围：对首轮评审 R1–R5 的修复 + 新增 `dwd_fin_indicator_latest`、`sql/qa/01_p0_smoke_checks.sql`、`dwd_index_eod` 单位修正。
+- 范围：对首轮评审 R1–R5 的修复 + 新增 `dwd_fin_indicator_latest`、`sql/qa/01_core_smoke_checks.sql`、`dwd_index_eod` 单位修正。
 - 方式：静态审查 + BigQuery 物化表实跑验证。
 
 ---

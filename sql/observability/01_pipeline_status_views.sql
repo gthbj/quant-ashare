@@ -1,4 +1,4 @@
--- BigQuery Standard SQL · OQ-005 Pipeline Status Observability
+-- BigQuery Standard SQL · Ashare Pipeline Status Observability
 -- 基于 ashare_meta.pipeline_run / pipeline_task_status 的观测视图。
 --
 -- 使用方式：

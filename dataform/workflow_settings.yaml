@@ -1,0 +1,5 @@
+dataformCoreVersion: 3.0.59
+defaultProject: data-aquarium
+defaultLocation: asia-east2
+defaultDataset: ashare_dataform
+defaultAssertionDataset: ashare_dataform_assertions

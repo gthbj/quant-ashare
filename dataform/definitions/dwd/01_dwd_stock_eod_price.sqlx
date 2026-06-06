@@ -1,0 +1,245 @@
+-- Generated from canonical sql/ by scripts/dataform/generate_sqlx_from_sql.py.
+-- Canonical source: sql/dwd/01_dwd_stock_eod_price.sql
+
+config {
+  type: "operations",
+  schema: "ashare_dwd",
+  name: "dwd_stock_eod_price",
+  hasOutput: true,
+  tags: ["dwd_market"],
+  dependencies: ["dim_trade_calendar", "dim_stock", "ods_tushare_daily", "ods_tushare_adj_factor", "ods_tushare_stk_limit", "ods_tushare_suspend_d"]
+}
+
+-- 文档维护：GPT-5（最近更新 2026-05-31）
+-- BigQuery Standard SQL
+-- 股票日线价格 DWD：写入 2019+，读取 2018+ 作为 warm-up/lookback buffer。
+-- 表骨架为交易日历 × 股票生命周期，保留停牌日；行情字段为空时由下游按特征口径处理。
+
+DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
+DECLARE lookback_start_date DATE DEFAULT DATE '2018-01-01';
+
+CREATE OR REPLACE TABLE `data-aquarium.ashare_dwd.dwd_stock_eod_price`
+PARTITION BY DATE_TRUNC(trade_date, MONTH)
+CLUSTER BY sec_code
+OPTIONS (
+  description = 'Daily stock price DWD with adjusted price, suspension and limit flags; rows written from 2019-01-01',
+  require_partition_filter = TRUE
+) AS
+WITH cal AS (
+  SELECT cal_date AS trade_date
+  FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+  WHERE exchange = 'SSE'
+    AND is_open = 1
+    AND cal_date BETWEEN lookback_start_date AND dwd_end_date
+),
+universe AS (
+  SELECT
+    c.trade_date,
+    s.sec_code
+  FROM cal AS c
+  JOIN `data-aquarium.ashare_dim.dim_stock` AS s
+    ON c.trade_date >= COALESCE(s.list_date, DATE '1900-01-01')
+   AND (s.delist_date IS NULL OR c.trade_date < s.delist_date)
+),
+daily AS (
+  SELECT
+    ts_code AS sec_code,
+    SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date,
+    SAFE_CAST(open AS FLOAT64) AS open,
+    SAFE_CAST(high AS FLOAT64) AS high,
+    SAFE_CAST(low AS FLOAT64) AS low,
+    SAFE_CAST(close AS FLOAT64) AS close,
+    SAFE_CAST(pre_close AS FLOAT64) AS pre_close,
+    SAFE_CAST(change AS FLOAT64) AS change,
+    SAFE_CAST(pct_chg AS FLOAT64) AS pct_chg,
+    SAFE_CAST(vol AS FLOAT64) AS volume_lot,
+    SAFE_CAST(amount AS FLOAT64) AS amount_k_cny,
+    partition_date AS source_partition_date,
+    SAFE_CAST(_ingested_at AS TIMESTAMP) AS ingested_at
+  FROM `data-aquarium.ashare_ods.ods_tushare_daily`
+  WHERE endpoint = 'daily'
+    AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', lookback_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+    AND trade_date IS NOT NULL
+),
+adj_factor AS (
+  SELECT
+    ts_code AS sec_code,
+    SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date,
+    SAFE_CAST(adj_factor AS FLOAT64) AS adj_factor
+  FROM `data-aquarium.ashare_ods.ods_tushare_adj_factor`
+  WHERE endpoint = 'adj_factor'
+    AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', lookback_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+    AND trade_date IS NOT NULL
+),
+limit_price AS (
+  SELECT
+    ts_code AS sec_code,
+    SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date,
+    SAFE_CAST(up_limit AS FLOAT64) AS up_limit,
+    SAFE_CAST(down_limit AS FLOAT64) AS down_limit
+  FROM `data-aquarium.ashare_ods.ods_tushare_stk_limit`
+  WHERE endpoint = 'stk_limit'
+    AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', lookback_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+    AND trade_date IS NOT NULL
+),
+suspend_event AS (
+  SELECT
+    ts_code AS sec_code,
+    SAFE.PARSE_DATE('%Y%m%d', trade_date) AS trade_date,
+    STRING_AGG(DISTINCT suspend_timing, ',' ORDER BY suspend_timing) AS suspend_timing,
+    'S' AS suspend_type,
+    LOGICAL_OR(suspend_timing IS NULL) AS has_unknown_halt_timing,
+    LOGICAL_OR(
+      REGEXP_CONTAINS(
+        COALESCE(suspend_timing, ''),
+        r'(^|,)\s*(0?9:00|0?9:15|0?9:20|0?9:25|0?9:30)-'
+      )
+    ) AS has_open_halt_event
+  FROM `data-aquarium.ashare_ods.ods_tushare_suspend_d`
+  WHERE endpoint = 'suspend_d'
+    AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', lookback_start_date) AND FORMAT_DATE('%Y%m%d', dwd_end_date)
+    AND suspend_type = 'S'
+    AND trade_date IS NOT NULL
+  GROUP BY sec_code, trade_date
+),
+joined AS (
+  SELECT
+    u.trade_date,
+    u.sec_code,
+    d.open,
+    d.high,
+    d.low,
+    d.close,
+    d.pre_close,
+    d.change,
+    d.pct_chg,
+    d.volume_lot,
+    d.amount_k_cny,
+    d.volume_lot * 100.0 AS volume_share,
+    d.amount_k_cny * 1000.0 AS amount_cny,
+    a.adj_factor,
+    d.open * a.adj_factor AS open_hfq,
+    d.high * a.adj_factor AS high_hfq,
+    d.low * a.adj_factor AS low_hfq,
+    d.close * a.adj_factor AS close_hfq,
+    l.up_limit,
+    l.down_limit,
+    e.suspend_timing,
+    e.suspend_type,
+    d.close IS NULL OR IFNULL(d.volume_lot, 0) = 0 AS is_suspended,
+    e.sec_code IS NOT NULL
+      AND d.close IS NOT NULL
+      AND IFNULL(d.volume_lot, 0) > 0 AS has_intraday_halt,
+    (COALESCE(e.has_open_halt_event, FALSE) OR COALESCE(e.has_unknown_halt_timing, FALSE))
+      AND d.close IS NOT NULL
+      AND IFNULL(d.volume_lot, 0) > 0 AS has_open_halt,
+    l.sec_code IS NOT NULL AS has_limit_data,
+    e.sec_code IS NOT NULL AS has_suspend_event_data,
+    d.source_partition_date,
+    d.ingested_at
+  FROM universe AS u
+  LEFT JOIN daily AS d
+    ON u.trade_date = d.trade_date
+   AND u.sec_code = d.sec_code
+  LEFT JOIN adj_factor AS a
+    ON u.trade_date = a.trade_date
+   AND u.sec_code = a.sec_code
+  LEFT JOIN limit_price AS l
+    ON u.trade_date = l.trade_date
+   AND u.sec_code = l.sec_code
+  LEFT JOIN suspend_event AS e
+    ON u.trade_date = e.trade_date
+   AND u.sec_code = e.sec_code
+),
+flagged AS (
+  SELECT
+    *,
+    IF(close IS NULL OR up_limit IS NULL, NULL, close >= up_limit) AS is_limit_up,
+    IF(close IS NULL OR down_limit IS NULL, NULL, close <= down_limit) AS is_limit_down,
+    IF(
+      open IS NULL OR high IS NULL OR low IS NULL OR up_limit IS NULL,
+      NULL,
+      open >= up_limit AND high >= up_limit AND low >= up_limit
+    ) AS is_one_word_limit_up,
+    IF(
+      open IS NULL OR high IS NULL OR low IS NULL OR down_limit IS NULL,
+      NULL,
+      open <= down_limit AND high <= down_limit AND low <= down_limit
+    ) AS is_one_word_limit_down,
+    IF(is_suspended OR has_open_halt, FALSE, IF(open IS NULL OR up_limit IS NULL, NULL, open < up_limit)) AS can_buy_open,
+    IF(is_suspended OR has_open_halt, FALSE, IF(open IS NULL OR down_limit IS NULL, NULL, open > down_limit)) AS can_sell_open
+  FROM joined
+),
+calc AS (
+  SELECT
+    *,
+    SAFE_DIVIDE(
+      close_hfq,
+      LAST_VALUE(close_hfq IGNORE NULLS) OVER (
+        PARTITION BY sec_code
+        ORDER BY trade_date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+      )
+    ) - 1.0 AS ret_1d
+  FROM flagged
+)
+SELECT
+  trade_date,
+  sec_code,
+  open,
+  high,
+  low,
+  close,
+  pre_close,
+  change,
+  pct_chg,
+  volume_lot,
+  amount_k_cny,
+  volume_share,
+  amount_cny,
+  adj_factor,
+  open_hfq,
+  high_hfq,
+  low_hfq,
+  close_hfq,
+  ret_1d,
+  up_limit,
+  down_limit,
+  is_limit_up,
+  is_limit_down,
+  is_one_word_limit_up,
+  is_one_word_limit_down,
+  is_suspended,
+  suspend_timing,
+  suspend_type,
+  has_intraday_halt,
+  has_open_halt,
+  can_buy_open,
+  can_sell_open,
+  IF(
+    is_suspended OR has_open_halt,
+    FALSE,
+    IF(
+      is_one_word_limit_up IS NULL OR is_one_word_limit_down IS NULL,
+      NULL,
+      NOT is_one_word_limit_up AND NOT is_one_word_limit_down
+    )
+  ) AS is_tradable,
+  has_limit_data,
+  has_suspend_event_data,
+  'tushare' AS source_system,
+  source_partition_date,
+  ingested_at
+FROM calc
+WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date;
+
+ALTER TABLE `data-aquarium.ashare_dwd.dwd_stock_eod_price`
+ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'),
+ALTER COLUMN sec_code SET OPTIONS (description = '证券代码，Tushare ts_code 格式'),
+ALTER COLUMN close_hfq SET OPTIONS (description = '后复权收盘价，close * adj_factor'),
+ALTER COLUMN ret_1d SET OPTIONS (description = '基于 close_hfq 的一日收益率，计算时读取 lookback buffer'),
+ALTER COLUMN is_suspended SET OPTIONS (description = '是否全天停牌或无成交；有成交的盘中临停不置为 TRUE'),
+ALTER COLUMN has_intraday_halt SET OPTIONS (description = '是否发生盘中临时停牌且当日仍有成交'),
+ALTER COLUMN has_open_halt SET OPTIONS (description = '是否发生开盘时段或未知时段临停，影响开盘建仓'),
+ALTER COLUMN is_tradable SET OPTIONS (description = '是否可交易，排除停牌和一字涨跌停');

@@ -3,7 +3,7 @@
 -- 指数日线 DWD：sec_code 输出规范指数代码；source_sec_code 保留 ODS 实际指数代码。
 -- source_sec_code -> sec_code 映射由 ashare_dim.dim_index 统一维护。
 -- index_dailybasic 的 total_mv/float_mv 单位为元，股本字段单位为股；不同于股票 daily_basic 的万元/万股口径。
--- OQ-006 修复：index_daily.vol/amount 已按手/千元换算为股/元，标准字段为 volume_share/amount_cny，同时保留 volume_lot/amount_k_cny 源单位字段。
+-- index_daily.vol/amount 已按手/千元换算为股/元，标准字段为 volume_share/amount_cny，同时保留 volume_lot/amount_k_cny 源单位字段。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');

@@ -1,4 +1,4 @@
-"""读取 ODS 采集 manifest。Phase 0 实现。"""
+"""读取 ODS 采集 manifest。"""
 
 from __future__ import annotations
 

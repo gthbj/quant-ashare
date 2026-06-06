@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OQ-005 Pipeline 告警查询脚本。
+"""Ashare Pipeline 告警查询脚本。
 
 查询 v_alert_summary 视图，检测到异常时：
   - 默认：打印到 stdout
@@ -56,7 +56,7 @@ except ImportError:
 PROJECT_ID = "data-aquarium"
 DATASET = "ashare_meta"
 REGION = "asia-east2"
-LOG_NAME = "oq005-pipeline-alerts"
+LOG_NAME = "ashare-pipeline-alerts"
 
 
 class AlertCheckError(Exception):
@@ -174,7 +174,7 @@ def write_heartbeat_to_cloud_logging(
     checked_at = datetime.now(timezone.utc).isoformat()
     payload = {
         "alert_type": "alert_checker_heartbeat",
-        "resource_id": "oq005_alert_checker",
+        "resource_id": "ashare_pipeline_alert_checker",
         "status": "succeeded",
         "checked_at": checked_at,
         "lookback_minutes": lookback_minutes,
@@ -194,7 +194,7 @@ def format_alert_message(alerts: list[dict[str, Any]]) -> str:
         return ""
 
     lines = [
-        f"OQ-005 Pipeline Alert ({len(alerts)} issues)",
+        f"Ashare Pipeline Alert ({len(alerts)} issues)",
         f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
         "",
     ]
@@ -216,7 +216,7 @@ def format_alert_message(alerts: list[dict[str, Any]]) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="OQ-005 Pipeline Alert Checker")
+    parser = argparse.ArgumentParser(description="Ashare Pipeline Alert Checker")
     parser.add_argument("--project", default=PROJECT_ID, help=f"GCP project (default: {PROJECT_ID})")
     parser.add_argument("--lookback-minutes", type=int, default=10, help="Lookback window in minutes (default: 10)")
     parser.add_argument("--write-log", action="store_true", help="Write alerts to Cloud Logging")

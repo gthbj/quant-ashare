@@ -2,7 +2,7 @@
 -- QA: ODS Daily Partition Readiness Checks
 -- 09_ods_daily_partition_readiness.sql
 --
--- Daily scheduler guard for OQ-005. This checks only the business-date
+-- Daily scheduler guard. This checks only the business-date
 -- partition or a recent small lookback window. Full-history schema checks and
 -- repair validation remain in 06_ods_parquet_schema_checks.sql and must not
 -- block the daily DAG by default.

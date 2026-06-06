@@ -785,22 +785,22 @@ def build_setup_group(group_id: str = "setup") -> TaskGroup:
 
 def build_qa_chain(group_id: str) -> TaskGroup:
     with TaskGroup(group_id=group_id) as qa_group:
-        p0_smoke_checks = _bq_sql_task("p0_smoke_checks", "sql/qa/01_p0_smoke_checks.sql")
+        core_smoke_checks = _bq_sql_task("core_smoke_checks", "sql/qa/01_core_smoke_checks.sql")
         strategy1_dws_ads_checks = _bq_sql_task(
             "strategy1_dws_ads_checks",
             "sql/qa/02_strategy1_dws_ads_checks.sql",
         )
-        oq004_index_checks = _bq_sql_task("oq004_index_checks", "sql/qa/03_oq004_index_checks.sql")
+        index_benchmark_checks = _bq_sql_task("index_benchmark_checks", "sql/qa/03_index_benchmark_checks.sql")
         finance_caliber_checks = _bq_sql_task(
             "finance_caliber_checks",
             "sql/qa/04_finance_caliber_checks.sql",
         )
-        oq006_unit_checks = _bq_sql_task("oq006_unit_checks", "sql/qa/05_oq006_unit_checks.sql")
+        unit_contract_checks = _bq_sql_task("unit_contract_checks", "sql/qa/05_unit_contract_checks.sql")
 
-        p0_smoke_checks >> strategy1_dws_ads_checks
-        strategy1_dws_ads_checks >> oq004_index_checks
-        oq004_index_checks >> finance_caliber_checks
-        finance_caliber_checks >> oq006_unit_checks
+        core_smoke_checks >> strategy1_dws_ads_checks
+        strategy1_dws_ads_checks >> index_benchmark_checks
+        index_benchmark_checks >> finance_caliber_checks
+        finance_caliber_checks >> unit_contract_checks
 
     return qa_group
 
@@ -905,16 +905,16 @@ def build_full_dws_group(group_id: str = "dws") -> TaskGroup:
 
 def build_metadata_group(group_id: str = "metadata", include_finance: bool = True) -> TaskGroup:
     with TaskGroup(group_id=group_id) as metadata:
-        p0_column_descriptions = _bq_sql_task(
-            "p0_column_descriptions",
-            "sql/metadata/01_p0_table_column_descriptions.sql",
+        core_column_descriptions = _bq_sql_task(
+            "core_column_descriptions",
+            "sql/metadata/01_core_table_column_descriptions.sql",
         )
         if include_finance:
             finance_column_descriptions = _bq_sql_task(
                 "finance_column_descriptions",
                 "sql/metadata/02_finance_table_column_descriptions.sql",
             )
-            p0_column_descriptions >> finance_column_descriptions
+            core_column_descriptions >> finance_column_descriptions
 
     return metadata
 
@@ -936,8 +936,8 @@ def build_windowed_dim_group(group_id: str = "windowed_dim") -> TaskGroup:
 def build_windowed_metadata_group(group_id: str = "windowed_metadata") -> TaskGroup:
     with TaskGroup(group_id=group_id) as windowed_metadata:
         _bq_sql_task(
-            "p0_column_descriptions",
-            "sql/metadata/01_p0_table_column_descriptions.sql",
+            "core_column_descriptions",
+            "sql/metadata/01_core_table_column_descriptions.sql",
         )
 
     return windowed_metadata

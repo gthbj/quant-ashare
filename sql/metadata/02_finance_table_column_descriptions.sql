@@ -1,9 +1,9 @@
 -- 文档维护：Claude Opus 4.8（最近更新 2026-06-02）
 -- BigQuery Standard SQL
--- OQ-003 财务三大报表 DWD（income/balancesheet/cashflow + 各自 _latest）与
+-- 财务三大报表 DWD（income/balancesheet/cashflow + 各自 _latest）与
 -- dws_stock_feature_fin_daily 的表级 + 字段级中文说明补齐脚本。
 -- 用法：财务 DWD/DWS 表（sql/dwd/06-11、sql/dws/07）CREATE OR REPLACE 重建后执行本脚本，
--- 集中恢复字段 description（CTAS 不保留列描述，PRD_20260601_03 §10 要求字段说明补齐）。
+-- 集中恢复字段 description（CTAS 不保留列描述，需要字段说明补齐）。
 -- 覆盖完整性由 sql/qa/04_finance_caliber_checks.sql 的 description 缺失断言守卫。
 
 -- ============================================================

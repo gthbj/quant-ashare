@@ -1,8 +1,18 @@
+-- Generated from canonical sql/ by scripts/dataform/generate_sqlx_from_sql.py.
+-- Canonical source: sql/qa/05_unit_contract_checks.sql
+
+config {
+  type: "operations",
+  name: "unit_contract_checks",
+  tags: ["qa_contract"],
+  dependencies: ["ods_field_unit_map", "dwd_stock_eod_price", "dwd_stock_eod_valuation", "dwd_index_eod", "dwd_fin_indicator", "dwd_fin_income", "dwd_fin_balancesheet", "dwd_fin_cashflow"]
+}
+
 -- 文档维护：GPT-5（最近更新 2026-06-02）
 -- BigQuery Standard SQL
--- OQ-006 单位契约 QA 门禁。
+-- 单位契约 QA 门禁。
 -- 所有新增或修改 DWD 标准字段的 PR 必须运行本脚本并通过全部 ASSERT。
--- 执行前确保 P0 DWD 表已物化（尤其是 dwd_index_eod 已按 OQ-006 重建）。
+-- 执行前确保核心 DWD 表已物化，尤其是 dwd_index_eod 已完成单位换算。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');

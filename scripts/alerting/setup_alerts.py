@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""OQ-005 Pipeline 告警规则配置脚本。
+"""Ashare Pipeline 告警规则配置脚本。
 
 告警链路：
-  1. check_alerts.py 由 Composer DAG oq005_alert_checker 定时调用
+  1. check_alerts.py 由 Composer DAG ashare_pipeline_alert_checker 定时调用
   2. 查询 v_alert_summary 视图
   3. 将异常与 checker heartbeat 写入 Cloud Logging（JSON payload）
   4. Cloud Logging 日志指标匹配这些条目
@@ -21,7 +21,7 @@
 前置条件：
     1. 已执行 sql/observability/01_pipeline_status_views.sql 创建视图
     2. 已启用 Cloud Logging API + Cloud Monitoring API
-    3. oq005_alert_checker Composer DAG 已部署（每 10 分钟执行）
+    3. ashare_pipeline_alert_checker Composer DAG 已部署（每 10 分钟执行）
     4. 已配置通知渠道（Email/Slack/PagerDuty）
 """
 
@@ -49,38 +49,38 @@ except ImportError:
 
 
 PROJECT_ID = "data-aquarium"
-POLICY_LABEL_KEY = "oq005_policy"
+POLICY_LABEL_KEY = "ashare_pipeline_policy"
 
 # 日志指标定义
 # 用 Cloud Logging Log Metric API 创建，name 即为 metric 的标识。
 # 在 Cloud Monitoring 中，metric type 为 logging.googleapis.com/user/{name}
 LOG_METRICS = [
     {
-        "name": "oq005_pipeline_failure",
+        "name": "ashare_pipeline_failure",
         "description": "Pipeline DAG run failed",
         "filter": 'jsonPayload.alert_type="pipeline_failure"',
     },
     {
-        "name": "oq005_task_failure",
+        "name": "ashare_pipeline_task_failure",
         "description": "Pipeline task failed (QA, readiness, windowed transform, etc.)",
         "filter": 'jsonPayload.alert_type="task_failure"',
     },
     {
-        "name": "oq005_ingestion_failed",
+        "name": "ashare_pipeline_ingestion_failed",
         "description": "Cloud Run ingestion execution failed (not empty_return)",
         "filter": 'jsonPayload.alert_type="ingestion_failed"',
     },
     {
-        "name": "oq005_warehouse_refresh_missing",
+        "name": "ashare_pipeline_warehouse_refresh_missing",
         "description": "ODS ingestion succeeded but linked warehouse window refresh is missing",
         "filter": 'jsonPayload.alert_type="warehouse_refresh_missing"',
     },
     {
-        "name": "oq005_alert_checker_heartbeat",
-        "description": "OQ-005 alert checker heartbeat for liveness monitoring",
+        "name": "ashare_pipeline_alert_checker_heartbeat",
+        "description": "Ashare pipeline alert checker heartbeat for liveness monitoring",
         "filter": (
             'jsonPayload.alert_type="alert_checker_heartbeat" '
-            'AND jsonPayload.resource_id="oq005_alert_checker" '
+            'AND jsonPayload.resource_id="ashare_pipeline_alert_checker" '
             'AND jsonPayload.status="succeeded"'
         ),
     },
@@ -91,86 +91,86 @@ LOG_METRICS = [
 ALERT_POLICIES = [
     {
         "policy_key": "pipeline_failure",
-        "display_name": "OQ-005: Pipeline Run Failed",
+        "display_name": "Ashare Pipeline: Pipeline Run Failed",
         "description": (
             "Composer DAG run 失败。\n\n"
             "覆盖：ods_daily_partition_readiness、窗口刷新、QA-WIN 等所有 task。\n\n"
-            "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
+            "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "pipeline_failure",
         "condition_type": "threshold",
-        "log_metric_name": "oq005_pipeline_failure",
+        "log_metric_name": "ashare_pipeline_failure",
         "threshold_value": 0,
         "duration_seconds": 0,
         "severity": "ERROR",
     },
     {
         "policy_key": "task_failure",
-        "display_name": "OQ-005: Task Failed",
+        "display_name": "Ashare Pipeline: Task Failed",
         "legacy_display_names": [
-            "OQ-005: Task Failed (QA / Readiness / Transform)",
+            "Ashare Pipeline: Task Failed (QA / Readiness / Transform)",
         ],
         "description": (
             "Pipeline task 失败。\n\n"
             "常见类型：QA-WIN-* 断言、ods_daily_partition_readiness、"
             "windowed_transform.stock_dwd_dws_window。\n\n"
-            "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
+            "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "task_failure",
         "condition_type": "threshold",
-        "log_metric_name": "oq005_task_failure",
+        "log_metric_name": "ashare_pipeline_task_failure",
         "threshold_value": 0,
         "duration_seconds": 0,
         "severity": "ERROR",
     },
     {
         "policy_key": "ingestion_failed",
-        "display_name": "OQ-005: Ingestion Failed",
+        "display_name": "Ashare Pipeline: Ingestion Failed",
         "legacy_display_names": [
-            "OQ-005: Cloud Run Ingestion Failed",
+            "Ashare Pipeline: Cloud Run Ingestion Failed",
         ],
         "description": (
             "Cloud Run ingestion execution 失败。\n\n"
             "注意：empty_return 不触发此告警，需按 endpoint/date 判断是否正常。\n\n"
-            "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
+            "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "ingestion_failed",
         "condition_type": "threshold",
-        "log_metric_name": "oq005_ingestion_failed",
+        "log_metric_name": "ashare_pipeline_ingestion_failed",
         "threshold_value": 0,
         "duration_seconds": 0,
         "severity": "WARNING",
     },
     {
         "policy_key": "warehouse_refresh_missing",
-        "display_name": "OQ-005: Warehouse Refresh Missing",
+        "display_name": "Ashare Pipeline: Warehouse Refresh Missing",
         "description": (
             "ODS ingestion 已成功，但 60 分钟内没有对应 "
             "`ashare_warehouse_window_refresh` run 记录。\n\n"
             "检查 `ashare_meta.v_pipeline_refresh_missing`，确认是否为跨 DAG 触发失败、"
             "warehouse DAG pause、Composer 调度异常或状态回写失败。\n\n"
-            "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
+            "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "warehouse_refresh_missing",
         "condition_type": "threshold",
-        "log_metric_name": "oq005_warehouse_refresh_missing",
+        "log_metric_name": "ashare_pipeline_warehouse_refresh_missing",
         "threshold_value": 0,
         "duration_seconds": 0,
         "severity": "ERROR",
     },
     {
         "policy_key": "alert_checker_heartbeat_missing",
-        "display_name": "OQ-005: Alert Checker Heartbeat Missing",
+        "display_name": "Ashare Pipeline: Alert Checker Heartbeat Missing",
         "description": (
             "告警 checker 自身心跳缺失。\n\n"
-            "`oq005_alert_checker` 每 10 分钟运行并写入 heartbeat；"
+            "`ashare_pipeline_alert_checker` 每 10 分钟运行并写入 heartbeat；"
             "若 30 分钟内没有 heartbeat，说明 checker DAG 可能失败、被 pause、"
             "Composer 调度异常或日志写入异常。\n\n"
-            "Runbook：docs/OQ005-Pipeline-补跑与故障恢复-Runbook.md"
+            "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "alert_checker_heartbeat_absent",
         "condition_type": "absence",
-        "log_metric_name": "oq005_alert_checker_heartbeat",
+        "log_metric_name": "ashare_pipeline_alert_checker_heartbeat",
         "duration_seconds": 1800,
         "severity": "ERROR",
     },
@@ -187,6 +187,8 @@ def policy_match_names(policy_def: dict[str, Any]) -> set[str]:
 def policy_matches(existing: monitoring_v3.AlertPolicy, policy_def: dict[str, Any]) -> bool:
     """Match an existing policy by stable label, falling back to legacy names."""
     if existing.user_labels.get(POLICY_LABEL_KEY) == policy_def["policy_key"]:
+        return True
+    if policy_def["policy_key"] in set(existing.user_labels.values()):
         return True
     return existing.display_name in policy_match_names(policy_def)
 
@@ -290,7 +292,7 @@ def create_alert_policy(
     if len(matches) > 1:
         names = ", ".join(f"{p.display_name} ({p.name})" for p in matches)
         raise RuntimeError(
-            f"检测到重复 OQ-005 告警策略：{policy_def['policy_key']} -> {names}。"
+            f"检测到重复 Ashare pipeline 告警策略：{policy_def['policy_key']} -> {names}。"
             "请先手工清理重复策略，再重新执行。"
         )
 
@@ -351,13 +353,13 @@ def list_notification_channels(project_id: str) -> list[dict[str, str]]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="OQ-005 Pipeline 告警规则配置")
+    parser = argparse.ArgumentParser(description="Ashare Pipeline 告警规则配置")
     parser.add_argument("--project", default=PROJECT_ID, help=f"GCP project (default: {PROJECT_ID})")
     parser.add_argument("--dry-run", action="store_true", help="只打印配置，不实际创建")
     parser.add_argument("--notification-channels", nargs="*", help="通知渠道 resource name 列表")
     args = parser.parse_args()
 
-    print(f"OQ-005 Pipeline 告警规则配置")
+    print(f"Ashare Pipeline 告警规则配置")
     print(f"项目：{args.project}")
     print(f"模式：{'dry-run' if args.dry_run else 'apply'}")
     print()
@@ -376,9 +378,9 @@ def main() -> None:
             print(f"    description: {p['description'].splitlines()[0]}")
         print()
         print("=== 告警链路 ===")
-        print("  oq005_alert_checker -> check_alerts.py --write-log --write-heartbeat")
+        print("  ashare_pipeline_alert_checker -> check_alerts.py --write-log --write-heartbeat")
         print("    -> Cloud Logging (jsonPayload)")
-        print("    -> log metric (oq005_* + checker heartbeat)")
+        print("    -> log metric (ashare_pipeline_* + checker heartbeat)")
         print("    -> Cloud Monitoring alert policy")
         print("    -> notification channel")
         return
@@ -406,7 +408,7 @@ def main() -> None:
     print("=== 完成 ===")
     print()
     print("下一步：")
-    print("  1. 部署 oq005_alert_checker Composer DAG（每 10 分钟）")
+    print("  1. 部署 ashare_pipeline_alert_checker Composer DAG（每 10 分钟）")
     print("  2. 验证：https://console.cloud.google.com/monitoring/alerting?project=" + args.project)
     print("  3. 日志指标：https://console.cloud.google.com/logs/metrics?project=" + args.project)
 

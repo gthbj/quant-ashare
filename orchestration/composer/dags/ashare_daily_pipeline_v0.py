@@ -1,4 +1,4 @@
-"""OQ-005 daily data pipeline.
+"""Ashare daily data pipeline.
 
 Cloud Composer orchestrates Cloud Run ingestion jobs and daily ODS readiness
 checks for the current ODS scope. Full warehouse refresh is behind an explicit
@@ -697,29 +697,29 @@ def _write_skip_non_trading_day_status(**context) -> None:
 
 def _build_qa_chain(group_id: str) -> TaskGroup:
     with TaskGroup(group_id=group_id) as qa_group:
-        p0_smoke_checks = _bq_sql_task("p0_smoke_checks", "sql/qa/01_p0_smoke_checks.sql")
+        core_smoke_checks = _bq_sql_task("core_smoke_checks", "sql/qa/01_core_smoke_checks.sql")
         strategy1_dws_ads_checks = _bq_sql_task(
             "strategy1_dws_ads_checks",
             "sql/qa/02_strategy1_dws_ads_checks.sql",
         )
-        oq004_index_checks = _bq_sql_task("oq004_index_checks", "sql/qa/03_oq004_index_checks.sql")
+        index_benchmark_checks = _bq_sql_task("index_benchmark_checks", "sql/qa/03_index_benchmark_checks.sql")
         finance_caliber_checks = _bq_sql_task(
             "finance_caliber_checks",
             "sql/qa/04_finance_caliber_checks.sql",
         )
-        oq006_unit_checks = _bq_sql_task("oq006_unit_checks", "sql/qa/05_oq006_unit_checks.sql")
+        unit_contract_checks = _bq_sql_task("unit_contract_checks", "sql/qa/05_unit_contract_checks.sql")
 
-        p0_smoke_checks >> strategy1_dws_ads_checks
-        strategy1_dws_ads_checks >> oq004_index_checks
-        oq004_index_checks >> finance_caliber_checks
-        finance_caliber_checks >> oq006_unit_checks
+        core_smoke_checks >> strategy1_dws_ads_checks
+        strategy1_dws_ads_checks >> index_benchmark_checks
+        index_benchmark_checks >> finance_caliber_checks
+        finance_caliber_checks >> unit_contract_checks
 
     return qa_group
 
 
 with DAG(
     dag_id="ashare_daily_pipeline_v0",
-    description="OQ-005 daily Tushare-compatible ingestion and BigQuery warehouse pipeline.",
+    description="Ashare daily Tushare-compatible ingestion and BigQuery warehouse pipeline.",
     start_date=pendulum.datetime(2026, 6, 4, tz="Asia/Shanghai"),
     # Current-scope explicit daily updates finish by 17:00; 20:00 leaves a 3h buffer.
     schedule="0 20 * * *",
@@ -730,7 +730,7 @@ with DAG(
         "on_failure_callback": _task_failure_callback,
     },
     on_failure_callback=_write_pipeline_run_failed,
-    tags=["quant-ashare", "oq005", "ods", "bigquery"],
+    tags=["quant-ashare", "pipeline", "ods", "bigquery"],
 ) as dag:
     start = EmptyOperator(task_id="start")
     finish = EmptyOperator(
@@ -894,9 +894,9 @@ with DAG(
         ] >> dws_stock_sample_daily
 
     with TaskGroup(group_id="metadata") as metadata:
-        p0_column_descriptions = _bq_sql_task(
-            "p0_column_descriptions",
-            "sql/metadata/01_p0_table_column_descriptions.sql",
+        core_column_descriptions = _bq_sql_task(
+            "core_column_descriptions",
+            "sql/metadata/01_core_table_column_descriptions.sql",
         )
         finance_column_descriptions = _bq_sql_task(
             "finance_column_descriptions",
@@ -917,8 +917,8 @@ with DAG(
 
     with TaskGroup(group_id="windowed_metadata") as windowed_metadata:
         _bq_sql_task(
-            "p0_column_descriptions",
-            "sql/metadata/01_p0_table_column_descriptions.sql",
+            "core_column_descriptions",
+            "sql/metadata/01_core_table_column_descriptions.sql",
         )
 
     with TaskGroup(group_id="windowed_transform") as windowed_transform:

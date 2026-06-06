@@ -1,6 +1,6 @@
 -- 文档维护：GPT-5（最近更新 2026-06-02）；PR #13 财务三表全字段补全：Claude Opus 4.8（2026-06-02）
 -- BigQuery Standard SQL
--- OQ-006 单位契约表：ods_field_unit_map
+-- 单位契约表：ods_field_unit_map
 -- 作为 ODS -> DWD 单位换算的唯一事实来源。
 -- 本脚本幂等：CREATE OR REPLACE TABLE 重建 schema，再全量 INSERT。
 
@@ -26,7 +26,7 @@ CREATE OR REPLACE TABLE `data-aquarium.ashare_meta.ods_field_unit_map` (
   notes STRING OPTIONS(description="特殊口径说明")
 )
 OPTIONS (
-  description = 'OQ-006 单位契约表：endpoint + source_field 粒度的 ODS->DWD 单位换算唯一事实来源。verified 字段才可作为标准 DWD 输出。'
+  description = '单位契约表：endpoint + source_field 粒度的 ODS->DWD 单位换算唯一事实来源。verified 字段才可作为标准 DWD 输出。'
 );
 
 -- ============================================================
@@ -95,9 +95,9 @@ VALUES
 INSERT INTO `data-aquarium.ashare_meta.ods_field_unit_map`
 VALUES
   -- index_daily: 成交量 / 成交额（修复换算）
-  ('tushare', 'index_daily', 'ods_tushare_index_daily', 'vol', 'volume', '手', '股', 100, 'dwd_index_eod', 'volume_share', TRUE, 'volume_lot', 'verified', NULL, NULL, 'Tushare Pro index_daily 接口文档 + 数据自洽', DATE '2026-06-02', 'GPT-5', 'index_daily.vol 手->股；OQ-006 修复换算'),
+  ('tushare', 'index_daily', 'ods_tushare_index_daily', 'vol', 'volume', '手', '股', 100, 'dwd_index_eod', 'volume_share', TRUE, 'volume_lot', 'verified', NULL, NULL, 'Tushare Pro index_daily 接口文档 + 数据自洽', DATE '2026-06-02', 'GPT-5', 'index_daily.vol 手->股'),
   ('tushare', 'index_daily', 'ods_tushare_index_daily', 'vol', 'volume', '手', '手', 1, 'dwd_index_eod', 'volume_lot', FALSE, NULL, 'verified', NULL, NULL, 'Tushare Pro index_daily 接口文档', DATE '2026-06-02', 'GPT-5', '保留源单位：手'),
-  ('tushare', 'index_daily', 'ods_tushare_index_daily', 'amount', 'amount', '千元', '元', 1000, 'dwd_index_eod', 'amount_cny', TRUE, 'amount_k_cny', 'verified', NULL, NULL, 'Tushare Pro index_daily 接口文档 + 数据自洽', DATE '2026-06-02', 'GPT-5', 'index_daily.amount 千元->元；OQ-006 修复换算'),
+  ('tushare', 'index_daily', 'ods_tushare_index_daily', 'amount', 'amount', '千元', '元', 1000, 'dwd_index_eod', 'amount_cny', TRUE, 'amount_k_cny', 'verified', NULL, NULL, 'Tushare Pro index_daily 接口文档 + 数据自洽', DATE '2026-06-02', 'GPT-5', 'index_daily.amount 千元->元'),
   ('tushare', 'index_daily', 'ods_tushare_index_daily', 'amount', 'amount', '千元', '千元', 1, 'dwd_index_eod', 'amount_k_cny', FALSE, NULL, 'verified', NULL, NULL, 'Tushare Pro index_daily 接口文档', DATE '2026-06-02', 'GPT-5', '保留源单位：千元'),
   -- index_daily: 指数点位字段
   ('tushare', 'index_daily', 'ods_tushare_index_daily', 'open', 'price', '指数点位', '指数点位', 1, 'dwd_index_eod', 'open', FALSE, NULL, 'verified', NULL, NULL, 'Tushare Pro index_daily 接口文档', DATE '2026-06-02', 'GPT-5', NULL),
@@ -162,7 +162,7 @@ VALUES
   ('tushare', 'fina_indicator', 'ods_tushare_fina_indicator', 'q_npta', 'ratio', 'ratio', 'ratio', 1, 'dwd_fin_indicator', 'q_npta', FALSE, NULL, 'verified', NULL, NULL, 'Tushare Pro fina_indicator 接口文档', DATE '2026-06-02', 'GPT-5', '单季度净利润/总资产，比例');
 
 -- ============================================================
--- PR #13 财务三表首批字段（OQ-006 要求预先登记，PR #13 合并时补全）
+-- 财务三表首批字段
 -- 基于 Tushare Pro 财务报表接口文档，金额字段单位为元。
 -- ============================================================
 INSERT INTO `data-aquarium.ashare_meta.ods_field_unit_map`
@@ -193,7 +193,7 @@ VALUES
   ('tushare', 'cashflow', 'ods_tushare_cashflow', 'free_cashflow', 'amount', '元', '元', 1, 'dwd_fin_cashflow', 'free_cashflow', FALSE, NULL, 'verified', 'source_name_passthrough', NULL, 'Tushare Pro cashflow 接口文档', DATE '2026-06-02', 'GPT-5', '企业自由现金流量；source_unit=canonical_unit=元，multiplier=1，保留源字段名');
 
 -- ============================================================
--- PR #13 财务三表补全字段（DWD 实表落地的其余单位字段，OQ-006 全字段覆盖）
+-- 财务三表补全字段（DWD 实表落地的其余单位字段）
 -- 金额字段单位元、source_name_passthrough；每股收益单位元/股、per_share。
 -- 验证：Tushare Pro 财务报表接口文档 + PR #13 实测 600519.SH FY2023 量级一致。
 -- ============================================================
@@ -239,4 +239,4 @@ VALUES
 -- 后置约束与说明
 -- ============================================================
 ALTER TABLE `data-aquarium.ashare_meta.ods_field_unit_map`
-SET OPTIONS (description = 'OQ-006 单位契约表：endpoint + source_field 粒度的 ODS->DWD 单位换算唯一事实来源。verified 字段才可作为标准 DWD 输出。P0 + PR #13 财务三表（income/balancesheet/cashflow）全部单位字段已登记。');
+SET OPTIONS (description = '单位契约表：endpoint + source_field 粒度的 ODS->DWD 单位换算唯一事实来源。verified 字段才可作为标准 DWD 输出。核心行情字段与财务三表（income/balancesheet/cashflow）单位字段已登记。');

@@ -3,7 +3,7 @@
 -- 财务特征 DWS（P0 默认合并口径）：把 dwd_fin_indicator 与三大报表（income/balancesheet/cashflow）
 -- 的 PIT 版本事实表 as-of 到每个 universe 交易日。粒度 (sec_code, trade_date, feature_version)。
 --
--- 口径（OQ-003 / PRD_20260601_03）：
+-- 口径：
 --   * 三大报表只消费默认合并口径（is_default_report_caliber=TRUE，report_type=1）；过滤在预过滤 CTE 内，
 --     再 LEFT JOIN universe，绝不写进 WHERE，避免把 LEFT JOIN 退化成 inner join 丢掉暂无财报的股票日期。
 --   * fina_indicator 无 report_type，按 source_default 口径统一消费，只用 visible_trade_date<=trade_date 截点。

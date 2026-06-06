@@ -1,7 +1,17 @@
+-- Generated from canonical sql/ by scripts/dataform/generate_sqlx_from_sql.py.
+-- Canonical source: sql/metadata/01_core_table_column_descriptions.sql
+
+config {
+  type: "operations",
+  name: "core_table_column_descriptions",
+  tags: ["metadata"],
+  dependencies: ["dim_trade_calendar", "dim_stock", "dim_stock_name_hist", "dim_index", "dwd_stock_eod_price", "dwd_stock_eod_valuation", "dwd_fin_indicator", "dwd_fin_indicator_latest", "dwd_index_eod"]
+}
+
 -- 文档维护：GPT-5（最近更新 2026-06-01）
 -- BigQuery Standard SQL
--- P0 DIM/DWD 表级与字段级说明补齐脚本。
--- 用法：P0 建表或重建后执行本脚本；本脚本只更新 BigQuery metadata，不重写表数据。
+-- 核心 DIM/DWD 表级与字段级说明补齐脚本。
+-- 用法：核心表建表或重建后执行本脚本；本脚本只更新 BigQuery metadata，不重写表数据。
 
 ALTER TABLE `data-aquarium.ashare_dim.dim_trade_calendar`
 SET OPTIONS (description = '交易日历维表。取 Tushare trade_cal 最新快照，保留全历史自然日与开市标记，用于交易日对齐、t-1/t-k 查找和 lookback 边界。');
@@ -23,7 +33,7 @@ ALTER TABLE `data-aquarium.ashare_dim.dim_stock`
 ALTER COLUMN sec_code SET OPTIONS (description = '统一证券代码，Tushare ts_code 格式，如 600000.SH'),
 ALTER COLUMN symbol SET OPTIONS (description = '证券数字代码，不含交易所后缀'),
 ALTER COLUMN sec_name SET OPTIONS (description = '证券简称，来自 stock_basic 最新快照；兜底代码可能为空'),
-ALTER COLUMN sec_type SET OPTIONS (description = '证券品种，当前 P0 固定为 stock'),
+ALTER COLUMN sec_type SET OPTIONS (description = '证券品种，当前固定为 stock'),
 ALTER COLUMN area SET OPTIONS (description = '上市公司地域，来自 stock_basic.area'),
 ALTER COLUMN industry SET OPTIONS (description = 'Tushare stock_basic 粗行业字段；标准行业时点归属以后续行业维表为准'),
 ALTER COLUMN market SET OPTIONS (description = '市场类型，来自 stock_basic.market'),
@@ -249,7 +259,7 @@ ALTER COLUMN ingested_at SET OPTIONS (description = '来源 ODS 摄入时间'),
 ALTER COLUMN visible_trade_date SET OPTIONS (description = '该报告期最新版本公告后第一个上交所交易日');
 
 ALTER TABLE `data-aquarium.ashare_dwd.dwd_index_eod`
-SET OPTIONS (description = '指数日线 DWD。从 dim_index 读取 canonical/source 映射和可用端点；sec_code 输出规范指数代码，source_sec_code 保留 ODS 实际代码，并从 index_dailybasic 写入可用指数的估值、市值和股本字段。OQ-006 已修复 index_daily 成交量/成交额单位换算。');
+SET OPTIONS (description = '指数日线 DWD。从 dim_index 读取 canonical/source 映射和可用端点；sec_code 输出规范指数代码，source_sec_code 保留 ODS 实际代码，并从 index_dailybasic 写入可用指数的估值、市值和股本字段。index_daily 成交量/成交额已统一换算。');
 
 ALTER TABLE `data-aquarium.ashare_dwd.dwd_index_eod`
 ALTER COLUMN trade_date SET OPTIONS (description = '交易日，月分区字段'),
