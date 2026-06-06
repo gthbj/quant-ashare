@@ -29,12 +29,13 @@ from scripts.strategy1_cloudrun.config import (
     Experiment,
     add_common_args,
     apply_cli_overrides,
+    effective_candidate_parallelism,
     experiment_from_b64,
     filter_experiments,
     load_manifest,
     load_runner_config,
 )
-from scripts.strategy1_cloudrun.preprocess import MedianWinsorZScorePreprocessor, feature_frame_from_panel
+from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
 from scripts.strategy1_cloudrun.task_fanout import (
     MATRIX_MANIFEST_VERSION,
     build_work_units,
@@ -57,7 +58,8 @@ def main() -> int:
     matrix_id = args.matrix_id or default_matrix_id(config, experiment)
     matrix_uri = args.matrix_uri or matrix_artifact_uri(config, experiment, matrix_id)
     local_dir = Path(args.matrix_local_dir) if args.matrix_local_dir else matrix_local_dir(config, experiment, matrix_id)
-    candidate_parallelism_resolved = resolve_candidate_parallelism(len(config.candidate_grid), args.candidate_parallelism)
+    candidate_parallelism_arg = effective_candidate_parallelism(config, args.candidate_parallelism)
+    candidate_parallelism_resolved = resolve_candidate_parallelism(len(config.candidate_grid), candidate_parallelism_arg)
     plan = {
         "entrypoint": "prepare_matrix",
         "runner_version": __version__,
@@ -68,7 +70,10 @@ def main() -> int:
         "matrix_uri": matrix_uri,
         "matrix_local_dir": str(local_dir),
         "work_unit_count": len(config.candidate_grid),
+        "candidate_parallelism_arg": candidate_parallelism_arg,
         "candidate_parallelism_resolved": candidate_parallelism_resolved,
+        "candidate_task_cpu": config.candidate_task_cpu,
+        "candidate_task_memory": config.candidate_task_memory,
         "candidate_grid_hash": candidate_grid_hash(config),
         "skip_gcs_upload": args.skip_gcs_upload,
     }
@@ -150,7 +155,8 @@ def prepare_matrix(
     }
     train_mask = panel["split_tag"].eq("train") & panel["target_label"].notna()
     valid_mask = panel["split_tag"].eq("valid")
-    predict_mask = panel["split_tag"].isin(["valid", "test"])
+    cv_mask = panel["split_tag"].isin(["train", "valid"])
+    predict_mask = panel["split_tag"].isin(["valid", "test", "final_holdout"])
     if int(train_mask.sum()) == 0:
         raise RuntimeError("train split has no labeled samples")
     if int(valid_mask.sum()) == 0:
@@ -158,8 +164,9 @@ def prepare_matrix(
     if int(predict_mask.sum()) == 0:
         raise RuntimeError("valid/test predict split has no samples")
 
-    preprocessor = MedianWinsorZScorePreprocessor(
-        feature_columns=feature_columns,
+    preprocessor = build_preprocessor(
+        config.preprocess_version,
+        feature_columns,
         winsor_lower=config.winsor_lower,
         winsor_upper=config.winsor_upper,
     ).fit(feature_frame.loc[train_mask])
@@ -169,15 +176,19 @@ def prepare_matrix(
     local_dir.mkdir(parents=True, exist_ok=True)
     x_train = pd.DataFrame(preprocessor.transform(feature_frame.loc[train_mask]), columns=feature_columns)
     x_valid = pd.DataFrame(preprocessor.transform(feature_frame.loc[valid_mask]), columns=feature_columns)
+    x_cv = pd.DataFrame(preprocessor.transform(feature_frame.loc[cv_mask]), columns=feature_columns)
     x_predict = pd.DataFrame(preprocessor.transform(feature_frame.loc[predict_mask]), columns=feature_columns)
     train_labels = label_frame(panel.loc[train_mask])
     valid_labels = label_frame(panel.loc[valid_mask])
+    cv_labels = label_frame(panel.loc[cv_mask])
     predict_index = predict_index_frame(panel.loc[predict_mask])
 
     write_parquet(x_train, local_dir / "train_features.parquet")
     write_parquet(train_labels, local_dir / "train_labels.parquet")
     write_parquet(x_valid, local_dir / "valid_features.parquet")
     write_parquet(valid_labels, local_dir / "valid_labels.parquet")
+    write_parquet(x_cv, local_dir / "cv_features.parquet")
+    write_parquet(cv_labels, local_dir / "cv_labels.parquet")
     write_parquet(x_predict, local_dir / "predict_features.parquet")
     write_parquet(predict_index, local_dir / "predict_index.parquet")
     write_json(local_dir / "feature_schema.json", feature_schema)
@@ -186,6 +197,9 @@ def prepare_matrix(
 
     work_units = stamp_work_units(build_work_units(config, experiment, matrix_uri), matrix_id, matrix_uri)
     work_units["candidate_parallelism_resolved"] = candidate_parallelism_resolved
+    work_units["candidate_parallelism_requested"] = candidate_parallelism_arg
+    work_units["candidate_task_cpu"] = config.candidate_task_cpu
+    work_units["candidate_task_memory"] = config.candidate_task_memory
     work_units["work_units_sha256"] = sha256_json({k: v for k, v in work_units.items() if k != "work_units_sha256"})
     write_json(local_dir / "work_units.json", work_units)
     bq_audit = {
@@ -209,10 +223,18 @@ def prepare_matrix(
         "source_row_count": int(len(panel)),
         "train_row_count": int(train_mask.sum()),
         "valid_row_count": int(valid_mask.sum()),
+        "cv_row_count": int(cv_mask.sum()),
         "predict_row_count": int(predict_mask.sum()),
+        "final_holdout_start_date": experiment.final_holdout_start,
+        "final_holdout_end_date": experiment.final_holdout_end,
+        "data_end_date": experiment.final_holdout_end or experiment.predict_end,
         "feature_order_sha256": feature_schema["feature_order_sha256"],
         "preprocess_stats_sha256": preprocess_stats["preprocess_stats_sha256"],
         "work_units_sha256": work_units["work_units_sha256"],
+        "candidate_parallelism_requested": candidate_parallelism_arg,
+        "candidate_parallelism_resolved": candidate_parallelism_resolved,
+        "candidate_task_cpu": config.candidate_task_cpu,
+        "candidate_task_memory": config.candidate_task_memory,
         "candidate_grid_hash": candidate_grid_hash(config),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by_job": "prepare_matrix",
@@ -224,6 +246,8 @@ def prepare_matrix(
             "train_labels.parquet": file_sha256(local_dir / "train_labels.parquet"),
             "valid_features.parquet": file_sha256(local_dir / "valid_features.parquet"),
             "valid_labels.parquet": file_sha256(local_dir / "valid_labels.parquet"),
+            "cv_features.parquet": file_sha256(local_dir / "cv_features.parquet"),
+            "cv_labels.parquet": file_sha256(local_dir / "cv_labels.parquet"),
             "predict_features.parquet": file_sha256(local_dir / "predict_features.parquet"),
             "predict_index.parquet": file_sha256(local_dir / "predict_index.parquet"),
             "feature_schema.json": file_sha256(local_dir / "feature_schema.json"),
@@ -282,7 +306,11 @@ def load_training_panel_with_job(
         [
             bigquery.ScalarQueryParameter("run_id", "STRING", experiment.run_id),
             bigquery.ScalarQueryParameter("train_start", "DATE", experiment.train_start),
-            bigquery.ScalarQueryParameter("test_end", "DATE", experiment.test_end),
+            bigquery.ScalarQueryParameter(
+                "test_end",
+                "DATE",
+                experiment.final_holdout_end or experiment.predict_end or experiment.test_end,
+            ),
         ],
         labels=labels,
     )

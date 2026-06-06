@@ -1,0 +1,38 @@
+# Strategy 1 model acceptance contract.
+# 文档维护：GPT-5 Codex（最近更新 2026-06-05）
+
+contract_version: model_acceptance_contract_v1
+
+thresholds:
+  min_valid_rank_ic: 0.0
+  min_valid_top_minus_bottom_fwd_ret: 0.0
+  min_test_rank_ic: 0.0
+  min_test_top_minus_bottom_fwd_ret: 0.0
+  min_test_year_excess_return_vs_000852: 0.0
+  min_overall_excess_return_vs_000852: 0.0
+  min_total_return: 0.0
+  min_sharpe: 0.70
+  min_max_drawdown: -0.25
+  min_final_holdout_excess_return_vs_000852: -0.05
+  min_final_holdout_total_return: -0.08
+  weak_valid_rank_ic_threshold: 0.01
+  min_final_holdout_trading_days: 40
+
+required:
+  valid_signal_status: stable
+  cv_confirmation_status: passed
+  allowed_score_orientation:
+    - identity
+    - reverse_probability
+
+test_reuse:
+  final_holdout_required_after_wave: 3
+  final_holdout_passed_status: passed
+
+diagnosis:
+  hard_reject_primary_diagnosis:
+    - signal_inverted
+    - unusable_signal
+  hard_reject_confidence_by_diagnosis:
+    sample_filter_risk:
+      - high

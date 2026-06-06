@@ -161,6 +161,8 @@ def build_sql_params(exp: Experiment, force_replace: bool, use_bq_ledger: bool) 
         "p_valid_end": exp.valid_end,
         "p_test_start": exp.test_start,
         "p_test_end": exp.test_end,
+        "p_final_holdout_start": exp.final_holdout_start,
+        "p_final_holdout_end": exp.final_holdout_end,
         "p_predict_start": exp.predict_start,
         "p_predict_end": exp.predict_end,
         "p_force_replace": force_replace,

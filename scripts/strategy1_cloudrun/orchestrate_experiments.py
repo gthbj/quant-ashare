@@ -18,6 +18,7 @@ from scripts.strategy1_cloudrun.config import (
     add_common_args,
     apply_cli_overrides,
     dump_resolved_manifest,
+    effective_candidate_parallelism,
     filter_experiments,
     experiment_to_b64,
     load_manifest,
@@ -258,14 +259,21 @@ def build_task_fanout_steps(config, exp, args, common_flags: list[str]) -> list[
     matrix_uri = matrix_artifact_uri(config, exp, matrix_id)
     work_units_uri = join_gs_uri(matrix_uri, "work_units.json")
     work_unit_count = len(config.candidate_grid)
-    candidate_parallelism = resolve_candidate_parallel_count(work_unit_count, args.candidate_parallelism)
+    candidate_parallelism_arg = effective_candidate_parallelism(config, args.candidate_parallelism)
+    candidate_parallelism = resolve_candidate_parallel_count(work_unit_count, candidate_parallelism_arg)
+    cli_limits_parallelism = getattr(
+        args,
+        "candidate_parallelism_from_cli",
+        args.candidate_parallelism not in (None, 0),
+    )
+    batch_size_limit = candidate_parallelism if cli_limits_parallelism else work_unit_count
     # prepare_matrix only materializes frozen matrix artifacts; ADS replacement is handled by reducer/backtest steps.
     prepare_common_flags = [flag for flag in common_flags if flag != "--force-replace"]
     prepare_flags = [
         *prepare_common_flags,
         f"--matrix-id={matrix_id}",
         f"--matrix-uri={matrix_uri}",
-        f"--candidate-parallelism={args.candidate_parallelism}",
+        f"--candidate-parallelism={candidate_parallelism_arg}",
     ]
     steps = [
         StepStateSpec(
@@ -282,8 +290,8 @@ def build_task_fanout_steps(config, exp, args, common_flags: list[str]) -> list[
             ),
         )
     ]
-    for batch_index, batch_start in enumerate(range(0, work_unit_count, max(1, candidate_parallelism))):
-        batch_size = min(candidate_parallelism, work_unit_count - batch_start)
+    for batch_index, batch_start in enumerate(range(0, work_unit_count, max(1, batch_size_limit))):
+        batch_size = min(batch_size_limit, work_unit_count - batch_start)
         step_id = "cloudrun_train_candidate_fanout" if work_unit_count == batch_size else f"cloudrun_train_candidate_fanout_batch_{batch_index:03d}"
         steps.append(StepStateSpec(
             step_id=step_id,

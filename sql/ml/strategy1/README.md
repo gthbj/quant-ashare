@@ -84,6 +84,10 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/17_qa_c
 # 18: sklearn native search QA（仅 PRD-20260605-03 的 36 候选 / Top5 路径执行）
 # 由 orchestrate_sklearn_native_search.py 在 Top5 完整回测后注入参数执行。
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql
+
+# 19: Cloud Run Python baseline search QA（仅 PRD-20260605-04 的 LightGBM / Top5 路径执行）
+# 由 orchestrate_cloudrun_python_baseline_search.py 在 Top5 完整回测后注入参数执行。
+bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql
 ```
 
 ## Cloud Run sklearn runner（PRD-20260604-04）
@@ -122,6 +126,20 @@ python -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search \
 ```
 
 该入口会复用 Cloud Run task fan-out：一次 `prepare_matrix` 后并发训练 manifest 中的 36 个候选，下载轻量 candidate artifact 做 valid-only 排名，再把 Top5 转成独立 `candidate_run_id` / `candidate_backtest_id` 跑 `select_register_predict` 和 `backtest_report`。Top5 候选会在 ADS training panel 中复制一份同 run_id 的训练面板别名，保证报告诊断和 `10/12` QA 仍按独立 run_id 校验。单个 Top5 候选失败时，其余候选继续执行，但最终 `18` QA 仍要求完整 Top5 产物。搜索报告写到 `reports/strategy1_cloudrun/sklearn_native_search/search_id=<search_id>/`，uploaded 模式同步到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/search_id=<search_id>/`。最终验收使用 `18_qa_sklearn_native_search_outputs.sql`，accepted 候选还必须满足 valid/test `top_minus_bottom_fwd_ret_mean` 不能同时为负；valid/test 的 `top_minus_bottom` 均按 5 分桶计算。
+
+Cloud Run Python baseline search（PRD-20260605-04）：sklearn native 首轮 Top5 rejected 后，下一轮用 LightGBM 在 Cloud Run task fan-out 上寻找新的 Python baseline。P0 manifest 固定为 `configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml`：40 个 `lightgbm_gbdt` 候选、默认 40 task 并发、数据截止 `2026-04-30`、固定 `pv_fin_quality + 30/5% + biweekly + 5d`，并使用 `configs/strategy1/model_acceptance_contract_v1.yml` 作为共享验收契约。
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml \
+  --manifest configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml \
+  --build-training-panel \
+  --force-replace
+```
+
+该入口会先按 PRD04 窗口构建训练面板，再由 `prepare_matrix` 生成 frozen matrix，并发训练候选、按 2021/2022/2023 purged walk-forward CV + 2024 valid confirmation 选 Top5。Top5 完整 prediction / portfolio / ledger / report / diagnosis 后，由 `19_qa_cloudrun_python_baseline_search_outputs.sql` 校验 Cloud Run Python backend、LightGBM 模型族、CV 证据、uploaded 报告/诊断、共享验收契约、2025 test reuse 和 2026 final_holdout watch。若 Top5 存在 `needs_more_evidence` 且无 accepted 候选，当前 wave 的 QA 先完成；随后才可按 manifest 触发 `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 的 `lightgbm_regression` 下一波，且下一波失败只记录在 orchestrator 输出中，不覆盖当前 wave 结论。
 
 ## 参数说明
 

@@ -11,11 +11,13 @@ DECLARE p_target_holdings INT64 DEFAULT 5;
 DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_train_start DATE DEFAULT DATE '2019-04-03';
 DECLARE p_train_end DATE DEFAULT DATE '2023-12-31';
-DECLARE p_valid_start DATE DEFAULT DATE '2024-01-01';
+DECLARE p_valid_start DATE DEFAULT DATE '2024-01-02';
 DECLARE p_valid_end DATE DEFAULT DATE '2024-12-31';
-DECLARE p_test_start DATE DEFAULT DATE '2025-01-01';
+DECLARE p_test_start DATE DEFAULT DATE '2025-01-02';
 DECLARE p_test_end DATE DEFAULT DATE '2025-12-31';
-DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
+DECLARE p_final_holdout_start DATE DEFAULT NULL;
+DECLARE p_final_holdout_end DATE DEFAULT NULL;
+DECLARE p_predict_start DATE DEFAULT DATE '2024-01-02';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;  -- NULL 表示按 p_predict_start 作为调仓周序锚点
 DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
@@ -72,6 +74,8 @@ ASSERT (
   AND p_test_start <= p_test_end
   AND p_train_end < p_valid_start
   AND p_valid_end < p_test_start
+  AND (p_final_holdout_start IS NULL OR p_test_end < p_final_holdout_start)
+  AND (p_final_holdout_start IS NULL OR p_final_holdout_start <= p_final_holdout_end)
 ) AS 'configured split date ranges must be ordered and mutually exclusive';
 
 ASSERT (
@@ -82,6 +86,14 @@ ASSERT (
       (tp.split_tag = 'train' AND NOT tp.trade_date BETWEEN p_train_start AND p_train_end)
       OR (tp.split_tag = 'valid' AND NOT tp.trade_date BETWEEN p_valid_start AND p_valid_end)
       OR (tp.split_tag = 'test' AND NOT tp.trade_date BETWEEN p_test_start AND p_test_end)
+      OR (
+        tp.split_tag = 'final_holdout'
+        AND (
+          p_final_holdout_start IS NULL
+          OR p_final_holdout_end IS NULL
+          OR NOT tp.trade_date BETWEEN p_final_holdout_start AND p_final_holdout_end
+        )
+      )
     )
 ) AS 'split_tag must match configured split date ranges';
 
