@@ -15,6 +15,7 @@ from typing import Any
 from google.cloud import bigquery, storage
 
 from scripts.strategy1_cloudrun import __version__
+from scripts.strategy1_cloudrun.bq_io import json_dumps_strict
 from scripts.strategy1_cloudrun.config import Experiment, RunnerConfig
 
 
@@ -60,7 +61,7 @@ def experiment_params_json(exp: Experiment, *, execution_backend: str, manifest_
     payload["execution_backend"] = execution_backend
     payload["manifest_hash"] = manifest_hash
     payload["runner_version"] = __version__
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return json_dumps_strict(payload, ensure_ascii=False, sort_keys=True)
 
 
 def build_lock_key(exp: Experiment, step_id: str) -> str:
@@ -111,7 +112,7 @@ class GcsLeaseLock:
             }
             try:
                 blob.upload_from_string(
-                    json.dumps(payload, ensure_ascii=False),
+                    json_dumps_strict(payload, ensure_ascii=False),
                     content_type="application/json",
                     if_generation_match=0,
                 )
@@ -144,7 +145,7 @@ class GcsLeaseLock:
             payload["last_heartbeat_at"] = utc_now().isoformat()
             payload["lease_expires_at"] = lease_expires_at.isoformat()
             blob.upload_from_string(
-                json.dumps(payload, ensure_ascii=False),
+                json_dumps_strict(payload, ensure_ascii=False),
                 content_type="application/json",
                 if_generation_match=self._generation,
             )
@@ -174,7 +175,7 @@ class GcsLeaseLock:
             payload["job_id"] = execution_id
             payload["execution_recorded_at"] = utc_now().isoformat()
             blob.upload_from_string(
-                json.dumps(payload, ensure_ascii=False),
+                json_dumps_strict(payload, ensure_ascii=False),
                 content_type="application/json",
                 if_generation_match=self._generation,
             )
