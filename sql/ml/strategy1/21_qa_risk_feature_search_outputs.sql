@@ -109,25 +109,25 @@ ASSERT (
   WHERE IFNULL(ms.n, 0) != 1
 ) AS 'QA-RISK-3: market-state table must cover every panel trade_date exactly once';
 
--- QA-RISK-4: 核心市场状态字段不得在面板中整日缺失，整体缺失率必须很低。
+-- QA-RISK-4: 核心市场状态源字段不得整日缺失，源表整体缺失率必须很低。
 ASSERT (
-  WITH panel AS (
+  WITH market_state AS (
     SELECT
-      tp.trade_date,
-      JSON_VALUE(tp.feature_values_json, '$.csi1000_ret_20d') AS csi1000_ret_20d
-    FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
-    WHERE tp.run_id = p_source_run_id
-      AND tp.trade_date BETWEEN p_train_start_date AND p_data_end_date
+      ms.trade_date,
+      ms.csi1000_ret_20d
+    FROM `data-aquarium.ashare_dws.dws_market_state_daily` AS ms
+    WHERE ms.trade_date BETWEEN p_train_start_date AND p_data_end_date
+      AND ms.market_state_version = p_market_state_version
   ),
   day_missing AS (
     SELECT trade_date, COUNTIF(csi1000_ret_20d IS NOT NULL) AS non_null_rows
-    FROM panel
+    FROM market_state
     GROUP BY trade_date
   )
   SELECT SAFE_DIVIDE(COUNTIF(csi1000_ret_20d IS NULL), COUNT(*)) <= 0.001
     AND (SELECT COUNTIF(non_null_rows = 0) = 0 FROM day_missing)
-  FROM panel
-) AS 'QA-RISK-4: csi1000_ret_20d must not be materially missing in risk feature panel';
+  FROM market_state
+) AS 'QA-RISK-4: source csi1000_ret_20d must not be materially missing before forward-fill';
 
 -- QA-RISK-5: Top-K 必须记录 wave 4/test reuse approval，避免把复用测试集误当全新证据。
 ASSERT (

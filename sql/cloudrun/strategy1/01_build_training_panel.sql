@@ -15,6 +15,7 @@ DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_feature_set_id STRING DEFAULT 'strategy1_pv_fin_risk_v0_20260606';
 DECLARE p_fin_feature_version STRING DEFAULT 'fin_default_v0_20260602';
 DECLARE p_market_state_version STRING DEFAULT 'market_state_v0_20260606';
+DECLARE p_market_state_ffill_max_trade_days INT64 DEFAULT 5;
 DECLARE p_label_version STRING DEFAULT 'open_to_close_h1_5_10_20_v20260601';
 DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_rebalance_frequency STRING DEFAULT 'biweekly';
@@ -91,42 +92,80 @@ INSERT INTO `data-aquarium.ashare_ads.ads_ml_training_panel_daily`
  universe_version, trade_date, sec_code, horizon, split_fold, split_tag,
  sample_weight, target_label, target_return,
  feature_values_json, feature_column_list, created_at)
-WITH ms_filled AS (
+WITH ms_source AS (
+  SELECT
+    ms.*,
+    ROW_NUMBER() OVER (ORDER BY ms.trade_date) AS market_state_trade_idx
+  FROM `data-aquarium.ashare_dws.dws_market_state_daily` AS ms
+  WHERE ms.market_state_version = p_market_state_version
+    AND ms.trade_date BETWEEN DATE_SUB(p_train_start, INTERVAL 120 DAY) AND p_panel_end
+),
+ms_last_seen AS (
   SELECT
     trade_date,
-    LAST_VALUE(csi300_ret_5d IGNORE NULLS) OVER ms_window AS csi300_ret_5d,
-    LAST_VALUE(csi300_ret_20d IGNORE NULLS) OVER ms_window AS csi300_ret_20d,
-    LAST_VALUE(csi300_drawdown_20d IGNORE NULLS) OVER ms_window AS csi300_drawdown_20d,
-    LAST_VALUE(csi1000_ret_5d IGNORE NULLS) OVER ms_window AS csi1000_ret_5d,
-    LAST_VALUE(csi1000_ret_20d IGNORE NULLS) OVER ms_window AS csi1000_ret_20d,
-    LAST_VALUE(csi1000_drawdown_20d IGNORE NULLS) OVER ms_window AS csi1000_drawdown_20d,
-    LAST_VALUE(csi1000_close_to_ma20 IGNORE NULLS) OVER ms_window AS csi1000_close_to_ma20,
-    LAST_VALUE(csi1000_close_to_ma60 IGNORE NULLS) OVER ms_window AS csi1000_close_to_ma60,
-    LAST_VALUE(csi1000_ma20_to_ma60 IGNORE NULLS) OVER ms_window AS csi1000_ma20_to_ma60,
-    LAST_VALUE(csi300_vol_20d IGNORE NULLS) OVER ms_window AS csi300_vol_20d,
-    LAST_VALUE(csi1000_vol_20d IGNORE NULLS) OVER ms_window AS csi1000_vol_20d,
-    LAST_VALUE(avg_vol_20d IGNORE NULLS) OVER ms_window AS avg_vol_20d,
-    LAST_VALUE(adv_ratio_1d IGNORE NULLS) OVER ms_window AS adv_ratio_1d,
-    LAST_VALUE(above_ma20_ratio IGNORE NULLS) OVER ms_window AS above_ma20_ratio,
-    LAST_VALUE(new_low_20d_ratio IGNORE NULLS) OVER ms_window AS new_low_20d_ratio,
-    LAST_VALUE(ret_20d_p25 IGNORE NULLS) OVER ms_window AS ret_20d_p25,
-    LAST_VALUE(ret_20d_median IGNORE NULLS) OVER ms_window AS ret_20d_median,
-    LAST_VALUE(drawdown_20d_median IGNORE NULLS) OVER ms_window AS drawdown_20d_median,
-    LAST_VALUE(limit_down_count IGNORE NULLS) OVER ms_window AS limit_down_count,
-    LAST_VALUE(one_word_limit_down_count IGNORE NULLS) OVER ms_window AS one_word_limit_down_count,
-    LAST_VALUE(limit_down_mv_ratio IGNORE NULLS) OVER ms_window AS limit_down_mv_ratio,
-    LAST_VALUE(is_smallcap_trend_down IGNORE NULLS) OVER ms_window AS is_smallcap_trend_down,
-    LAST_VALUE(is_breadth_weak IGNORE NULLS) OVER ms_window AS is_breadth_weak,
-    LAST_VALUE(is_limit_down_diffusion IGNORE NULLS) OVER ms_window AS is_limit_down_diffusion,
-    LAST_VALUE(risk_off_trigger_count IGNORE NULLS) OVER ms_window AS risk_off_trigger_count,
-    LAST_VALUE(is_risk_off IGNORE NULLS) OVER ms_window AS is_risk_off
-  FROM `data-aquarium.ashare_dws.dws_market_state_daily`
-  WHERE market_state_version = p_market_state_version
-    AND trade_date BETWEEN DATE_SUB(p_train_start, INTERVAL 120 DAY) AND p_panel_end
+    market_state_trade_idx,
+    LAST_VALUE(IF(csi300_ret_5d IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi300_ret_5d AS value)) IGNORE NULLS) OVER ms_window AS csi300_ret_5d_seen,
+    LAST_VALUE(IF(csi300_ret_20d IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi300_ret_20d AS value)) IGNORE NULLS) OVER ms_window AS csi300_ret_20d_seen,
+    LAST_VALUE(IF(csi300_drawdown_20d IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi300_drawdown_20d AS value)) IGNORE NULLS) OVER ms_window AS csi300_drawdown_20d_seen,
+    LAST_VALUE(IF(csi1000_ret_5d IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi1000_ret_5d AS value)) IGNORE NULLS) OVER ms_window AS csi1000_ret_5d_seen,
+    LAST_VALUE(IF(csi1000_ret_20d IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi1000_ret_20d AS value)) IGNORE NULLS) OVER ms_window AS csi1000_ret_20d_seen,
+    LAST_VALUE(IF(csi1000_drawdown_20d IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi1000_drawdown_20d AS value)) IGNORE NULLS) OVER ms_window AS csi1000_drawdown_20d_seen,
+    LAST_VALUE(IF(csi1000_close_to_ma20 IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi1000_close_to_ma20 AS value)) IGNORE NULLS) OVER ms_window AS csi1000_close_to_ma20_seen,
+    LAST_VALUE(IF(csi1000_close_to_ma60 IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi1000_close_to_ma60 AS value)) IGNORE NULLS) OVER ms_window AS csi1000_close_to_ma60_seen,
+    LAST_VALUE(IF(csi1000_ma20_to_ma60 IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi1000_ma20_to_ma60 AS value)) IGNORE NULLS) OVER ms_window AS csi1000_ma20_to_ma60_seen,
+    LAST_VALUE(IF(csi300_vol_20d IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi300_vol_20d AS value)) IGNORE NULLS) OVER ms_window AS csi300_vol_20d_seen,
+    LAST_VALUE(IF(csi1000_vol_20d IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, csi1000_vol_20d AS value)) IGNORE NULLS) OVER ms_window AS csi1000_vol_20d_seen,
+    LAST_VALUE(IF(avg_vol_20d IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, avg_vol_20d AS value)) IGNORE NULLS) OVER ms_window AS avg_vol_20d_seen,
+    LAST_VALUE(IF(adv_ratio_1d IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, adv_ratio_1d AS value)) IGNORE NULLS) OVER ms_window AS adv_ratio_1d_seen,
+    LAST_VALUE(IF(above_ma20_ratio IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, above_ma20_ratio AS value)) IGNORE NULLS) OVER ms_window AS above_ma20_ratio_seen,
+    LAST_VALUE(IF(new_low_20d_ratio IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, new_low_20d_ratio AS value)) IGNORE NULLS) OVER ms_window AS new_low_20d_ratio_seen,
+    LAST_VALUE(IF(ret_20d_p25 IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, ret_20d_p25 AS value)) IGNORE NULLS) OVER ms_window AS ret_20d_p25_seen,
+    LAST_VALUE(IF(ret_20d_median IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, ret_20d_median AS value)) IGNORE NULLS) OVER ms_window AS ret_20d_median_seen,
+    LAST_VALUE(IF(drawdown_20d_median IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, drawdown_20d_median AS value)) IGNORE NULLS) OVER ms_window AS drawdown_20d_median_seen,
+    LAST_VALUE(IF(limit_down_count IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, limit_down_count AS value)) IGNORE NULLS) OVER ms_window AS limit_down_count_seen,
+    LAST_VALUE(IF(one_word_limit_down_count IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, one_word_limit_down_count AS value)) IGNORE NULLS) OVER ms_window AS one_word_limit_down_count_seen,
+    LAST_VALUE(IF(limit_down_mv_ratio IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, limit_down_mv_ratio AS value)) IGNORE NULLS) OVER ms_window AS limit_down_mv_ratio_seen,
+    LAST_VALUE(IF(is_smallcap_trend_down IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, is_smallcap_trend_down AS value)) IGNORE NULLS) OVER ms_window AS is_smallcap_trend_down_seen,
+    LAST_VALUE(IF(is_breadth_weak IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, is_breadth_weak AS value)) IGNORE NULLS) OVER ms_window AS is_breadth_weak_seen,
+    LAST_VALUE(IF(is_limit_down_diffusion IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, is_limit_down_diffusion AS value)) IGNORE NULLS) OVER ms_window AS is_limit_down_diffusion_seen,
+    LAST_VALUE(IF(risk_off_trigger_count IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, risk_off_trigger_count AS value)) IGNORE NULLS) OVER ms_window AS risk_off_trigger_count_seen,
+    LAST_VALUE(IF(is_risk_off IS NULL, NULL, STRUCT(market_state_trade_idx AS idx, is_risk_off AS value)) IGNORE NULLS) OVER ms_window AS is_risk_off_seen
+  FROM ms_source
   WINDOW ms_window AS (
     ORDER BY trade_date
     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
   )
+),
+ms_filled AS (
+  SELECT
+    trade_date,
+    IF(market_state_trade_idx - csi300_ret_5d_seen.idx <= p_market_state_ffill_max_trade_days, csi300_ret_5d_seen.value, NULL) AS csi300_ret_5d,
+    IF(market_state_trade_idx - csi300_ret_20d_seen.idx <= p_market_state_ffill_max_trade_days, csi300_ret_20d_seen.value, NULL) AS csi300_ret_20d,
+    IF(market_state_trade_idx - csi300_drawdown_20d_seen.idx <= p_market_state_ffill_max_trade_days, csi300_drawdown_20d_seen.value, NULL) AS csi300_drawdown_20d,
+    IF(market_state_trade_idx - csi1000_ret_5d_seen.idx <= p_market_state_ffill_max_trade_days, csi1000_ret_5d_seen.value, NULL) AS csi1000_ret_5d,
+    IF(market_state_trade_idx - csi1000_ret_20d_seen.idx <= p_market_state_ffill_max_trade_days, csi1000_ret_20d_seen.value, NULL) AS csi1000_ret_20d,
+    IF(market_state_trade_idx - csi1000_drawdown_20d_seen.idx <= p_market_state_ffill_max_trade_days, csi1000_drawdown_20d_seen.value, NULL) AS csi1000_drawdown_20d,
+    IF(market_state_trade_idx - csi1000_close_to_ma20_seen.idx <= p_market_state_ffill_max_trade_days, csi1000_close_to_ma20_seen.value, NULL) AS csi1000_close_to_ma20,
+    IF(market_state_trade_idx - csi1000_close_to_ma60_seen.idx <= p_market_state_ffill_max_trade_days, csi1000_close_to_ma60_seen.value, NULL) AS csi1000_close_to_ma60,
+    IF(market_state_trade_idx - csi1000_ma20_to_ma60_seen.idx <= p_market_state_ffill_max_trade_days, csi1000_ma20_to_ma60_seen.value, NULL) AS csi1000_ma20_to_ma60,
+    IF(market_state_trade_idx - csi300_vol_20d_seen.idx <= p_market_state_ffill_max_trade_days, csi300_vol_20d_seen.value, NULL) AS csi300_vol_20d,
+    IF(market_state_trade_idx - csi1000_vol_20d_seen.idx <= p_market_state_ffill_max_trade_days, csi1000_vol_20d_seen.value, NULL) AS csi1000_vol_20d,
+    IF(market_state_trade_idx - avg_vol_20d_seen.idx <= p_market_state_ffill_max_trade_days, avg_vol_20d_seen.value, NULL) AS avg_vol_20d,
+    IF(market_state_trade_idx - adv_ratio_1d_seen.idx <= p_market_state_ffill_max_trade_days, adv_ratio_1d_seen.value, NULL) AS adv_ratio_1d,
+    IF(market_state_trade_idx - above_ma20_ratio_seen.idx <= p_market_state_ffill_max_trade_days, above_ma20_ratio_seen.value, NULL) AS above_ma20_ratio,
+    IF(market_state_trade_idx - new_low_20d_ratio_seen.idx <= p_market_state_ffill_max_trade_days, new_low_20d_ratio_seen.value, NULL) AS new_low_20d_ratio,
+    IF(market_state_trade_idx - ret_20d_p25_seen.idx <= p_market_state_ffill_max_trade_days, ret_20d_p25_seen.value, NULL) AS ret_20d_p25,
+    IF(market_state_trade_idx - ret_20d_median_seen.idx <= p_market_state_ffill_max_trade_days, ret_20d_median_seen.value, NULL) AS ret_20d_median,
+    IF(market_state_trade_idx - drawdown_20d_median_seen.idx <= p_market_state_ffill_max_trade_days, drawdown_20d_median_seen.value, NULL) AS drawdown_20d_median,
+    IF(market_state_trade_idx - limit_down_count_seen.idx <= p_market_state_ffill_max_trade_days, limit_down_count_seen.value, NULL) AS limit_down_count,
+    IF(market_state_trade_idx - one_word_limit_down_count_seen.idx <= p_market_state_ffill_max_trade_days, one_word_limit_down_count_seen.value, NULL) AS one_word_limit_down_count,
+    IF(market_state_trade_idx - limit_down_mv_ratio_seen.idx <= p_market_state_ffill_max_trade_days, limit_down_mv_ratio_seen.value, NULL) AS limit_down_mv_ratio,
+    IF(market_state_trade_idx - is_smallcap_trend_down_seen.idx <= p_market_state_ffill_max_trade_days, is_smallcap_trend_down_seen.value, NULL) AS is_smallcap_trend_down,
+    IF(market_state_trade_idx - is_breadth_weak_seen.idx <= p_market_state_ffill_max_trade_days, is_breadth_weak_seen.value, NULL) AS is_breadth_weak,
+    IF(market_state_trade_idx - is_limit_down_diffusion_seen.idx <= p_market_state_ffill_max_trade_days, is_limit_down_diffusion_seen.value, NULL) AS is_limit_down_diffusion,
+    IF(market_state_trade_idx - risk_off_trigger_count_seen.idx <= p_market_state_ffill_max_trade_days, risk_off_trigger_count_seen.value, NULL) AS risk_off_trigger_count,
+    IF(market_state_trade_idx - is_risk_off_seen.idx <= p_market_state_ffill_max_trade_days, is_risk_off_seen.value, NULL) AS is_risk_off
+  FROM ms_last_seen
 )
 SELECT
   p_run_id,
@@ -163,10 +202,10 @@ SELECT
   TO_JSON_STRING(STRUCT(
     s.list_age_td AS list_age_td,
     s.ret_1d AS ret_1d, s.ret_3d AS ret_3d, s.ret_5d AS ret_5d,
-    s.ret_10d AS ret_10d, s.ret_20d AS ret_20d, s.ret_60d AS ret_60d,
+    s.ret_10d AS ret_10d, sf.ret_20d AS ret_20d, s.ret_60d AS ret_60d,
     s.mom_20_5 AS mom_20_5, s.mom_60_20 AS mom_60_20,
-    s.vol_5d AS vol_5d, s.vol_20d AS vol_20d, s.vol_60d AS vol_60d,
-    s.drawdown_20d AS drawdown_20d, s.hl_range_20d AS hl_range_20d,
+    s.vol_5d AS vol_5d, sf.vol_20d AS vol_20d, s.vol_60d AS vol_60d,
+    sf.drawdown_20d AS drawdown_20d, s.hl_range_20d AS hl_range_20d,
     s.amount_ma20_cny AS amount_ma20_cny, s.amount_zscore_20d AS amount_zscore_20d,
     s.turnover_rate AS turnover_rate, s.turnover_rate_free_float AS turnover_rate_free_float,
     s.turnover_rate_ma20 AS turnover_rate_ma20, s.volume_ratio AS volume_ratio,
@@ -203,8 +242,8 @@ SELECT
     IF(p_risk_enabled, sf.one_word_limit_days_20d, NULL) AS one_word_limit_days_20d,
     IF(p_risk_enabled, sf.total_mv_cny, NULL) AS total_mv_cny,
     IF(p_risk_enabled, sf.circ_mv_cny, NULL) AS circ_mv_cny,
-    IF(p_risk_enabled, CASE WHEN s.ret_20d IS NULL THEN NULL WHEN s.ret_20d < -0.30 THEN 1.0 ELSE 0.0 END, NULL) AS risk_ret20_lt_30pct,
-    IF(p_risk_enabled, CASE WHEN s.drawdown_20d IS NULL THEN NULL WHEN s.drawdown_20d < -0.30 THEN 1.0 ELSE 0.0 END, NULL) AS risk_drawdown20_lt_30pct,
+    IF(p_risk_enabled, CASE WHEN sf.ret_20d IS NULL THEN NULL WHEN sf.ret_20d < -0.30 THEN 1.0 ELSE 0.0 END, NULL) AS risk_ret20_lt_30pct,
+    IF(p_risk_enabled, CASE WHEN sf.drawdown_20d IS NULL THEN NULL WHEN sf.drawdown_20d < -0.30 THEN 1.0 ELSE 0.0 END, NULL) AS risk_drawdown20_lt_30pct,
     IF(p_risk_enabled, CASE WHEN sf.limit_down_days_20d IS NULL THEN NULL WHEN sf.limit_down_days_20d >= 2 THEN 1.0 ELSE 0.0 END, NULL) AS risk_limit_down_20d_ge2,
     IF(p_risk_enabled, CASE WHEN sf.one_word_limit_days_20d IS NULL THEN NULL WHEN sf.one_word_limit_days_20d >= 1 THEN 1.0 ELSE 0.0 END, NULL) AS risk_one_word_limit_20d_ge1,
     IF(p_risk_enabled, CASE WHEN sf.total_mv_cny IS NULL THEN NULL WHEN sf.total_mv_cny < 30e8 THEN 1.0 ELSE 0.0 END, NULL) AS risk_microcap_total_mv,
@@ -235,8 +274,8 @@ SELECT
     IF(p_risk_enabled, CAST(ms.is_limit_down_diffusion AS INT64), NULL) AS is_limit_down_diffusion,
     IF(p_risk_enabled, ms.risk_off_trigger_count, NULL) AS risk_off_trigger_count,
     IF(p_risk_enabled, CAST(ms.is_risk_off AS INT64), NULL) AS is_risk_off,
-    IF(p_risk_enabled, CASE WHEN s.drawdown_20d IS NULL OR ms.is_risk_off IS NULL THEN NULL ELSE s.drawdown_20d * CAST(ms.is_risk_off AS INT64) END, NULL) AS stock_drawdown_x_market_riskoff,
-    IF(p_risk_enabled, CASE WHEN s.vol_20d IS NULL OR ms.csi1000_vol_20d IS NULL THEN NULL ELSE s.vol_20d * ms.csi1000_vol_20d END, NULL) AS stock_vol_x_market_vol,
+    IF(p_risk_enabled, CASE WHEN sf.drawdown_20d IS NULL OR ms.is_risk_off IS NULL THEN NULL ELSE sf.drawdown_20d * CAST(ms.is_risk_off AS INT64) END, NULL) AS stock_drawdown_x_market_riskoff,
+    IF(p_risk_enabled, CASE WHEN sf.vol_20d IS NULL OR ms.csi1000_vol_20d IS NULL THEN NULL ELSE sf.vol_20d * ms.csi1000_vol_20d END, NULL) AS stock_vol_x_market_vol,
     IF(p_risk_enabled, CASE WHEN sf.circ_mv_cny IS NULL OR ms.is_breadth_weak IS NULL THEN NULL ELSE IF(sf.circ_mv_cny < 20e8, 1.0, 0.0) * CAST(ms.is_breadth_weak AS INT64) END, NULL) AS microcap_x_breadth_weak,
     IF(p_risk_enabled, CASE WHEN sf.limit_down_days_20d IS NULL OR ms.is_limit_down_diffusion IS NULL THEN NULL ELSE IF(sf.limit_down_days_20d >= 2, 1.0, 0.0) * CAST(ms.is_limit_down_diffusion AS INT64) END, NULL) AS limitdown_history_x_limitdown_diffusion,
     s.board AS board

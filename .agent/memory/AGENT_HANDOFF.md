@@ -2865,3 +2865,30 @@ Run ID: prd_strategy1_lot_aware_ledger_20260606
 
 - Owner 已要求提交当前 `codex/fix-riskfeat-training-panel-fields` 并推送创建 PR。
 - 当前 wave 4 风险特征 binary/regression 均无 accepted baseline；后续建模应优先评估新模型族、目标函数、样本窗口或 acceptance gate，而不是继续假设本轮风险特征配置可直接晋级。
+
+---
+
+## 交接记录：PR #103 review comment follow-up
+
+- Date: 2026-06-07
+- Agent ID: Codex
+- Agent Instance ID: Codex desktop session
+- Model: GPT-5 Codex
+- Environment: Codex desktop, `/Users/fisher/Desktop/git/quant-ashare`
+- Run ID: pr103_review_comment_followup_20260607
+- Related issue/PR: PR #103
+
+### 本轮完成
+
+- 处理 PR #103 review comment 中认同的 2 个 P2 与 1 个 P3。
+- `prepare_matrix.py`：expected feature-set 路径重新读取并校验 `feature_column_list`，且 train split 中任一 expected feature 全空时 fail-fast，避免缺列被 JSON 抽取静默转成全 NaN。
+- `sql/cloudrun/strategy1/01_build_training_panel.sql`：新增 `p_market_state_ffill_max_trade_days=5`，market-state forward-fill 只允许沿用最近 5 个源表交易日内的非空值；同时将 `ret_20d`、`drawdown_20d`、`vol_20d` 统一从 `dws_stock_feature_daily_v0` 读取。
+- `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`：`QA-RISK-4` 改查源表 `dws_market_state_daily.csi1000_ret_20d` 缺失率，避免 post-fill 训练面板掩盖源表稀疏。
+
+### 验证
+
+- 本次仅处理 PR comment follow-up，未重新执行 Cloud Run 训练、回测或 BigQuery QA。
+
+### 后续建议
+
+- 如 CI 或 reviewer 要求，可对训练面板 SQL 与 `21` QA 做 BigQuery dry-run，再决定是否需要重建 runner 和局部重跑 matrix。

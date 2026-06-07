@@ -2,6 +2,8 @@
 
 ## 最新状态（2026-06-07）
 
+- [x] PR #103 review comment follow-up：已处理 prepare_matrix 契约校验、market-state 5 个源表交易日 staleness 上限、源表缺失 QA 与风险字段统一来源；未重新执行 Cloud Run。
+
 - [x] Strategy1 风险特征 wave 4 binary 与 regression 两条 Cloud Run manifest 已完成真实执行、Top5 backtest/report、`19` QA、`21` QA；两条 Top5 均被 acceptance contract 拒绝，未产生 accepted baseline。
 - [x] Owner 已决定提交/推送 `codex/fix-riskfeat-training-panel-fields` 并开 PR；若继续建模，优先讨论新模型族、目标函数、样本窗口或 acceptance gate。
 

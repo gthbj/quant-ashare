@@ -159,9 +159,10 @@ def prepare_matrix(
         feature_frame, feature_columns = feature_frame_from_panel(panel)
         panel = panel.drop(columns=["feature_values_json", "feature_column_list"], errors="ignore")
     else:
+        validate_expected_feature_columns(panel, expected_columns, experiment.run_id)
         feature_columns = expected_columns
         feature_frame = panel.loc[:, feature_columns].astype("float32", copy=False)
-        panel = panel.drop(columns=feature_columns, errors="ignore")
+        panel = panel.drop(columns=feature_columns + ["feature_column_list"], errors="ignore")
     panel = panel.reset_index(drop=True)
     feature_frame = feature_frame.reset_index(drop=True)
     if expected_columns is not None and feature_columns != expected_columns:
@@ -359,7 +360,8 @@ def load_training_panel_with_job(
       feature_values_json,
       feature_column_list,"""
     else:
-        feature_select = "".join(
+        feature_select = """
+      feature_column_list,""" + "".join(
             f"""
       SAFE_CAST(JSON_VALUE(feature_values_json, '$.{column}') AS FLOAT64) AS `{column}`,"""
             for column in feature_columns
@@ -388,6 +390,52 @@ def load_training_panel_with_job(
         ],
         labels=labels,
     )
+
+
+def normalize_feature_column_list(value):
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = [part.strip() for part in value.split(",") if part.strip()]
+    else:
+        parsed = list(value)
+    return [str(item) for item in parsed]
+
+
+def validate_expected_feature_columns(
+    panel: pd.DataFrame,
+    expected_columns: list[str],
+    run_id: str,
+) -> None:
+    if "feature_column_list" not in panel.columns:
+        raise RuntimeError(f"training panel missing feature_column_list for run_id={run_id}")
+
+    observed_values = panel["feature_column_list"].dropna()
+    observed = normalize_feature_column_list(observed_values.iloc[0]) if not observed_values.empty else None
+
+    expected_tuple = tuple(expected_columns)
+    if tuple(observed or []) != expected_tuple:
+        raise RuntimeError(
+            "feature_column_list does not match feature_set contract for "
+            f"run_id={run_id}; observed_count={len(observed or [])} "
+            f"expected_count={len(expected_columns)}"
+        )
+
+    train = panel.loc[panel["split_tag"] == "train", expected_columns]
+    all_null_columns = [column for column in expected_columns if train[column].notna().sum() == 0]
+    if all_null_columns:
+        raise RuntimeError(
+            "training panel has all-null expected feature columns in train split "
+            f"for run_id={run_id}: {all_null_columns[:20]}"
+        )
 
 
 def write_transformed_features(
