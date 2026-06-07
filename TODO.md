@@ -105,3 +105,6 @@
 - [x] 策略 1 BigQuery ML runner 已于 PR #12 在 BigQuery 端到端实跑并通过 `10_qa_runner_outputs.sql`（16 断言）
 - [x] OQ-004 基准指数代码可用性已实现并关闭（`dim_index` + 映射驱动 `dwd_index_eod` + OQ-004 QA + runner benchmark 窗口校验）
 - [x] OQ-007 退市日类型已复核并关闭，PR #9 后依赖链已重建并通过 P0 / 策略 1 QA
+
+- [x] 新增策略验收门 v3 PRD：`docs/prd/PRD_20260607_01_策略1验收门v3.md` 已定义复利周期化收益口径、`策略最大回撤同期超额`、Excess Calmar Ratio、五指数任一满足规则、10/20/30/40 持仓权重和需补回的信号质量 / 交易可行性门。
+- [ ] 实现策略验收门 v3：新增 contract YAML、只读诊断脚本和 QA SQL，并先对历史 20 个 Python Top5 候选 replay，不直接改 accepted 写回门。

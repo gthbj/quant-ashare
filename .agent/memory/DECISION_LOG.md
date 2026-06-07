@@ -1519,3 +1519,42 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/prd/PRD_20260606_05_策略1整数手交易执行.md`, `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`, `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`, `scripts/strategy1_cloudrun/ledger.py`, `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`, `TODO.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260607-01: 策略验收门 v3 使用复利周期化收益与 Excess Calmar 口径
+
+日期: 2026-06-07
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+策略 1 Cloud Run Python 多轮搜索后，需要在 v1/v2 验收门基础上定义 v3 草案，纳入多指数相对回撤收益质量、可交易性和信号质量约束。owner 同时要求项目内后续谈及年化、月化、日化等周期化收益时默认使用复利口径。
+
+### 决策
+
+- 新增 `docs/prd/PRD_20260607_01_策略1验收门v3.md` 作为策略 1 验收门 v3 的项目事实文档。
+- 年化 / 月化 / 日化等周期化收益默认使用复利口径，年化收益默认公式为 `(期末净值 / 期初净值) ^ (252 / 有效日收益期数) - 1`。
+- `策略最大回撤同期超额` 定义为 `策略最大回撤 - 指数在该策略最大回撤窗口内的同期涨跌幅`。
+- `Excess Calmar Ratio` 定义为 `策略超额复合年化收益 / abs(策略最大回撤同期超额)`；若 `策略最大回撤同期超额 > 0`，该指数视为直接满足。
+- `Excess Calmar Ratio` 的指数集合为上证50、沪深300、中证1000、上证指数、深证成指，五个指数任一满足 `Excess Calmar Ratio > 1` 或 `策略最大回撤同期超额 > 0` 即通过。
+- 10/20/30/40 只均可参与 accepted；单票最大权重分别为 10只=15%、20只=7.5%、30只=5%、40只=5%。
+- v3 必须补回 CV/valid/test 信号质量、score orientation、final holdout、Sharpe、IR、max drawdown、Lot/交易可行性和诊断硬拒绝条件。
+
+### 理由
+
+复利口径能避免不同策略/指数在长周期比较时混用简单年化导致的偏差；`Excess Calmar Ratio` 用绝对值处理负的相对回撤，避免指标符号反转；五指数任一满足可保留对不同风格基准的容错，但仍要求至少一个明确的相对风险收益证据。
+
+### 影响
+
+后续报告、验收门、分析 CSV 和口径说明中，未特别注明时均按复利周期化收益理解。旧的 `策略同期回撤超额` 命名停止使用，改称 `策略最大回撤同期超额`。
+
+### 备选方案
+
+继续使用简单年化 / 平均日收益乘 252，或仅以中证1000作为 Excess Calmar 基准；均不采纳。
+
+### 相关文件
+
+- `docs/prd/PRD_20260607_01_策略1验收门v3.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`

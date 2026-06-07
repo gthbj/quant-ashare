@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+- **2026-06-07 GPT-5 Codex：策略验收门 v3 PRD 与复利周期化收益口径。** Owner 确认 v3 方向，已新增 `docs/prd/PRD_20260607_01_策略1验收门v3.md`。v3 固化复利年化/月化/日化默认口径，补回 CV/valid/test 信号质量、score orientation、final holdout、IR/Sharpe/maxDD、交易可行性和诊断硬拒绝条件；持仓权重改为 10只=15%、20只=7.5%、30/40只=5%；`Excess Calmar Ratio` 使用 `策略超额复合年化收益 / abs(策略最大回撤同期超额)`，五个指数任一满足即可。当前只是 PRD，尚未实现 contract YAML、诊断脚本或 QA SQL。
+
 - **2026-06-07 GPT-5 Codex：合并后分支 / worktree 清理约束扩展。** Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
 
 - **2026-06-07 GPT-5 Codex：Strategy1 风险特征 wave 4 Cloud Run 真实执行完成。** 在 `main=10cbd46c1524888d03c71c643ed7959eb1c998be` 基线上构建/部署 runner `riskfeatfix-10cbd46-20260607-04`（digest `sha256:e7d6c5e3c86293046166b8930f6016256fb6f43a46d02be54552b303fc9a6ada`），binary 与 regression 两条风险特征 manifest 均完成 20/20 candidate fanout、Top5 backtest/report、`19` QA、`21` QA；两条 Top5 均被 acceptance contract 拒绝，未产生 accepted baseline。Runtime 修复已并入 PR #103，并已同步到 `main`。
@@ -2939,4 +2941,58 @@ Run ID: post_merge_branch_worktree_cleanup_constraint_20260607
 
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+## 交接条目
+
+日期: 2026-06-07
+Agent ID: Codex
+Agent 实例 ID: 当前 Codex Desktop 会话
+模型: GPT-5 Codex
+运行环境: `/Users/fisher/Desktop/git/quant-ashare`
+Run ID: N/A
+相关 issue/PR: 待创建
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260607_01_策略1验收门v3.md`，定义策略 1 验收门 v3。
+- PRD 固化复利周期化收益默认口径，禁止未标注生产门混用 `AVG(daily_return) * 252` 简单年化。
+- PRD 将旧称 `策略同期回撤超额` 改为 `策略最大回撤同期超额`，并定义 `Excess Calmar Ratio = 策略超额复合年化收益 / abs(策略最大回撤同期超额)`。
+- PRD 明确上证50、沪深300、中证1000、上证指数、深证成指五个指数任一满足 Excess Calmar 条件即可通过。
+- PRD 明确 10/20/30/40 只均可参与 accepted，单票最大权重为 15% / 7.5% / 5% / 5%。
+- 已同步 `DECISION_LOG.md`、`IMPLEMENTATION_STATUS.md`、`KNOWN_CONSTRAINTS.md` 和 `TODO.md`。
+
+### 重要上下文
+
+- v3 当前只是 PRD，不是 runner 可执行门；后续需要实现 `model_acceptance_contract_v3.yml`、诊断脚本和 QA SQL。
+- v3 不自动接受此前 rejected 候选；建议先对历史 20 个 Python Top5 候选做只读 replay。
+- 上证指数 `000001.SH` 当前不在项目 BigQuery `dwd_index_eod` 可用指数集合中，v3 实现前需决定纳入 DWD 或在诊断脚本中记录外部行情源。
+
+### 改动文件
+
+- `docs/prd/PRD_20260607_01_策略1验收门v3.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行测试；本次为 PRD 与记忆口径更新。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 实现 v3 contract YAML、只读 replay 诊断脚本和 QA SQL。
+- 用历史 20 个 Python Top5 候选 replay v3，不直接改 accepted 写回门。
+
+### 已更新记忆文件
+
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
