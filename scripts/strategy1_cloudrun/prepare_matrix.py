@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -149,14 +150,20 @@ def prepare_matrix(
         "run_id": experiment.run_id,
         "matrix_id": matrix_id,
     }
-    panel, job = load_training_panel_with_job(client, experiment, labels)
+    expected_columns = expected_feature_columns(experiment.feature_set_id)
+    panel, job = load_training_panel_with_job(client, experiment, labels, expected_columns)
     if panel.empty:
         raise RuntimeError(f"ads_ml_training_panel_daily has no rows for run_id={experiment.run_id}")
 
-    feature_frame, feature_columns = feature_frame_from_panel(panel)
+    if expected_columns is None:
+        feature_frame, feature_columns = feature_frame_from_panel(panel)
+        panel = panel.drop(columns=["feature_values_json", "feature_column_list"], errors="ignore")
+    else:
+        feature_columns = expected_columns
+        feature_frame = panel.loc[:, feature_columns].astype("float32", copy=False)
+        panel = panel.drop(columns=feature_columns, errors="ignore")
     panel = panel.reset_index(drop=True)
     feature_frame = feature_frame.reset_index(drop=True)
-    expected_columns = expected_feature_columns(experiment.feature_set_id)
     if expected_columns is not None and feature_columns != expected_columns:
         raise RuntimeError(
             "feature_column_list does not match feature_set contract for "
@@ -209,23 +216,38 @@ def prepare_matrix(
     preprocess_stats["preprocess_stats_sha256"] = sha256_json(preprocess_stats)
 
     local_dir.mkdir(parents=True, exist_ok=True)
-    x_train = pd.DataFrame(preprocessor.transform(feature_frame.loc[train_mask]), columns=feature_columns)
-    x_valid = pd.DataFrame(preprocessor.transform(feature_frame.loc[valid_mask]), columns=feature_columns)
-    x_cv = pd.DataFrame(preprocessor.transform(feature_frame.loc[cv_mask]), columns=feature_columns)
-    x_predict = pd.DataFrame(preprocessor.transform(feature_frame.loc[predict_mask]), columns=feature_columns)
-    train_labels = label_frame(panel.loc[train_mask])
-    valid_labels = label_frame(panel.loc[valid_mask])
-    cv_labels = label_frame(panel.loc[cv_mask])
-    predict_index = predict_index_frame(panel.loc[predict_mask])
-
-    write_parquet(x_train, local_dir / "train_features.parquet")
-    write_parquet(train_labels, local_dir / "train_labels.parquet")
-    write_parquet(x_valid, local_dir / "valid_features.parquet")
-    write_parquet(valid_labels, local_dir / "valid_labels.parquet")
-    write_parquet(x_cv, local_dir / "cv_features.parquet")
-    write_parquet(cv_labels, local_dir / "cv_labels.parquet")
-    write_parquet(x_predict, local_dir / "predict_features.parquet")
-    write_parquet(predict_index, local_dir / "predict_index.parquet")
+    write_transformed_features(
+        preprocessor,
+        feature_frame,
+        train_mask,
+        feature_columns,
+        local_dir / "train_features.parquet",
+    )
+    write_parquet(label_frame(panel.loc[train_mask]), local_dir / "train_labels.parquet")
+    write_transformed_features(
+        preprocessor,
+        feature_frame,
+        valid_mask,
+        feature_columns,
+        local_dir / "valid_features.parquet",
+    )
+    write_parquet(label_frame(panel.loc[valid_mask]), local_dir / "valid_labels.parquet")
+    write_transformed_features(
+        preprocessor,
+        feature_frame,
+        cv_mask,
+        feature_columns,
+        local_dir / "cv_features.parquet",
+    )
+    write_parquet(label_frame(panel.loc[cv_mask]), local_dir / "cv_labels.parquet")
+    write_transformed_features(
+        preprocessor,
+        feature_frame,
+        predict_mask,
+        feature_columns,
+        local_dir / "predict_features.parquet",
+    )
+    write_parquet(predict_index_frame(panel.loc[predict_mask]), local_dir / "predict_index.parquet")
     write_json(local_dir / "feature_schema.json", feature_schema)
     write_json(local_dir / "feature_delta_vs_base.json", feature_delta)
     write_json(local_dir / "preprocess_stats.json", preprocess_stats)
@@ -330,12 +352,23 @@ def load_training_panel_with_job(
     client: bigquery.Client,
     experiment: Experiment,
     labels: dict[str, str],
+    feature_columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, bigquery.QueryJob]:
+    if feature_columns is None:
+        feature_select = """
+      feature_values_json,
+      feature_column_list,"""
+    else:
+        feature_select = "".join(
+            f"""
+      SAFE_CAST(JSON_VALUE(feature_values_json, '$.{column}') AS FLOAT64) AS `{column}`,"""
+            for column in feature_columns
+        )
     sql = f"""
     SELECT
       run_id, strategy_id, trade_date, sec_code, horizon, split_tag,
-      sample_weight, target_label, target_return, feature_values_json,
-      feature_column_list, feature_version, label_version, preprocess_version
+      sample_weight, target_label, target_return,{feature_select}
+      feature_version, label_version, preprocess_version
     FROM `{ADS}.ads_ml_training_panel_daily`
     WHERE run_id = @run_id
       AND trade_date BETWEEN @train_start AND @test_end
@@ -355,6 +388,22 @@ def load_training_panel_with_job(
         ],
         labels=labels,
     )
+
+
+def write_transformed_features(
+    preprocessor,
+    feature_frame: pd.DataFrame,
+    mask: pd.Series,
+    feature_columns: list[str],
+    path: Path,
+) -> None:
+    features = pd.DataFrame(
+        preprocessor.transform(feature_frame.loc[mask]),
+        columns=feature_columns,
+    )
+    write_parquet(features, path)
+    del features
+    gc.collect()
 
 
 def label_frame(panel: pd.DataFrame) -> pd.DataFrame:

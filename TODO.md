@@ -1,5 +1,11 @@
 # TODO
 
+## 最新状态（2026-06-07）
+
+- [x] Strategy1 风险特征 wave 4 binary 与 regression 两条 Cloud Run manifest 已完成真实执行、Top5 backtest/report、`19` QA、`21` QA；两条 Top5 均被 acceptance contract 拒绝，未产生 accepted baseline。
+- [x] Owner 已决定提交/推送 `codex/fix-riskfeat-training-panel-fields` 并开 PR；若继续建模，优先讨论新模型族、目标函数、样本窗口或 acceptance gate。
+
+
 本文件只保留"下一步可执行事项"。整体状态和历史完成记录见 `.agent/memory/IMPLEMENTATION_STATUS.md` / `.agent/memory/AGENT_HANDOFF.md`；待 owner 决策的问题以 `.agent/memory/OPEN_QUESTIONS.md` 为唯一来源。
 
 维护规则见 `AGENTS.md` 的「TODO 维护协议」。

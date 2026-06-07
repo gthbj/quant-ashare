@@ -91,6 +91,43 @@ INSERT INTO `data-aquarium.ashare_ads.ads_ml_training_panel_daily`
  universe_version, trade_date, sec_code, horizon, split_fold, split_tag,
  sample_weight, target_label, target_return,
  feature_values_json, feature_column_list, created_at)
+WITH ms_filled AS (
+  SELECT
+    trade_date,
+    LAST_VALUE(csi300_ret_5d IGNORE NULLS) OVER ms_window AS csi300_ret_5d,
+    LAST_VALUE(csi300_ret_20d IGNORE NULLS) OVER ms_window AS csi300_ret_20d,
+    LAST_VALUE(csi300_drawdown_20d IGNORE NULLS) OVER ms_window AS csi300_drawdown_20d,
+    LAST_VALUE(csi1000_ret_5d IGNORE NULLS) OVER ms_window AS csi1000_ret_5d,
+    LAST_VALUE(csi1000_ret_20d IGNORE NULLS) OVER ms_window AS csi1000_ret_20d,
+    LAST_VALUE(csi1000_drawdown_20d IGNORE NULLS) OVER ms_window AS csi1000_drawdown_20d,
+    LAST_VALUE(csi1000_close_to_ma20 IGNORE NULLS) OVER ms_window AS csi1000_close_to_ma20,
+    LAST_VALUE(csi1000_close_to_ma60 IGNORE NULLS) OVER ms_window AS csi1000_close_to_ma60,
+    LAST_VALUE(csi1000_ma20_to_ma60 IGNORE NULLS) OVER ms_window AS csi1000_ma20_to_ma60,
+    LAST_VALUE(csi300_vol_20d IGNORE NULLS) OVER ms_window AS csi300_vol_20d,
+    LAST_VALUE(csi1000_vol_20d IGNORE NULLS) OVER ms_window AS csi1000_vol_20d,
+    LAST_VALUE(avg_vol_20d IGNORE NULLS) OVER ms_window AS avg_vol_20d,
+    LAST_VALUE(adv_ratio_1d IGNORE NULLS) OVER ms_window AS adv_ratio_1d,
+    LAST_VALUE(above_ma20_ratio IGNORE NULLS) OVER ms_window AS above_ma20_ratio,
+    LAST_VALUE(new_low_20d_ratio IGNORE NULLS) OVER ms_window AS new_low_20d_ratio,
+    LAST_VALUE(ret_20d_p25 IGNORE NULLS) OVER ms_window AS ret_20d_p25,
+    LAST_VALUE(ret_20d_median IGNORE NULLS) OVER ms_window AS ret_20d_median,
+    LAST_VALUE(drawdown_20d_median IGNORE NULLS) OVER ms_window AS drawdown_20d_median,
+    LAST_VALUE(limit_down_count IGNORE NULLS) OVER ms_window AS limit_down_count,
+    LAST_VALUE(one_word_limit_down_count IGNORE NULLS) OVER ms_window AS one_word_limit_down_count,
+    LAST_VALUE(limit_down_mv_ratio IGNORE NULLS) OVER ms_window AS limit_down_mv_ratio,
+    LAST_VALUE(is_smallcap_trend_down IGNORE NULLS) OVER ms_window AS is_smallcap_trend_down,
+    LAST_VALUE(is_breadth_weak IGNORE NULLS) OVER ms_window AS is_breadth_weak,
+    LAST_VALUE(is_limit_down_diffusion IGNORE NULLS) OVER ms_window AS is_limit_down_diffusion,
+    LAST_VALUE(risk_off_trigger_count IGNORE NULLS) OVER ms_window AS risk_off_trigger_count,
+    LAST_VALUE(is_risk_off IGNORE NULLS) OVER ms_window AS is_risk_off
+  FROM `data-aquarium.ashare_dws.dws_market_state_daily`
+  WHERE market_state_version = p_market_state_version
+    AND trade_date BETWEEN DATE_SUB(p_train_start, INTERVAL 120 DAY) AND p_panel_end
+  WINDOW ms_window AS (
+    ORDER BY trade_date
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+  )
+)
 SELECT
   p_run_id,
   p_strategy_id,
@@ -162,16 +199,16 @@ SELECT
     IF(p_fin_enabled, fin.q_roe, NULL) AS q_roe,
     IF(p_fin_enabled, fin.q_netprofit_margin, NULL) AS q_netprofit_margin,
     IF(p_fin_enabled, fin.q_grossprofit_margin, NULL) AS q_grossprofit_margin,
-    IF(p_risk_enabled, s.limit_down_days_20d, NULL) AS limit_down_days_20d,
-    IF(p_risk_enabled, s.one_word_limit_days_20d, NULL) AS one_word_limit_days_20d,
-    IF(p_risk_enabled, s.total_mv_cny, NULL) AS total_mv_cny,
-    IF(p_risk_enabled, s.circ_mv_cny, NULL) AS circ_mv_cny,
+    IF(p_risk_enabled, sf.limit_down_days_20d, NULL) AS limit_down_days_20d,
+    IF(p_risk_enabled, sf.one_word_limit_days_20d, NULL) AS one_word_limit_days_20d,
+    IF(p_risk_enabled, sf.total_mv_cny, NULL) AS total_mv_cny,
+    IF(p_risk_enabled, sf.circ_mv_cny, NULL) AS circ_mv_cny,
     IF(p_risk_enabled, CASE WHEN s.ret_20d IS NULL THEN NULL WHEN s.ret_20d < -0.30 THEN 1.0 ELSE 0.0 END, NULL) AS risk_ret20_lt_30pct,
     IF(p_risk_enabled, CASE WHEN s.drawdown_20d IS NULL THEN NULL WHEN s.drawdown_20d < -0.30 THEN 1.0 ELSE 0.0 END, NULL) AS risk_drawdown20_lt_30pct,
-    IF(p_risk_enabled, CASE WHEN s.limit_down_days_20d IS NULL THEN NULL WHEN s.limit_down_days_20d >= 2 THEN 1.0 ELSE 0.0 END, NULL) AS risk_limit_down_20d_ge2,
-    IF(p_risk_enabled, CASE WHEN s.one_word_limit_days_20d IS NULL THEN NULL WHEN s.one_word_limit_days_20d >= 1 THEN 1.0 ELSE 0.0 END, NULL) AS risk_one_word_limit_20d_ge1,
-    IF(p_risk_enabled, CASE WHEN s.total_mv_cny IS NULL THEN NULL WHEN s.total_mv_cny < 30e8 THEN 1.0 ELSE 0.0 END, NULL) AS risk_microcap_total_mv,
-    IF(p_risk_enabled, CASE WHEN s.circ_mv_cny IS NULL THEN NULL WHEN s.circ_mv_cny < 20e8 THEN 1.0 ELSE 0.0 END, NULL) AS risk_microcap_circ_mv,
+    IF(p_risk_enabled, CASE WHEN sf.limit_down_days_20d IS NULL THEN NULL WHEN sf.limit_down_days_20d >= 2 THEN 1.0 ELSE 0.0 END, NULL) AS risk_limit_down_20d_ge2,
+    IF(p_risk_enabled, CASE WHEN sf.one_word_limit_days_20d IS NULL THEN NULL WHEN sf.one_word_limit_days_20d >= 1 THEN 1.0 ELSE 0.0 END, NULL) AS risk_one_word_limit_20d_ge1,
+    IF(p_risk_enabled, CASE WHEN sf.total_mv_cny IS NULL THEN NULL WHEN sf.total_mv_cny < 30e8 THEN 1.0 ELSE 0.0 END, NULL) AS risk_microcap_total_mv,
+    IF(p_risk_enabled, CASE WHEN sf.circ_mv_cny IS NULL THEN NULL WHEN sf.circ_mv_cny < 20e8 THEN 1.0 ELSE 0.0 END, NULL) AS risk_microcap_circ_mv,
     IF(p_risk_enabled, ms.csi300_ret_5d, NULL) AS csi300_ret_5d,
     IF(p_risk_enabled, ms.csi300_ret_20d, NULL) AS csi300_ret_20d,
     IF(p_risk_enabled, ms.csi300_drawdown_20d, NULL) AS csi300_drawdown_20d,
@@ -200,8 +237,8 @@ SELECT
     IF(p_risk_enabled, CAST(ms.is_risk_off AS INT64), NULL) AS is_risk_off,
     IF(p_risk_enabled, CASE WHEN s.drawdown_20d IS NULL OR ms.is_risk_off IS NULL THEN NULL ELSE s.drawdown_20d * CAST(ms.is_risk_off AS INT64) END, NULL) AS stock_drawdown_x_market_riskoff,
     IF(p_risk_enabled, CASE WHEN s.vol_20d IS NULL OR ms.csi1000_vol_20d IS NULL THEN NULL ELSE s.vol_20d * ms.csi1000_vol_20d END, NULL) AS stock_vol_x_market_vol,
-    IF(p_risk_enabled, CASE WHEN s.circ_mv_cny IS NULL OR ms.is_breadth_weak IS NULL THEN NULL ELSE IF(s.circ_mv_cny < 20e8, 1.0, 0.0) * CAST(ms.is_breadth_weak AS INT64) END, NULL) AS microcap_x_breadth_weak,
-    IF(p_risk_enabled, CASE WHEN s.limit_down_days_20d IS NULL OR ms.is_limit_down_diffusion IS NULL THEN NULL ELSE IF(s.limit_down_days_20d >= 2, 1.0, 0.0) * CAST(ms.is_limit_down_diffusion AS INT64) END, NULL) AS limitdown_history_x_limitdown_diffusion,
+    IF(p_risk_enabled, CASE WHEN sf.circ_mv_cny IS NULL OR ms.is_breadth_weak IS NULL THEN NULL ELSE IF(sf.circ_mv_cny < 20e8, 1.0, 0.0) * CAST(ms.is_breadth_weak AS INT64) END, NULL) AS microcap_x_breadth_weak,
+    IF(p_risk_enabled, CASE WHEN sf.limit_down_days_20d IS NULL OR ms.is_limit_down_diffusion IS NULL THEN NULL ELSE IF(sf.limit_down_days_20d >= 2, 1.0, 0.0) * CAST(ms.is_limit_down_diffusion AS INT64) END, NULL) AS limitdown_history_x_limitdown_diffusion,
     s.board AS board
   )),
   ARRAY_CONCAT(
@@ -238,15 +275,18 @@ SELECT
   ),
   CURRENT_TIMESTAMP()
 FROM `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
+LEFT JOIN `data-aquarium.ashare_dws.dws_stock_feature_daily_v0` AS sf
+  ON sf.trade_date = s.trade_date
+ AND sf.sec_code = s.sec_code
+ AND sf.feature_version = p_feature_version
+ AND sf.trade_date BETWEEN p_train_start AND p_panel_end
 LEFT JOIN `data-aquarium.ashare_dws.dws_stock_feature_fin_daily` AS fin
   ON fin.trade_date = s.trade_date
  AND fin.sec_code = s.sec_code
  AND fin.feature_version = p_fin_feature_version
  AND fin.trade_date BETWEEN p_train_start AND p_panel_end
-LEFT JOIN `data-aquarium.ashare_dws.dws_market_state_daily` AS ms
+LEFT JOIN ms_filled AS ms
   ON ms.trade_date = s.trade_date
- AND ms.market_state_version = p_market_state_version
- AND ms.trade_date BETWEEN p_train_start AND p_panel_end
 WHERE s.trade_date BETWEEN p_train_start AND p_panel_end
   AND s.feature_version = p_feature_version
   AND s.label_version = p_label_version

@@ -753,7 +753,7 @@ ASSERT (
      AND nt.trade_date = s.next_trade_date
      AND nt.sec_code = s.sec_code
      AND nt.trade_date BETWEEN p_predict_start AND p_predict_end
-     AND nt.fill_status IN ('FILLED', 'SELL_SKIPPED_UNTRADABLE', 'PENDING_SELL_CARRY', 'CANCELLED_BY_NETTING', 'NOOP_ALREADY_TARGET')
+     AND nt.fill_status IN ('FILLED', 'SELL_SKIPPED_UNTRADABLE', 'SELL_SKIPPED_BELOW_LOT_PARTIAL', 'PENDING_SELL_CARRY', 'CANCELLED_BY_NETTING', 'NOOP_ALREADY_TARGET')
     WHERE nt.sec_code IS NULL
   )
 ) AS 'QA-LEDGER-7: pending sell must be retried, filled, cancelled or marked noop on the next open day';

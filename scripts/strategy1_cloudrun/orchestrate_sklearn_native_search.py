@@ -1122,16 +1122,16 @@ def enrich_tail_risk_rows(client: bigquery.Client, rows: list[dict[str, Any]]) -
     end_date = max(end_dates)
     nav_sql = """
     SELECT
-      nav.backtest_id,
-      nav.trade_date,
-      nav.nav,
-      nav.daily_return,
-      nav.benchmark_return,
-      nav.excess_return
-    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
-    WHERE nav.backtest_id IN UNNEST(@backtest_ids)
-      AND nav.trade_date BETWEEN @start_date AND @end_date
-    ORDER BY nav.backtest_id, nav.trade_date
+      bt_nav.backtest_id,
+      bt_nav.trade_date,
+      bt_nav.nav,
+      bt_nav.daily_return,
+      bt_nav.benchmark_return,
+      bt_nav.excess_return
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS bt_nav
+    WHERE bt_nav.backtest_id IN UNNEST(@backtest_ids)
+      AND bt_nav.trade_date BETWEEN @start_date AND @end_date
+    ORDER BY bt_nav.backtest_id, bt_nav.trade_date
     """
     pos_sql = """
     SELECT
@@ -1154,8 +1154,14 @@ def enrich_tail_risk_rows(client: bigquery.Client, rows: list[dict[str, Any]]) -
         bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
         bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
     ]
-    nav = client.query(nav_sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).to_dataframe()
-    pos = client.query(pos_sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).to_dataframe()
+    nav = client.query(
+        nav_sql,
+        job_config=bigquery.QueryJobConfig(query_parameters=params),
+    ).to_dataframe(create_bqstorage_client=False)
+    pos = client.query(
+        pos_sql,
+        job_config=bigquery.QueryJobConfig(query_parameters=params),
+    ).to_dataframe(create_bqstorage_client=False)
     if nav.empty:
         return rows
     nav["trade_date"] = pd.to_datetime(nav["trade_date"]).dt.date
@@ -1227,7 +1233,10 @@ def build_search_tail_risk_artifacts(
         bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
         bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
     ]
-    targets = client.query(target_sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).to_dataframe()
+    targets = client.query(
+        target_sql,
+        job_config=bigquery.QueryJobConfig(query_parameters=params),
+    ).to_dataframe(create_bqstorage_client=False)
     if targets.empty:
         return [], []
     targets["signal_date"] = pd.to_datetime(targets["signal_date"]).dt.date
@@ -1319,7 +1328,10 @@ def attach_common_crash_contribution(
         bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
         bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
     ]
-    pos = client.query(pos_sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).to_dataframe()
+    pos = client.query(
+        pos_sql,
+        job_config=bigquery.QueryJobConfig(query_parameters=params),
+    ).to_dataframe(create_bqstorage_client=False)
     if pos.empty:
         return common_rows
     pos["trade_date"] = pd.to_datetime(pos["trade_date"]).dt.date
@@ -1398,9 +1410,13 @@ def apply_native_acceptance_to_ads(
     contract: dict[str, Any],
 ) -> None:
     for row in rows:
-        row.setdefault("acceptance_contract_version", contract_version(contract))
+        row["acceptance_contract_version"] = row.get("acceptance_contract_version") or contract_version(contract)
         row["final_holdout_status"] = derive_final_holdout_status(row, contract)
         status, reason, derived = decide_contract_acceptance(row, contract)
+        derived["acceptance_contract_version"] = (
+            derived.get("acceptance_contract_version")
+            or row["acceptance_contract_version"]
+        )
         risk_target = risk_feature_max_drawdown_target(contract)
         if row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID and status == "accepted":
             max_drawdown = safe_float_or_none(row.get("max_drawdown"))
@@ -1439,6 +1455,7 @@ def patch_native_acceptance(
 ) -> None:
     params = [
         bigquery.ScalarQueryParameter("run_id", "STRING", row["run_id"]),
+        bigquery.ScalarQueryParameter("model_id", "STRING", row.get("model_id")),
         bigquery.ScalarQueryParameter("backtest_id", "STRING", row.get("backtest_id")),
         bigquery.ScalarQueryParameter("status", "STRING", status),
         bigquery.ScalarQueryParameter("reason", "STRING", reason),
@@ -1487,7 +1504,7 @@ def patch_native_acceptance(
           '$.final_holdout_total_return', @final_holdout_total_return,
           '$.final_holdout_excess_return', @final_holdout_excess_return
         ))
-        WHERE JSON_VALUE(reg.model_params_json, '$.run_id') = @run_id
+        WHERE reg.model_id = @model_id
           AND reg.status = 'selected'
         """,
         job_config=bigquery.QueryJobConfig(query_parameters=params),
