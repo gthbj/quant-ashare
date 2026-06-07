@@ -35,6 +35,14 @@ from scripts.strategy1_cloudrun.config import (
     load_manifest,
     load_runner_config,
 )
+from scripts.strategy1_cloudrun.feature_sets import (
+    PV_FIN_RISK_FEATURE_SET_ID,
+    expected_feature_columns,
+    feature_delta_vs_base,
+    feature_metadata,
+    market_state_feature_names,
+    risk_feature_names,
+)
 from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
 from scripts.strategy1_cloudrun.task_fanout import (
     MATRIX_MANIFEST_VERSION,
@@ -148,11 +156,25 @@ def prepare_matrix(
     feature_frame, feature_columns = feature_frame_from_panel(panel)
     panel = panel.reset_index(drop=True)
     feature_frame = feature_frame.reset_index(drop=True)
+    expected_columns = expected_feature_columns(experiment.feature_set_id)
+    if expected_columns is not None and feature_columns != expected_columns:
+        raise RuntimeError(
+            "feature_column_list does not match feature_set contract for "
+            f"{experiment.feature_set_id}: expected {len(expected_columns)} columns, got {len(feature_columns)}"
+        )
+    feature_meta = feature_metadata(experiment.feature_set_id, feature_columns)
+    feature_delta = feature_delta_vs_base(experiment.feature_set_id, feature_columns)
     feature_schema = {
         "feature_columns": feature_columns,
         "feature_count": len(feature_columns),
         "feature_set_id": experiment.feature_set_id,
         "feature_version": experiment.feature_version,
+        "base_feature_set_id": feature_delta.get("base_feature_set_id"),
+        "feature_metadata": feature_meta,
+        "feature_groups": sorted({item["feature_group"] for item in feature_meta}),
+        "risk_features": [name for name in risk_feature_names() if name in feature_columns],
+        "market_state_features": [name for name in market_state_feature_names() if name in feature_columns],
+        "market_state_features_enabled": experiment.feature_set_id == PV_FIN_RISK_FEATURE_SET_ID,
         "feature_order_sha256": sha256_json(feature_columns),
     }
     train_mask = panel["split_tag"].eq("train") & panel["target_label"].notna()
@@ -173,6 +195,17 @@ def prepare_matrix(
         winsor_upper=config.winsor_upper,
     ).fit(feature_frame.loc[train_mask])
     preprocess_stats = preprocessor.to_json_dict()
+    preprocess_stats["feature_missing_rates"] = split_missing_rates(feature_frame, panel, feature_columns)
+    preprocess_stats["risk_feature_missing_rates"] = {
+        name: preprocess_stats["feature_missing_rates"][name]
+        for name in feature_schema["risk_features"]
+        if name in preprocess_stats["feature_missing_rates"]
+    }
+    preprocess_stats["market_state_missing_rates"] = {
+        name: preprocess_stats["feature_missing_rates"][name]
+        for name in feature_schema["market_state_features"]
+        if name in preprocess_stats["feature_missing_rates"]
+    }
     preprocess_stats["preprocess_stats_sha256"] = sha256_json(preprocess_stats)
 
     local_dir.mkdir(parents=True, exist_ok=True)
@@ -194,6 +227,7 @@ def prepare_matrix(
     write_parquet(x_predict, local_dir / "predict_features.parquet")
     write_parquet(predict_index, local_dir / "predict_index.parquet")
     write_json(local_dir / "feature_schema.json", feature_schema)
+    write_json(local_dir / "feature_delta_vs_base.json", feature_delta)
     write_json(local_dir / "preprocess_stats.json", preprocess_stats)
     joblib.dump(preprocessor, local_dir / "preprocess.joblib")
 
@@ -231,6 +265,8 @@ def prepare_matrix(
         "final_holdout_end_date": experiment.final_holdout_end,
         "data_end_date": experiment.final_holdout_end or experiment.predict_end,
         "feature_order_sha256": feature_schema["feature_order_sha256"],
+        "feature_schema_sha256": file_sha256(local_dir / "feature_schema.json"),
+        "feature_delta_vs_base_sha256": file_sha256(local_dir / "feature_delta_vs_base.json"),
         "preprocess_stats_sha256": preprocess_stats["preprocess_stats_sha256"],
         "work_units_sha256": work_units["work_units_sha256"],
         "candidate_parallelism_requested": candidate_parallelism_requested,
@@ -253,6 +289,7 @@ def prepare_matrix(
             "predict_features.parquet": file_sha256(local_dir / "predict_features.parquet"),
             "predict_index.parquet": file_sha256(local_dir / "predict_index.parquet"),
             "feature_schema.json": file_sha256(local_dir / "feature_schema.json"),
+            "feature_delta_vs_base.json": file_sha256(local_dir / "feature_delta_vs_base.json"),
             "preprocess_stats.json": file_sha256(local_dir / "preprocess_stats.json"),
             "work_units.json": file_sha256(local_dir / "work_units.json"),
             "bq_audit.json": file_sha256(local_dir / "bq_audit.json"),
@@ -272,6 +309,8 @@ def prepare_matrix(
         "valid_row_count": manifest["valid_row_count"],
         "predict_row_count": manifest["predict_row_count"],
         "work_unit_count": work_units["work_unit_count"],
+        "feature_count": feature_schema["feature_count"],
+        "feature_delta_vs_base_sha256": manifest["feature_delta_vs_base_sha256"],
         "candidate_parallelism_resolved": candidate_parallelism_resolved,
         "uploaded_artifacts": uploaded,
     }
@@ -325,6 +364,30 @@ def label_frame(panel: pd.DataFrame) -> pd.DataFrame:
     ]].copy()
     out["trade_date"] = pd.to_datetime(out["trade_date"]).dt.date
     return out
+
+
+def split_missing_rates(
+    feature_frame: pd.DataFrame,
+    panel: pd.DataFrame,
+    feature_columns: list[str],
+) -> dict[str, dict[str, float]]:
+    stats: dict[str, dict[str, float]] = {}
+    split_values = [str(value) for value in panel["split_tag"].dropna().unique()]
+    for col in feature_columns:
+        rates: dict[str, float] = {}
+        series = feature_frame[col] if col in feature_frame.columns else pd.Series(index=feature_frame.index, dtype="float64")
+        rates["all"] = missing_rate(series)
+        for split in sorted(split_values):
+            mask = panel["split_tag"].eq(split)
+            rates[split] = missing_rate(series.loc[mask])
+        stats[col] = rates
+    return stats
+
+
+def missing_rate(series: pd.Series) -> float:
+    if len(series) == 0:
+        return 0.0
+    return float(series.isna().sum()) / float(len(series))
 
 
 def predict_index_frame(panel: pd.DataFrame) -> pd.DataFrame:

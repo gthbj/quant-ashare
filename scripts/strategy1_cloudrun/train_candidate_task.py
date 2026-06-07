@@ -145,6 +145,7 @@ def train_candidate_unit(
     out_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump(result.model, out_dir / "model.joblib")
     metrics = dict(result.metrics)
+    metrics.update(feature_importance_metrics(result.model, feature_schema))
     metrics.update({
         "matrix_id": manifest["matrix_id"],
         "matrix_uri": matrix_uri,
@@ -197,6 +198,107 @@ def train_candidate_unit(
         "valid_topn_fwd_ret_mean": metrics.get("valid_topn_fwd_ret_mean"),
         "score_orientation": metrics.get("score_orientation"),
     }
+
+
+def feature_importance_metrics(model: Any, feature_schema: dict[str, Any]) -> dict[str, Any]:
+    feature_columns = [str(value) for value in feature_schema.get("feature_columns") or []]
+    if not feature_columns:
+        return {}
+    feature_meta = {
+        str(item.get("feature_name")): item
+        for item in feature_schema.get("feature_metadata") or []
+        if item.get("feature_name")
+    }
+    gain_values, split_values = model_importance_values(model, len(feature_columns))
+    if gain_values is None and split_values is None:
+        return {"feature_importance_available": False}
+    gain_values = gain_values if gain_values is not None else np.zeros(len(feature_columns), dtype=float)
+    split_values = split_values if split_values is not None else np.zeros(len(feature_columns), dtype=float)
+    rows = []
+    for idx, feature in enumerate(feature_columns):
+        meta = feature_meta.get(feature, {})
+        rows.append({
+            "feature_name": feature,
+            "feature_group": meta.get("feature_group", "unknown"),
+            "feature_role": meta.get("feature_role", "unknown"),
+            "gain_importance": safe_float(gain_values[idx]),
+            "split_importance": safe_float(split_values[idx]),
+        })
+    total_gain = sum(row["gain_importance"] for row in rows) or 0.0
+    total_split = sum(row["split_importance"] for row in rows) or 0.0
+    by_group: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        group = row["feature_group"]
+        item = by_group.setdefault(group, {
+            "feature_group": group,
+            "gain_importance": 0.0,
+            "split_importance": 0.0,
+            "feature_count": 0,
+        })
+        item["gain_importance"] += row["gain_importance"]
+        item["split_importance"] += row["split_importance"]
+        item["feature_count"] += 1
+    group_rows = []
+    for item in by_group.values():
+        item = dict(item)
+        item["gain_share"] = safe_ratio(item["gain_importance"], total_gain)
+        item["split_share"] = safe_ratio(item["split_importance"], total_split)
+        group_rows.append(item)
+    group_rows = sorted(group_rows, key=lambda item: item["gain_importance"], reverse=True)
+    top_features = sorted(rows, key=lambda item: item["gain_importance"], reverse=True)[:30]
+    risk_gain = sum(row["gain_importance"] for row in rows if str(row["feature_group"]).startswith("risk_"))
+    market_gain = sum(row["gain_importance"] for row in rows if str(row["feature_group"]).startswith("market_"))
+    return {
+        "feature_importance_available": True,
+        "feature_importance_type": "gain_split",
+        "top_feature_importance": top_features,
+        "feature_group_importance": group_rows,
+        "risk_feature_importance_gain_share": safe_ratio(risk_gain, total_gain),
+        "market_state_importance_gain_share": safe_ratio(market_gain, total_gain),
+    }
+
+
+def model_importance_values(model: Any, feature_count: int) -> tuple[np.ndarray | None, np.ndarray | None]:
+    booster = getattr(model, "booster_", None)
+    if booster is not None:
+        gain = np.asarray(booster.feature_importance(importance_type="gain"), dtype=float)
+        split = np.asarray(booster.feature_importance(importance_type="split"), dtype=float)
+        return normalize_importance_length(gain, feature_count), normalize_importance_length(split, feature_count)
+    values = getattr(model, "feature_importances_", None)
+    if values is not None:
+        array = np.asarray(values, dtype=float)
+        return normalize_importance_length(array, feature_count), None
+    coef = getattr(model, "coef_", None)
+    if coef is not None:
+        array = np.abs(np.asarray(coef, dtype=float)).reshape(-1)
+        return normalize_importance_length(array, feature_count), None
+    return None, None
+
+
+def normalize_importance_length(values: np.ndarray, feature_count: int) -> np.ndarray:
+    values = values.reshape(-1)
+    if len(values) == feature_count:
+        return values
+    out = np.zeros(feature_count, dtype=float)
+    usable = min(feature_count, len(values))
+    out[:usable] = values[:usable]
+    return out
+
+
+def safe_ratio(numerator: float, denominator: float) -> float | None:
+    if denominator <= 0:
+        return None
+    return float(numerator) / float(denominator)
+
+
+def safe_float(value: Any) -> float:
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not np.isfinite(value):
+        return 0.0
+    return value
 
 
 if __name__ == "__main__":
