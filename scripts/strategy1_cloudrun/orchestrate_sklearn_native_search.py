@@ -60,6 +60,7 @@ from scripts.strategy1_cloudrun.config import (
     read_mapping,
     resolve_parallel_count,
 )
+from scripts.strategy1_cloudrun.feature_sets import PV_FIN_RISK_FEATURE_SET_ID
 from scripts.strategy1_cloudrun.orchestrate_experiments import (
     build_task_fanout_steps,
     gcloud_execute_command,
@@ -78,6 +79,8 @@ from scripts.strategy1_cloudrun.state import (
     scheduler_instance_id,
 )
 from scripts.strategy1_cloudrun.task_fanout import default_matrix_id, matrix_artifact_uri, read_json
+
+RISK_FEATURE_MAX_DRAWDOWN_TARGET = -0.18
 
 
 def main() -> int:
@@ -160,7 +163,7 @@ def main() -> int:
     if args.build_training_panel:
         run_sql_script(
             client,
-            "sql/ml/strategy1/01_build_training_panel.sql",
+            config.training_panel_sql,
             build_training_panel_params(search_exp, force_replace=args.force_replace),
         )
 
@@ -275,6 +278,7 @@ def main() -> int:
         search_id=search_id,
         search_exp=search_exp,
         matrix_uri=matrix_uri,
+        matrix_local=matrix_local,
         ranking=ranking,
         top_rows=top_rows,
         comparison_rows=comparison_rows,
@@ -321,6 +325,23 @@ def main() -> int:
         }
         qa_params.update(contract_sql_params(contract))
         run_sql_script(client, qa_script, qa_params)
+        if search_exp.feature_set_id == PV_FIN_RISK_FEATURE_SET_ID:
+            risk_qa_params = {
+                "p_search_id": search_id,
+                "p_source_run_id": search_exp.run_id,
+                "p_expected_feature_set_id": search_exp.feature_set_id,
+                "p_expected_model_search_wave_no": expected_model_search_wave_no,
+                "p_top_k": top_k,
+                "p_test_reuse_wave_no": test_reuse_wave_no,
+                "p_test_reuse_approval_ref": test_reuse_approval_ref,
+                "p_market_state_version": search_exp.market_state_version,
+                "p_train_start_date": search_exp.train_start,
+                "p_data_end_date": search_exp.final_holdout_end or search_exp.predict_end,
+                "p_final_holdout_start_date": search_exp.final_holdout_start,
+                "p_final_holdout_end_date": search_exp.final_holdout_end,
+                "p_risk_feature_max_drawdown_target": RISK_FEATURE_MAX_DRAWDOWN_TARGET,
+            }
+            run_sql_script(client, "sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql", risk_qa_params)
     next_wave = maybe_run_next_wave(
         args=args,
         raw_manifest=raw_manifest,
@@ -440,6 +461,7 @@ def build_training_panel_params(exp: Experiment, *, force_replace: bool) -> dict
         "p_feature_version": exp.feature_version,
         "p_feature_set_id": exp.feature_set_id,
         "p_fin_feature_version": exp.fin_feature_version,
+        "p_market_state_version": exp.market_state_version,
         "p_label_horizon": exp.label_horizon,
         "p_rebalance_frequency": exp.rebalance_frequency,
         "p_target_holdings": exp.target_holdings,
@@ -673,6 +695,7 @@ def write_final_comparison(
     search_id: str,
     search_exp: Experiment,
     matrix_uri: str,
+    matrix_local: Path | None,
     ranking: list[dict[str, Any]],
     top_rows: list[dict[str, Any]],
     comparison_rows: list[dict[str, Any]],
@@ -685,6 +708,7 @@ def write_final_comparison(
 ) -> None:
     pd.DataFrame(ranking).to_csv(out_dir / "candidate_ranking.csv", index=False)
     pd.DataFrame(comparison_rows).to_csv(out_dir / "top5_backtest_summary.csv", index=False)
+    write_feature_search_artifacts(out_dir, matrix_local, comparison_rows)
     tail_cols = [
         "candidate_id", "run_id", "backtest_id", "tail_risk_profile_id",
         "tail_risk_peak_date", "tail_risk_trough_date", "tail_risk_drawdown_pct",
@@ -731,6 +755,7 @@ def write_final_comparison(
         "search_id": search_id,
         "search_experiment": search_exp.to_params(),
         "matrix_uri": matrix_uri,
+        "feature_delta_vs_base_uri": "feature_delta_vs_base.json" if (out_dir / "feature_delta_vs_base.json").exists() else None,
         "ranking_uses_test_metrics": False,
         "top_k_candidate_ids": [row["candidate_id"] for row in top_rows],
         "test_reuse_wave_no": test_reuse_wave_no,
@@ -743,6 +768,37 @@ def write_final_comparison(
     }
     write_json(out_dir / "sklearn_native_candidate_comparison.json", payload)
     write_text(out_dir / "sklearn_native_candidate_comparison.md", render_comparison_md(payload, comparison_rows))
+
+
+def write_feature_search_artifacts(
+    out_dir: Path,
+    matrix_local: Path | None,
+    comparison_rows: list[dict[str, Any]],
+) -> None:
+    if matrix_local:
+        feature_delta_path = matrix_local / "feature_delta_vs_base.json"
+        if feature_delta_path.exists():
+            write_json(out_dir / "feature_delta_vs_base.json", read_json(feature_delta_path))
+    group_rows: list[dict[str, Any]] = []
+    for row in comparison_rows:
+        for item in row.get("feature_group_importance") or []:
+            group_rows.append({
+                "candidate_id": row.get("candidate_id"),
+                "run_id": row.get("run_id"),
+                "shortlist_rank_valid_only": row.get("shortlist_rank_valid_only"),
+                "native_acceptance_status": row.get("native_acceptance_status"),
+                "feature_group": item.get("feature_group"),
+                "feature_count": item.get("feature_count"),
+                "gain_importance": item.get("gain_importance"),
+                "gain_share": item.get("gain_share"),
+                "split_importance": item.get("split_importance"),
+                "split_share": item.get("split_share"),
+            })
+    pd.DataFrame(group_rows or [], columns=[
+        "candidate_id", "run_id", "shortlist_rank_valid_only", "native_acceptance_status",
+        "feature_group", "feature_count", "gain_importance", "gain_share",
+        "split_importance", "split_share",
+    ]).to_csv(out_dir / "feature_group_importance_summary.csv", index=False)
 
 
 def render_comparison_md(payload: dict[str, Any], comparison_rows: list[dict[str, Any]]) -> str:
@@ -777,8 +833,8 @@ def render_comparison_md(payload: dict[str, Any], comparison_rows: list[dict[str
             "",
             "## Top 5 回测",
             "",
-            "| rank | candidate_id | status | total_return | excess_return | sharpe | max_drawdown | max DD window | limit-down weight peak | test RankIC | test excess | final holdout excess |",
-            "|---:|---|---|---:|---:|---:|---:|---|---:|---:|---:|---:|",
+            "| rank | candidate_id | status | total_return | excess_return | sharpe | max_drawdown | risk gain | market gain | max DD window | limit-down weight peak | test RankIC | test excess | final holdout excess |",
+            "|---:|---|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|",
         ])
         for row in comparison_rows:
             dd_window = "NA"
@@ -788,7 +844,10 @@ def render_comparison_md(payload: dict[str, Any], comparison_rows: list[dict[str
                 f"| {row.get('shortlist_rank_valid_only')} | `{row.get('candidate_id')}` | "
                 f"{row.get('native_acceptance_status')} | {fmt(row.get('total_return'))} | "
                 f"{fmt(row.get('excess_return'))} | {fmt(row.get('sharpe'))} | "
-                f"{fmt(row.get('max_drawdown'))} | {dd_window} | "
+                f"{fmt(row.get('max_drawdown'))} | "
+                f"{fmt(row.get('risk_feature_importance_gain_share'))} | "
+                f"{fmt(row.get('market_state_importance_gain_share'))} | "
+                f"{dd_window} | "
                 f"{fmt(row.get('tail_risk_limit_down_weight_peak'))} | "
                 f"{fmt(row.get('test_rank_ic_mean'))} | "
                 f"{fmt(row.get('test_year_excess_return'))} | "
@@ -1007,6 +1066,17 @@ def fetch_topk_ads_outputs(
             "oriented_valid_rank_ic_icir": reg_metrics.get("oriented_valid_rank_ic_icir"),
             "valid_topn_fwd_ret_mean": reg_metrics.get("valid_topn_fwd_ret_mean"),
             "valid_top_minus_bottom_fwd_ret_mean": reg_metrics.get("valid_top_minus_bottom_fwd_ret_mean"),
+            "feature_set_id": reg_metrics.get("feature_set_id"),
+            "feature_count": reg_metrics.get("feature_count"),
+            "risk_feature_count": reg_metrics.get("risk_feature_count"),
+            "market_state_feature_count": reg_metrics.get("market_state_feature_count"),
+            "market_state_features_enabled": reg_metrics.get("market_state_features_enabled"),
+            "feature_schema_sha256": reg_metrics.get("feature_schema_sha256"),
+            "feature_delta_vs_base_sha256": reg_metrics.get("feature_delta_vs_base_sha256"),
+            "feature_importance_available": reg_metrics.get("feature_importance_available"),
+            "feature_group_importance": reg_metrics.get("feature_group_importance"),
+            "risk_feature_importance_gain_share": reg_metrics.get("risk_feature_importance_gain_share"),
+            "market_state_importance_gain_share": reg_metrics.get("market_state_importance_gain_share"),
             "test_rank_ic_mean": row.get("test_rank_ic_mean"),
             "test_rank_ic_icir": row.get("test_rank_ic_icir"),
             "test_top_minus_bottom_fwd_ret_mean": row.get("test_top_minus_bottom_fwd_ret_mean"),
@@ -1328,11 +1398,52 @@ def apply_native_acceptance_to_ads(
 ) -> None:
     for row in rows:
         row.setdefault("acceptance_contract_version", contract_version(contract))
+        row["final_holdout_status"] = derive_final_holdout_status(row, contract)
         status, reason, derived = decide_contract_acceptance(row, contract)
+        if row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID and status == "accepted":
+            max_drawdown = safe_float_or_none(row.get("max_drawdown"))
+            if max_drawdown is None or max_drawdown < RISK_FEATURE_MAX_DRAWDOWN_TARGET:
+                status = "needs_more_evidence"
+                reason = append_reason(reason, "risk_max_drawdown_target_not_met")
+        derived["risk_feature_acceptance_overlay"] = (
+            "max_drawdown_target_checked"
+            if row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID
+            else None
+        )
+        derived["risk_feature_max_drawdown_target"] = (
+            RISK_FEATURE_MAX_DRAWDOWN_TARGET
+            if row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID
+            else None
+        )
         patch_native_acceptance(client, row, status, reason, derived)
         row["native_acceptance_status"] = status
         row["native_acceptance_reason"] = reason
         row.update(derived)
+
+
+def derive_final_holdout_status(row: dict[str, Any], contract: dict[str, Any]) -> str | None:
+    current = row.get("final_holdout_status")
+    if current:
+        return str(current)
+    thresholds = contract.get("thresholds") or {}
+    min_days = safe_float(thresholds.get("min_final_holdout_trading_days", 40))
+    min_excess = safe_float(thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05))
+    min_total = safe_float(thresholds.get("min_final_holdout_total_return", -0.08))
+    days = safe_float(row.get("final_holdout_trading_days"))
+    excess = safe_float(row.get("final_holdout_excess_return_vs_000852"))
+    total = safe_float(row.get("final_holdout_total_return"))
+    if not all(math.isfinite(value) for value in (days, excess, total)):
+        return None
+    if days >= min_days and excess > min_excess and total > min_total:
+        return "passed"
+    return "failed"
+
+
+def append_reason(reason: str, extra: str) -> str:
+    parts = [item for item in str(reason or "").split(";") if item]
+    if extra not in parts:
+        parts.append(extra)
+    return ";".join(parts)
 
 
 def patch_native_acceptance(
@@ -1349,6 +1460,13 @@ def patch_native_acceptance(
         bigquery.ScalarQueryParameter("reason", "STRING", reason),
         bigquery.ScalarQueryParameter("acceptance_contract_version", "STRING", derived.get("acceptance_contract_version")),
         bigquery.ScalarQueryParameter("holdout_watch_flag", "BOOL", bool(derived.get("holdout_watch_flag"))),
+        bigquery.ScalarQueryParameter("final_holdout_status", "STRING", row.get("final_holdout_status")),
+        bigquery.ScalarQueryParameter("risk_feature_acceptance_overlay", "STRING", derived.get("risk_feature_acceptance_overlay")),
+        bigquery.ScalarQueryParameter(
+            "risk_feature_max_drawdown_target",
+            "FLOAT64",
+            safe_float_or_none(derived.get("risk_feature_max_drawdown_target")),
+        ),
         bigquery.ScalarQueryParameter(
             "unmatched_acceptance_state_reasons",
             "STRING",
@@ -1373,6 +1491,9 @@ def patch_native_acceptance(
           '$.native_acceptance_reason', @reason,
           '$.acceptance_contract_version', @acceptance_contract_version,
           '$.holdout_watch_flag', @holdout_watch_flag,
+          '$.final_holdout_status', @final_holdout_status,
+          '$.risk_feature_acceptance_overlay', @risk_feature_acceptance_overlay,
+          '$.risk_feature_max_drawdown_target', @risk_feature_max_drawdown_target,
           '$.unmatched_acceptance_state_reasons', @unmatched_acceptance_state_reasons,
           '$.test_rank_ic_mean', @test_rank_ic_mean,
           '$.test_top_minus_bottom_fwd_ret_mean', @test_top_minus_bottom,
@@ -1399,6 +1520,9 @@ def patch_native_acceptance(
           '$.native_acceptance_reason', @reason,
           '$.acceptance_contract_version', @acceptance_contract_version,
           '$.holdout_watch_flag', @holdout_watch_flag,
+          '$.final_holdout_status', @final_holdout_status,
+          '$.risk_feature_acceptance_overlay', @risk_feature_acceptance_overlay,
+          '$.risk_feature_max_drawdown_target', @risk_feature_max_drawdown_target,
           '$.unmatched_acceptance_state_reasons', @unmatched_acceptance_state_reasons,
           '$.test_rank_ic_mean', @test_rank_ic_mean,
           '$.test_top_minus_bottom_fwd_ret_mean', @test_top_minus_bottom,

@@ -46,6 +46,7 @@ class RunnerConfig:
     train_candidate_fanout_job: str = "strategy1-train-candidate-fanout-job"
     select_register_predict_job: str = "strategy1-select-register-predict-job"
     backtest_report_job: str = "strategy1-backtest-report-job"
+    training_panel_sql: str = "sql/ml/strategy1/01_build_training_panel.sql"
     lock_bucket: str = DEFAULT_LOCK_BUCKET
     lock_prefix: str = DEFAULT_LOCK_PREFIX
     lock_ttl_minutes: int = 30

@@ -198,6 +198,13 @@ def select_register_predict(
         "candidate_task_cpu": work_units.get("candidate_task_cpu") or manifest.get("candidate_task_cpu"),
         "candidate_task_memory": work_units.get("candidate_task_memory") or manifest.get("candidate_task_memory"),
         "feature_order_sha256": manifest["feature_order_sha256"],
+        "feature_schema_sha256": manifest.get("feature_schema_sha256"),
+        "feature_delta_vs_base_sha256": manifest.get("feature_delta_vs_base_sha256"),
+        "feature_set_id": feature_schema.get("feature_set_id"),
+        "feature_count": feature_schema.get("feature_count"),
+        "risk_feature_count": len(feature_schema.get("risk_features") or []),
+        "market_state_feature_count": len(feature_schema.get("market_state_features") or []),
+        "market_state_features_enabled": bool(feature_schema.get("market_state_features_enabled")),
         "preprocess_stats_sha256": manifest["preprocess_stats_sha256"],
         "work_units_sha256": manifest["work_units_sha256"],
         "candidate_task_bq_forbidden_table_query_count": int(

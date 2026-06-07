@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-010 风险特征入模第 4 波实现（2026-06-07）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-search`。已实现 `strategy1_pv_fin_risk_v0_20260606` 训练路径：新增 95 列 feature set 契约、Cloud Run 专用训练面板 SQL、binary/regression 各 20 候选 manifest、矩阵 `feature_delta_vs_base.json`、feature schema hash、风险/市场特征缺失率、LightGBM feature importance、风险专项 acceptance overlay 和 `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`。验证已通过 Python 编译、manifest/orchestrator/prepare_matrix dry-run、训练面板 SQL 与 `21` QA BigQuery dry-run、feature_column_list 顺序一致性检查和 `git diff --check`。尚未执行真实 Cloud Run 40 候选训练 / Top5 回测，未建立 baseline；合并后下一步是构建/部署 runner 镜像，依次跑 binary 20 与 regression 20，并用 `19` + `21` QA 收口。
+
 **OQ-010 整数手交易执行收口（2026-06-07）**：PR #100 已合并，PR #101 已修复 portfolio-only 报告/诊断的 `prediction_run_id` 透传并合并；临时分支/工作树已清理。镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:lotaware-c018ef5-20260607-01` 已构建并部署到 `strategy1-backtest-report-job`。Cloud Run execution `strategy1-backtest-report-job-h7vtl` 成功完成 fixed-prediction lot-aware reference：`run_id=s1_lotaware_ref_pvfq_n30_bw_h5_20260606_01`、`backtest_id=bt_s1_lotaware_ref_pvfq_n30_bw_h5_20260606_01`、`prediction_run_id=s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，覆盖 `2024-01-02` 至 `2026-04-30`，`ledger_version=ledger_exec_v1_lot100`。结果：total_return 35.17%、excess_return -7.20pct vs `000852.SH`、Sharpe 0.872、max_drawdown -13.59%；report、model diagnosis、tail-risk artifact 和 acceptance gate v2 artifact 均 uploaded。`10`/`12`/`20` 在 Cloud Run 内通过，手工复核 `22`/`23` 通过。acceptance gate v2 diagnosis `acceptance_gate_v2_lotaware_ref_20260607_01` 仍为 `rejected`，原因是全期跑输中证1000超过 3pct、IR 为负、2026 final_holdout 跑输中证1000 12.75pct。当前可进入下一模型族 / 风险特征训练路线。
 
 **OQ-010 验收门 v2 实现（2026-06-06）**：PR #98 已合并；实现工作树 `/Users/luna/Desktop/git/quant-ashare-acceptance-gate-v2-impl`、分支 `codex/implement-acceptance-gate-v2` 的 v2 契约、只读诊断脚本和 `22` QA 已进入 `main`。已新增 `configs/strategy1/model_acceptance_contract_v2.yml`、只读脚本 `scripts/strategy1/diagnose_acceptance_gate_v2.py` 和 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，并扩展 `scripts/strategy1_cloudrun/acceptance.py` 支持 contract hash / v2 SQL 参数。诊断脚本只读 ADS/DWD/DWS，不训练、不改 prediction、不写 ADS；默认 reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，输出 `acceptance_gate_v2/` artifact、10/20/30/40 组合可行性、eligible benchmark、score orientation audit、低价股偏移、现金/实际持仓和风格暴露诊断。uploaded 模式成功，GCS URI：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/acceptance_gate_v2/diagnosis_id=acceptance_gate_v2_reference_20260606_01`，16 个对象；`22_qa_acceptance_gate_v2_outputs.sql` 注入真实 contract hash 后真实执行 9 个 ASSERT 全部通过，默认 standalone placeholder 已改为在 `QA-V2-1` fail-loud。当前 v2 结论：reference run 为 `rejected`，原因是跑输 `000852.SH`、full-period IR 为负、2026 final_holdout 严重跑输；拒绝范围仅限当前 top-30 long-only 实现，不否定信号家族。`10/5%` 是 `diagnostic_only`，`20/30/40` 因局部现金峰值为 `needs_more_evidence`，没有 implementation hard fail。后续已转为先实现整数手 lot-aware ledger。
@@ -65,6 +67,77 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-07
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: strategy1_risk_feature_search_implementation_20260607
+相关 issue/PR: 待创建 PR
+
+### 已完成工作
+
+- 在工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`、分支 `codex/implement-risk-feature-search` 实现 PRD `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md` 的风险特征第 4 波训练路径。
+- 新增 `scripts/strategy1_cloudrun/feature_sets.py`，固化 `strategy1_pv_fin_risk_v0_20260606` 95 列特征契约，覆盖 `pv_fin_quality` 基础特征、个股风险、市场状态和风险交互项。
+- `prepare_matrix.py` 增加 feature set 契约校验，输出 `feature_delta_vs_base.json`、feature schema hash、风险/市场特征列表和 split missing-rate。
+- `train_candidate_task.py` 输出 LightGBM / sklearn-like feature importance，聚合到 feature group，并记录 `risk_feature_importance_gain_share`、`market_state_importance_gain_share`。
+- `select_register_predict.py` 将 feature schema/delta hash、feature count、risk feature count 和 market-state feature count 写入 registry metrics。
+- `orchestrate_sklearn_native_search.py` 支持 config 指定训练面板 SQL，风险特征 search 自动追加 `21` QA，并增加 final_holdout passed 派生与 `max_drawdown >= -18%` 风险专项 overlay。
+- 新增 Cloud Run 专用训练面板 SQL `sql/cloudrun/strategy1/01_build_training_panel.sql`，按 PRD 写入个股风险、市场状态和交互特征。
+- 新增 binary/regression 各 20 候选 manifest，以及 `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`。
+
+### 重要上下文
+
+- 本次只完成实现和 dry-run 验证，未执行真实 Cloud Run 40 候选训练，未跑 Top5 回测，未建立 baseline。
+- 两个 manifest 分别是 `configs/strategy1/cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_v0.yml` 和 `configs/strategy1/cloudrun_python_riskfeat_lgbm_regression_pvfq_n30_bw_h5_v0.yml`，均为 20 候选 / 20 并发 / 2 vCPU / 8Gi / wave 4 / `test_reuse_wave_no=4`。
+- 合并后下一步应先构建/部署 runner 镜像，再依次跑 binary 20 与 regression 20；Top5 完整回测后必须跑共享 `19` QA 和风险特征 `21` QA。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
+- `configs/strategy1/cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_v0.yml`
+- `configs/strategy1/cloudrun_python_riskfeat_lgbm_regression_pvfq_n30_bw_h5_v0.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/feature_sets.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1_cloudrun/prepare_matrix.py`
+- `scripts/strategy1_cloudrun/select_register_predict.py`
+- `scripts/strategy1_cloudrun/train_candidate_task.py`
+- `sql/cloudrun/strategy1/01_build_training_panel.sql`
+- `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`
+- `sql/ml/strategy1/README.md`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1_cloudrun/feature_sets.py scripts/strategy1_cloudrun/prepare_matrix.py scripts/strategy1_cloudrun/train_candidate_task.py scripts/strategy1_cloudrun/select_register_predict.py scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- manifest parse 校验：两个 riskfeat manifest 均为 20 候选、20 并发、2 vCPU / 8Gi、wave 4、风险特征集。
+- `python3 -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search ... --build-training-panel --dry-run`，binary 和 regression 两个 manifest 均通过。
+- `python3 -m scripts.strategy1_cloudrun.prepare_matrix ... --dry-run`，binary 和 regression 两个 manifest 均通过。
+- `bq query --use_legacy_sql=false --location=asia-east2 --dry_run < sql/cloudrun/strategy1/01_build_training_panel.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 --dry_run < sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`
+- SQL/Python feature_column_list 95 列顺序一致性检查通过。
+- `git diff --check`
+
+### 阻塞项
+
+- 无。真实训练需要合并后构建/部署 Cloud Run 镜像，并消耗 Cloud Run / BigQuery / GCS 资源。
+
+### 下一步建议
+
+- 创建并合并实现 PR。
+- 合并后构建/部署 runner 镜像。
+- 先跑 `cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_20260606_01`，再跑 `cloudrun_python_riskfeat_lgbm_reg_pvfq_n30_bw_h5_20260606_01`。
+- 汇总 40 个候选和 Top5 回测结果，以 `19` + `21` QA 作为验收门。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
 
 日期: 2026-06-07
 Agent ID: Codex

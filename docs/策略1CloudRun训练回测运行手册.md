@@ -13,19 +13,20 @@
 3. `scripts/strategy1_cloudrun/orchestrate_experiments.py`：按 manifest 启动 Cloud Run Jobs，并写 `ashare_meta.strategy1_experiment_run_status`、使用 GCS generation-guarded lock。未设置 `--max-parallel-experiments` 或传 `0` 时，resolved 并发数等于本次可执行实验数。
 4. `scripts/strategy1_cloudrun/prepare_matrix.py`、`train_candidate_task.py`、`select_register_predict.py`：task fan-out 训练路径。`prepare_matrix` 一次性读取 BigQuery 训练面板并生成 GCS frozen matrix；每个 Cloud Run task 只训练一个 candidate；reducer 统一选型、登记模型并写预测。
 5. `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`：按 sklearn native PRD 执行 36 候选 search，valid-only 选 Top5，再为 Top5 生成独立 prediction / backtest / report / diagnosis；同一 orchestrator 也承载 Cloud Run Python baseline search 的通用 TopK 流程。
-6. `scripts/strategy1_cloudrun/orchestrate_cloudrun_python_baseline_search.py`：Cloud Run Python baseline search 入口，当前用于 PRD04 LightGBM wave 2 / wave 3。
+6. `scripts/strategy1_cloudrun/orchestrate_cloudrun_python_baseline_search.py`：Cloud Run Python baseline search 入口，当前用于 PRD04 LightGBM wave 2 / wave 3，以及 PRD-20260606-03 风险特征 wave 4。
 7. `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql`：校验 Cloud Run backend、sklearn artifact、prediction orientation、model-quality parity、resolved 并发契约，以及 task fan-out matrix/work-unit 审计字段。
 8. `sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql`：校验 Cloud Run orchestrator 状态表、锁元数据、execution id 和 task fan-out 状态行。
 9. `sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql`：校验 sklearn native TopK 产物、valid-only 排名、uploaded 报告/诊断、native acceptance gate 和 test 复用记录。
 10. `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`：校验 Cloud Run Python LightGBM baseline search 的 TopK、CV 证据、共享验收契约、test reuse 和 final_holdout watch。
-11. `scripts/strategy1/analyze_tail_risk.py` 与 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`：在 TopK 回测完成后只读 ADS/DWD/DIM，输出最大回撤窗口、持仓贡献、跌停/不可卖暴露和选股画像，并校验 ADS pre/post hash 未变化。
-12. `sql/dws/08_dws_market_state_daily.sql` 与 `sql/qa/11_market_state_checks.sql`：生成并校验 P2 市场状态 risk-off 证据表；`backtest_report.py` 在 `tail_risk_profile_id=market_risk_off_v0` 或 `individual_and_market_risk_guard_v0` 时由 Python ledger 读取该表并跳过 risk-off 次日买单。
-13. `scripts/strategy1/diagnose_acceptance_gate_v2.py` 与 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`：按 `model_acceptance_contract_v2` 只读生成验收门 v2、10/20/30/40 组合可行性、eligible benchmark 和 score orientation audit artifact；不训练、不改 prediction、不写 ADS。
-14. `sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql`：校验 Cloud Run Python `ledger_exec_v1_lot100` 的整数手成交、odd-lot 清仓、below-lot 跳单、现金和 summary lot 参数。
+11. `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`：校验风险特征搜索的 feature schema/delta hash、市场状态覆盖、feature importance、wave 4 test reuse 和 `max_drawdown >= -18%` 风险目标。
+12. `scripts/strategy1/analyze_tail_risk.py` 与 `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`：在 TopK 回测完成后只读 ADS/DWD/DIM，输出最大回撤窗口、持仓贡献、跌停/不可卖暴露和选股画像，并校验 ADS pre/post hash 未变化。
+13. `sql/dws/08_dws_market_state_daily.sql` 与 `sql/qa/11_market_state_checks.sql`：生成并校验 P2 市场状态 risk-off 证据表；`backtest_report.py` 在 `tail_risk_profile_id=market_risk_off_v0` 或 `individual_and_market_risk_guard_v0` 时由 Python ledger 读取该表并跳过 risk-off 次日买单。
+14. `scripts/strategy1/diagnose_acceptance_gate_v2.py` 与 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`：按 `model_acceptance_contract_v2` 只读生成验收门 v2、10/20/30/40 组合可行性、eligible benchmark 和 score orientation audit artifact；不训练、不改 prediction、不写 ADS。
+15. `sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql`：校验 Cloud Run Python `ledger_exec_v1_lot100` 的整数手成交、odd-lot 清仓、below-lot 跳单、现金和 summary lot 参数。
 
 当前限制：
 
-1. 训练面板仍由现有 `01_build_training_panel.sql` 生成。
+1. 训练面板 SQL 由 runner config 的 `training_panel_sql` 指定；风险特征搜索使用 `sql/cloudrun/strategy1/01_build_training_panel.sql`，历史 `sql/ml/strategy1/01_build_training_panel.sql` 仅作旧路径参考。
 2. `05-07` 仍使用 BigQuery SQL。
 3. Python ledger P0 先支持 fresh-start；resume 路径 fail-fast。`ledger_exec_v1_lot100` 是 Python-only 执行语义，不再要求与 SQL FLOAT-shares runner 等价。
 4. Cloud Run Jobs、Artifact Registry、IAM 和服务账号需按本文部署，不在代码中保存任何凭据。
@@ -122,6 +123,37 @@ python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search
 ```
 
 期望输出 `candidate_count=12`、`--tasks=12`、`expected_model_family=lightgbm_regression`、`expected_model_search_wave_no=3`。
+
+风险特征 wave 4 binary dry-run：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_v0.yml \
+  --manifest configs/strategy1/cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_v0.yml \
+  --build-training-panel \
+  --dry-run
+```
+
+风险特征 wave 4 regression dry-run：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/cloudrun_python_riskfeat_lgbm_regression_pvfq_n30_bw_h5_v0.yml \
+  --manifest configs/strategy1/cloudrun_python_riskfeat_lgbm_regression_pvfq_n30_bw_h5_v0.yml \
+  --build-training-panel \
+  --dry-run
+```
+
+期望：
+
+1. 两个 manifest 分别输出 `candidate_count=20`、`--tasks=20`。
+2. `build_training_panel` 使用 `sql/cloudrun/strategy1/01_build_training_panel.sql`。
+3. `expected_model_search_wave_no=4`、`test_reuse_wave_no=4`。
+4. Top5 完整回测后先跑 `19_qa_cloudrun_python_baseline_search_outputs.sql`，再跑 `21_qa_risk_feature_search_outputs.sql`。
 
 多实验 dry-run：
 
