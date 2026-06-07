@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-- **2026-06-07 GPT-5 Codex：上证指数 `000001.SH` ODS/DIM/DWD 补齐与指数窗口刷新。** 已把 `index_daily_000001_SH` / `index_dailybasic_000001_SH` 加入 current-scope manifest、ODS external table 显式 `sourceUris`、`dim_index` seed 和 `dwd_index_eod`；BigQuery 手工补数和 2019-01-01 至 2026-06-05 指数窗口 backfill 均完成，`03` / `05` / `12` QA 通过。为保持既有训练复现，本次不修改 `dws_market_state_daily` / `market_state_v0_20260606`，不写 ADS。
+- **2026-06-07 GPT-5 Codex：上证指数 `000001.SH` ODS/DIM/DWD/DWS 补齐。** 已把 `index_daily_000001_SH` / `index_dailybasic_000001_SH` 加入 current-scope manifest、ODS external table 显式 `sourceUris`、`dim_index` seed 和 `dwd_index_eod`；BigQuery 手工补数和 2019-01-01 至 2026-06-05 指数窗口 backfill 均完成，`03` / `05` / `12` QA 通过。后续按 owner 要求创建 `ashare_backup`，把修改前 `dws_market_state_daily` 备份为 `ashare_backup.dws_market_state_daily_v0`，生产 DWS 已重建为 `market_state_v0_20260606` 兼容行 + `market_state_v1_20260607` 上证指数字段行；本次不写 ADS，不改变 risk-off 触发逻辑。
 
 - **2026-06-07 GPT-5 Codex：合并后分支 / worktree 清理约束扩展。** Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
 
@@ -3014,3 +3014,57 @@ Run ID: post_merge_branch_worktree_cleanup_constraint_20260607
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+## 2026-06-07 上证指数 DWS market-state 补齐
+
+Model: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: index_000001_dws_market_state_v1_20260607
+相关 issue/PR: PR #106 后续提交
+
+### 已完成工作
+
+- 创建 BigQuery 数据集 `data-aquarium.ashare_backup`，用于保存数仓生产契约变更前的备份表。
+- 将修改前 `data-aquarium.ashare_dws.dws_market_state_daily` 复制为 `data-aquarium.ashare_backup.dws_market_state_daily_v0`，并写入表说明，明确其是 2026-06-07 添加上证指数 market-state 覆盖前的 v0 生产快照。
+- 修改 `sql/dws/08_dws_market_state_daily.sql`：生产表现在同时输出 `market_state_v0_20260606` 兼容行和 `market_state_v1_20260607` 行；v1 增加 `000001.SH` / `SSE_COMPOSITE` 的 5/20 日收益、20 日回撤、20 日波动、20/60 日均线偏离字段。
+- 修改 `sql/qa/11_market_state_checks.sql`：默认检查 `market_state_v1_20260607`，并检查默认窗口内 legacy v0 与 current v1 每个交易日各一行。
+- 将 `sql/dws/08_dws_market_state_daily.sql` 与 `sql/qa/11_market_state_checks.sql` 接入 `dataform/action_manifest.json` 并重新生成 SQLX。
+- 将 `ashare_warehouse_window_refresh` 的 `windowed_transform` 链路补为：指数 DWD 窗口刷新 -> 指数窗口 QA -> 股票 DWD/DWS 窗口刷新 -> 股票窗口 QA -> market-state DWS 重建 -> market-state QA。
+- 更新 DWS/ADS 设计文档、架构记忆、实现状态和 TODO。
+
+### 重要上下文
+
+- 本次没有把上证指数纳入 `is_risk_off` / `risk_off_trigger_count` 的触发逻辑，只补 DWS 字段和 v1 版本行，避免静默改变 P2 v0 risk-off 历史结论。
+- 既有 runner/config 仍可继续指定 `market_state_v0_20260606`；如后续训练要使用新增上证指数字段，应显式切到 `market_state_v1_20260607` 或另建 feature-set 变更。
+- 生产 `dws_market_state_daily` 已用更新后的 SQL 重建成功；`sql/qa/11_market_state_checks.sql` 已更新但本轮未单独执行 QA。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
+- `dataform/action_manifest.json`
+- `dataform/definitions/assertions/11_market_state_checks.sqlx`
+- `dataform/definitions/dws/08_dws_market_state_daily.sqlx`
+- `docs/数据仓库建模方案-DWS-ADS.md`
+- `orchestration/composer/dags/ashare_common.py`
+- `sql/dws/08_dws_market_state_daily.sql`
+- `sql/qa/11_market_state_checks.sql`
+
+### 测试 / 验证
+
+- `python3 scripts/dataform/generate_sqlx_from_sql.py`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/dws/08_dws_market_state_daily.sql`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 如 owner 需要，可单独执行 `bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/11_market_state_checks.sql` 做 market-state QA。
+- 合并部署后同步 Composer bucket 的 `data/sql/` 与 `ashare_common.py`，再触发一次 `ashare_warehouse_window_refresh` 小窗口 smoke 或等待下一次 scheduled refresh。

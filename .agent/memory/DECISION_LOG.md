@@ -1519,3 +1519,16 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/prd/PRD_20260606_05_策略1整数手交易执行.md`, `docs/prd/PRD_20260606_04_策略1验收门v2与组合可行性诊断.md`, `docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md`, `scripts/strategy1_cloudrun/ledger.py`, `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`, `TODO.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260607-01: dws_market_state_daily 采用备份表 + 双版本行承接上证指数补充
+
+Date: 2026-06-07
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5 Codex
+Context: 上证指数 `000001.SH` 已补入 ODS/DIM/DWD 后，owner 要求继续补 DWS，并要求先创建 `ashare_backup` 数据集保存现有 `dws_market_state_daily`。
+Decision: 在 `data-aquarium.ashare_backup.dws_market_state_daily_v0` 保存修改前生产快照；生产 `ashare_dws.dws_market_state_daily` 改为同时输出 `market_state_v0_20260606` 兼容行和新增 `market_state_v1_20260607` 行。v1 补上证指数 `000001.SH` / `SSE_COMPOSITE` 市场状态字段，但本次不把上证指数纳入 risk-off 触发逻辑，也不写 ADS。
+Rationale: 备份表保留修改前 schema/数据用于审计和复现；双版本行让既有 runner/config 继续查 v0，同时给后续训练或特征集提供显式 v1 切换点，避免静默改变历史 P2 risk-off 结论。
+Impact: 后续如要使用上证指数字段训练，应显式指定 `market_state_v1_20260607` 或新增 feature set；如要改变 `is_risk_off` / `risk_off_trigger_count` 规则，应另写规则版本和验收，不直接改 v0。
+Related files: sql/dws/08_dws_market_state_daily.sql, sql/qa/11_market_state_checks.sql, docs/数据仓库建模方案-DWS-ADS.md, orchestration/composer/dags/ashare_common.py

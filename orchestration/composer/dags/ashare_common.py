@@ -974,10 +974,20 @@ def build_windowed_transform_group(group_id: str = "windowed_transform") -> Task
             "sql/qa/10_windowed_stock_refresh_checks.sql",
             query_parameters=_window_refresh_parameters(),
         )
+        market_state_dws = _bq_sql_task(
+            "market_state_dws",
+            "sql/dws/08_dws_market_state_daily.sql",
+        )
+        market_state_checks = _bq_sql_task(
+            "market_state_checks",
+            "sql/qa/11_market_state_checks.sql",
+        )
 
         index_dwd_window >> windowed_index_refresh_checks
         windowed_index_refresh_checks >> stock_dwd_dws_window
         stock_dwd_dws_window >> windowed_stock_refresh_checks
+        windowed_stock_refresh_checks >> market_state_dws
+        market_state_dws >> market_state_checks
 
     return windowed_transform
 

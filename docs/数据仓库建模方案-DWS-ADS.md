@@ -264,8 +264,8 @@ QUALIFY ROW_NUMBER() OVER (
 
 | 字段族 | 示例字段 |
 |---|---|
-| 指数收益 | `csi300_ret_5d`, `csi300_ret_20d`, `csi1000_ret_5d`, `csi1000_ret_20d` |
-| 指数趋势/波动 | `csi1000_drawdown_20d`, `csi1000_vol_20d`, `csi1000_close_to_ma20`, `csi1000_close_to_ma60`, `csi1000_ma20_to_ma60` |
+| 指数收益 | `sse_composite_ret_5d`, `sse_composite_ret_20d`, `csi300_ret_5d`, `csi300_ret_20d`, `csi1000_ret_5d`, `csi1000_ret_20d` |
+| 指数趋势/波动 | `sse_composite_drawdown_20d`, `sse_composite_vol_20d`, `sse_composite_close_to_ma20`, `sse_composite_close_to_ma60`, `sse_composite_ma20_to_ma60`, `csi1000_drawdown_20d`, `csi1000_vol_20d`, `csi1000_close_to_ma20`, `csi1000_close_to_ma60`, `csi1000_ma20_to_ma60` |
 | 市场宽度 | `adv_ratio_1d`, `above_ma20_ratio`, `new_low_20d_ratio`, `limit_down_count`, `one_word_limit_down_count`, `limit_down_mv_ratio` |
 | 横截面画像 | `avg_ret_20d`, `ret_20d_p25`, `ret_20d_median`, `drawdown_20d_median`, `avg_vol_20d` |
 | P2 触发证据 | `is_smallcap_trend_down`, `is_breadth_weak`, `is_limit_down_diffusion`, `risk_off_trigger_count`, `risk_off_reasons` |
@@ -275,8 +275,10 @@ QUALIFY ROW_NUMBER() OVER (
 
 - SQL：`sql/dws/08_dws_market_state_daily.sql`。
 - QA：`sql/qa/11_market_state_checks.sql`。
-- 默认版本：`market_state_v0_20260606`。
-- P2 v0 执行动作固定为 `risk_off_action='skip_new_buys'`：risk-off 次一开市日允许卖出和 pending sell 继续处理，但 BUY 侧新增/加仓订单必须写 `BUY_SKIPPED_MARKET_RISK_OFF`，不成交、不候补。
+- 兼容版本：生产表继续保留 `market_state_v0_20260606` 行，供既有 runner/config 复现历史结果。
+- 当前版本：`market_state_v1_20260607`，新增上证指数 `000001.SH`（`SSE_COMPOSITE`）市场状态字段；risk-off 触发语义暂不因新增指数而改变。
+- 变更前快照：`data-aquarium.ashare_backup.dws_market_state_daily_v0` 保存 2026-06-07 修改前的 `dws_market_state_daily` 生产表，用于审计和复现。
+- P2 当前执行动作固定为 `risk_off_action='skip_new_buys'`：risk-off 次一开市日允许卖出和 pending sell 继续处理，但 BUY 侧新增/加仓订单必须写 `BUY_SKIPPED_MARKET_RISK_OFF`，不成交、不候补。
 
 **基准代码**：
 

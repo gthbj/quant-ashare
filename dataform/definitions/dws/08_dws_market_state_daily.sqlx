@@ -1,3 +1,15 @@
+-- Generated from canonical sql/ by scripts/dataform/generate_sqlx_from_sql.py.
+-- Canonical source: sql/dws/08_dws_market_state_daily.sql
+
+config {
+  type: "operations",
+  schema: "ashare_dws",
+  name: "dws_market_state_daily",
+  hasOutput: true,
+  tags: ["strategy1_dws", "market_state"],
+  dependencies: ["dim_trade_calendar", "dwd_index_eod", "dwd_stock_eod_price", "dws_stock_feature_daily_v0"]
+}
+
 -- BigQuery Standard SQL
 -- Strategy 1 market-state features for tail-risk P2 market risk-off.
 --
