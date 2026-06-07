@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+- **2026-06-07 GPT-5 Codex：合并后分支 / worktree 清理约束扩展。** Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
+
 - **2026-06-07 GPT-5 Codex：Strategy1 风险特征 wave 4 Cloud Run 真实执行完成。** 在 `main=10cbd46c1524888d03c71c643ed7959eb1c998be` 基线上构建/部署 runner `riskfeatfix-10cbd46-20260607-04`（digest `sha256:e7d6c5e3c86293046166b8930f6016256fb6f43a46d02be54552b303fc9a6ada`），binary 与 regression 两条风险特征 manifest 均完成 20/20 candidate fanout、Top5 backtest/report、`19` QA、`21` QA；两条 Top5 均被 acceptance contract 拒绝，未产生 accepted baseline。Runtime 修复已并入 PR #103，并已同步到 `main`。
 
 **OQ-010 风险特征入模 PR #102 review follow-up（2026-06-07）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-search`。已按 PR #102 comment 修复两项：风险专项 `max_drawdown >= -18%` 目标不再由 Python 常量 / SQL 默认值硬编码，而是写入 `configs/strategy1/model_acceptance_contract_v1.yml` 的 `thresholds.min_full_period_max_drawdown` 并由 `acceptance.py` 统一输出 `p_risk_feature_max_drawdown_target`；`21_qa_risk_feature_search_outputs.sql` 默认改为 `NULL` 并新增 `QA-RISK-0`，未注入 contract 参数的 standalone 真执行会 fail-loud。`final_holdout_status` 派生逻辑已移入共享 `acceptance.py`，orchestrator 删除重复函数。验证通过 Python `py_compile`、v1 contract 参数确认、原始/注入版 `21` QA BigQuery dry-run、risk feature orchestrator dry-run 和 `git diff --check`。尚未真实跑 Cloud Run 40 候选 / Top5 回测。
@@ -62,7 +64,7 @@
 
 **OQ-005 / OQ-012 当前状态（2026-06-06）**：OQ-005 已完成 current-scope 生产采集至 `2026-06-05`、Composer DAG/SQL 部署验收、20 日窗口 DWD/DWS smoke、readiness 门禁复核、告警/观测与 alert checker heartbeat；scheduled 非交易日 skip gate 已由 PR #83 合并部署并完成 force hook smoke。OQ-005 仍 open，剩余 Dataform 生产链路、完整 ODS→ADS 运维观测闭环和新 DAG 自然 scheduled 观察。OQ-012 当前 BigQuery 读层 `sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过，待 owner 决定关闭/归档或保留 schema contract / ingestion 显式 cast 防复发任务。
 
-**常规约定**：评审默认写 GitHub PR comment；TODO 只保留下一步可执行事项，待 owner 决策问题以 `OPEN_QUESTIONS.md` 为唯一来源。PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支。
+**常规约定**：评审默认写 GitHub PR comment；TODO 只保留下一步可执行事项，待 owner 决策问题以 `OPEN_QUESTIONS.md` 为唯一来源。PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 `git worktree`；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
 
 > 历史交接已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-05.md` 和 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。常规启动只需阅读本文件的当前摘要和最近交接；归档仅用于审计追溯。
 
@@ -2892,3 +2894,49 @@ Run ID: prd_strategy1_lot_aware_ledger_20260606
 ### 后续建议
 
 - 如 CI 或 reviewer 要求，可对训练面板 SQL 与 `21` QA 做 BigQuery dry-run，再决定是否需要重建 runner 和局部重跑 matrix。
+
+---
+
+## 交接记录：合并后分支与工作树清理约束扩展
+
+日期: 2026-06-07
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop, `/Users/fisher/Desktop/git/quant-ashare`
+Run ID: post_merge_branch_worktree_cleanup_constraint_20260607
+相关 issue/PR: owner 直接要求推送到 main
+
+### 已完成工作
+
+- 扩展 `KNOWN_CONSTRAINTS.md` 中已有 PR 合并后分支卫生规则：除删除已合并且不再使用的 `codex/*` 本地分支和对应远端分支外，还必须移除为该分支创建的独立 `git worktree`。
+- 明确若对应 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
+- 同步刷新 `AGENT_HANDOFF.md` 当前交接摘要和常规约定。
+
+### 重要上下文
+
+- 本次是项目工作记忆 / 工程约束更新，不涉及代码、SQL、BigQuery、Cloud Run 或生产资源。
+
+### 改动文件
+
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- 未运行测试；本次为文档 / 记忆更新。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 后续合并 PR 后按该约束同步清理本地分支、远端分支和对应独立 worktree。
+
+### 已更新记忆文件
+
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`

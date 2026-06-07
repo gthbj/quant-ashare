@@ -6,6 +6,11 @@ Last updated: 2026-06-07
 
 ## 当前状态
 
+### 最新补充（2026-06-07）：合并后分支 / worktree 清理约束扩展
+
+- Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
+- 本次只更新项目工作记忆与工程约束，不改代码、不运行测试。
+
 ### 最新补充（2026-06-07）：PR #103 review comment follow-up
 
 - 按 PR #103 review comment 处理 2 个 P2 与 1 个 P3：`prepare_matrix.py` 在 expected feature-set 路径恢复 `feature_column_list` 契约校验，并对 train split 全空 expected 列 fail-fast；训练面板 SQL 将 market-state forward-fill 限制为最近 5 个源表交易日，并将 `ret_20d`、`drawdown_20d`、`vol_20d` 统一从 `dws_stock_feature_daily_v0` 读取；`21_qa_risk_feature_search_outputs.sql` 的 `QA-RISK-4` 改查源表 `dws_market_state_daily.csi1000_ret_20d` 缺失率，避免 post-fill 面板掩盖源表稀疏。
