@@ -56,6 +56,7 @@
 
 ## 近期完成
 
+- [x] 修订策略验收门 v3 五指数相对门：通过指数必须同一指数下 `策略超额复合年化收益 > 0 AND (Excess Calmar Ratio > 1 OR 策略最大回撤同期超额 > 0)`；历史 20 策略只读 replay 下可计算表现门通过 4 / 20。
 - [x] 新增策略 1 Cloud Run Python 模型基线搜索 PRD：`docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`，明确后续不再用 BQML / SQL runner 做新增模型搜索，本轮数据截止 `2026-04-30`，train/valid/test/final_holdout 分段固定为 2019-04-03..2023、2024、2025、2026-01-05..2026-04-30；P0 默认 LightGBM wave 2；PR #78 review follow-up 后已补固定 40 个候选、2021/2022/2023 purged walk-forward CV + 2024 valid confirmation、共享验收契约、sklearn acceptance / `18_qa` 迁移要求、互斥完整状态机、Sharpe/max drawdown 风险门槛、2026 final_holdout 只做明显坏结果 veto / holdout watch，以及 binary rejected 后优先 `lightgbm_regression` 的后续顺序；后续实现 smoke 将资源口径从 40 并发 / 1 vCPU 4Gi 调整为 20 并发 / 2 vCPU 8Gi，真实 Cloud Run Job `strategy1-train-candidate-fanout-job` 已按该口径复核通过
 - [x] 清理无效重复 2026 扩展 run 残留：已取消 BigQuery job `bqjob_r2337986e7fdea586_0000019e9752fad3_1`，并删除 run_id `s1_bqml_baseline_pvfq_n30_bw_h5_ext20260430_v20260605_01` / backtest_id `bt_s1_bqml_baseline_pvfq_n30_bw_h5_ext20260430_v20260605_01` 在 ADS 训练面板、registry、prediction、candidate、portfolio、order 和 backtest 相关表中的残留；复核 10 张相关表均为 0 行
 - [x] sklearn native search 首轮真实执行收口：36 个候选训练完成，Top5 完整回测/报告/诊断完成，`18` QA 通过；Top1 `elastic_saga_c_0_1_l1_0_5_balanced` full-period total_return 45.31%、excess_return 16.30%、Sharpe 1.089，但 2025 test-year excess_return -14.92%，native acceptance 拒绝；其余 Top5 也因 2025 test-year excess_return 为负被拒绝
@@ -106,5 +107,5 @@
 - [x] OQ-004 基准指数代码可用性已实现并关闭（`dim_index` + 映射驱动 `dwd_index_eod` + OQ-004 QA + runner benchmark 窗口校验）
 - [x] OQ-007 退市日类型已复核并关闭，PR #9 后依赖链已重建并通过 P0 / 策略 1 QA
 
-- [x] 新增策略验收门 v3 PRD：`docs/prd/PRD_20260607_01_策略1验收门v3.md` 已定义复利周期化收益口径、`策略最大回撤同期超额`、Excess Calmar Ratio、五指数任一满足规则、10/20/30/40 持仓权重和需补回的信号质量 / 交易可行性门。
+- [x] 新增策略验收门 v3 PRD：`docs/prd/PRD_20260607_01_策略1验收门v3.md` 已定义复利周期化收益口径、`策略最大回撤同期超额`、Excess Calmar Ratio、五指数任一满足且通过指数必须正超额复合年化收益规则、10/20/30/40 持仓权重和需补回的信号质量 / 交易可行性门。
 - [ ] 实现策略验收门 v3：新增 contract YAML、只读诊断脚本和 QA SQL，并先对历史 20 个 Python Top5 候选 replay，不直接改 accepted 写回门。
