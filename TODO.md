@@ -2,6 +2,8 @@
 
 ## 最新状态（2026-06-07）
 
+- [~] 上证指数 `000001.SH` ODS 补采脚本已新增到分支 `codex/backfill-index-000001`：manifest 已加入 `index_daily_000001_SH` / `index_dailybasic_000001_SH`，`dim_index` seed 已加入上证指数映射，脚本支持倒序、100 req/min 限速、100 worker、GCS/state 断点续传；尚未执行真实 GCS 写入、未重建 DIM/DWD。
+
 - [x] PR #103 review comment follow-up：已处理 prepare_matrix 契约校验、market-state 5 个源表交易日 staleness 上限、源表缺失 QA 与风险字段统一来源；未重新执行 Cloud Run。
 
 - [x] Strategy1 风险特征 wave 4 binary 与 regression 两条 Cloud Run manifest 已完成真实执行、Top5 backtest/report、`19` QA、`21` QA；两条 Top5 均被 acceptance contract 拒绝，未产生 accepted baseline。
@@ -48,6 +50,7 @@
 - [x] PR #91 合并后按 `docs/Pipeline-补跑与故障恢复-Runbook.md` 在维护窗口完成运行命名 cutover：已同步 Composer bucket `data/sql/` 与新 DAG/alert checker，应用 `ashare_pipeline_*` 告警资源，清理旧 `oq005_*` metric 和旧 checker DAG 文件，并验证新 heartbeat 与 `qa_only` smoke；cutover 后补修 `v_pipeline_refresh_missing`，排除非交易日 skip 和显式 `skip_downstream_refresh` 的预期无下游刷新，并将 `skip_downstream_refresh` 改为实体 Python task 显式写状态，避免依赖 EmptyOperator callback
 - [x] PR #93 合并后同步 `ashare_common.py`、`ashare_ods_ingestion_daily.py` 和 `sql/observability/01_pipeline_status_views.sql` 到 Composer bucket，并用 `skip_downstream_refresh=true` 做 ODS-only skip smoke：`manual_pr93_ods_only_skip_20260605_20260606_01` 成功，`skip_downstream_refresh` 状态表为 `skipped`，Cloud Run ingestion 和下游 refresh 均未触发，告警视图为空
 - [ ] 观察新 `ashare_ods_ingestion_daily` 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip；确认 scheduled ingestion 成功后自动触发 `ashare_warehouse_window_refresh`，旧 `ashare_daily_pipeline_v0` 保持 paused
+- [ ] 执行 `scripts/ingestion/backfill_index_000001.py --allow-gcs-write` 补采上证指数 `000001.SH` 的 `index_daily` / `index_dailybasic` ODS 分区；完成后重建 `dim_index` / `dwd_index_eod` 并跑指数 benchmark QA。
 - [x] 为 `ashare_daily_pipeline_v0` 增加交易日 gate：非交易日 scheduled `daily_current` 自动跳过 ingestion / readiness / transform，写 `skip_non_trading_day` 状态行；上一交易日修复必须显式 `backfill`。PR #83 已合并并部署到 Composer
 - [x] 合并后部署非交易日 skip gate 到 Composer，并用 `force_non_trading_day_gate=true` smoke 验证 `skip_non_trading_day` 状态写入、Cloud Run 未触发；首次手工触发因 Composer 新旧 serialized DAG 切换被中止并标记 `partial`，第二次 `manual_smoke_skip_non_trading_day_pr83_20260606_02` 成功
 - [ ] 将 `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算 / 调度配置
@@ -105,3 +108,5 @@
 - [x] 策略 1 BigQuery ML runner 已于 PR #12 在 BigQuery 端到端实跑并通过 `10_qa_runner_outputs.sql`（16 断言）
 - [x] OQ-004 基准指数代码可用性已实现并关闭（`dim_index` + 映射驱动 `dwd_index_eod` + OQ-004 QA + runner benchmark 窗口校验）
 - [x] OQ-007 退市日类型已复核并关闭，PR #9 后依赖链已重建并通过 P0 / 策略 1 QA
+
+- [x] 修订策略验收门 v3 PRD 为完整季度门：Sharpe `>=0.90`，季度 Calmar / 季度 Excess Calmar 均要求每个完整季度 `>0.9`，策略超额季化收益要求每个完整季度相较五个指数至少一个 `>0`，不满完整季度不参与对比。

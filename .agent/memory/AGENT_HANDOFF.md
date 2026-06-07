@@ -6,6 +6,10 @@
 
 ## 当前交接摘要
 
+- **2026-06-07 GPT-5 Codex：策略验收门 v3 改为完整季度季化门。** Owner 将 v3 收敛为逐完整季度比较：Sharpe `>=0.90`；季度 Calmar 每个完整季度 `>0.9`；季度 Excess Calmar 每个完整季度相较五个指数至少一个 `>0.9`；策略超额季化收益每个完整季度相较五个指数至少一个 `>0`；不满完整季度的片段不参与，例如 `2026-04`。PRD 已同步重写，尚未实现 contract YAML、诊断脚本或 QA SQL。
+
+- **2026-06-07 GPT-5 Codex：上证指数 `000001.SH` ODS 补采脚本。** 已在分支 `codex/backfill-index-000001` 新增 `scripts/ingestion/backfill_index_000001.py`，用于倒序补采 `index_daily_000001_SH` / `index_dailybasic_000001_SH` raw Parquet 分区；脚本默认 100 req/min token 级限速、100 worker 并发、state + GCS object 断点续传，真实写入需 `--allow-gcs-write`。Manifest 已加入两个 variant，`dim_index` seed 已加入上证指数映射；当前尚未执行真实 GCS 写入、未重建 DIM/DWD。
+
 - **2026-06-07 GPT-5 Codex：合并后分支 / worktree 清理约束扩展。** Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
 
 - **2026-06-07 GPT-5 Codex：Strategy1 风险特征 wave 4 Cloud Run 真实执行完成。** 在 `main=10cbd46c1524888d03c71c643ed7959eb1c998be` 基线上构建/部署 runner `riskfeatfix-10cbd46-20260607-04`（digest `sha256:e7d6c5e3c86293046166b8930f6016256fb6f43a46d02be54552b303fc9a6ada`），binary 与 regression 两条风险特征 manifest 均完成 20/20 candidate fanout、Top5 backtest/report、`19` QA、`21` QA；两条 Top5 均被 acceptance contract 拒绝，未产生 accepted baseline。Runtime 修复已并入 PR #103，并已同步到 `main`。
@@ -2939,4 +2943,116 @@ Run ID: post_merge_branch_worktree_cleanup_constraint_20260607
 
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+---
+
+## 交接条目
+
+日期: 2026-06-07
+Agent ID: Codex
+Agent 实例 ID: 当前 Codex Desktop 会话
+模型: GPT-5 Codex
+运行环境: `/Users/fisher/Desktop/git/quant-ashare`
+Run ID: backfill_index_000001_script_20260607
+相关 issue/PR: owner 直接要求写脚本；尚未创建 PR
+
+### 已完成工作
+
+- 新增 `scripts/ingestion/backfill_index_000001.py`，用于补采 `000001.SH` 的 `index_daily` 和 `index_dailybasic` ODS raw Parquet 分区。
+- 脚本默认从 BigQuery `dim_trade_calendar` 读取 SSE 开市日，按交易日倒序构建任务；也支持 `--date-source calendar-days`。
+- 脚本默认 token 级限速 100 req/min、100 worker 并发，使用共享限速器保持请求启动速率，支持 `--requests-per-minute` 下调。
+- 脚本支持本地 state 文件和 GCS target object 双重断点续传；默认 state 文件在 `~/.cache/quant-ashare/ods_index_000001_backfill_state.json`。
+- 脚本真实写 GCS 必须显式传 `--allow-gcs-write`；token 和 API URL 只从 `TUSHARE_TOKEN` / `TUSHARE_HTTP_URL` 环境变量读取。
+- `configs/ingestion/ods_current_scope_v0.yml` 已加入 `index_daily_000001_SH` / `index_dailybasic_000001_SH` variant。
+- `sql/dim/04_dim_index.sql` 已加入上证指数 `000001.SH` seed 映射，待 ODS 补采后可重建 DIM/DWD。
+
+### 重要上下文
+
+- 本次只写脚本和配置，未执行真实 GCS 写入、未重建 `dim_index` / `dwd_index_eod`、未运行 BigQuery QA。
+- 若后续要让 v3 五指数诊断使用上证指数，应先执行补采，再重建 `dim_index` / `dwd_index_eod`，然后跑 `sql/qa/03_index_benchmark_checks.sql` 或相应新增 QA。
+- `--write-status` 可额外写入 `ashare_meta.ingestion_run` / `ingestion_partition_status`，默认不启用，避免历史补采产生大量 BigQuery DML。
+
+### 改动文件
+
+- `scripts/ingestion/backfill_index_000001.py`
+- `configs/ingestion/ods_current_scope_v0.yml`
+- `sql/dim/04_dim_index.sql`
+- `scripts/ingestion/README.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- 未执行真实补采或 QA。
+
+### 阻塞项
+
+- 无代码阻塞；真实补采需要运行环境具备 `TUSHARE_TOKEN`、`TUSHARE_HTTP_URL`、GCS 写权限和 BigQuery calendar 读取权限。
+
+### 下一步建议
+
+- 先用 `--dry-run` 确认任务量，再用 `--allow-gcs-write` 执行补采。
+- 补采完成后重建 `dim_index` / `dwd_index_eod` 并跑指数 benchmark QA。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+## 交接条目
+
+日期: 2026-06-07
+Agent ID: Codex
+Agent 实例 ID: 当前 Codex Desktop 会话
+模型: GPT-5 Codex
+运行环境: `/Users/fisher/Desktop/git/quant-ashare`
+Run ID: N/A
+相关 issue/PR: PR #104
+
+### 已完成工作
+
+- 将 `docs/prd/PRD_20260607_01_策略1验收门v3.md` 重写为完整季度季化门口径。
+- Sharpe 门槛从 `>=0.70` 提高为 `>=0.90`。
+- Calmar Ratio 改为每个完整自然季度单独计算季化收益 / 季度最大回撤，要求每个完整季度 `>0.9`。
+- Excess Calmar Ratio 改为每个完整自然季度、逐指数计算策略超额季化收益 / 策略最大回撤同期超额绝对值，要求每个完整季度相较五个指数至少一个 `>0.9`。
+- 新增策略超额季化收益门：每个完整季度相较五个指数至少一个 `>0`。
+- 明确不满完整自然季度的片段不参与季度门，例如 `2026-04` 不参与。
+- 同步 `DECISION_LOG.md`、`IMPLEMENTATION_STATUS.md`、`KNOWN_CONSTRAINTS.md` 和 `TODO.md`。
+
+### 重要上下文
+
+- v3 当前仍只是 PRD，不是 runner 可执行门。
+- 后续实现必须新增 contract YAML、只读 replay 诊断脚本和 QA SQL。
+- 主 benchmark 已改为上证指数 `000001.SH`，但当前 BigQuery DWD 尚未纳入该指数，实现前需补 ODS / DIM / DWD 或明确外部行情源。
+
+### 改动文件
+
+- `docs/prd/PRD_20260607_01_策略1验收门v3.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行测试；本次为 PRD 和记忆口径更新。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 实现 v3 contract YAML、只读 replay 诊断脚本和 QA SQL，并先对历史 20 个 Python Top5 候选 replay。
+
+### 已更新记忆文件
+
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/AGENT_HANDOFF.md`

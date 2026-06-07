@@ -6,6 +6,13 @@ Last updated: 2026-06-07
 
 ## 当前状态
 
+### 最新补充（2026-06-07）：上证指数 000001.SH ODS 补采脚本
+
+- 新建分支 `codex/backfill-index-000001`，新增 `scripts/ingestion/backfill_index_000001.py`，用于按 SSE 开市日倒序补采 `000001.SH` 的 `index_daily` 与 `index_dailybasic` ODS raw Parquet 分区。
+- 脚本从环境变量读取 `TUSHARE_TOKEN` / `TUSHARE_HTTP_URL`，默认 100 req/min token 级限速、100 worker 并发，支持本地 state 文件和 GCS 目标 object 双重断点续传；真实写入必须显式传 `--allow-gcs-write`。
+- `configs/ingestion/ods_current_scope_v0.yml` 已加入 `index_daily_000001_SH` / `index_dailybasic_000001_SH` request variant；`sql/dim/04_dim_index.sql` 已加入上证指数 seed 映射，待真实补采后可重建 `dim_index` / `dwd_index_eod`。
+- 本次只写脚本和配置，未执行真实 GCS 写入、未重建 BigQuery DIM/DWD、未运行 QA。
+
 ### 最新补充（2026-06-07）：合并后分支 / worktree 清理约束扩展
 
 - Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
@@ -249,3 +256,5 @@ Last updated: 2026-06-07
 | DWS 特征/标签 SQL | 部分完成 | 策略 1 universe、价格/估值特征、标签、宽表、样本 + `dws_stock_feature_fin_daily`（默认合并口径财务特征）已物化并 QA；市场状态待补 |
 | 策略/ADS 闭环 | 已跑通 | `ml_pv_clf_v0` runner 01-10 已在 BigQuery 端到端实跑（PR #12），08 为账户级 ledger，`10` 16 断言全过；模型质量待迭代（OQ-010） |
 | 行业映射 | 可落地设计完成 | ODS 已有 index_member_all / ci_index_member；待 SQL 和 QA |
+
+最新执行备注（2026-06-07 / OQ-010 验收门 v3 完整季度门）：owner 进一步收敛 v3：Sharpe 提高到 `>=0.90`；Calmar Ratio 改为每个完整自然季度单独季化计算且每季度 `>0.9`；Excess Calmar Ratio 改为每个完整自然季度、逐指数季化计算且每季度相较五个指数至少一个 `>0.9`；新增每个完整季度策略超额季化收益相较五个指数至少一个 `>0`；不满完整季度的片段不参与对比，例如 `2026-04` 不参与。`docs/prd/PRD_20260607_01_策略1验收门v3.md` 已同步重写，当前仍只是 PRD，尚未实现 contract YAML、诊断脚本或 QA SQL。
