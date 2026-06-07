@@ -6,7 +6,7 @@
 
 ## 当前交接摘要
 
-- **2026-06-07 GPT-5 Codex：策略验收门 v3 PRD 与复利周期化收益口径。** Owner 确认 v3 方向，已新增 `docs/prd/PRD_20260607_01_策略1验收门v3.md`。v3 固化复利年化/月化/日化默认口径，补回 CV/valid/test 信号质量、score orientation、final holdout、IR/Sharpe/maxDD、交易可行性和诊断硬拒绝条件；持仓权重改为 10只=15%、20只=7.5%、30/40只=5%；`Excess Calmar Ratio` 使用 `策略超额复合年化收益 / abs(策略最大回撤同期超额)`，五个指数任一满足即可。当前只是 PRD，尚未实现 contract YAML、诊断脚本或 QA SQL。
+- **2026-06-07 GPT-5 Codex：策略验收门 v3 PRD 与复利周期化收益口径。** Owner 确认 v3 方向，已新增 `docs/prd/PRD_20260607_01_策略1验收门v3.md`。v3 固化复利年化/月化/日化默认口径，补回 CV/valid/test 信号质量、score orientation、final holdout 交易日数、Sharpe/Calmar、交易可行性和诊断硬拒绝条件；持仓权重改为 10只=15%、20只=7.5%、30/40只=5%；`Excess Calmar Ratio` 使用 `策略超额复合年化收益 / abs(策略最大回撤同期超额)`，五个指数任一满足即可。当前只是 PRD，尚未实现 contract YAML、诊断脚本或 QA SQL。
 
 - **2026-06-07 GPT-5 Codex：合并后分支 / worktree 清理约束扩展。** Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
 

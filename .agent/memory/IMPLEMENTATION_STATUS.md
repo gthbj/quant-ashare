@@ -250,4 +250,4 @@ Last updated: 2026-06-07
 | 策略/ADS 闭环 | 已跑通 | `ml_pv_clf_v0` runner 01-10 已在 BigQuery 端到端实跑（PR #12），08 为账户级 ledger，`10` 16 断言全过；模型质量待迭代（OQ-010） |
 | 行业映射 | 可落地设计完成 | ODS 已有 index_member_all / ci_index_member；待 SQL 和 QA |
 
-最新执行备注（2026-06-07 / OQ-010 验收门 v3 PRD）：owner 确认策略验收门 v3 方向，已新增 `docs/prd/PRD_20260607_01_策略1验收门v3.md`。v3 固化复利周期化收益默认口径，补回 CV/valid/test 信号质量、score orientation、final holdout、IR/Sharpe/maxDD、诊断和交易可行性门；持仓权重改为 10只=15%、20只=7.5%、30/40只=5%；`Excess Calmar Ratio` 使用 `策略超额复合年化收益 / abs(策略最大回撤同期超额)`，五个指数任一满足即可。当前 PRD 只定义口径，尚未实现 contract YAML、诊断脚本或 QA SQL。
+最新执行备注（2026-06-07 / OQ-010 验收门 v3 PRD）：owner 确认策略验收门 v3 方向，已新增 `docs/prd/PRD_20260607_01_策略1验收门v3.md`。v3 固化复利周期化收益默认口径，补回 CV/valid/test 信号质量、score orientation、final holdout 交易日数、Sharpe/Calmar、诊断和交易可行性门；持仓权重改为 10只=15%、20只=7.5%、30/40只=5%；`Excess Calmar Ratio` 使用 `策略超额复合年化收益 / abs(策略最大回撤同期超额)`，五个指数任一满足即可。当前 PRD 只定义口径，尚未实现 contract YAML、诊断脚本或 QA SQL。

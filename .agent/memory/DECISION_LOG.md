@@ -1540,7 +1540,7 @@ Agent ID: Codex
 - `Excess Calmar Ratio` 定义为 `策略超额复合年化收益 / abs(策略最大回撤同期超额)`；若 `策略最大回撤同期超额 > 0`，该指数视为直接满足。
 - `Excess Calmar Ratio` 的指数集合为上证50、沪深300、中证1000、上证指数、深证成指，五个指数任一满足 `Excess Calmar Ratio > 1` 或 `策略最大回撤同期超额 > 0` 即通过。
 - 10/20/30/40 只均可参与 accepted；单票最大权重分别为 10只=15%、20只=7.5%、30只=5%、40只=5%。
-- v3 必须补回 CV/valid/test 信号质量、score orientation、final holdout、Sharpe、IR、max drawdown、Lot/交易可行性和诊断硬拒绝条件。
+- v3 必须补回 CV/valid/test 信号质量、score orientation、final holdout 交易日数、Sharpe、Calmar Ratio、Lot/交易可行性和诊断硬拒绝条件。
 
 ### 理由
 
