@@ -6,6 +6,21 @@ Last updated: 2026-06-07
 
 ## 当前状态
 
+### 最新补充（2026-06-07）：PR #103 review comment follow-up
+
+- 按 PR #103 review comment 处理 2 个 P2 与 1 个 P3：`prepare_matrix.py` 在 expected feature-set 路径恢复 `feature_column_list` 契约校验，并对 train split 全空 expected 列 fail-fast；训练面板 SQL 将 market-state forward-fill 限制为最近 5 个源表交易日，并将 `ret_20d`、`drawdown_20d`、`vol_20d` 统一从 `dws_stock_feature_daily_v0` 读取；`21_qa_risk_feature_search_outputs.sql` 的 `QA-RISK-4` 改查源表 `dws_market_state_daily.csi1000_ret_20d` 缺失率，避免 post-fill 面板掩盖源表稀疏。
+- 本次是 PR comment follow-up，本地未重新执行 Cloud Run 训练/回测；需要 CI/owner 后续决定是否要求 dry-run 或局部重跑。
+
+
+### 最新补充（2026-06-07）：Strategy1 风险特征 wave 4 Cloud Run 真实执行完成
+
+- 分支与基线：在 `codex/fix-riskfeat-training-panel-fields` 上执行，执行前确认本地 `main` 已到 `10cbd46c1524888d03c71c643ed7959eb1c998be`。
+- Runner：构建并部署 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:riskfeatfix-10cbd46-20260607-04`，digest `sha256:e7d6c5e3c86293046166b8930f6016256fb6f43a46d02be54552b303fc9a6ada`，覆盖 5 个 Strategy1 Cloud Run Jobs。
+- Binary 风险特征 manifest：`configs/strategy1/cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_v0.yml` 完成真实执行，`search_id=cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_20260606_01`，`source_run_id=s1_cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_20260606_01`，20/20 candidate fanout 成功，Top5 backtest/report 完成，`19` 与 `21` QA 通过；Top5 均被 acceptance contract 拒绝，未形成 accepted baseline。
+- Regression 风险特征 manifest：`configs/strategy1/cloudrun_python_riskfeat_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 完成真实执行，`search_id=cloudrun_python_riskfeat_lgbm_reg_pvfq_n30_bw_h5_20260606_01`，`source_run_id=s1_cloudrun_python_riskfeat_lgbm_reg_pvfq_n30_bw_h5_20260606_01`，20/20 candidate fanout 成功，Top5 backtest/report 完成，`19` 与 `21` QA 通过；Top5 均被拒绝，主要原因包含 `max_drawdown<-0.25`，未形成 accepted baseline。
+- 本轮 runtime 修复：training panel 补齐风险特征字段来源并增加 PIT-safe market-state forward-fill；`prepare_matrix` 改为 BigQuery 端展开 JSON 与分 split 写特征以降低内存；tail-risk enrich 修复 BigQuery alias；acceptance writeback 改为按 `model_id` 更新并补齐 contract version；DataFrame 下载禁用 BigQuery Storage API；`QA-LEDGER-7` 接受 `SELL_SKIPPED_BELOW_LOT_PARTIAL` 作为次日有效处理状态。
+- 后续：当前风险特征 wave 4 已完成真实验证但没有 accepted baseline；下一步 owner 已要求提交/推送/开 PR；后续仍需决定是否转向新模型族、目标函数或 acceptance 窗口调整。
+
 > 最新补充（2026-06-07）：PR #102 review follow-up 已在工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`、分支 `codex/implement-risk-feature-search` 修复。风险特征专项最大回撤目标不再由 Python 常量或 SQL 默认值硬编码：`configs/strategy1/model_acceptance_contract_v1.yml` 已显式加入 `thresholds.min_full_period_max_drawdown=-0.18`，`scripts/strategy1_cloudrun/acceptance.py` 输出 `p_risk_feature_max_drawdown_target` 并提供 `risk_feature_max_drawdown_target()`；`sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql` 的该参数默认改为 `NULL` 且新增 `QA-RISK-0`，standalone 真执行若未注入 contract 参数会 fail-loud。`final_holdout_status` 派生逻辑已从 `orchestrate_sklearn_native_search.py` 移入共享 `acceptance.py`，orchestrator 只调用共享规则。验证：Python `py_compile` 通过；v1 contract hash/SQL 参数确认；原始 `21` QA BigQuery dry-run 和注入 contract 后的 `21` QA BigQuery dry-run均通过；risk feature orchestrator dry-run 通过；`git diff --check` 通过。尚未执行真实 Cloud Run 40 候选训练 / Top5 回测。
 
 > 最新补充（2026-06-07）：策略 1 风险特征入模第 4 波实现已在工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`、分支 `codex/implement-risk-feature-search` 完成到 PR 待审阶段。新增 `scripts/strategy1_cloudrun/feature_sets.py` 固化 `strategy1_pv_fin_risk_v0_20260606` 95 列特征契约，并在 `prepare_matrix.py` 输出 `feature_delta_vs_base.json`、feature schema hash、风险/市场特征缺失率；`train_candidate_task.py` 输出 LightGBM feature importance 与风险/市场 gain share；`select_register_predict.py` 将 feature schema/delta hash 和风险特征计数写入 registry；`orchestrate_sklearn_native_search.py` 支持 config 指定训练面板 SQL、风险特征 `21` QA、final_holdout passed 派生和 `max_drawdown >= -18%` 风险专项 overlay。新增 Cloud Run 专用训练面板 `sql/cloudrun/strategy1/01_build_training_panel.sql`，把个股风险、市场状态和交互项写入 ADS training panel；新增 binary/regression 各 20 候选 manifest 和 `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`。验证已通过 Python 编译、manifest/orchestrator/prepare_matrix dry-run、训练面板 SQL 与 `21` QA BigQuery dry-run、SQL/Python feature_column_list 95 列顺序一致性检查和 `git diff --check`。本次未执行真实 Cloud Run 40 候选训练、未跑 Top5 回测，也未建立 baseline；合并后下一步是构建/部署镜像并先跑 binary 20，再跑 regression 20，完成 `19` + `21` QA 后由结果决定是否 accepted / needs_more_evidence / rejected。

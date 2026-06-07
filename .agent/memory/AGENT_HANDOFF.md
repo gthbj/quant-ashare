@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+- **2026-06-07 GPT-5 Codex：Strategy1 风险特征 wave 4 Cloud Run 真实执行完成。** 在 `main=10cbd46c1524888d03c71c643ed7959eb1c998be` 基线上构建/部署 runner `riskfeatfix-10cbd46-20260607-04`（digest `sha256:e7d6c5e3c86293046166b8930f6016256fb6f43a46d02be54552b303fc9a6ada`），binary 与 regression 两条风险特征 manifest 均完成 20/20 candidate fanout、Top5 backtest/report、`19` QA、`21` QA；两条 Top5 均被 acceptance contract 拒绝，未产生 accepted baseline。Runtime 修复位于 `codex/fix-riskfeat-training-panel-fields`，owner 已要求提交/推送/开 PR。
+
 **OQ-010 风险特征入模 PR #102 review follow-up（2026-06-07）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-search`。已按 PR #102 comment 修复两项：风险专项 `max_drawdown >= -18%` 目标不再由 Python 常量 / SQL 默认值硬编码，而是写入 `configs/strategy1/model_acceptance_contract_v1.yml` 的 `thresholds.min_full_period_max_drawdown` 并由 `acceptance.py` 统一输出 `p_risk_feature_max_drawdown_target`；`21_qa_risk_feature_search_outputs.sql` 默认改为 `NULL` 并新增 `QA-RISK-0`，未注入 contract 参数的 standalone 真执行会 fail-loud。`final_holdout_status` 派生逻辑已移入共享 `acceptance.py`，orchestrator 删除重复函数。验证通过 Python `py_compile`、v1 contract 参数确认、原始/注入版 `21` QA BigQuery dry-run、risk feature orchestrator dry-run 和 `git diff --check`。尚未真实跑 Cloud Run 40 候选 / Top5 回测。
 
 **OQ-010 风险特征入模第 4 波实现（2026-06-07）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-search`。已实现 `strategy1_pv_fin_risk_v0_20260606` 训练路径：新增 95 列 feature set 契约、Cloud Run 专用训练面板 SQL、binary/regression 各 20 候选 manifest、矩阵 `feature_delta_vs_base.json`、feature schema hash、风险/市场特征缺失率、LightGBM feature importance、风险专项 acceptance overlay 和 `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`。验证已通过 Python 编译、manifest/orchestrator/prepare_matrix dry-run、训练面板 SQL 与 `21` QA BigQuery dry-run、feature_column_list 顺序一致性检查和 `git diff --check`。尚未执行真实 Cloud Run 40 候选训练 / Top5 回测，未建立 baseline；合并后下一步是构建/部署 runner 镜像，依次跑 binary 20 与 regression 20，并用 `19` + `21` QA 收口。
@@ -2826,3 +2828,67 @@ Run ID: prd_strategy1_lot_aware_ledger_20260606
 - `.agent/memory/DECISION_LOG.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
+
+---
+
+## 交接记录：Strategy1 风险特征 wave 4 Cloud Run 真实执行完成
+
+- Date: 2026-06-07
+- Agent ID: Codex
+- Agent Instance ID: Codex desktop session
+- Model: GPT-5 Codex
+- Environment: Codex desktop, `/Users/fisher/Desktop/git/quant-ashare`
+- Run ID: strategy1_risk_feature_wave4_cloudrun_execution_20260607
+- Related issue/PR: owner 已要求创建 PR
+
+### 本轮完成
+
+- 已将误放项目根目录的个人会话包移出仓库，保留在 `~/Downloads` 归档位置；未使用 `.agent/archive/`，未改 `.gitignore`。
+- 已确认本地 `main` 到达 `10cbd46c1524888d03c71c643ed7959eb1c998be` 后，在 `codex/fix-riskfeat-training-panel-fields` 上处理 runtime 问题。
+- 已构建并部署 Strategy1 runner 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:riskfeatfix-10cbd46-20260607-04`，digest `sha256:e7d6c5e3c86293046166b8930f6016256fb6f43a46d02be54552b303fc9a6ada`。
+- Binary manifest `configs/strategy1/cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_v0.yml` 已完成真实 Cloud Run 执行：`search_id=cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_20260606_01`，`source_run_id=s1_cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_20260606_01`，20/20 fanout 成功，Top5 backtest/report 完成，`19` 和 `21` QA 通过；Top5 全部 rejected，未建立 accepted baseline。
+- Regression manifest `configs/strategy1/cloudrun_python_riskfeat_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 已完成真实 Cloud Run 执行：`search_id=cloudrun_python_riskfeat_lgbm_reg_pvfq_n30_bw_h5_20260606_01`，`source_run_id=s1_cloudrun_python_riskfeat_lgbm_reg_pvfq_n30_bw_h5_20260606_01`，20/20 fanout 成功，Top5 backtest/report 完成，`19` 和 `21` QA 通过；Top5 全部 rejected，主要包含 `max_drawdown<-0.25`，未建立 accepted baseline。
+
+### 代码与 SQL 变更
+
+- `sql/cloudrun/strategy1/01_build_training_panel.sql`：补齐 `limit_down_days_20d`、`one_word_limit_days_20d`、`total_mv_cny`、`circ_mv_cny` 的 DWS feature source，并加入 PIT-safe market-state forward-fill。
+- `scripts/strategy1_cloudrun/prepare_matrix.py`：将 feature JSON 在 BigQuery 端展开为数值列，按 split 顺序写 transformed features，减少 Cloud Run memory 峰值。
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`：修复 tail-risk enrich alias 冲突，acceptance writeback 改为按 `model_id` 更新并补齐 contract version，同时禁用 BigQuery Storage API dataframe path。
+- `sql/ml/strategy1/10_qa_runner_outputs.sql`：`QA-LEDGER-7` 增加 `SELL_SKIPPED_BELOW_LOT_PARTIAL`，覆盖不可交易卖出后次日低于 lot 的合法处理状态。
+
+### 验证
+
+- Binary 风险特征 manifest：真实 Cloud Run fanout 20/20 成功，Top5 backtest/report 完成，`19_qa_cloudrun_python_baseline_search_outputs.sql` 通过，`21_qa_risk_feature_search_outputs.sql` 在 `p_risk_feature_max_drawdown_target=-0.18` 下通过。
+- Regression 风险特征 manifest：真实 Cloud Run fanout 20/20 成功，Top5 backtest/report 完成；修复 QA 后手动重跑失败 backtest execution `strategy1-backtest-report-job-jn49x` 成功；`19` QA 通过，`21` QA 在 `p_risk_feature_max_drawdown_target=-0.18` 下通过。
+
+### 后续建议
+
+- Owner 已要求提交当前 `codex/fix-riskfeat-training-panel-fields` 并推送创建 PR。
+- 当前 wave 4 风险特征 binary/regression 均无 accepted baseline；后续建模应优先评估新模型族、目标函数、样本窗口或 acceptance gate，而不是继续假设本轮风险特征配置可直接晋级。
+
+---
+
+## 交接记录：PR #103 review comment follow-up
+
+- Date: 2026-06-07
+- Agent ID: Codex
+- Agent Instance ID: Codex desktop session
+- Model: GPT-5 Codex
+- Environment: Codex desktop, `/Users/fisher/Desktop/git/quant-ashare`
+- Run ID: pr103_review_comment_followup_20260607
+- Related issue/PR: PR #103
+
+### 本轮完成
+
+- 处理 PR #103 review comment 中认同的 2 个 P2 与 1 个 P3。
+- `prepare_matrix.py`：expected feature-set 路径重新读取并校验 `feature_column_list`，且 train split 中任一 expected feature 全空时 fail-fast，避免缺列被 JSON 抽取静默转成全 NaN。
+- `sql/cloudrun/strategy1/01_build_training_panel.sql`：新增 `p_market_state_ffill_max_trade_days=5`，market-state forward-fill 只允许沿用最近 5 个源表交易日内的非空值；同时将 `ret_20d`、`drawdown_20d`、`vol_20d` 统一从 `dws_stock_feature_daily_v0` 读取。
+- `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`：`QA-RISK-4` 改查源表 `dws_market_state_daily.csi1000_ret_20d` 缺失率，避免 post-fill 训练面板掩盖源表稀疏。
+
+### 验证
+
+- 本次仅处理 PR comment follow-up，未重新执行 Cloud Run 训练、回测或 BigQuery QA。
+
+### 后续建议
+
+- 如 CI 或 reviewer 要求，可对训练面板 SQL 与 `21` QA 做 BigQuery dry-run，再决定是否需要重建 runner 和局部重跑 matrix。
