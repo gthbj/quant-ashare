@@ -1,6 +1,6 @@
 # Ashare Pipeline 补跑与故障恢复 Runbook
 
-> 文档维护：GPT-5 Codex（最近更新 2026-06-06）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-07）
 
 本 runbook 覆盖 Ashare pipeline 日常调度链路的常见故障与恢复步骤。
 
@@ -133,7 +133,7 @@
 
 ## 4. 窗口 SQL 执行失败
 
-**症状：** `windowed_transform.stock_dwd_dws_window` 失败，BigQuery job error。
+**症状：** `windowed_transform.index_dwd_window`、`windowed_transform.stock_dwd_dws_window` 或窗口 QA 失败，BigQuery job error。
 
 **恢复步骤：**
 
@@ -142,13 +142,19 @@
    SELECT task_id, bigquery_job_id, bigquery_job_url, error_summary
    FROM `data-aquarium.ashare_meta.pipeline_task_status`
    WHERE pipeline_run_id = 'manual_pipeline_xxx'
-     AND task_id = 'windowed_transform.stock_dwd_dws_window';
+     AND task_id IN (
+       'windowed_transform.index_dwd_window',
+       'windowed_transform.stock_dwd_dws_window',
+       'windowed_transform.windowed_index_refresh_checks',
+       'windowed_transform.windowed_stock_refresh_checks'
+     );
    ```
 
 2. **在 BigQuery Console 查看 job 详情和错误信息。**
 
 3. **常见原因与修复：**
    - **表不存在：** 确认 DWD/DWS 表已由全量路径初始化
+   - **指数 ODS 新 endpoint 不可读：** 先运行 `sql/ods/01_index_external_table_uris.sql`，确保 explicit `sourceUris` 包含新增 endpoint
    - **权限不足：** 检查 Composer service account 权限
    - **资源超限：** 减小窗口范围或分批执行
 

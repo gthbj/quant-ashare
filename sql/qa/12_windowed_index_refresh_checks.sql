@@ -1,0 +1,118 @@
+-- 文档维护：GPT-5 Codex（最近更新 2026-06-07）
+-- BigQuery Standard SQL
+-- Daily warehouse pipeline: 指数 DWD 窗口化刷新后的轻量 QA。
+
+DECLARE p_business_date DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@business_date, '') AS DATE), CURRENT_DATE('Asia/Shanghai'));
+DECLARE p_date_from DATE DEFAULT SAFE_CAST(NULLIF(@date_from, '') AS DATE);
+DECLARE p_requested_date_to DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@date_to, '') AS DATE), p_business_date);
+DECLARE p_warehouse_mode STRING DEFAULT LOWER(COALESCE(NULLIF(@warehouse_mode, ''), 'daily_current'));
+DECLARE p_date_to DATE DEFAULT CASE
+  WHEN p_warehouse_mode = 'daily_current' THEN COALESCE(
+    (
+      SELECT MAX(cal_date)
+      FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+      WHERE exchange = 'SSE'
+        AND is_open = 1
+        AND cal_date <= p_requested_date_to
+    ),
+    p_requested_date_to
+  )
+  ELSE p_requested_date_to
+END;
+DECLARE p_final_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_daily_current_lookback_td INT64 DEFAULT 20;
+DECLARE p_end_date_seq INT64 DEFAULT (
+  SELECT trade_date_seq
+  FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+  WHERE exchange = 'SSE'
+    AND is_open = 1
+    AND cal_date = p_date_to
+  LIMIT 1
+);
+DECLARE p_daily_current_start_date DATE DEFAULT COALESCE(
+  (
+    SELECT MAX(cal_date)
+    FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+    WHERE exchange = 'SSE'
+      AND is_open = 1
+      AND trade_date_seq <= p_end_date_seq - p_daily_current_lookback_td + 1
+  ),
+  p_date_to
+);
+DECLARE p_write_start_date DATE DEFAULT GREATEST(
+  CASE
+    WHEN p_warehouse_mode = 'daily_current' AND p_date_from IS NULL
+      THEN p_daily_current_start_date
+    ELSE COALESCE(p_date_from, p_date_to)
+  END,
+  p_final_start_date
+);
+DECLARE p_write_end_date DATE DEFAULT p_date_to;
+
+ASSERT p_warehouse_mode IN ('daily_current', 'backfill')
+  AS 'QA-WIN-IDX-0A: warehouse_mode must be daily_current or backfill';
+
+ASSERT p_write_end_date >= p_write_start_date
+  AS 'QA-WIN-IDX-0B: write_end_date must be >= write_start_date';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT sec_code, trade_date, COUNT(*) AS n
+    FROM `data-aquarium.ashare_dwd.dwd_index_eod`
+    WHERE trade_date BETWEEN p_write_start_date AND p_write_end_date
+    GROUP BY sec_code, trade_date
+    HAVING n > 1
+  )
+) AS 'QA-WIN-IDX-1: dwd_index_eod key must be unique in refresh window';
+
+ASSERT (
+  WITH expected AS (
+    SELECT
+      m.sec_code,
+      SAFE.PARSE_DATE('%Y%m%d', o.trade_date) AS trade_date
+    FROM `data-aquarium.ashare_dim.dim_index` AS m
+    JOIN `data-aquarium.ashare_ods.ods_tushare_index_daily` AS o
+      ON o.endpoint = m.daily_endpoint
+     AND o.ts_code = m.source_sec_code
+    WHERE m.has_daily
+      AND o.partition_date BETWEEN FORMAT_DATE('%Y%m%d', p_write_start_date) AND FORMAT_DATE('%Y%m%d', p_write_end_date)
+      AND SAFE.PARSE_DATE('%Y%m%d', o.trade_date) BETWEEN p_write_start_date AND p_write_end_date
+  )
+  SELECT COUNT(*) = 0
+  FROM expected AS e
+  LEFT JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS d
+    ON d.sec_code = e.sec_code
+   AND d.trade_date = e.trade_date
+   AND d.trade_date BETWEEN p_write_start_date AND p_write_end_date
+  WHERE d.sec_code IS NULL
+) AS 'QA-WIN-IDX-2: every readable index_daily source row must be written to dwd_index_eod';
+
+ASSERT (
+  SELECT COUNT(*) > 0
+  FROM `data-aquarium.ashare_dim.dim_index`
+  WHERE sec_code = '000001.SH'
+    AND source_sec_code = '000001.SH'
+    AND has_daily
+    AND has_dailybasic
+) AS 'QA-WIN-IDX-3: dim_index must expose 000001.SH with daily and dailybasic endpoints';
+
+ASSERT (
+  SELECT COUNT(*) > 0
+  FROM `data-aquarium.ashare_dwd.dwd_index_eod`
+  WHERE trade_date BETWEEN p_write_start_date AND p_write_end_date
+    AND sec_code = '000001.SH'
+    AND source_sec_code = '000001.SH'
+    AND close IS NOT NULL
+    AND total_mv_cny IS NOT NULL
+    AND pb IS NOT NULL
+) AS 'QA-WIN-IDX-4: refreshed window must include 000001.SH price and dailybasic fields';
+
+SELECT
+  'QA-WIN-IDX completed' AS status,
+  p_write_start_date AS write_start_date,
+  p_write_end_date AS write_end_date,
+  COUNT(*) AS row_count,
+  COUNTIF(sec_code = '000001.SH') AS sse_composite_row_count
+FROM `data-aquarium.ashare_dwd.dwd_index_eod`
+WHERE trade_date BETWEEN p_write_start_date AND p_write_end_date;

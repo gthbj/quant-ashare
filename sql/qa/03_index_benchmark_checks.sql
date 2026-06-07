@@ -1,4 +1,4 @@
--- 文档维护：GPT-5（最近更新 2026-06-01）
+-- 文档维护：GPT-5 Codex（最近更新 2026-06-07）
 -- BigQuery Standard SQL
 -- 指数 canonical 映射、端点可用性与 runner benchmark 窗口断言。
 -- 本脚本校验示例 benchmark/window；真实 runner 参数窗口由 08_run_backtest.sql
@@ -35,6 +35,18 @@ ASSERT (
 ASSERT (
   SELECT COUNT(*) = 1
   FROM `data-aquarium.ashare_dim.dim_index`
+  WHERE sec_code = '000001.SH'
+    AND source_sec_code = '000001.SH'
+    AND daily_endpoint = 'index_daily_000001_SH'
+    AND dailybasic_endpoint = 'index_dailybasic_000001_SH'
+    AND has_daily
+    AND has_dailybasic
+    AND is_benchmark_candidate
+) AS 'dim_index must expose SSE Composite 000001.SH with daily and dailybasic benchmark availability';
+
+ASSERT (
+  SELECT COUNT(*) = 1
+  FROM `data-aquarium.ashare_dim.dim_index`
   WHERE source_sec_code = '399300.SZ'
     AND sec_code = '000300.SH'
     AND daily_endpoint = 'index_daily_399300_SZ'
@@ -57,12 +69,70 @@ ASSERT (
 ) AS 'CSI1000 must have daily data and no dailybasic availability in current ODS snapshot';
 
 ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT sec_code, trade_date, COUNT(*) AS n
+    FROM `data-aquarium.ashare_dwd.dwd_index_eod`
+    WHERE trade_date BETWEEN dwd_start_date AND dwd_end_date
+    GROUP BY sec_code, trade_date
+    HAVING n > 1
+  )
+) AS 'dwd_index_eod key must be unique for 2019+ rows';
+
+ASSERT (
   SELECT COUNT(*) > 0
   FROM `data-aquarium.ashare_dwd.dwd_index_eod`
   WHERE sec_code = '000852.SH'
     AND trade_date BETWEEN dwd_start_date AND dwd_end_date
     AND close IS NOT NULL
 ) AS 'dwd_index_eod must contain 2019+ CSI1000 price rows';
+
+ASSERT (
+  SELECT COUNT(*) > 0
+  FROM `data-aquarium.ashare_dwd.dwd_index_eod`
+  WHERE sec_code = '000001.SH'
+    AND source_sec_code = '000001.SH'
+    AND trade_date BETWEEN dwd_start_date AND dwd_end_date
+    AND close IS NOT NULL
+    AND total_mv_cny IS NOT NULL
+    AND pb IS NOT NULL
+) AS 'dwd_index_eod must contain 2019+ SSE Composite price and dailybasic rows';
+
+ASSERT (
+  WITH window_calendar AS (
+    SELECT cal_date AS trade_date
+    FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+    WHERE exchange = 'SSE'
+      AND is_open = 1
+      AND cal_date BETWEEN dwd_start_date AND dwd_end_date
+  ),
+  benchmark AS (
+    SELECT
+      idx.trade_date,
+      COUNT(*) AS row_count,
+      COUNTIF(idx.close IS NULL OR idx.pre_close IS NULL OR idx.pct_chg IS NULL OR idx.total_mv_cny IS NULL OR idx.pb IS NULL) AS bad_count
+    FROM `data-aquarium.ashare_dwd.dwd_index_eod` AS idx
+    WHERE idx.sec_code = '000001.SH'
+      AND idx.trade_date BETWEEN dwd_start_date AND dwd_end_date
+    GROUP BY idx.trade_date
+  ),
+  coverage AS (
+    SELECT
+      COUNT(*) AS open_days,
+      COUNTIF(b.trade_date IS NULL) AS missing_open_days,
+      COUNTIF(b.row_count > 1) AS duplicate_open_days,
+      COUNTIF(b.bad_count > 0) AS bad_days
+    FROM window_calendar AS c
+    LEFT JOIN benchmark AS b
+      ON b.trade_date = c.trade_date
+  )
+  SELECT
+    open_days > 0
+    AND missing_open_days = 0
+    AND duplicate_open_days = 0
+    AND bad_days = 0
+  FROM coverage
+) AS 'SSE Composite 000001.SH must cover every 2019+ SSE open day with price and dailybasic rows';
 
 ASSERT (
   SELECT COUNT(*) > 0

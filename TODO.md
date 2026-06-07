@@ -2,6 +2,8 @@
 
 ## 最新状态（2026-06-07）
 
+- [x] 上证指数 `000001.SH` 的 `index_daily` / `index_dailybasic` 已补入生产 BigQuery 链路：ODS external table 显式 URI 已加入两个 endpoint，`dim_index` 已加入 `SSE_COMPOSITE` seed，`dwd_index_eod` 已重建并通过 `03_index_benchmark_checks` 与 `05_unit_contract_checks`；新增指数 DWD 窗口刷新 SQL 和 `12_windowed_index_refresh_checks` 已完成 2019-01-01 至 2026-06-05 backfill 实跑（13,770 行，其中 `000001.SH` 1,799 行）并通过 QA。为保持既有训练可复现，本次不修改 `dws_market_state_daily` / `market_state_v0_20260606`，不写 ADS。
+
 - [x] PR #103 review comment follow-up：已处理 prepare_matrix 契约校验、market-state 5 个源表交易日 staleness 上限、源表缺失 QA 与风险字段统一来源；未重新执行 Cloud Run。
 
 - [x] Strategy1 风险特征 wave 4 binary 与 regression 两条 Cloud Run manifest 已完成真实执行、Top5 backtest/report、`19` QA、`21` QA；两条 Top5 均被 acceptance contract 拒绝，未产生 accepted baseline。

@@ -1,4 +1,4 @@
--- 文档维护：GPT-5（最近更新 2026-06-01）
+-- 文档维护：GPT-5 Codex（最近更新 2026-06-07）
 -- BigQuery Standard SQL
 -- 指数主维表：维护 canonical 指数代码、ODS 实际代码、端点可用性和 benchmark 候选状态。
 -- 只 seed 当前 ODS index_daily source URI 中真实存在的端点；中证2000、国证2000等候选指数
@@ -15,6 +15,17 @@ OPTIONS (
 ) AS
 WITH index_seed AS (
   SELECT * FROM UNNEST([
+    STRUCT(
+      '000001.SH' AS source_sec_code,
+      '000001.SH' AS sec_code,
+      'SSE_COMPOSITE' AS index_alias,
+      '上证指数' AS index_name,
+      'SSE' AS index_family,
+      'index_daily_000001_SH' AS daily_endpoint,
+      'index_dailybasic_000001_SH' AS dailybasic_endpoint,
+      TRUE AS allow_benchmark_candidate,
+      '收益与 dailybasic 均可用' AS benchmark_note
+    ),
     STRUCT(
       '000016.SH' AS source_sec_code,
       '000016.SH' AS sec_code,

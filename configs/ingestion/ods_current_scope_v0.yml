@@ -82,6 +82,10 @@ endpoints:
   business_date_field: trade_date
   partition_date_semantics: business_date
   request_variants:
+  - variant: index_daily_000001_SH
+    params:
+      ts_code: 000001.SH
+    partition_endpoint: index_daily_000001_SH
   - variant: index_daily_000016_SH
     params:
       ts_code: 000016.SH
@@ -126,6 +130,10 @@ endpoints:
   business_date_field: trade_date
   partition_date_semantics: business_date
   request_variants:
+  - variant: index_dailybasic_000001_SH
+    params:
+      ts_code: 000001.SH
+    partition_endpoint: index_dailybasic_000001_SH
   - variant: index_dailybasic_000016_SH
     params:
       ts_code: 000016.SH

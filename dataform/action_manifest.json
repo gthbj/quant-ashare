@@ -18,6 +18,7 @@
   "actions": [
     {"sql": "sql/meta/01_create_meta_tables.sql", "path": "definitions/setup/01_create_meta_tables.sqlx", "name": "create_meta_tables", "type": "operations", "tags": ["setup"]},
     {"sql": "sql/meta/04_ods_field_unit_map.sql", "path": "definitions/setup/04_ods_field_unit_map.sqlx", "name": "ods_field_unit_map", "schema": "ashare_meta", "type": "operations", "hasOutput": true, "tags": ["setup"], "dependencies": ["create_meta_tables"]},
+    {"sql": "sql/ods/01_index_external_table_uris.sql", "path": "definitions/ods/01_index_external_table_uris.sqlx", "name": "index_external_table_uris", "type": "operations", "tags": ["setup", "ods"]},
 
     {"sql": "sql/dim/01_dim_trade_calendar.sql", "path": "definitions/dim/01_dim_trade_calendar.sqlx", "name": "dim_trade_calendar", "schema": "ashare_dim", "type": "operations", "hasOutput": true, "tags": ["dim_core"], "dependencies": ["ods_tushare_trade_cal"]},
     {"sql": "sql/dim/02_dim_stock.sql", "path": "definitions/dim/02_dim_stock.sqlx", "name": "dim_stock", "schema": "ashare_dim", "type": "operations", "hasOutput": true, "tags": ["dim_core"], "dependencies": ["ods_tushare_stock_basic", "ods_tushare_daily"]},
@@ -52,6 +53,7 @@
     {"sql": "sql/qa/02_strategy1_dws_ads_checks.sql", "path": "definitions/assertions/02_strategy1_dws_ads_checks.sqlx", "name": "strategy1_dws_ads_checks", "type": "operations", "tags": ["assertion_strategy1"], "dependencies": ["dws_stock_universe_daily", "dws_stock_feature_price_daily", "dws_stock_feature_valuation_daily", "dws_stock_label_daily", "dws_stock_feature_daily_v0", "dws_stock_sample_daily", "dws_stock_feature_fin_daily"]},
     {"sql": "sql/qa/03_index_benchmark_checks.sql", "path": "definitions/assertions/03_index_benchmark_checks.sqlx", "name": "index_benchmark_checks", "type": "operations", "tags": ["qa_contract"], "dependencies": ["dim_index", "dwd_index_eod"]},
     {"sql": "sql/qa/04_finance_caliber_checks.sql", "path": "definitions/assertions/04_finance_caliber_checks.sqlx", "name": "finance_caliber_checks", "type": "operations", "tags": ["qa_contract"], "dependencies": ["finance_table_column_descriptions", "dws_stock_feature_fin_daily"]},
-    {"sql": "sql/qa/05_unit_contract_checks.sql", "path": "definitions/assertions/05_unit_contract_checks.sqlx", "name": "unit_contract_checks", "type": "operations", "tags": ["qa_contract"], "dependencies": ["ods_field_unit_map", "dwd_stock_eod_price", "dwd_stock_eod_valuation", "dwd_index_eod", "dwd_fin_indicator", "dwd_fin_income", "dwd_fin_balancesheet", "dwd_fin_cashflow"]}
+    {"sql": "sql/qa/05_unit_contract_checks.sql", "path": "definitions/assertions/05_unit_contract_checks.sqlx", "name": "unit_contract_checks", "type": "operations", "tags": ["qa_contract"], "dependencies": ["ods_field_unit_map", "dwd_stock_eod_price", "dwd_stock_eod_valuation", "dwd_index_eod", "dwd_fin_indicator", "dwd_fin_income", "dwd_fin_balancesheet", "dwd_fin_cashflow"]},
+    {"sql": "sql/qa/12_windowed_index_refresh_checks.sql", "path": "definitions/assertions/12_windowed_index_refresh_checks.sqlx", "name": "windowed_index_refresh_checks", "type": "operations", "tags": ["qa_window"], "dependencies": ["dim_index", "dwd_index_eod"]}
   ]
 }

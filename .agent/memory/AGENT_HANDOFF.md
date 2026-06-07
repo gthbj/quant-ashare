@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+- **2026-06-07 GPT-5 Codex：上证指数 `000001.SH` ODS/DIM/DWD 补齐与指数窗口刷新。** 已把 `index_daily_000001_SH` / `index_dailybasic_000001_SH` 加入 current-scope manifest、ODS external table 显式 `sourceUris`、`dim_index` seed 和 `dwd_index_eod`；BigQuery 手工补数和 2019-01-01 至 2026-06-05 指数窗口 backfill 均完成，`03` / `05` / `12` QA 通过。为保持既有训练复现，本次不修改 `dws_market_state_daily` / `market_state_v0_20260606`，不写 ADS。
+
 - **2026-06-07 GPT-5 Codex：合并后分支 / worktree 清理约束扩展。** Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
 
 - **2026-06-07 GPT-5 Codex：Strategy1 风险特征 wave 4 Cloud Run 真实执行完成。** 在 `main=10cbd46c1524888d03c71c643ed7959eb1c998be` 基线上构建/部署 runner `riskfeatfix-10cbd46-20260607-04`（digest `sha256:e7d6c5e3c86293046166b8930f6016256fb6f43a46d02be54552b303fc9a6ada`），binary 与 regression 两条风险特征 manifest 均完成 20/20 candidate fanout、Top5 backtest/report、`19` QA、`21` QA；两条 Top5 均被 acceptance contract 拒绝，未产生 accepted baseline。Runtime 修复已并入 PR #103，并已同步到 `main`。
@@ -73,6 +75,78 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-07
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: index_000001_warehouse_backfill_20260607
+相关 issue/PR: 待创建 PR
+
+### 已完成工作
+
+- 新增 `sql/ods/01_index_external_table_uris.sql`，用 `CREATE OR REPLACE EXTERNAL TABLE` 维护 `ods_tushare_index_daily` / `ods_tushare_index_dailybasic` 的显式 source URI 列表，并补入 `000001.SH` 两个 endpoint。
+- `configs/ingestion/ods_current_scope_v0.yml` 已补 `index_daily_000001_SH` 和 `index_dailybasic_000001_SH` request variants。
+- `sql/dim/04_dim_index.sql` 已加入上证指数 `SSE_COMPOSITE` seed。
+- 新增 `sql/incremental/02_refresh_index_dwd_window.sql` 与 `sql/qa/12_windowed_index_refresh_checks.sql`，并接入 `orchestration/composer/dags/ashare_common.py` 的 setup / windowed transform 链路。
+- 同步 `dataform/action_manifest.json` 和生成的 SQLX 文件。
+- `sql/qa/03_index_benchmark_checks.sql`、`sql/qa/08_ods_external_readability_checks.sql`、`sql/qa/01_core_smoke_checks.sql` 已补 `000001.SH` 相关检查。
+
+### 重要上下文
+
+- ODS index external tables 当前使用显式 `sourceUris`，不是自动发现所有 `endpoint=*`。GCS 写入成功后，如果不更新 external table URI，BigQuery ODS 仍读不到新 endpoint。
+- `000001.SH` 两个 endpoint 在 BigQuery ODS 中均已确认有 1,799 个 2019+ SSE 开市日分区 / 行。
+- 为保持既有训练结果可复现，本次没有修改 `dws_market_state_daily` 或 `market_state_v0_20260606`，也没有写 ADS。后续如要把上证指数纳入训练市场状态，应新建 market-state 版本或新 feature set。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
+- `configs/ingestion/ods_current_scope_v0.yml`
+- `dataform/action_manifest.json`
+- `dataform/definitions/**`
+- `docs/Pipeline-补跑与故障恢复-Runbook.md`
+- `orchestration/composer/dags/ashare_common.py`
+- `sql/dim/04_dim_index.sql`
+- `sql/incremental/02_refresh_index_dwd_window.sql`
+- `sql/ods/01_index_external_table_uris.sql`
+- `sql/qa/01_core_smoke_checks.sql`
+- `sql/qa/03_index_benchmark_checks.sql`
+- `sql/qa/08_ods_external_readability_checks.sql`
+- `sql/qa/12_windowed_index_refresh_checks.sql`
+
+### 测试 / 验证
+
+- `python3 scripts/dataform/generate_sqlx_from_sql.py`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/ods/01_index_external_table_uris.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/dim/04_dim_index.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/04_dwd_index_eod.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/03_index_benchmark_checks.sql`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/05_unit_contract_checks.sql`
+- `sql/incremental/02_refresh_index_dwd_window.sql` 使用 `warehouse_mode=backfill`、`date_from=2019-01-01`、`date_to=2026-06-05` 实跑，删除并重插 13,770 行，其中 `000001.SH` 1,799 行。
+- `sql/qa/12_windowed_index_refresh_checks.sql` 同窗口通过。
+- 复跑 `sql/qa/03_index_benchmark_checks.sql` 通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提 PR 后合并并同步 `sql/` 与 Composer DAG 到 Composer bucket。
+- 合并部署后触发一次 `ashare_warehouse_window_refresh` 小窗口 backfill 或等待下一次 scheduled ingestion 触发，确认 Airflow task 链路中的 `index_dwd_window` 与 `windowed_index_refresh_checks` 成功。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
+
+---
 
 日期: 2026-06-07
 Agent ID: Codex
