@@ -6,8 +6,6 @@
 
 ## 当前交接摘要
 
-- **2026-06-07 GPT-5 Codex：策略验收门 v3 改为完整季度季化门。** Owner 将 v3 收敛为逐完整季度比较：Sharpe `>=0.90`；季度 Calmar 每个完整季度 `>0.9`；季度 Excess Calmar 每个完整季度相较五个指数至少一个 `>0.9`；策略超额季化收益每个完整季度相较五个指数至少一个 `>0`；不满完整季度的片段不参与，例如 `2026-04`。PRD 已同步重写，尚未实现 contract YAML、诊断脚本或 QA SQL。
-
 - **2026-06-07 GPT-5 Codex：策略验收门 v3 PRD 与复利周期化收益口径。** Owner 确认 v3 方向，已新增 `docs/prd/PRD_20260607_01_策略1验收门v3.md`。v3 固化复利年化/月化/日化默认口径，补回 CV/valid/test 信号质量、score orientation、final holdout 交易日数、Sharpe/Calmar、交易可行性和诊断硬拒绝条件；持仓权重改为 10只=15%、20只=7.5%、30/40只=5%；`Excess Calmar Ratio` 使用 `策略超额复合年化收益 / abs(策略最大回撤同期超额)`，五个指数任一满足即可。当前只是 PRD，尚未实现 contract YAML、诊断脚本或 QA SQL。
 
 - **2026-06-07 GPT-5 Codex：合并后分支 / worktree 清理约束扩展。** Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
@@ -2991,59 +2989,6 @@ Run ID: N/A
 
 - 实现 v3 contract YAML、只读 replay 诊断脚本和 QA SQL。
 - 用历史 20 个 Python Top5 候选 replay v3，不直接改 accepted 写回门。
-
-### 已更新记忆文件
-
-- `.agent/memory/DECISION_LOG.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-## 交接条目
-
-日期: 2026-06-07
-Agent ID: Codex
-Agent 实例 ID: 当前 Codex Desktop 会话
-模型: GPT-5 Codex
-运行环境: `/Users/fisher/Desktop/git/quant-ashare`
-Run ID: N/A
-相关 issue/PR: PR #104
-
-### 已完成工作
-
-- 将 `docs/prd/PRD_20260607_01_策略1验收门v3.md` 重写为完整季度季化门口径。
-- Sharpe 门槛从 `>=0.70` 提高为 `>=0.90`。
-- Calmar Ratio 改为每个完整自然季度单独计算季化收益 / 季度最大回撤，要求每个完整季度 `>0.9`。
-- Excess Calmar Ratio 改为每个完整自然季度、逐指数计算策略超额季化收益 / 策略最大回撤同期超额绝对值，要求每个完整季度相较五个指数至少一个 `>0.9`。
-- 新增策略超额季化收益门：每个完整季度相较五个指数至少一个 `>0`。
-- 明确不满完整自然季度的片段不参与季度门，例如 `2026-04` 不参与。
-- 同步 `DECISION_LOG.md`、`IMPLEMENTATION_STATUS.md`、`KNOWN_CONSTRAINTS.md` 和 `TODO.md`。
-
-### 重要上下文
-
-- v3 当前仍只是 PRD，不是 runner 可执行门。
-- 后续实现必须新增 contract YAML、只读 replay 诊断脚本和 QA SQL。
-- 主 benchmark 已改为上证指数 `000001.SH`，但当前 BigQuery DWD 尚未纳入该指数，实现前需补 ODS / DIM / DWD 或明确外部行情源。
-
-### 改动文件
-
-- `docs/prd/PRD_20260607_01_策略1验收门v3.md`
-- `.agent/memory/DECISION_LOG.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `TODO.md`
-
-### 测试 / 验证
-
-- 未运行测试；本次为 PRD 和记忆口径更新。
-
-### 阻塞项
-
-- 无。
-
-### 下一步建议
-
-- 实现 v3 contract YAML、只读 replay 诊断脚本和 QA SQL，并先对历史 20 个 Python Top5 候选 replay。
 
 ### 已更新记忆文件
 

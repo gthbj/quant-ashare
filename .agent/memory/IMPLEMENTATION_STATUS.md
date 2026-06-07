@@ -251,5 +251,3 @@ Last updated: 2026-06-07
 | 行业映射 | 可落地设计完成 | ODS 已有 index_member_all / ci_index_member；待 SQL 和 QA |
 
 最新执行备注（2026-06-07 / OQ-010 验收门 v3 PRD）：owner 确认策略验收门 v3 方向，已新增 `docs/prd/PRD_20260607_01_策略1验收门v3.md`。v3 固化复利周期化收益默认口径，补回 CV/valid/test 信号质量、score orientation、final holdout 交易日数、Sharpe/Calmar、诊断和交易可行性门；持仓权重改为 10只=15%、20只=7.5%、30/40只=5%；`Excess Calmar Ratio` 使用 `策略超额复合年化收益 / abs(策略最大回撤同期超额)`，五个指数任一满足即可。当前 PRD 只定义口径，尚未实现 contract YAML、诊断脚本或 QA SQL。
-
-最新执行备注（2026-06-07 / OQ-010 验收门 v3 完整季度门）：owner 进一步收敛 v3：Sharpe 提高到 `>=0.90`；Calmar Ratio 改为每个完整自然季度单独季化计算且每季度 `>0.9`；Excess Calmar Ratio 改为每个完整自然季度、逐指数季化计算且每季度相较五个指数至少一个 `>0.9`；新增每个完整季度策略超额季化收益相较五个指数至少一个 `>0`；不满完整季度的片段不参与对比，例如 `2026-04` 不参与。`docs/prd/PRD_20260607_01_策略1验收门v3.md` 已同步重写，当前仍只是 PRD，尚未实现 contract YAML、诊断脚本或 QA SQL。
