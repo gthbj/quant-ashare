@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+**OQ-010 风险特征入模 PR #102 review follow-up（2026-06-07）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-search`。已按 PR #102 comment 修复两项：风险专项 `max_drawdown >= -18%` 目标不再由 Python 常量 / SQL 默认值硬编码，而是写入 `configs/strategy1/model_acceptance_contract_v1.yml` 的 `thresholds.min_full_period_max_drawdown` 并由 `acceptance.py` 统一输出 `p_risk_feature_max_drawdown_target`；`21_qa_risk_feature_search_outputs.sql` 默认改为 `NULL` 并新增 `QA-RISK-0`，未注入 contract 参数的 standalone 真执行会 fail-loud。`final_holdout_status` 派生逻辑已移入共享 `acceptance.py`，orchestrator 删除重复函数。验证通过 Python `py_compile`、v1 contract 参数确认、原始/注入版 `21` QA BigQuery dry-run、risk feature orchestrator dry-run 和 `git diff --check`。尚未真实跑 Cloud Run 40 候选 / Top5 回测。
+
 **OQ-010 风险特征入模第 4 波实现（2026-06-07）**：工作树 `/Users/luna/Desktop/git/quant-ashare-risk-feature-impl`，分支 `codex/implement-risk-feature-search`。已实现 `strategy1_pv_fin_risk_v0_20260606` 训练路径：新增 95 列 feature set 契约、Cloud Run 专用训练面板 SQL、binary/regression 各 20 候选 manifest、矩阵 `feature_delta_vs_base.json`、feature schema hash、风险/市场特征缺失率、LightGBM feature importance、风险专项 acceptance overlay 和 `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`。验证已通过 Python 编译、manifest/orchestrator/prepare_matrix dry-run、训练面板 SQL 与 `21` QA BigQuery dry-run、feature_column_list 顺序一致性检查和 `git diff --check`。尚未执行真实 Cloud Run 40 候选训练 / Top5 回测，未建立 baseline；合并后下一步是构建/部署 runner 镜像，依次跑 binary 20 与 regression 20，并用 `19` + `21` QA 收口。
 
 **OQ-010 整数手交易执行收口（2026-06-07）**：PR #100 已合并，PR #101 已修复 portfolio-only 报告/诊断的 `prediction_run_id` 透传并合并；临时分支/工作树已清理。镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:lotaware-c018ef5-20260607-01` 已构建并部署到 `strategy1-backtest-report-job`。Cloud Run execution `strategy1-backtest-report-job-h7vtl` 成功完成 fixed-prediction lot-aware reference：`run_id=s1_lotaware_ref_pvfq_n30_bw_h5_20260606_01`、`backtest_id=bt_s1_lotaware_ref_pvfq_n30_bw_h5_20260606_01`、`prediction_run_id=s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，覆盖 `2024-01-02` 至 `2026-04-30`，`ledger_version=ledger_exec_v1_lot100`。结果：total_return 35.17%、excess_return -7.20pct vs `000852.SH`、Sharpe 0.872、max_drawdown -13.59%；report、model diagnosis、tail-risk artifact 和 acceptance gate v2 artifact 均 uploaded。`10`/`12`/`20` 在 Cloud Run 内通过，手工复核 `22`/`23` 通过。acceptance gate v2 diagnosis `acceptance_gate_v2_lotaware_ref_20260607_01` 仍为 `rejected`，原因是全期跑输中证1000超过 3pct、IR 为负、2026 final_holdout 跑输中证1000 12.75pct。当前可进入下一模型族 / 风险特征训练路线。
@@ -67,6 +69,64 @@
 ---
 
 ## 交接条目
+
+日期: 2026-06-07
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: strategy1_risk_feature_pr102_review_followup_20260607
+相关 issue/PR: PR #102
+
+### 已完成工作
+
+- 按 PR #102 comment 修复风险特征实现的两个 review 点。
+- 将风险专项最大回撤目标接入共享 acceptance contract：`model_acceptance_contract_v1.yml` 显式加入 `min_full_period_max_drawdown: -0.18`，`acceptance.py` 新增 `full_period_max_drawdown_threshold()` / `risk_feature_max_drawdown_target()`，`contract_sql_params()` 输出 `p_risk_feature_max_drawdown_target`。
+- `21_qa_risk_feature_search_outputs.sql` 的 `p_risk_feature_max_drawdown_target` 默认改为 `NULL`，并新增 `QA-RISK-0`，防止 standalone 真执行时静默使用硬编码阈值。
+- 将 `derive_final_holdout_status()` 从 orchestrator 移入共享 `acceptance.py`，orchestrator 删除本地重复函数并调用共享规则。
+
+### 重要上下文
+
+- 本次只修 PR #102 review follow-up，不执行真实 Cloud Run 训练，不更新 ADS，不建立 baseline。
+- v1 contract hash 因新增阈值字段发生变化；这是预期结果，用于让风险专项阈值进入契约审计链。
+- 合并后仍需构建/部署 runner 镜像，再执行 binary 20 与 regression 20 候选训练、Top5 回测和 `19` + `21` QA。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
+- `configs/strategy1/model_acceptance_contract_v1.yml`
+- `scripts/strategy1_cloudrun/acceptance.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`
+
+### 测试 / 验证
+
+- `python3 -m py_compile scripts/strategy1_cloudrun/acceptance.py scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- v1 contract hash / `p_min_full_period_max_drawdown` / `p_risk_feature_max_drawdown_target` 参数确认。
+- `bq query --use_legacy_sql=false --location=asia-east2 --dry_run < sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`
+- 使用 `contract_sql_params()` 渲染后的 `21_qa_risk_feature_search_outputs.sql` BigQuery dry-run。
+- risk feature orchestrator `--build-training-panel --dry-run`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- PR #102 合并后构建/部署 runner 镜像。
+- 执行 binary risk feature search，再执行 regression risk feature search。
+- Top5 回测后以共享 `19` QA 和风险专项 `21` QA 收口，并按结果判断是否 accepted / needs_more_evidence / rejected。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
+
+---
 
 日期: 2026-06-07
 Agent ID: Codex

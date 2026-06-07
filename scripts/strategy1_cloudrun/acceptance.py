@@ -43,6 +43,23 @@ def contract_hash(contract: dict[str, Any]) -> str:
     return str(contract.get("_contract_sha256") or contract.get("contract_sha256") or contract_payload_hash(contract))
 
 
+def _threshold_float(thresholds: dict[str, Any], key: str, default: float) -> float:
+    value = safe_float(thresholds.get(key))
+    return value if math.isfinite(value) else default
+
+
+def full_period_max_drawdown_threshold(contract: dict[str, Any]) -> float:
+    thresholds = contract.get("thresholds") or {}
+    fallback = _threshold_float(thresholds, "min_max_drawdown", -0.25)
+    return _threshold_float(thresholds, "min_full_period_max_drawdown", fallback)
+
+
+def risk_feature_max_drawdown_target(contract: dict[str, Any]) -> float:
+    thresholds = contract.get("thresholds") or {}
+    fallback = full_period_max_drawdown_threshold(contract)
+    return _threshold_float(thresholds, "risk_feature_max_drawdown_target", fallback)
+
+
 def contract_sql_params(contract: dict[str, Any]) -> dict[str, Any]:
     """Return SQL DECLARE parameters derived from the shared YAML contract."""
 
@@ -82,7 +99,8 @@ def contract_sql_params(contract: dict[str, Any]) -> dict[str, Any]:
         "p_min_full_period_information_ratio_vs_eligible_executable": thresholds.get(
             "min_full_period_information_ratio_vs_eligible_executable", 0.0
         ),
-        "p_min_full_period_max_drawdown": thresholds.get("min_full_period_max_drawdown", -0.18),
+        "p_min_full_period_max_drawdown": full_period_max_drawdown_threshold(contract),
+        "p_risk_feature_max_drawdown_target": risk_feature_max_drawdown_target(contract),
         "p_hard_reject_full_period_max_drawdown": thresholds.get("hard_reject_full_period_max_drawdown", -0.25),
         "p_min_full_period_relative_max_drawdown_vs_000852": thresholds.get(
             "min_full_period_relative_max_drawdown_vs_000852", -0.18
@@ -192,6 +210,24 @@ def decide_acceptance(row: dict[str, Any], contract: dict[str, Any]) -> tuple[st
     if wave_no > required_after and row.get("final_holdout_status") != passed_status:
         return "needs_more_evidence", "test_reuse_wave_no_gt_final_holdout_threshold_without_passed_holdout", derived
     return "accepted", "all_acceptance_contract_gates_passed", derived
+
+
+def derive_final_holdout_status(row: dict[str, Any], contract: dict[str, Any]) -> str | None:
+    current = row.get("final_holdout_status")
+    if current:
+        return str(current)
+    thresholds = contract.get("thresholds") or {}
+    min_days = safe_float(thresholds.get("min_final_holdout_trading_days", 40))
+    min_excess = safe_float(thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05))
+    min_total = safe_float(thresholds.get("min_final_holdout_total_return", -0.08))
+    days = safe_float(row.get("final_holdout_trading_days"))
+    excess = safe_float(row.get("final_holdout_excess_return_vs_000852"))
+    total = safe_float(row.get("final_holdout_total_return"))
+    if not all(math.isfinite(value) for value in (days, excess, total)):
+        return None
+    if days >= min_days and excess > min_excess and total > min_total:
+        return "passed"
+    return "failed"
 
 
 def _failed_reasons(row: dict[str, Any]) -> list[str]:

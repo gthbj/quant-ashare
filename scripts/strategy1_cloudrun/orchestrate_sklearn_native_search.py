@@ -36,7 +36,9 @@ from scripts.strategy1_cloudrun.acceptance import (
     contract_sql_params,
     contract_version,
     decide_acceptance as decide_contract_acceptance,
+    derive_final_holdout_status,
     load_acceptance_contract,
+    risk_feature_max_drawdown_target,
     safe_float,
 )
 from scripts.strategy1_cloudrun.bq_io import (
@@ -79,8 +81,6 @@ from scripts.strategy1_cloudrun.state import (
     scheduler_instance_id,
 )
 from scripts.strategy1_cloudrun.task_fanout import default_matrix_id, matrix_artifact_uri, read_json
-
-RISK_FEATURE_MAX_DRAWDOWN_TARGET = -0.18
 
 
 def main() -> int:
@@ -326,7 +326,9 @@ def main() -> int:
         qa_params.update(contract_sql_params(contract))
         run_sql_script(client, qa_script, qa_params)
         if search_exp.feature_set_id == PV_FIN_RISK_FEATURE_SET_ID:
+            risk_qa_params = contract_sql_params(contract)
             risk_qa_params = {
+                **risk_qa_params,
                 "p_search_id": search_id,
                 "p_source_run_id": search_exp.run_id,
                 "p_expected_feature_set_id": search_exp.feature_set_id,
@@ -339,7 +341,6 @@ def main() -> int:
                 "p_data_end_date": search_exp.final_holdout_end or search_exp.predict_end,
                 "p_final_holdout_start_date": search_exp.final_holdout_start,
                 "p_final_holdout_end_date": search_exp.final_holdout_end,
-                "p_risk_feature_max_drawdown_target": RISK_FEATURE_MAX_DRAWDOWN_TARGET,
             }
             run_sql_script(client, "sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql", risk_qa_params)
     next_wave = maybe_run_next_wave(
@@ -1400,9 +1401,10 @@ def apply_native_acceptance_to_ads(
         row.setdefault("acceptance_contract_version", contract_version(contract))
         row["final_holdout_status"] = derive_final_holdout_status(row, contract)
         status, reason, derived = decide_contract_acceptance(row, contract)
+        risk_target = risk_feature_max_drawdown_target(contract)
         if row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID and status == "accepted":
             max_drawdown = safe_float_or_none(row.get("max_drawdown"))
-            if max_drawdown is None or max_drawdown < RISK_FEATURE_MAX_DRAWDOWN_TARGET:
+            if max_drawdown is None or max_drawdown < risk_target:
                 status = "needs_more_evidence"
                 reason = append_reason(reason, "risk_max_drawdown_target_not_met")
         derived["risk_feature_acceptance_overlay"] = (
@@ -1411,7 +1413,7 @@ def apply_native_acceptance_to_ads(
             else None
         )
         derived["risk_feature_max_drawdown_target"] = (
-            RISK_FEATURE_MAX_DRAWDOWN_TARGET
+            risk_target
             if row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID
             else None
         )
@@ -1419,24 +1421,6 @@ def apply_native_acceptance_to_ads(
         row["native_acceptance_status"] = status
         row["native_acceptance_reason"] = reason
         row.update(derived)
-
-
-def derive_final_holdout_status(row: dict[str, Any], contract: dict[str, Any]) -> str | None:
-    current = row.get("final_holdout_status")
-    if current:
-        return str(current)
-    thresholds = contract.get("thresholds") or {}
-    min_days = safe_float(thresholds.get("min_final_holdout_trading_days", 40))
-    min_excess = safe_float(thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05))
-    min_total = safe_float(thresholds.get("min_final_holdout_total_return", -0.08))
-    days = safe_float(row.get("final_holdout_trading_days"))
-    excess = safe_float(row.get("final_holdout_excess_return_vs_000852"))
-    total = safe_float(row.get("final_holdout_total_return"))
-    if not all(math.isfinite(value) for value in (days, excess, total)):
-        return None
-    if days >= min_days and excess > min_excess and total > min_total:
-        return "passed"
-    return "failed"
 
 
 def append_reason(reason: str, extra: str) -> str:

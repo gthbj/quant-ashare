@@ -13,6 +13,7 @@ thresholds:
   min_total_return: 0.0
   min_sharpe: 0.70
   min_max_drawdown: -0.25
+  min_full_period_max_drawdown: -0.18
   min_final_holdout_excess_return_vs_000852: -0.05
   min_final_holdout_total_return: -0.08
   weak_valid_rank_ic_threshold: 0.01

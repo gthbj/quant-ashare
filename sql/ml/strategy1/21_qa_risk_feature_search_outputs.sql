@@ -14,9 +14,13 @@ DECLARE p_train_start_date DATE DEFAULT DATE '2019-04-03';
 DECLARE p_data_end_date DATE DEFAULT DATE '2026-04-30';
 DECLARE p_final_holdout_start_date DATE DEFAULT DATE '2026-01-05';
 DECLARE p_final_holdout_end_date DATE DEFAULT DATE '2026-04-30';
-DECLARE p_risk_feature_max_drawdown_target FLOAT64 DEFAULT -0.18;
+DECLARE p_risk_feature_max_drawdown_target FLOAT64 DEFAULT NULL;
 
 CREATE TEMP FUNCTION qa_required(condition BOOL) AS (IFNULL(condition, FALSE));
+
+-- QA-RISK-0: 风险回撤目标必须由 acceptance contract 注入，standalone 默认不得静默通过。
+ASSERT p_risk_feature_max_drawdown_target IS NOT NULL
+  AS 'QA-RISK-0: p_risk_feature_max_drawdown_target must be injected from acceptance contract';
 
 -- QA-RISK-1: Top-K registry 必须登记风险特征集、feature schema/delta hash 和特征计数。
 ASSERT (
