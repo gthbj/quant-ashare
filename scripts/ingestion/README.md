@@ -49,3 +49,20 @@
 #   `ashare_meta.ingestion_partition_status`；dry-run / API 只读 smoke 不写 meta。
 # - GCS canonical 路径为 `api=<api>/endpoint=<partition_endpoint>/partition_date=...`，
 #   不使用 `api=tushare`。
+#
+# 000001.SH 上证指数 ODS 历史补采：
+#
+#   python scripts/ingestion/backfill_index_000001.py \
+#     --start-date 2019-01-01 \
+#     --end-date 2026-06-07 \
+#     --dry-run
+#
+#   python scripts/ingestion/backfill_index_000001.py \
+#     --start-date 2019-01-01 \
+#     --end-date 2026-06-07 \
+#     --allow-gcs-write
+#
+# 该脚本按 SSE 开市日倒序规划分区，但 API 端按区间批量请求
+# `index_daily_000001_SH` 和 `index_dailybasic_000001_SH`，再按返回的
+# `trade_date` 分组写回每日 ODS 分区；断点 state 默认写在
+# `~/.cache/quant-ashare/ods_index_000001_backfill_state.json`。
