@@ -1,4 +1,4 @@
--- 文档维护：GPT-5（最近更新 2026-06-04）
+-- 文档维护：GPT-5 Codex（最近更新 2026-06-07）
 -- BigQuery Standard SQL
 -- 当前生产采集范围 ODS 外部表可读性检查。
 --
@@ -63,6 +63,7 @@ FROM (
   SELECT 1
   FROM `data-aquarium.ashare_ods.ods_tushare_index_daily`
   WHERE endpoint IN (
+      'index_daily_000001_SH',
       'index_daily_000016_SH',
       'index_daily_000688_SH',
       'index_daily_000852_SH',
@@ -80,6 +81,7 @@ FROM (
   SELECT 1
   FROM `data-aquarium.ashare_ods.ods_tushare_index_dailybasic`
   WHERE endpoint IN (
+      'index_dailybasic_000001_SH',
       'index_dailybasic_000016_SH',
       'index_dailybasic_000905_SH',
       'index_dailybasic_399001_SZ',

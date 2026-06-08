@@ -776,12 +776,17 @@ def _require_full_rebuild_confirmed(**context) -> None:
 def build_setup_group(group_id: str = "setup") -> TaskGroup:
     with TaskGroup(group_id=group_id) as setup:
         ensure_datasets = _bq_sql_task("ensure_datasets", "sql/00_create_datasets.sql")
+        ensure_index_external_table_uris = _bq_sql_task(
+            "ensure_index_external_table_uris",
+            "sql/ods/01_index_external_table_uris.sql",
+        )
         ensure_meta_tables = _bq_sql_task("ensure_meta_tables", "sql/meta/01_create_meta_tables.sql")
         ensure_unit_contract_map = _bq_sql_task(
             "ensure_unit_contract_map",
             "sql/meta/04_ods_field_unit_map.sql",
         )
 
+        ensure_datasets >> ensure_index_external_table_uris
         ensure_datasets >> ensure_meta_tables >> ensure_unit_contract_map
 
     return setup
@@ -949,6 +954,16 @@ def build_windowed_metadata_group(group_id: str = "windowed_metadata") -> TaskGr
 
 def build_windowed_transform_group(group_id: str = "windowed_transform") -> TaskGroup:
     with TaskGroup(group_id=group_id) as windowed_transform:
+        index_dwd_window = _bq_sql_task(
+            "index_dwd_window",
+            "sql/incremental/02_refresh_index_dwd_window.sql",
+            query_parameters=_window_refresh_parameters(),
+        )
+        windowed_index_refresh_checks = _bq_sql_task(
+            "windowed_index_refresh_checks",
+            "sql/qa/12_windowed_index_refresh_checks.sql",
+            query_parameters=_window_refresh_parameters(),
+        )
         stock_dwd_dws_window = _bq_sql_task(
             "stock_dwd_dws_window",
             "sql/incremental/01_refresh_stock_dwd_dws_window.sql",
@@ -959,8 +974,21 @@ def build_windowed_transform_group(group_id: str = "windowed_transform") -> Task
             "sql/qa/10_windowed_stock_refresh_checks.sql",
             query_parameters=_window_refresh_parameters(),
         )
+        market_state_dws = _bq_sql_task(
+            "market_state_dws",
+            "sql/incremental/03_refresh_market_state_window.sql",
+            query_parameters=_window_refresh_parameters(),
+        )
+        market_state_checks = _bq_sql_task(
+            "market_state_checks",
+            "sql/qa/11_market_state_checks.sql",
+        )
 
+        index_dwd_window >> windowed_index_refresh_checks
+        windowed_index_refresh_checks >> stock_dwd_dws_window
         stock_dwd_dws_window >> windowed_stock_refresh_checks
+        windowed_stock_refresh_checks >> market_state_dws
+        market_state_dws >> market_state_checks
 
     return windowed_transform
 

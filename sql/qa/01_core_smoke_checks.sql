@@ -1,4 +1,4 @@
--- 文档维护：GPT-5（最近更新 2026-06-01）
+-- 文档维护：GPT-5 Codex（最近更新 2026-06-07）
 -- BigQuery Standard SQL
 -- P0 DIM/DWD 物化后的基础断言。全部通过才进入 DWS 特征构建。
 
@@ -173,7 +173,7 @@ ASSERT (
 
 ASSERT (
   SELECT COUNTIF(
-    sec_code IN ('000016.SH', '000905.SH', '399001.SZ', '399006.SZ', '000300.SH')
+    sec_code IN ('000001.SH', '000016.SH', '000905.SH', '399001.SZ', '399006.SZ', '000300.SH')
     AND pe IS NOT NULL
     AND total_mv_cny IS NOT NULL
   ) > 0

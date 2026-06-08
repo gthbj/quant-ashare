@@ -1,3 +1,13 @@
+-- Generated from canonical sql/ by scripts/dataform/generate_sqlx_from_sql.py.
+-- Canonical source: sql/qa/11_market_state_checks.sql
+
+config {
+  type: "operations",
+  name: "market_state_checks",
+  tags: ["qa_contract", "assertion_strategy1"],
+  dependencies: ["dws_market_state_daily"]
+}
+
 -- BigQuery Standard SQL
 -- QA for ashare_dws.dws_market_state_daily.
 

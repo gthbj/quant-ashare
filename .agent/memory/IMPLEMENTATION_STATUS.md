@@ -6,6 +6,18 @@ Last updated: 2026-06-07
 
 ## 当前状态
 
+### 最新补充（2026-06-07）：上证指数 000001.SH ODS/DIM/DWD/DWS 补齐与指数窗口刷新
+
+- 已将 `000001.SH` 纳入当前生产 BigQuery 可读链路：新增 `sql/ods/01_index_external_table_uris.sql`，用 `CREATE OR REPLACE EXTERNAL TABLE` 维护 `ods_tushare_index_daily` / `ods_tushare_index_dailybasic` 的显式 `sourceUris`，补入 `index_daily_000001_SH` 与 `index_dailybasic_000001_SH`。
+- `configs/ingestion/ods_current_scope_v0.yml` 已补两个 request variant；`sql/dim/04_dim_index.sql` 已加入 `SSE_COMPOSITE` seed；`dwd_index_eod` 已从更新后的 ODS/DIM 重建。
+- BigQuery 手工补数已完成：`sql/ods/01_index_external_table_uris.sql`、`sql/dim/04_dim_index.sql`、`sql/dwd/04_dwd_index_eod.sql` 均执行成功；`index_daily_000001_SH` 与 `index_dailybasic_000001_SH` 在 BigQuery ODS 均有 1,799 个 2019+ SSE 开市日分区 / 行。
+- 已新增 `sql/incremental/02_refresh_index_dwd_window.sql` 与 `sql/qa/12_windowed_index_refresh_checks.sql`，并接入 `ashare_warehouse_window_refresh` 的 `windowed_transform`：后续 daily_current/backfill 会先刷新指数 DWD，再刷新股票 DWD/DWS。
+- 指数窗口刷新已做 2019-01-01 至 2026-06-05 backfill 实跑：`dwd_index_eod` 删除并重插 13,770 行，其中 `000001.SH` 1,799 行；`12_windowed_index_refresh_checks`、`03_index_benchmark_checks`、`05_unit_contract_checks` 均通过。
+- 已按 owner 后续要求补 DWS market-state：创建 `data-aquarium.ashare_backup`，把修改前 `ashare_dws.dws_market_state_daily` 复制为 `ashare_backup.dws_market_state_daily_v0` 并写清表说明；生产 `dws_market_state_daily` 已重建为双版本输出，保留 `market_state_v0_20260606` 兼容行，同时新增 `market_state_v1_20260607` 行和上证指数 `000001.SH` / `SSE_COMPOSITE` 指标字段。
+- 本次没有把上证指数纳入 risk-off 触发逻辑，也没有写 ADS；新增 v1 只是 DWS 市场状态字段补齐，避免静默改变历史 P2 risk-off 结论。
+- PR #106 review follow-up 已处理：`market_state_v0_20260606` 行的 `sse_composite_*` 字段保持 `NULL`，`market_state_v1_20260607` 才填充上证指数指标；新增 `sql/incremental/03_refresh_market_state_window.sql`，daily_current/backfill 只按写入窗口 MERGE，并向前读取 80 个 SSE 交易日覆盖 20/60 日滚动指标；Composer window refresh 已改为调用该窗口脚本，`sql/dws/08_dws_market_state_daily.sql` 只保留为初始化 / full rebuild 路径；`sql/qa/11_market_state_checks.sql` 新增 v0 上证字段必须为空的断言。
+- PR #106 review follow-up 同时新增 `scripts/ingestion/generate_index_external_table_uris.py`，`sql/ods/01_index_external_table_uris.sql` 由 `configs/ingestion/ods_current_scope_v0.yml` 生成，可用 `--check` 防止配置中的 index endpoint 与 external table URI 漂移。
+
 ### 最新补充（2026-06-07）：合并后分支 / worktree 清理约束扩展
 
 - Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
