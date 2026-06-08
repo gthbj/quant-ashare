@@ -1930,3 +1930,36 @@ v2 不再参与未来切门
 1. 后续任何新 acceptance 代码、manifest 调整和 QA 扩展，都应以 `v3` 为目标。
 2. `v2` 只保留为历史诊断实现和旧 artifact 审计路径。
 3. 在 `v3` contract / replay / QA 完成前，live search 继续使用 `v1`。
+
+## DECISION-20260608-12: 策略 1 v3 gate 的公式、符号与窗口约定必须在 PRD/contract 中显式冻结
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+PR #114 review 指出：`v3` 切门 PRD 若不显式写死 `max_drawdown` 的符号、`Calmar` / `Excess Calmar` 的除零行为、`策略最大回撤同期超额` 的窗口构造、五指数 `sec_code` 和主 benchmark 的角色，后续实现极易出现不同人按不同默认假设实现的歧义。
+
+### Decision
+
+`v3` gate 在 PRD / contract 层必须显式冻结以下约定：
+
+1. `max_drawdown` 为负数，定义为 `trough_value / peak_value - 1`。
+2. `Sharpe` 和 `Calmar` 的分子统一使用复合年化收益率，不得直接偷用旧 simple annualized 字段。
+3. `Sharpe`、`Calmar` 与 `Excess Calmar` 的除零行为必须显式定义，不能留给实现者自由裁量。
+4. `策略最大回撤同期超额` 固定为“策略最大回撤”减“指数在同一 `peak_date -> trough_date` 窗口的端到端收益”，并固定使用同一指数价格字段、同一窗口端点。
+5. `000001.SH` 的角色固定为主 benchmark 标签与默认完整性检查对象；当前 `v3` 相对通过门仍是五指数任一满足，不额外新增 `000001.SH` 单独硬门。
+6. 五指数必须在 contract 中写死 `sec_code`，且 replay / cutover 前必须确认完整可用。
+7. `2024-01-02..2026-04-30` 只作为首次 replay / cutover 默认窗口；`v3` 公式本身必须支持未来按不同窗口注入，供月度滚动重训复用。
+
+### Rationale
+
+这些约定不是门松紧问题，而是“实现是否唯一”的问题。只有先把符号、窗口和除零规则固定，后续的 `v3` contract、replay、QA 和 live cutover 才不会出现“同一 PRD 不同实现结果不同”的情况。
+
+### Impact
+
+1. 后续 `model_acceptance_contract_v3.yml` 必须把这些技术约定体现在字段、公式或注释中。
+2. replay 和 QA 不仅要校验阈值，还要校验窗口、符号和价格字段一致性。
+3. 未来若要改变 `000001.SH` 在 pass/fail 中的角色，应作为新的 `v3.x` 规则变更单独讨论，而不是在当前实现阶段临时变更。

@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #114 review follow-up 已加硬 `v3` 切门 PRD：补了 `Sharpe` / `Calmar` / `Excess Calmar` 的除零规则、`max_drawdown` 负号约定、`策略最大回撤同期超额` 的窗口与价格字段定义。
+> - 也补了五指数 `sec_code`、`000001.SH` 主 benchmark 的职责说明，以及“默认 `2024-01-02..2026-04-30` 只是首次 replay / cutover 默认窗口，不是未来月度滚动重训的永久硬编码窗口”。
+> - 本次仍是 doc-only，不改 acceptance 实现；下一步继续是 `model_acceptance_contract_v3.yml -> replay -> QA -> live cutover`。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - 已新增 `docs/prd/PRD_20260608_02_策略1验收门v3切换实施.md`，把后续切门路线冻结为直接 `v1 -> v3`，明确忽略 `v2`。
 > - 本次只写 PRD，不改 acceptance 实现、不改 manifest、不改 QA；当前 live search 仍使用 `model_acceptance_contract_v1.yml`。
 > - `v3` 何时可用的标准已写清：先落 `model_acceptance_contract_v3.yml`，再做历史正式搜索 replay、补 `v3` QA，最后才切主写回门。
@@ -3718,4 +3723,3 @@ Run ID: oq005-composer-exit-next-20260608
 - Validation: 文档级变更；未改代码、未跑 Cloud Run、未跑 BigQuery QA。
 - Notes: `v3` 当前仍是 doc + replay gate，不是 production write-back gate。实现前置顺序已经固定为 contract -> replay -> QA -> live cutover。
 - Next Steps: 新增 `configs/strategy1/model_acceptance_contract_v3.yml`，再实现 `v3` replay 和对应 QA。
-

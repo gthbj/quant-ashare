@@ -6,6 +6,12 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：PR #114 review follow-up 已加硬 v3 切门 PRD
+
+- 已按 PR #114 review 补齐 `docs/prd/PRD_20260608_02_策略1验收门v3切换实施.md` 的实现歧义约束，但不改变门松紧。
+- 新增并冻结了 `v3` 的关键技术口径：`max_drawdown` 为负数；`Sharpe` / `Calmar` 的复利分子与除零行为；`策略最大回撤同期超额` 的窗口、价格字段与端点定义；`Excess Calmar` 在 `策略最大回撤同期超额 > 0 / = 0 / < 0` 三种情形下的处理。
+- 也已补齐 `000001.SH` 主 benchmark 的角色说明、五指数 `sec_code`、默认 replay 窗口只是首次 cutover 默认窗口而非永久硬编码窗口，以及 Phase B replay / Phase C QA 必须先确认五指数覆盖完整。
+
 ### 最新补充（2026-06-08）：策略 1 验收门 v3 切换实施 PRD 已新增
 
 - 已新增 `docs/prd/PRD_20260608_02_策略1验收门v3切换实施.md`，明确当前 live write-back gate 仍是 `v1`，后续切门路线为直接 `v1 -> v3`，不经过 `v2`。

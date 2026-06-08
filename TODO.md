@@ -130,6 +130,7 @@
 - [x] 修复 Strategy1 Cloud Run `prepare_matrix` 对 `has_fin_*` JSON 布尔特征的解包错误，并在 `000001.SH` 下跑通 `12` 候选 LightGBM regression smoke（`cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_smoke_20260608_05`）。
 - [x] 处理 PR #113 review follow-up：将 Strategy1 Cloud Run `BOOLEAN_FEATURE_COLUMNS` 收窄回仅 4 个真实 JSON 布尔字段 `has_fin_*`，避免把 10 个数值型 `risk_*` / `is_*` 特征静默解包为 `NULL`。
 - [x] 新增 `docs/prd/PRD_20260608_02_策略1验收门v3切换实施.md`，冻结后续切门路线为 `v1 -> v3`，明确 `v2` 不再参与未来切门。
+- [x] 处理 PR #114 review follow-up：补齐 `v3` 切门 PRD 的符号、除零、窗口、主 benchmark 角色和五指数 `sec_code` 约定，避免实现歧义。
 
 ## 策略 1 验收门 v3 后续
 - [ ] 新增 `configs/strategy1/model_acceptance_contract_v3.yml`，把当前确认的 `v3` benchmark / 复利口径 / Sharpe / Calmar / 五指数相对门 / Final holdout days 固化成唯一事实来源。
