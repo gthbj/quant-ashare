@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：PR #106 comment follow-up。** 已按 review 修复 market-state 日更全表重建问题：新增 `sql/incremental/03_refresh_market_state_window.sql`，Composer `windowed_transform` 改为窗口 MERGE；`sql/dws/08_dws_market_state_daily.sql` 只保留初始化 / full rebuild。`market_state_v0_20260606` 的 `sse_composite_*` 字段改为 `NULL`，`market_state_v1_20260607` 才填充上证指数指标，`11_market_state_checks` 已补断言。ODS index external table URI SQL 改为由 `scripts/ingestion/generate_index_external_table_uris.py` 从 current-scope manifest 生成，可用 `--check` 防漂移。
+
 - **2026-06-07 GPT-5 Codex：上证指数 `000001.SH` ODS/DIM/DWD/DWS 补齐。** 已把 `index_daily_000001_SH` / `index_dailybasic_000001_SH` 加入 current-scope manifest、ODS external table 显式 `sourceUris`、`dim_index` seed 和 `dwd_index_eod`；BigQuery 手工补数和 2019-01-01 至 2026-06-05 指数窗口 backfill 均完成，`03` / `05` / `12` QA 通过。后续按 owner 要求创建 `ashare_backup`，把修改前 `dws_market_state_daily` 备份为 `ashare_backup.dws_market_state_daily_v0`，生产 DWS 已重建为 `market_state_v0_20260606` 兼容行 + `market_state_v1_20260607` 上证指数字段行；本次不写 ADS，不改变 risk-off 触发逻辑。
 
 - **2026-06-07 GPT-5 Codex：合并后分支 / worktree 清理约束扩展。** Owner 要求把已有分支卫生规则扩展到对应独立 `git worktree`：PR 合并后，若 owner 未要求保留，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 worktree；若 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
@@ -3068,3 +3070,55 @@ Run ID: index_000001_dws_market_state_v1_20260607
 
 - 如 owner 需要，可单独执行 `bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/11_market_state_checks.sql` 做 market-state QA。
 - 合并部署后同步 Composer bucket 的 `data/sql/` 与 `ashare_common.py`，再触发一次 `ashare_warehouse_window_refresh` 小窗口 smoke 或等待下一次 scheduled refresh。
+
+---
+
+## 2026-06-08 PR #106 review follow-up
+
+Model: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: pr106_review_followup_market_state_window_20260608
+相关 issue/PR: PR #106
+
+### 已完成工作
+
+- 处理 PR #106 review 的 P2：新增 `sql/incremental/03_refresh_market_state_window.sql`，用 `business_date/date_from/date_to/warehouse_mode` 计算写入窗口，向前读取 80 个 SSE 交易日覆盖 20/60 日滚动指标，并用 `MERGE` 更新 `ashare_dws.dws_market_state_daily`，不再在 daily/backfill 路径全表 `CREATE OR REPLACE`。
+- `orchestration/composer/dags/ashare_common.py` 的 `build_windowed_transform_group` 已把 `market_state_dws` 从 `sql/dws/08_dws_market_state_daily.sql` 改为 `sql/incremental/03_refresh_market_state_window.sql`，并传入 `_window_refresh_parameters()`；`sql/dws/08_dws_market_state_daily.sql` 只作为初始化 / full rebuild 路径。
+- 处理 PR #106 review 的 P3 设计点：`market_state_v0_20260606` 行的 `sse_composite_*` 字段保持 `NULL`，`market_state_v1_20260607` 行才填充上证指数指标；`sql/qa/11_market_state_checks.sql` 新增断言 legacy v0 不得填充 SSE Composite 字段。
+- 处理 PR #106 review 的 P3 ODS URI 漂移点：新增 `scripts/ingestion/generate_index_external_table_uris.py`，从 `configs/ingestion/ods_current_scope_v0.yml` 生成 `sql/ods/01_index_external_table_uris.sql`，并支持 `--check` 防止 index endpoint 配置与 external table URI SQL 漂移。
+- 重新生成 Dataform SQLX，并更新 DWS/ADS 文档、架构记忆、实现状态和 TODO。
+
+### 重要上下文
+
+- 本次只改代码 / 文档 / 记忆；没有重新执行 BigQuery DWS 重建或 QA。
+- 若要让生产 BigQuery 表体现 v0 上证字段为 NULL 的新语义，需要重新执行 `sql/dws/08_dws_market_state_daily.sql` 或按覆盖窗口执行 `sql/incremental/03_refresh_market_state_window.sql`，随后跑 `sql/qa/11_market_state_checks.sql`。
+- `sql/ods/01_index_external_table_uris.sql` 以后不要手改 URI 列表；新增指数 endpoint 应先改 `configs/ingestion/ods_current_scope_v0.yml`，再运行 `scripts/ingestion/generate_index_external_table_uris.py`。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
+- `dataform/definitions/**`
+- `docs/数据仓库建模方案-DWS-ADS.md`
+- `orchestration/composer/dags/ashare_common.py`
+- `scripts/ingestion/generate_index_external_table_uris.py`
+- `sql/dws/08_dws_market_state_daily.sql`
+- `sql/incremental/03_refresh_market_state_window.sql`
+- `sql/ods/01_index_external_table_uris.sql`
+- `sql/qa/11_market_state_checks.sql`
+
+### 测试 / 验证
+
+- `scripts/ingestion/generate_index_external_table_uris.py`
+- `python3 scripts/dataform/generate_sqlx_from_sql.py`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 如 owner 要求生产即时落地，执行 market-state 全量或窗口刷新并跑 `11_market_state_checks.sql`。
+- 更新 PR #106 正文 / 回复 review comment，说明三条 comment 已处理。

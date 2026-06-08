@@ -1528,7 +1528,7 @@ Owner: owner
 Agent ID: Codex
 Model: GPT-5 Codex
 Context: 上证指数 `000001.SH` 已补入 ODS/DIM/DWD 后，owner 要求继续补 DWS，并要求先创建 `ashare_backup` 数据集保存现有 `dws_market_state_daily`。
-Decision: 在 `data-aquarium.ashare_backup.dws_market_state_daily_v0` 保存修改前生产快照；生产 `ashare_dws.dws_market_state_daily` 改为同时输出 `market_state_v0_20260606` 兼容行和新增 `market_state_v1_20260607` 行。v1 补上证指数 `000001.SH` / `SSE_COMPOSITE` 市场状态字段，但本次不把上证指数纳入 risk-off 触发逻辑，也不写 ADS。
-Rationale: 备份表保留修改前 schema/数据用于审计和复现；双版本行让既有 runner/config 继续查 v0，同时给后续训练或特征集提供显式 v1 切换点，避免静默改变历史 P2 risk-off 结论。
-Impact: 后续如要使用上证指数字段训练，应显式指定 `market_state_v1_20260607` 或新增 feature set；如要改变 `is_risk_off` / `risk_off_trigger_count` 规则，应另写规则版本和验收，不直接改 v0。
-Related files: sql/dws/08_dws_market_state_daily.sql, sql/qa/11_market_state_checks.sql, docs/数据仓库建模方案-DWS-ADS.md, orchestration/composer/dags/ashare_common.py
+Decision: 在 `data-aquarium.ashare_backup.dws_market_state_daily_v0` 保存修改前生产快照；生产 `ashare_dws.dws_market_state_daily` 改为同时输出 `market_state_v0_20260606` 兼容行和新增 `market_state_v1_20260607` 行。v0 行的 `sse_composite_*` 字段保持 `NULL`，v1 补上证指数 `000001.SH` / `SSE_COMPOSITE` 市场状态字段。本次不把上证指数纳入 risk-off 触发逻辑，也不写 ADS。日更 / backfill 不调用全量 `CREATE OR REPLACE`，改用 `sql/incremental/03_refresh_market_state_window.sql` 窗口 MERGE；全量 `sql/dws/08_dws_market_state_daily.sql` 只作为初始化 / full rebuild 路径。
+Rationale: 备份表保留修改前 schema/数据用于审计和复现；双版本行让既有 runner/config 继续查 v0，同时给后续训练或特征集提供显式 v1 切换点，且 v0/v1 字段值有真实差异。窗口 MERGE 避免每日调度扫 2019+ 全历史，并避免 historical backfill 忽略 date_from/date_to 把 market-state 刷到当前日期。
+Impact: 后续如要使用上证指数字段训练，应显式指定 `market_state_v1_20260607` 或新增 feature set；如要改变 `is_risk_off` / `risk_off_trigger_count` 规则，应另写规则版本和验收，不直接改 v0。新增指数 endpoint 时必须从 `configs/ingestion/ods_current_scope_v0.yml` 生成 `sql/ods/01_index_external_table_uris.sql`，不要手改 URI 列表。
+Related files: sql/dws/08_dws_market_state_daily.sql, sql/incremental/03_refresh_market_state_window.sql, sql/qa/11_market_state_checks.sql, scripts/ingestion/generate_index_external_table_uris.py, docs/数据仓库建模方案-DWS-ADS.md, orchestration/composer/dags/ashare_common.py

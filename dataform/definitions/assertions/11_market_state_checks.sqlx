@@ -123,6 +123,22 @@ ASSERT (
   )
 ) AS 'QA-MKT-8: legacy v0 and current v1 market-state versions must both be present exactly once per trade date';
 
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dws.dws_market_state_daily` AS ms
+  WHERE ms.trade_date BETWEEN DATE_ADD(p_start_date, INTERVAL 80 DAY) AND p_end_date
+    AND ms.market_state_version = p_legacy_market_state_version
+    AND (
+      ms.sse_composite_ret_5d IS NOT NULL
+      OR ms.sse_composite_ret_20d IS NOT NULL
+      OR ms.sse_composite_drawdown_20d IS NOT NULL
+      OR ms.sse_composite_vol_20d IS NOT NULL
+      OR ms.sse_composite_close_to_ma20 IS NOT NULL
+      OR ms.sse_composite_close_to_ma60 IS NOT NULL
+      OR ms.sse_composite_ma20_to_ma60 IS NOT NULL
+    )
+) AS 'QA-MKT-9: legacy v0 rows must not populate SSE Composite fields; use v1 for those fields';
+
 SELECT
   'QA-MKT completed' AS status,
   p_market_state_version AS checked_market_state_version,

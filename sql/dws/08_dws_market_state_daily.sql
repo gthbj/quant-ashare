@@ -7,7 +7,8 @@
 --
 -- Versioning:
 -- - market_state_v0_20260606 is retained for legacy runner/config compatibility.
--- - market_state_v1_20260607 adds SSE Composite (000001.SH) index metrics.
+-- - market_state_v0_20260606 leaves SSE Composite columns NULL.
+-- - market_state_v1_20260607 populates SSE Composite (000001.SH) index metrics.
 --   Risk-off trigger semantics are intentionally unchanged in this SQL.
 
 DECLARE dws_start_date DATE DEFAULT DATE '2019-01-01';
@@ -223,13 +224,13 @@ classified AS (
 SELECT
   trade_date,
   market_state_version,
-  sse_composite_ret_5d,
-  sse_composite_ret_20d,
-  sse_composite_drawdown_20d,
-  sse_composite_vol_20d,
-  sse_composite_close_to_ma20,
-  sse_composite_close_to_ma60,
-  sse_composite_ma20_to_ma60,
+  IF(market_state_version = 'market_state_v1_20260607', sse_composite_ret_5d, NULL) AS sse_composite_ret_5d,
+  IF(market_state_version = 'market_state_v1_20260607', sse_composite_ret_20d, NULL) AS sse_composite_ret_20d,
+  IF(market_state_version = 'market_state_v1_20260607', sse_composite_drawdown_20d, NULL) AS sse_composite_drawdown_20d,
+  IF(market_state_version = 'market_state_v1_20260607', sse_composite_vol_20d, NULL) AS sse_composite_vol_20d,
+  IF(market_state_version = 'market_state_v1_20260607', sse_composite_close_to_ma20, NULL) AS sse_composite_close_to_ma20,
+  IF(market_state_version = 'market_state_v1_20260607', sse_composite_close_to_ma60, NULL) AS sse_composite_close_to_ma60,
+  IF(market_state_version = 'market_state_v1_20260607', sse_composite_ma20_to_ma60, NULL) AS sse_composite_ma20_to_ma60,
   csi300_ret_5d,
   csi300_ret_20d,
   csi300_drawdown_20d,

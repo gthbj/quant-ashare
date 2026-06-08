@@ -976,7 +976,8 @@ def build_windowed_transform_group(group_id: str = "windowed_transform") -> Task
         )
         market_state_dws = _bq_sql_task(
             "market_state_dws",
-            "sql/dws/08_dws_market_state_daily.sql",
+            "sql/incremental/03_refresh_market_state_window.sql",
+            query_parameters=_window_refresh_parameters(),
         )
         market_state_checks = _bq_sql_task(
             "market_state_checks",
