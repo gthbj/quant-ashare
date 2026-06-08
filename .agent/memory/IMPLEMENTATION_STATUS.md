@@ -6,6 +6,13 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：`orchestration/composer/` 已收口为历史审计目录
+
+- `orchestration/composer/README.md` 已从“可操作 runbook”改为 retired / audit-only 说明，明确 `ashare-composer` 已删除、当前生产入口只保留 `orchestration/workflows/**`，并主动移除了过时的 Composer 同步/触发命令，避免后续误把历史目录当成现行部署面。
+- `orchestration/composer/dags/ashare_common.py` 与 5 个 Composer DAG 顶部都已加 retired 标识，明确这些文件只保留为 2026-06-08 前最后一版 Composer 实现快照，不再接受新的生产调度变更。
+- 本轮没有改任何调度语义，也没有部署；目标只是收口“保留哪些历史资产、哪些路径彻底退出生产”的文档边界。
+
+
 ### 最新补充（2026-06-08）：修复 QA-V3-1 sentinel 渲染问题后，v3 replay 与 helper 驱动的 24 QA 已再次真执行成功
 
 - `run_acceptance_gate_v3_replay_qa.py` 现在对所有 placeholder 使用单次替换，避免把 `QA-V3-1` 里用于检测 hash 是否被填充的 sentinel 一并替掉；`24_qa_acceptance_gate_v3_replay_outputs.sql` 的 primary benchmark 断言也已恢复成对固定 `000001.SH` 的真校验。

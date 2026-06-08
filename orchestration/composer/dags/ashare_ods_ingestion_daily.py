@@ -1,4 +1,10 @@
-"""Daily ODS ingestion DAG for quant-ashare.
+"""Retired historical Composer ODS ingestion DAG for quant-ashare.
+
+Cloud Composer production orchestration was removed on 2026-06-08 after the
+OQ-005 cutover to Cloud Scheduler + Cloud Workflows. This file is retained only
+as audit/reference code and is not an active deployment target.
+
+Daily ODS ingestion DAG for quant-ashare.
 
 This DAG owns only production ODS collection and ODS readiness. Warehouse
 refresh is triggered as a separate DAG after a successful real ingestion run.

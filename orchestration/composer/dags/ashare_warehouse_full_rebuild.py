@@ -1,4 +1,9 @@
-"""Manual full warehouse rebuild DAG for quant-ashare."""
+"""Retired historical Composer full rebuild DAG for quant-ashare.
+
+Cloud Composer production orchestration was removed on 2026-06-08 after the
+OQ-005 cutover to Cloud Scheduler + Cloud Workflows. This file is retained only
+as audit/reference code and is not an active deployment target.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - `orchestration/composer/` 已收口为历史审计目录：README 改成 retired / audit-only 边界说明，并移除了针对已删除 `ashare-composer` 环境的操作命令。
+> - `ashare_common.py` 与 5 个 Composer DAG 顶部都已明确标记“仅保留为 2026-06-08 前最后一版 Composer 实现快照，不再接受新的生产调度变更”。
+> - 当前生产部署与调度变更入口继续只保留 `orchestration/workflows/**`；后续如果再碰 Composer，应该视为新的架构决策，不是现行运维路径。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - PR #122 最新 re-review 指出的 `QA-V3-1` sentinel/render bug 已修：`run_acceptance_gate_v3_replay_qa.py` 对 placeholder 改回单次替换，`24_qa_acceptance_gate_v3_replay_outputs.sql` 的 primary benchmark 断言恢复成对固定 `000001.SH` 的真校验。
 > - 按这版代码已重新真跑 `replay_acceptance_gate_v3.py` 和 `run_acceptance_gate_v3_replay_qa.py --project data-aquarium`；结果仍为 `25` 个候选里 `1 accepted / 24 rejected`，且 `24` QA 全部通过。
 > - 最新 replay / QA contract hash 已更新为 `8a84447e8190290fef2ae61b71a31678bc02fffda52b5a4701be36593e1ea1ed`，PR #122 body 也已同步刷新。
@@ -4368,5 +4373,57 @@ Model: GPT-5 Codex
 
 - 运行更新后的 `bootstrap_scheduler_iam.sh`，把 live runtime SA 真的收敛到 job-level `run.invoker`。
 - PR 合并后，再单独决定是否要为 lock 前缀拆专用 bucket / IAM condition，随后删除 Composer 环境。
+
+Model: GPT-5 Codex
+
+## 2026-06-08 GPT-5 Codex - Composer historical directory cleanup
+
+### 已完成工作
+
+- 将 `orchestration/composer/README.md` 从“可操作 Composer runbook”改成 retired / audit-only 说明，明确 `ashare-composer` 已删除，当前生产入口只保留 `orchestration/workflows/**`。
+- 主动移除了 README 里针对已删除 Composer 环境的同步、触发、变量和手工操作命令，避免后续误操作。
+- 给 `orchestration/composer/dags/ashare_common.py` 与 5 个 Composer DAG 顶部都加了 retired 标识，明确这里只保留历史快照，不再接受新的生产逻辑。
+
+### 重要上下文
+
+- 这次没有改任何调度语义，也没有重新部署或 smoke。
+- 目标只是收口仓库内“哪些 Composer 资产继续保留、哪些路径已经彻底退出生产”的边界。
+- 当前生产入口仍然是 `Cloud Scheduler + Cloud Workflows`，不是 Composer。
+
+### 改动文件
+
+- `orchestration/composer/README.md`
+- `orchestration/composer/dags/ashare_common.py`
+- `orchestration/composer/dags/ashare_daily_pipeline_v0.py`
+- `orchestration/composer/dags/ashare_ods_ingestion_daily.py`
+- `orchestration/composer/dags/ashare_pipeline_alert_checker.py`
+- `orchestration/composer/dags/ashare_warehouse_full_rebuild.py`
+- `orchestration/composer/dags/ashare_warehouse_window_refresh.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未执行。此次为文档/标识清理，不涉及行为变更。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 若要继续收口 OQ-005，可补一条 cutover 后短观察窗记录，然后把这部分也归档到 OQ-005 完成态。
+- 若后续还要碰调度实现，直接改 `orchestration/workflows/**`，不要再在 Composer 目录叠加新逻辑。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 Model: GPT-5 Codex

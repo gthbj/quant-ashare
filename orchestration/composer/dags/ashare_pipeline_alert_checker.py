@@ -1,4 +1,10 @@
-"""Ashare Pipeline Alert Checker DAG.
+"""Retired historical Composer alert checker DAG.
+
+Cloud Composer production orchestration was removed on 2026-06-08 after the
+OQ-005 cutover to Cloud Scheduler + Cloud Workflows. This file is retained only
+as audit/reference code and is not an active deployment target.
+
+Ashare Pipeline Alert Checker DAG.
 
 Periodically checks for pipeline failures and writes alerts to Cloud Logging.
 This enables the Cloud Monitoring alert pipeline:

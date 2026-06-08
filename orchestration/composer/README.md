@@ -1,246 +1,71 @@
-# Cloud Composer - A 股数据流水线
+# Cloud Composer 历史审计目录
 
-> 文档维护：GPT-5 Codex（最近更新 2026-06-06）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-08）
+>
+> 状态：retired / audit-only
 
-Composer 负责串联 Cloud Run ingestion、BigQuery SQL 数仓刷新、状态回写、告警 checker 和故障恢复入口。当前生产入口已按职责拆分，`ashare_daily_pipeline_v0` 保留为迁移期回滚参考。
+`ashare-composer` 已于 `2026-06-08` 删除。OQ-005 cutover 后，生产调度与编排入口已经固定为 `Cloud Scheduler + Cloud Workflows`，当前代码入口见 `orchestration/workflows/`。
 
-## DAG 边界
+本目录保留的目的只有三个：
 
-| DAG | 调度 | 职责 |
+1. 审计 2026-06-08 前最后一版 Composer 实现。
+2. 对照 Workflows 迁移后的语义是否完整保留。
+3. 在 owner 明确批准的极端回滚场景下，作为历史参考快照。
+
+## 当前边界
+
+以下事情不要再在本目录做：
+
+- 不要把 `orchestration/composer/**` 当成当前生产部署面。
+- 不要继续往 Composer DAG 里加新功能、修新入口或改新调度。
+- 不要再执行基于 `ashare-composer` 环境的同步、pause、trigger 或运维命令。
+
+以下事情仍然允许：
+
+- 查历史 DAG 语义。
+- 对照迁移前后的 task/status/gate/trigger 设计。
+- 在审计文档、事故复盘、迁移回顾里引用这里的历史实现。
+
+## 当前生产入口
+
+调度/编排的现行权威路径是：
+
+- `orchestration/workflows/README.md`
+- `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`
+
+如果后续还要改生产调度，应只改 `orchestration/workflows/**`、相关 Cloud Run control-plane 代码和对应 runbook，不再改本目录。
+
+## 保留的历史快照
+
+| 文件 | 保留原因 | 当前状态 |
 |---|---|---|
-| `ashare_ods_ingestion_daily` | 每日 20:00 Asia/Shanghai | 当前 14 个 ODS endpoint 采集、非交易日 gate、ODS readiness，真实写入成功后触发窗口刷新 |
-| `ashare_warehouse_window_refresh` | 由 ingestion DAG 触发；也支持手工 | `daily_current` / `backfill` 的 DIM/DWD/DWS 窗口刷新、metadata 恢复、窗口 QA 和只读 QA |
-| `ashare_warehouse_full_rebuild` | 手工触发 | 显式确认后的 DIM/DWD/DWS 全量维护重建 |
-| `ashare_pipeline_alert_checker` | 每小时 1 次 | 查询观测视图，写 Cloud Logging 告警和 heartbeat |
+| `dags/ashare_common.py` | 最后一版 Composer shared helper 快照 | 历史保留，不再部署 |
+| `dags/ashare_daily_pipeline_v0.py` | 迁移前单 DAG 生产流水线快照 | 历史保留，不再部署 |
+| `dags/ashare_ods_ingestion_daily.py` | DAG 拆分阶段的 Composer ODS 入口快照 | 历史保留，不再部署 |
+| `dags/ashare_warehouse_window_refresh.py` | DAG 拆分阶段的 Composer warehouse window refresh 快照 | 历史保留，不再部署 |
+| `dags/ashare_warehouse_full_rebuild.py` | DAG 拆分阶段的 Composer full rebuild 快照 | 历史保留，不再部署 |
+| `dags/ashare_pipeline_alert_checker.py` | DAG 拆分阶段的 Composer alert checker 快照 | 历史保留，不再部署 |
 
-`ashare_meta.pipeline_run` 记录每个 DAG run 的 terminal 状态；`ashare_meta.pipeline_task_status` 记录 task 状态、Airflow log URL、BigQuery job URL 和 Cloud Run execution URL。跨 DAG 链路通过 `pipeline_run.upstream_pipeline_run_id` 与 `pipeline_run.triggered_by_dag_id` 记录。
+## 历史语义摘要
 
-`ashare_ods_ingestion_daily` 显式设置 `is_paused_upon_creation=True`。部署到 Composer 后先保持 paused；迁移生产定时时，先暂停旧 `ashare_daily_pipeline_v0`，再 unpause 新 ingestion DAG。迁移期任一时刻只允许一个 production scheduled DAG active。
+在最后一版 Composer 实现里，职责边界是：
 
-`ashare_warehouse_window_refresh` 使用 `max_active_runs=1` 串行执行，避免 triggered `daily_current` 与手工 `backfill` 对同一 DWD/DWS 窗口并发 DML。手工 backfill 会排队等待当前窗口刷新结束。
+| DAG | 历史职责 |
+|---|---|
+| `ashare_ods_ingestion_daily` | 当前 14 个 ODS endpoint 采集、非交易日 gate、ODS readiness，真实写入成功后触发窗口刷新 |
+| `ashare_warehouse_window_refresh` | `daily_current` / `backfill` 的 DIM/DWD/DWS 窗口刷新、metadata 恢复、窗口 QA 和只读 QA |
+| `ashare_warehouse_full_rebuild` | 显式确认后的 DIM/DWD/DWS 全量维护重建 |
+| `ashare_pipeline_alert_checker` | 查询观测视图，写 Cloud Logging 告警和 heartbeat |
+| `ashare_daily_pipeline_v0` | 更早期的单 DAG 生产入口；已被拆分 DAG 方案取代 |
 
-## 每日链路
+`ashare_meta.pipeline_run` / `ashare_meta.pipeline_task_status`、非交易日 skip、ODS parent -> warehouse child、window QA、alert checker heartbeat 等语义，已经在 Workflows 路径重新落地；本目录只保留它们的 Composer 时代实现快照。
 
-```text
-ashare_ods_ingestion_daily
-  -> non_trading_day_gate
-  -> Cloud Run Job: ashare-ingest-current-scope
-  -> sql/qa/09_ods_daily_partition_readiness.sql
-  -> TriggerDagRunOperator: ashare_warehouse_window_refresh
+## 为什么不再保留历史操作命令
 
-ashare_warehouse_window_refresh
-  -> sql/qa/09_ods_daily_partition_readiness.sql
-  -> windowed_dim
-  -> windowed_metadata
-  -> sql/incremental/01_refresh_stock_dwd_dws_window.sql
-  -> sql/qa/10_windowed_stock_refresh_checks.sql
-  -> sql/qa/01-05
-```
+此前 README 里包含过 Composer bucket 同步、Airflow Variables、手工 trigger 示例等命令。现在这些内容被主动删掉，原因是：
 
-scheduled `ashare_ods_ingestion_daily` 在非交易日会查 `ashare_dim.dim_trade_calendar`。SSE 当天不开市时写入 `skip_non_trading_day` task 状态，且不触发 Cloud Run、ODS readiness 或 warehouse refresh。普通手工触发不自动走该 gate，除非显式设置 `force_non_trading_day_gate=true` 做 smoke。
+1. `ashare-composer` 环境已经不存在，命令默认不可执行。
+2. 保留这类命令会误导后续维护者把本目录当成当前生产 runbook。
+3. 真要做受控回滚，应把“重建 Composer”视为新的架构决策，并重新评估 IAM、bucket、DAG 同步和告警链路，而不是复制旧命令直接执行。
 
-每日真实写入链路使用 `pipeline_dry_run=false`。手工 dry-run 或 `skip_ingestion=true` 默认不触发下游 warehouse refresh；如需用只读 readiness 后继续触发窗口刷新，显式传 `trigger_downstream_refresh=true`。
-
-## 每日调度时间
-
-`ashare_ods_ingestion_daily` 按 Asia/Shanghai 每天 20:00 触发。当前范围内官方文档给出的最晚明确日频更新时间为 17:00，20:00 留出 3 小时稳定窗口。
-
-| endpoint | 官方更新时间口径 | 官方文档 |
-|---|---|---|
-| `daily` | 交易日每天 15:00-16:00 入库 | [A股日线行情](https://www.tushare.pro/document/2?doc_id=27) |
-| `daily_basic` | 交易日每日 15:00-17:00 之间 | [每日指标](https://tushare.pro/document/2?doc_id=32) |
-| `adj_factor` | 盘前 9:15-9:20 完成当日复权因子入库 | [复权因子](https://tushare.pro/document/2?doc_id=28) |
-| `stk_limit` | 每个交易日 8:40 左右更新当日涨跌停价格 | [每日涨跌停价格](https://www.tushare.pro/document/2?doc_id=183) |
-| `suspend_d` | 不定期 | [每日停复牌信息](https://tushare.pro/document/2?doc_id=214) |
-| `index_daily` | 交易日 15:00-17:00 更新 | [积分权限/接口列表](https://www.tushare.pro/document/2?doc_id=108) |
-| `index_dailybasic` | 每日盘后更新 | [大盘指数每日指标](https://tushare.pro/document/2?doc_id=128) |
-| `stock_basic` | 基础信息接口，无明确日内更新时间；每日快照采集 | [股票基础信息](https://tushare.pro/document/2?doc_id=25) |
-| `trade_cal` | 交易日历接口，无明确日内更新时间；每日快照采集 | [交易日历](https://www.tushare.pro/document/2?doc_id=26) |
-| `namechange` | 历史名称变更记录，无明确日内更新时间；每日快照采集 | [股票曾用名](https://tushare.pro/document/2?doc_id=100) |
-| `fina_indicator` | 随财报实时更新 | [财务指标数据](https://tushare.pro/document/2?doc_id=79) |
-| `income` | 财务数据接口，官方接口列表口径为实时更新 | [利润表](https://tushare.pro/document/2?doc_id=33) |
-| `balancesheet` | 财务数据接口，官方接口列表口径为实时更新 | [资产负债表](https://tushare.pro/document/2?doc_id=36) |
-| `cashflow` | 财务数据接口，官方接口列表口径为实时更新 | [现金流量表](https://www.tushare.pro/document/2?doc_id=44) |
-
-## 当前环境
-
-```text
-project=data-aquarium
-region=asia-east2
-composer_environment=ashare-composer
-service_account=sa-ashare-ingestion@data-aquarium.iam.gserviceaccount.com
-```
-
-## Airflow Variables
-
-```text
-ashare_project_id=data-aquarium
-ashare_region=asia-east2
-ashare_bq_location=asia-east2
-ashare_pipeline_dry_run=false
-ashare_enable_full_refresh=false
-ashare_warehouse_mode=daily_current
-ashare_transform_backend=bq_sql
-```
-
-## 部署
-
-同步 DAG 文件：
-
-> 历史说明（2026-06-08）：
-> `ashare-composer` 环境已删除，OQ-005 的生产编排已切到 `Cloud Scheduler + Cloud Workflows`。
-> 下列 Composer 同步命令仅为历史审计 / 回滚参考，不应作为当前生产部署路径执行。
-
-```bash
-gcloud composer environments storage dags import \
-  --project=data-aquarium \
-  --location=asia-east2 \
-  --environment=ashare-composer \
-  --source=orchestration/composer/dags/ashare_common.py
-
-gcloud composer environments storage dags import \
-  --project=data-aquarium \
-  --location=asia-east2 \
-  --environment=ashare-composer \
-  --source=orchestration/composer/dags/ashare_ods_ingestion_daily.py
-
-gcloud composer environments storage dags import \
-  --project=data-aquarium \
-  --location=asia-east2 \
-  --environment=ashare-composer \
-  --source=orchestration/composer/dags/ashare_warehouse_window_refresh.py
-
-gcloud composer environments storage dags import \
-  --project=data-aquarium \
-  --location=asia-east2 \
-  --environment=ashare-composer \
-  --source=orchestration/composer/dags/ashare_warehouse_full_rebuild.py
-```
-
-同步 SQL：
-
-```bash
-gcloud storage rsync -r sql gs://asia-east2-ashare-composer-b2629133-bucket/data/sql
-```
-
-应用观测视图和告警规则：
-
-```bash
-bq query --use_legacy_sql=false --location=asia-east2 < sql/observability/01_pipeline_status_views.sql
-python scripts/alerting/setup_alerts.py --dry-run
-```
-
-如果只上传 DAG 文件而没有同步 `sql/`，BigQuery task 会 fail-closed。
-
-## 手工触发示例
-
-单次真实采集写入，成功后自动触发窗口刷新：
-
-```json
-{
-  "business_date": "2026-06-05",
-  "pipeline_dry_run": false,
-  "run_label": "manual_ingestion_write"
-}
-```
-
-单次采集 dry-run，不触发下游刷新：
-
-```json
-{
-  "business_date": "2026-06-05",
-  "pipeline_dry_run": true,
-  "run_label": "manual_ingestion_dry_run"
-}
-```
-
-只跑 ODS readiness：
-
-```json
-{
-  "business_date": "2026-06-05",
-  "skip_ingestion": true,
-  "pipeline_dry_run": false,
-  "run_label": "manual_readiness_only"
-}
-```
-
-手工窗口 backfill：
-
-```bash
-python scripts/pipeline/run_warehouse_refresh.py backfill \
-  --date-from 2026-05-11 \
-  --date-to 2026-06-05 \
-  --chunk-days 5 \
-  --resume
-
-python scripts/pipeline/run_warehouse_refresh.py backfill \
-  --date-from 2026-05-11 \
-  --date-to 2026-06-05 \
-  --chunk-days 5 \
-  --resume \
-  --execute \
-  --wait \
-  --fail-fast
-```
-
-该 helper 默认只输出计划；`--execute` 时最多触发 20 个非 skipped run，超过时需缩小日期范围，或确认计划后显式加 `--yes`。
-
-```json
-{
-  "business_date": "2026-06-05",
-  "date_from": "2026-05-11",
-  "date_to": "2026-06-05",
-  "pipeline_dry_run": false,
-  "warehouse_mode": "backfill",
-  "run_label": "manual_window_backfill"
-}
-```
-
-只跑 warehouse QA：
-
-```bash
-python scripts/pipeline/run_warehouse_refresh.py qa-only \
-  --business-date 2026-06-05
-
-python scripts/pipeline/run_warehouse_refresh.py qa-only \
-  --business-date 2026-06-05 \
-  --execute \
-  --wait \
-  --fail-fast
-```
-
-手工全量维护重建：
-
-```json
-{
-  "business_date": "2026-06-05",
-  "date_from": "2019-01-01",
-  "date_to": "2026-06-05",
-  "warehouse_mode": "full_rebuild",
-  "pipeline_dry_run": false,
-  "confirm_full_rebuild": true,
-  "run_label": "manual_full_rebuild"
-}
-```
-
-非交易日 gate smoke：
-
-```json
-{
-  "business_date": "2026-06-06",
-  "force_non_trading_day_gate": true,
-  "pipeline_dry_run": false,
-  "run_label": "manual_skip_gate_smoke"
-}
-```
-
-## 迁移验收
-
-1. 新 DAG 全部通过 Composer import，并确认 `ashare_ods_ingestion_daily` 仍为 paused。
-2. 暂停旧 `ashare_daily_pipeline_v0` 后，再 unpause 新 `ashare_ods_ingestion_daily`；迁移期任一时刻只允许一个 production scheduled DAG active。
-3. `ashare_ods_ingestion_daily` 开市日真实写入成功，并触发 `ashare_warehouse_window_refresh`。
-4. `ashare_ods_ingestion_daily` 非交易日 smoke 写入 `skip_non_trading_day`，且 Cloud Run execution 未新增。
-5. `ashare_warehouse_window_refresh` 小窗口 backfill 通过 `10_windowed_stock_refresh_checks.sql` 和 `01-05` QA。
-6. `v_pipeline_refresh_missing` 能发现 ingestion 成功但没有 linked warehouse refresh run 的链路缺失。
-7. 新生产 DAG 连续通过至少两个开市日 scheduled run 和一个非交易日 skip smoke，旧 `ashare_daily_pipeline_v0` 保持 paused。
+如需恢复更细的历史命令，请从 git 历史读取本文件在 `2026-06-08` 之前的版本，不要把这些命令重新写回当前 README。

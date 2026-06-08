@@ -2420,3 +2420,40 @@ PR #122 review 指出两个实现严谨性问题：`legacy valid-as-CV` carve-ou
 ### Related Files
 
 `configs/strategy1/model_acceptance_contract_v3.yml`, `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`, `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`, `sql/ml/strategy1/README.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260608-30: `orchestration/composer/` 只保留为历史审计快照
+
+日期: 2026-06-08
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+OQ-005 已完成生产 cutover，`ashare-composer` 环境也已在 2026-06-08 删除。仓库中仍保留 `orchestration/composer/` 下的 README、shared helper 和多份 DAG 快照。如果继续让这些文件保持“可操作 runbook”或“可能继续承接新功能”的表述，后续维护者很容易把已经下线的 Composer 路径误当成当前生产部署面。
+
+### 决策
+
+1. `orchestration/composer/**` 只保留为历史审计、迁移对照和受控回滚参考，不再作为现行生产调度或部署路径。
+2. `orchestration/composer/README.md` 应明确标记为 retired / audit-only，并移除针对已删除 Composer 环境的现行操作命令。
+3. 当前生产调度、部署和 runbook 入口统一收敛到 `orchestration/workflows/**`；后续调度变更不再往 Composer DAG 路径叠加。
+
+### 理由
+
+Composer 环境已经不存在，继续在 README 中保留可执行命令或在 DAG 文件上保留“仍可继续演进”的暗示，只会制造错误操作面。把这一路径明确降级为历史快照，可以保留审计价值，同时避免新的生产变更又分叉回已废弃目录。
+
+### 影响
+
+1. `orchestration/composer/README.md` 从 runbook 改为边界说明文档，保留“为什么还在仓库里”的解释，但不再承载部署步骤。
+2. `orchestration/composer/dags/*.py` 与 `ashare_common.py` 需要在文件头明确 retired 状态，降低误部署概率。
+3. 任何未来若想恢复 Composer，都必须作为新的架构决策单独评估，而不是直接复用当前目录内容。
+
+### 备选方案
+
+- 直接删除整个 `orchestration/composer/` 目录：不采用。原因是当前仍有审计、迁移对照和极端回滚参考价值。
+- 继续保留现状，只在外部文档提示 Composer 已删除：不采用。原因是误导性太强，仓库内最近接触这些文件的人仍会把它们当成潜在运行面。
+
+### 相关文件
+
+`orchestration/composer/README.md`, `orchestration/composer/dags/ashare_common.py`, `orchestration/composer/dags/ashare_daily_pipeline_v0.py`, `orchestration/composer/dags/ashare_ods_ingestion_daily.py`, `orchestration/composer/dags/ashare_pipeline_alert_checker.py`, `orchestration/composer/dags/ashare_warehouse_full_rebuild.py`, `orchestration/composer/dags/ashare_warehouse_window_refresh.py`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`

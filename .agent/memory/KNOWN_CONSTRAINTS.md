@@ -92,6 +92,7 @@
 - `airflow_monitoring` 是 Cloud Composer 托管的环境健康 DAG，不由仓库 DAG 代码控制；在 Composer 仍存在时不能靠改 repo 把它降频到每小时以内。要消除这部分 run/底座费用，必须 cutover 后删除 Composer 环境。
 - 2026-06-08 起，生产业务调度唯一入口是 `Cloud Scheduler -> Cloud Workflows`：`ashare-ods-ingestion-daily`（`0 20 * * *`）负责日常 ODS + child warehouse refresh，`ashare-pipeline-alert-checker`（`0 * * * *`）负责小时级告警检查。Composer 业务 DAG 已停用，不应再把 Composer 当生产入口恢复或继续追加业务变更。
 - `ashare-composer` 环境已于 2026-06-08 删除完成；后续若需要重新引入 Composer，必须视为新的架构决策，而不是当前 OQ-005 路径上的默认运维动作。
+- `orchestration/composer/**` 现仅保留为历史审计快照；当前生产部署、调度变更、runbook 更新和 smoke 路径都应落在 `orchestration/workflows/**`，不再向 Composer DAG / README 叠加新生产逻辑。
 - `ashare_pipeline_alert_checker` 在迁移期与迁移后统一按“最多每小时 1 次”设计：schedule `0 * * * *`，lookback `70` 分钟，heartbeat 缺失告警窗口 `120` 分钟，避免 1 小时 cadence 下出现空窗误报。
 - 2026-06-08 真实 cutover 后，生产定时入口已改为 Cloud Scheduler jobs `ashare-pipeline-alert-checker` 与 `ashare-ods-ingestion-daily`，两者统一由 `ashare-scheduler-invoker@data-aquarium.iam.gserviceaccount.com` 调 Workflows Executions API。ODS daily 固定 `0 20 * * *` / `Asia/Shanghai`，payload 固定 `pipeline_dry_run=false`、`scheduled_run=true`、`run_label=scheduled_daily_ingestion`；`ashare_warehouse_window_refresh` 不建立独立 daily scheduler，继续只作为 `ashare_ods_ingestion_daily` 的同步 child workflow，避免双入口写生产窗口。
 - OQ-005 scheduler least-privilege 约束：`ashare-workflows-runtime@data-aquarium.iam.gserviceaccount.com` 不应再持有项目级 `roles/run.developer`。它在 Cloud Run 侧的最小集合是：
