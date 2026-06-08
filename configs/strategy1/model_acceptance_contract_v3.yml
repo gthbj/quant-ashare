@@ -101,6 +101,15 @@ replay_compatibility:
   legacy_valid_as_cv_search_ids:
     - sklearn_native_pvfq_n30_bw_h5_20260605_01
 
+replay_scope:
+  search_ids:
+    - sklearn_native_pvfq_n30_bw_h5_20260605_01
+    - cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01
+    - cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01
+    - cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_20260606_01
+    - cloudrun_python_riskfeat_lgbm_reg_pvfq_n30_bw_h5_20260606_01
+  top_k_per_search: 5
+
 relative_gate:
   benchmark_scope: comparison_benchmarks
   pass_rule: any_one_benchmark_same_index_pass

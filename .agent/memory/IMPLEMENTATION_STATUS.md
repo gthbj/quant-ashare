@@ -6,6 +6,12 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：`24` QA 的 replay scope / 窗口 / 阈值 / benchmark 集合已全部改为从 v3 contract 派生
+
+- `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 不再只渲染 `contract_hash`、`legacy_valid_as_cv_search_ids` 和 `final_holdout_enforcement`；现已把 replay search scope、Top-K、primary/comparison benchmark、full/valid/test/final_holdout 窗口、signal/absolute gate 阈值、`final_holdout trading_day_count` 和允许的 `score_orientation` 一并从 `model_acceptance_contract_v3.yml` 渲染进 `24_qa_acceptance_gate_v3_replay_outputs.sql`。
+- `configs/strategy1/model_acceptance_contract_v3.yml` 已新增 `replay_scope`，把五次正式搜索 `search_id` 列表和 `top_k_per_search` 纳入 contract；`24` QA 不再额外维护第二份 search scope 默认值。
+- 这轮没有再重跑 replay 或 `24` QA；当前改动目的是收口 PR #122 review 指出的“QA 仍有残留硬编码，contract 还不是完整唯一事实来源”问题。
+
 ### 最新补充（2026-06-08）：`v3` replay 与 helper 驱动的 `24` QA 已按最新 contract 真执行成功
 
 - `scripts/strategy1/replay_acceptance_gate_v3.py` 已在 `codex/run-v3-replay-qa` 工作树中按最新 `model_acceptance_contract_v3.yml` 真执行成功；结果为 `25` 个候选、`1 accepted / 24 rejected`，最新 contract hash 为 `6e6d77881e8ca8f437154be9bec9b4972e35140c0b2562e7732150e37b9e8418`。

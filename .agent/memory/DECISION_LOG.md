@@ -2358,3 +2358,65 @@ PR #122 review 指出两个实现严谨性问题：`legacy valid-as-CV` carve-ou
 ### Related Files
 
 `configs/strategy1/model_acceptance_contract_v3.yml`, `scripts/strategy1/replay_acceptance_gate_v3.py`, `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`, `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`, `sql/ml/strategy1/README.md`
+
+## DECISION-20260608-23: Strategy1 v3 replay QA 的业务口径必须完整从 contract 派生
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+虽然 `run_acceptance_gate_v3_replay_qa.py` 已把 `contract_hash`、`legacy_valid_as_cv_search_ids` 和 `final_holdout_enforcement` 从 `model_acceptance_contract_v3.yml` 注入到 `24_qa_acceptance_gate_v3_replay_outputs.sql`，但 replay scope、Top-K、benchmark 集合、窗口、signal/absolute gate 阈值、`final_holdout trading_day_count` 和允许的 `score_orientation` 仍保留在 SQL `DECLARE` 默认值里。这样即使当前数值与 contract 一致，QA 仍然不是完整的单一事实来源语义。
+
+### Decision
+
+1. `24` QA 的业务口径必须完整从 `model_acceptance_contract_v3.yml` 派生，而不是只渲染 hash/enforcement 这类局部参数。
+2. `model_acceptance_contract_v3.yml` 新增 `replay_scope`，把五次正式搜索的 `search_id` 列表与 `top_k_per_search` 纳入 contract。
+3. `run_acceptance_gate_v3_replay_qa.py` 负责把 replay scope、benchmark 集合、full/valid/test/final_holdout 窗口、signal/absolute gate 阈值、`final_holdout trading_day_count` 和允许的 `score_orientation` 一并渲染到 SQL template。
+
+### Rationale
+
+只有这样，`24` QA 才不会在 SQL 内再维护第二份“和 contract 恰好相同”的业务默认值。否则 replay 代码、QA SQL 和 contract 迟早会在窗口、阈值或 search scope 上漂移，而 review 很难第一时间发现。
+
+### Impact
+
+1. 未来修改 `v3` replay 窗口、search scope、benchmark 集合或阈值时，优先改 contract，而不是改 `24` QA SQL 默认值。
+2. `24_qa_acceptance_gate_v3_replay_outputs.sql` 继续保留为 SQL template，但其业务参数不再应被视为独立配置面。
+3. 若后续还发现 `24` QA 与 contract 存在残留双写字段，应继续按“contract 派生优先”收口，而不是新增第三份默认值。
+
+### Related Files
+
+`configs/strategy1/model_acceptance_contract_v3.yml`, `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`, `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`, `sql/ml/strategy1/README.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260608-23: Strategy1 v3 replay QA 的业务口径必须完整从 contract 派生
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+虽然 `run_acceptance_gate_v3_replay_qa.py` 已把 `contract_hash`、`legacy_valid_as_cv_search_ids` 和 `final_holdout_enforcement` 从 `model_acceptance_contract_v3.yml` 注入到 `24_qa_acceptance_gate_v3_replay_outputs.sql`，但 replay scope、Top-K、benchmark 集合、窗口、signal/absolute gate 阈值、`final_holdout trading_day_count` 和允许的 `score_orientation` 仍保留在 SQL `DECLARE` 默认值里。这样即使当前数值与 contract 一致，QA 仍然不是完整的单一事实来源语义。
+
+### Decision
+
+1. `24` QA 的业务口径必须完整从 `model_acceptance_contract_v3.yml` 派生，而不是只渲染 hash/enforcement 这类局部参数。
+2. `model_acceptance_contract_v3.yml` 新增 `replay_scope`，把五次正式搜索的 `search_id` 列表与 `top_k_per_search` 纳入 contract。
+3. `run_acceptance_gate_v3_replay_qa.py` 负责把 replay scope、benchmark 集合、full/valid/test/final_holdout 窗口、signal/absolute gate 阈值、`final_holdout trading_day_count` 和允许的 `score_orientation` 一并渲染到 SQL template。
+
+### Rationale
+
+只有这样，`24` QA 才不会在 SQL 内再维护第二份“和 contract 恰好相同”的业务默认值。否则 replay 代码、QA SQL 和 contract 迟早会在窗口、阈值或 search scope 上漂移，而 review 很难第一时间发现。
+
+### Impact
+
+1. 未来修改 `v3` replay 窗口、search scope、benchmark 集合或阈值时，优先改 contract，而不是改 `24` QA SQL 默认值。
+2. `24_qa_acceptance_gate_v3_replay_outputs.sql` 继续保留为 SQL template，但其业务参数不再应被视为独立配置面。
+3. 若后续还发现 `24` QA 与 contract 存在残留双写字段，应继续按“contract 派生优先”收口，而不是新增第三份默认值。
+
+### Related Files
+
+`configs/strategy1/model_acceptance_contract_v3.yml`, `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`, `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`, `sql/ml/strategy1/README.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
