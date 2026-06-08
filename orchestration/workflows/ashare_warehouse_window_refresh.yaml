@@ -113,7 +113,7 @@ main:
         next: resolve_upstream_pipeline_run_id
     - set_pipeline_dry_run_input:
         assign:
-          - pipeline_dry_run: ${input_pipeline_dry_run}
+          - pipeline_dry_run: ${text.to_lower(string(input_pipeline_dry_run))}
         next: resolve_upstream_pipeline_run_id
     - resolve_upstream_pipeline_run_id:
         switch:

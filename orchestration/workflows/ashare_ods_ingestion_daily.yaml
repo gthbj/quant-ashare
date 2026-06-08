@@ -87,7 +87,7 @@ main:
         next: resolve_scheduled_run
     - set_pipeline_dry_run_input:
         assign:
-          - pipeline_dry_run: ${input_pipeline_dry_run}
+          - pipeline_dry_run: ${text.to_lower(string(input_pipeline_dry_run))}
         next: resolve_scheduled_run
     - resolve_scheduled_run:
         switch:
@@ -100,7 +100,7 @@ main:
         next: resolve_force_non_trading_day_gate
     - set_scheduled_run_input:
         assign:
-          - scheduled_run: ${input_scheduled_run}
+          - scheduled_run: ${text.to_lower(string(input_scheduled_run))}
         next: resolve_force_non_trading_day_gate
     - resolve_force_non_trading_day_gate:
         switch:
@@ -113,7 +113,7 @@ main:
         next: resolve_skip_ingestion
     - set_force_non_trading_day_gate_input:
         assign:
-          - force_non_trading_day_gate: ${input_force_non_trading_day_gate}
+          - force_non_trading_day_gate: ${text.to_lower(string(input_force_non_trading_day_gate))}
         next: resolve_skip_ingestion
     - resolve_skip_ingestion:
         switch:
@@ -126,7 +126,7 @@ main:
         next: resolve_skip_downstream_refresh
     - set_skip_ingestion_input:
         assign:
-          - skip_ingestion: ${input_skip_ingestion}
+          - skip_ingestion: ${text.to_lower(string(input_skip_ingestion))}
         next: resolve_skip_downstream_refresh
     - resolve_skip_downstream_refresh:
         switch:
@@ -139,7 +139,7 @@ main:
         next: resolve_trigger_downstream_refresh
     - set_skip_downstream_refresh_input:
         assign:
-          - skip_downstream_refresh: ${input_skip_downstream_refresh}
+          - skip_downstream_refresh: ${text.to_lower(string(input_skip_downstream_refresh))}
         next: resolve_trigger_downstream_refresh
     - resolve_trigger_downstream_refresh:
         switch:
@@ -152,7 +152,7 @@ main:
         next: orchestrate
     - set_trigger_downstream_refresh_input:
         assign:
-          - trigger_downstream_refresh: ${input_trigger_downstream_refresh}
+          - trigger_downstream_refresh: ${text.to_lower(string(input_trigger_downstream_refresh))}
         next: orchestrate
     - orchestrate:
         try:
