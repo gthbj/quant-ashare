@@ -207,6 +207,100 @@ def comparison_benchmarks(contract: dict[str, Any]) -> list[dict[str, Any]]:
 
 def fetch_selected_candidates(client: bigquery.Client, args: argparse.Namespace) -> pd.DataFrame:
     sql = f"""
+    WITH selected_registry AS (
+      SELECT
+        reg.model_id,
+        reg.strategy_id,
+        reg.train_start_date,
+        reg.train_end_date,
+        reg.valid_start_date,
+        reg.valid_end_date,
+        reg.created_at,
+        JSON_VALUE(reg.model_params_json, '$.run_id') AS run_id,
+        JSON_VALUE(reg.metrics_json, '$.search_id') AS search_id,
+        JSON_VALUE(reg.metrics_json, '$.source_run_id') AS source_run_id,
+        JSON_VALUE(reg.metrics_json, '$.model_family') AS model_family,
+        JSON_VALUE(reg.metrics_json, '$.model_backend') AS model_backend,
+        JSON_VALUE(reg.metrics_json, '$.cv_confirmation_status') AS cv_confirmation_status,
+        JSON_VALUE(reg.metrics_json, '$.valid_signal_status') AS valid_signal_status,
+        JSON_VALUE(reg.metrics_json, '$.score_orientation') AS score_orientation,
+        JSON_VALUE(reg.metrics_json, '$.primary_diagnosis') AS primary_diagnosis,
+        JSON_VALUE(reg.metrics_json, '$.sample_filter_risk') AS sample_filter_risk,
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.shortlist_rank_valid_only') AS INT64) AS shortlist_rank_valid_only,
+        SAFE_CAST(COALESCE(JSON_VALUE(reg.metrics_json, '$.oriented_valid_rank_ic_mean'), JSON_VALUE(reg.metrics_json, '$.valid_rank_ic_mean')) AS FLOAT64) AS effective_valid_rank_ic_mean,
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS valid_top_minus_bottom_fwd_ret_mean,
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.cv_rank_ic_mean') AS FLOAT64) AS cv_rank_ic_mean,
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.cv_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS cv_top_minus_bottom_fwd_ret_mean,
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.cv_fold_count') AS INT64) AS cv_fold_count,
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) AS test_rank_ic_mean,
+        SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS test_top_minus_bottom_fwd_ret_mean,
+        reg.metrics_json,
+        reg.model_params_json
+      FROM `{args.project}.ashare_ads.ads_model_registry` AS reg
+      WHERE reg.strategy_id = @strategy_id
+        AND reg.status = 'selected'
+        AND JSON_VALUE(reg.metrics_json, '$.search_id') IN UNNEST(@search_ids)
+    ),
+    test_rank_ic AS (
+      SELECT
+        day_ic.run_id,
+        AVG(day_ic.rank_ic) AS test_rank_ic_mean
+      FROM (
+        SELECT
+          pred.run_id,
+          pred.predict_date,
+          CORR(CAST(score_rank AS FLOAT64), CAST(ret_rank AS FLOAT64)) AS rank_ic
+        FROM (
+          SELECT
+            pred.run_id,
+            pred.predict_date,
+            pred.sec_code,
+            RANK() OVER (PARTITION BY pred.run_id, pred.predict_date ORDER BY pred.score) AS score_rank,
+            RANK() OVER (PARTITION BY pred.run_id, pred.predict_date ORDER BY tp.target_return) AS ret_rank
+          FROM `{args.project}.ashare_ads.ads_model_prediction_daily` AS pred
+          JOIN `{args.project}.ashare_ads.ads_ml_training_panel_daily` AS tp
+            ON tp.run_id = pred.run_id
+           AND tp.trade_date = pred.predict_date
+           AND tp.sec_code = pred.sec_code
+          WHERE pred.run_id IN (SELECT DISTINCT run_id FROM selected_registry)
+            AND pred.predict_date BETWEEN @test_start_date AND @test_end_date
+            AND tp.split_tag = 'test'
+            AND tp.target_return IS NOT NULL
+        ) AS pred
+        GROUP BY pred.run_id, pred.predict_date
+      ) AS day_ic
+      GROUP BY day_ic.run_id
+    ),
+    test_bucket_spread AS (
+      SELECT
+        scored.run_id,
+        AVG(scored.top_minus_bottom) AS test_top_minus_bottom_fwd_ret_mean
+      FROM (
+        SELECT
+          bucketed.run_id,
+          bucketed.predict_date,
+          AVG(IF(bucketed.score_bucket = 5, bucketed.target_return, NULL))
+            - AVG(IF(bucketed.score_bucket = 1, bucketed.target_return, NULL)) AS top_minus_bottom
+        FROM (
+          SELECT
+            pred.run_id,
+            pred.predict_date,
+            tp.target_return,
+            NTILE(5) OVER (PARTITION BY pred.run_id, pred.predict_date ORDER BY pred.score) AS score_bucket
+          FROM `{args.project}.ashare_ads.ads_model_prediction_daily` AS pred
+          JOIN `{args.project}.ashare_ads.ads_ml_training_panel_daily` AS tp
+            ON tp.run_id = pred.run_id
+           AND tp.trade_date = pred.predict_date
+           AND tp.sec_code = pred.sec_code
+          WHERE pred.run_id IN (SELECT DISTINCT run_id FROM selected_registry)
+            AND pred.predict_date BETWEEN @test_start_date AND @test_end_date
+            AND tp.split_tag = 'test'
+            AND tp.target_return IS NOT NULL
+        ) AS bucketed
+        GROUP BY bucketed.run_id, bucketed.predict_date
+      ) AS scored
+      GROUP BY scored.run_id
+    )
     SELECT
       reg.model_id,
       reg.strategy_id,
@@ -214,22 +308,27 @@ def fetch_selected_candidates(client: bigquery.Client, args: argparse.Namespace)
       reg.train_end_date,
       reg.valid_start_date,
       reg.valid_end_date,
-      JSON_VALUE(reg.model_params_json, '$.run_id') AS run_id,
-      JSON_VALUE(reg.metrics_json, '$.search_id') AS search_id,
-      JSON_VALUE(reg.metrics_json, '$.source_run_id') AS source_run_id,
-      JSON_VALUE(reg.metrics_json, '$.model_family') AS model_family,
-      JSON_VALUE(reg.metrics_json, '$.model_backend') AS model_backend,
-      JSON_VALUE(reg.metrics_json, '$.cv_confirmation_status') AS cv_confirmation_status,
-      JSON_VALUE(reg.metrics_json, '$.valid_signal_status') AS valid_signal_status,
-      JSON_VALUE(reg.metrics_json, '$.score_orientation') AS score_orientation,
-      JSON_VALUE(reg.metrics_json, '$.primary_diagnosis') AS primary_diagnosis,
-      JSON_VALUE(reg.metrics_json, '$.sample_filter_risk') AS sample_filter_risk,
-      SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.shortlist_rank_valid_only') AS INT64) AS shortlist_rank_valid_only,
-      SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.oriented_valid_rank_ic_mean') AS FLOAT64) AS oriented_valid_rank_ic_mean,
-      SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_rank_ic_mean') AS FLOAT64) AS valid_rank_ic_mean,
-      SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS valid_top_minus_bottom_fwd_ret_mean,
-      SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) AS test_rank_ic_mean,
-      SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS test_top_minus_bottom_fwd_ret_mean,
+      reg.created_at,
+      reg.run_id,
+      reg.search_id,
+      reg.source_run_id,
+      reg.model_family,
+      reg.model_backend,
+      reg.cv_confirmation_status,
+      reg.valid_signal_status,
+      reg.score_orientation,
+      reg.primary_diagnosis,
+      reg.sample_filter_risk,
+      reg.shortlist_rank_valid_only,
+      reg.effective_valid_rank_ic_mean,
+      reg.valid_top_minus_bottom_fwd_ret_mean,
+      reg.cv_rank_ic_mean,
+      reg.cv_top_minus_bottom_fwd_ret_mean,
+      reg.cv_fold_count,
+      reg.test_rank_ic_mean,
+      reg.test_top_minus_bottom_fwd_ret_mean,
+      test_rank_ic.test_rank_ic_mean AS test_rank_ic_mean_fallback,
+      test_bucket_spread.test_top_minus_bottom_fwd_ret_mean AS test_top_minus_bottom_fwd_ret_mean_fallback,
       reg.metrics_json,
       reg.model_params_json,
       bs.backtest_id,
@@ -238,12 +337,13 @@ def fetch_selected_candidates(client: bigquery.Client, args: argparse.Namespace)
       bs.total_return AS summary_total_return,
       bs.sharpe AS summary_sharpe,
       bs.max_drawdown AS summary_max_drawdown
-    FROM `{args.project}.ashare_ads.ads_model_registry` AS reg
+    FROM selected_registry AS reg
     LEFT JOIN `{args.project}.ashare_ads.ads_backtest_performance_summary` AS bs
       ON bs.model_id = reg.model_id
-    WHERE reg.strategy_id = @strategy_id
-      AND reg.status = 'selected'
-      AND JSON_VALUE(reg.metrics_json, '$.search_id') IN UNNEST(@search_ids)
+    LEFT JOIN test_rank_ic
+      ON test_rank_ic.run_id = reg.run_id
+    LEFT JOIN test_bucket_spread
+      ON test_bucket_spread.run_id = reg.run_id
     ORDER BY search_id, shortlist_rank_valid_only, reg.created_at, reg.model_id
     """
     frame = query_dataframe(
@@ -252,6 +352,8 @@ def fetch_selected_candidates(client: bigquery.Client, args: argparse.Namespace)
         [
             bigquery.ScalarQueryParameter("strategy_id", "STRING", args.strategy_id),
             bigquery.ArrayQueryParameter("search_ids", "STRING", args.search_ids),
+            bigquery.ScalarQueryParameter("test_start_date", "DATE", args.test_start_date),
+            bigquery.ScalarQueryParameter("test_end_date", "DATE", args.test_end_date),
         ],
         labels={"component": "strategy1", "step": "accept_v3_replay_candidates"},
     )
@@ -412,6 +514,13 @@ def evaluate_candidate(
     if not passed_benchmarks:
         reasons.append("no_comparison_benchmark_passed_v3_relative_gate")
     status = "accepted" if not reasons else "rejected"
+    cv_confirmation_status, cv_confirmation_status_from_fallback = effective_cv_confirmation_status(record, metrics)
+    test_rank_ic, test_rank_ic_from_fallback = effective_test_metric(record, metrics, "test_rank_ic_mean")
+    test_top_minus_bottom, test_top_minus_bottom_from_fallback = effective_test_metric(
+        record,
+        metrics,
+        "test_top_minus_bottom_fwd_ret_mean",
+    )
 
     candidate_summary = {
         "search_id": record.get("search_id"),
@@ -422,15 +531,18 @@ def evaluate_candidate(
         "model_family": record.get("model_family"),
         "model_backend": record.get("model_backend"),
         "search_rank_valid_only": safe_int(record.get("shortlist_rank_valid_only")),
-        "cv_confirmation_status": coalesce_text(record.get("cv_confirmation_status"), metrics.get("cv_confirmation_status")),
+        "cv_confirmation_status": cv_confirmation_status,
+        "cv_confirmation_status_from_fallback": cv_confirmation_status_from_fallback,
         "valid_signal_status": coalesce_text(record.get("valid_signal_status"), metrics.get("valid_signal_status")),
         "score_orientation": coalesce_text(record.get("score_orientation"), metrics.get("score_orientation")),
         "primary_diagnosis": coalesce_text(record.get("primary_diagnosis"), metrics.get("primary_diagnosis")),
         "sample_filter_risk": coalesce_text(record.get("sample_filter_risk"), metrics.get("sample_filter_risk")),
-        "valid_rank_ic": first_finite(record.get("oriented_valid_rank_ic_mean"), record.get("valid_rank_ic_mean"), metrics.get("oriented_valid_rank_ic_mean"), metrics.get("valid_rank_ic_mean")),
+        "valid_rank_ic": first_finite(record.get("effective_valid_rank_ic_mean"), metrics.get("oriented_valid_rank_ic_mean"), metrics.get("valid_rank_ic_mean")),
         "valid_top_minus_bottom_fwd_ret": safe_float(coalesce_value(record.get("valid_top_minus_bottom_fwd_ret_mean"), metrics.get("valid_top_minus_bottom_fwd_ret_mean"))),
-        "test_rank_ic": safe_float(coalesce_value(record.get("test_rank_ic_mean"), metrics.get("test_rank_ic_mean"))),
-        "test_top_minus_bottom_fwd_ret": safe_float(coalesce_value(record.get("test_top_minus_bottom_fwd_ret_mean"), metrics.get("test_top_minus_bottom_fwd_ret_mean"))),
+        "test_rank_ic": test_rank_ic,
+        "test_rank_ic_from_fallback": test_rank_ic_from_fallback,
+        "test_top_minus_bottom_fwd_ret": test_top_minus_bottom,
+        "test_top_minus_bottom_fwd_ret_from_fallback": test_top_minus_bottom_from_fallback,
         "strategy_total_return": strategy_total_return,
         "strategy_compound_annualized_return": strategy_compound_annualized_return,
         "annualized_volatility": annualized_volatility,
@@ -517,7 +629,7 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
     thresholds = signal_gate.get("thresholds") or {}
     diagnosis = contract.get("diagnosis") or {}
 
-    cv_status = coalesce_text(record.get("cv_confirmation_status"), metrics.get("cv_confirmation_status"))
+    cv_status, _ = effective_cv_confirmation_status(record, metrics)
     if cv_status != required.get("cv_confirmation_status", "passed"):
         failures.append(f"cv_confirmation_status!={required.get('cv_confirmation_status', 'passed')}")
 
@@ -530,7 +642,7 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
     if score_orientation not in allowed_orientations:
         failures.append("score_orientation_not_allowed")
 
-    valid_rank_ic = first_finite(record.get("oriented_valid_rank_ic_mean"), record.get("valid_rank_ic_mean"), metrics.get("oriented_valid_rank_ic_mean"), metrics.get("valid_rank_ic_mean"))
+    valid_rank_ic = first_finite(record.get("effective_valid_rank_ic_mean"), metrics.get("oriented_valid_rank_ic_mean"), metrics.get("valid_rank_ic_mean"))
     if not compare_metric(valid_rank_ic, threshold_operator(thresholds, "valid_rank_ic"), threshold_value(thresholds, "valid_rank_ic")):
         failures.append("valid_rank_ic<=0")
 
@@ -538,11 +650,11 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
     if not compare_metric(valid_tb, threshold_operator(thresholds, "valid_top_minus_bottom_fwd_ret"), threshold_value(thresholds, "valid_top_minus_bottom_fwd_ret")):
         failures.append("valid_top_minus_bottom<=0")
 
-    test_rank_ic = safe_float(coalesce_value(record.get("test_rank_ic_mean"), metrics.get("test_rank_ic_mean")))
+    test_rank_ic, _ = effective_test_metric(record, metrics, "test_rank_ic_mean")
     if not compare_metric(test_rank_ic, threshold_operator(thresholds, "test_rank_ic"), threshold_value(thresholds, "test_rank_ic")):
         failures.append("test_rank_ic<=0")
 
-    test_tb = safe_float(coalesce_value(record.get("test_top_minus_bottom_fwd_ret_mean"), metrics.get("test_top_minus_bottom_fwd_ret_mean")))
+    test_tb, _ = effective_test_metric(record, metrics, "test_top_minus_bottom_fwd_ret_mean")
     if not compare_metric(test_tb, threshold_operator(thresholds, "test_top_minus_bottom_fwd_ret"), threshold_value(thresholds, "test_top_minus_bottom_fwd_ret")):
         failures.append("test_top_minus_bottom<=0")
 
@@ -556,6 +668,31 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
     if sample_filter_risk in bad_sample_filter_risk:
         failures.append(f"sample_filter_risk={sample_filter_risk}")
     return failures
+
+
+def effective_cv_confirmation_status(record: dict[str, Any], metrics: dict[str, Any]) -> tuple[str | None, bool]:
+    raw_status = coalesce_text(record.get("cv_confirmation_status"), metrics.get("cv_confirmation_status"))
+    if raw_status is not None:
+        return raw_status, False
+    cv_rank_ic = first_finite(record.get("cv_rank_ic_mean"), metrics.get("cv_rank_ic_mean"))
+    cv_top_minus_bottom = safe_float(coalesce_value(record.get("cv_top_minus_bottom_fwd_ret_mean"), metrics.get("cv_top_minus_bottom_fwd_ret_mean")))
+    cv_fold_count = safe_int(coalesce_value(record.get("cv_fold_count"), metrics.get("cv_fold_count")))
+    if cv_rank_ic is None or cv_top_minus_bottom is None:
+        return None, False
+    if cv_fold_count is not None and cv_fold_count < 3:
+        return "failed", True
+    return ("passed" if cv_rank_ic > 0 and cv_top_minus_bottom > 0 else "failed"), True
+
+
+def effective_test_metric(record: dict[str, Any], metrics: dict[str, Any], field_name: str) -> tuple[float | None, bool]:
+    fallback_field_name = f"{field_name}_fallback"
+    raw_value = first_finite(record.get(field_name), metrics.get(field_name))
+    if raw_value is not None:
+        return raw_value, False
+    fallback_value = first_finite(record.get(fallback_field_name))
+    if fallback_value is not None:
+        return fallback_value, True
+    return None, False
 
 
 def absolute_gate_failures(

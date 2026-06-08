@@ -2167,7 +2167,39 @@ OQ-005 Workflows phase 1 已经证明 `qa_only`、`daily_current` 和 alert chec
 
 `scripts/pipeline_control/state.py`, `scripts/pipeline_control/service.py`, `orchestration/workflows/ashare_warehouse_full_rebuild.yaml`, `orchestration/workflows/deploy_workflows.sh`, `orchestration/workflows/README.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `TODO.md`
 
-## DECISION-20260608-18: OQ-005 跳过 shadow run，直接切到 Scheduler + Workflows 生产入口
+## DECISION-20260608-18: Strategy1 v3 replay / QA 对历史 search 缺失信号字段采用 source-derivable fallback，不回填 registry
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+首轮 `v3` replay 真跑后，`24_qa_acceptance_gate_v3_replay_outputs.sql` 在 `QA-V3-5` 被历史 selected row 的字段缺口卡住：`sklearn_native_*` 缺 `cv_confirmation_status`，两轮 `riskfeat` search 缺 `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean`。这些 search 的回测与 prediction 事实仍在，问题是历史 registry `metrics_json` 没有把所有 signal-quality 字段都持久化齐。
+
+### Decision
+
+`v3` replay 和 `24` QA 不要求历史 `ads_model_registry.metrics_json` 原字段完整回填。读取时采用 source-derivable fallback：
+
+1. `cv_confirmation_status` 优先读历史原字段；若缺失，则按既有训练期口径用 `cv_rank_ic_mean`、`cv_top_minus_bottom_fwd_ret_mean`，并在 `cv_fold_count < 3` 时判 `failed`。
+2. `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 优先读历史原字段；若缺失，则从 `ads_model_prediction_daily` + `ads_ml_training_panel_daily` 在 `test` 窗口按原 search orchestrator 公式现算。
+3. 不对历史 registry / summary 做回填或改写；fallback 仅用于 `v3` replay 和其 SQL QA 的只读判定。
+
+### Rationale
+
+这样能保留历史事实表不变，避免“为了新 gate 回写旧 registry”破坏审计边界；同时 replay 与 QA 仍然基于可追溯 source-of-truth 计算，不是拍脑袋补默认值。
+
+### Impact
+
+1. `scripts/strategy1/replay_acceptance_gate_v3.py` 和 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 现在必须共享这套 fallback 语义。
+2. 后续若再引入新的 signal-quality 字段，必须先明确“原字段必需”还是“可由 source 推导”，再接入 replay / QA。
+
+### Related Files
+
+`scripts/strategy1/replay_acceptance_gate_v3.py`, `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`, `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`, `scripts/strategy1_cloudrun/train_predict.py`
+
+## DECISION-20260608-19: OQ-005 跳过 shadow run，直接切到 Scheduler + Workflows 生产入口
 
 - Date: 2026-06-08
 - Status: active
