@@ -118,3 +118,8 @@
 - [x] 策略 1 BigQuery ML runner 已于 PR #12 在 BigQuery 端到端实跑并通过 `10_qa_runner_outputs.sql`（16 断言）
 - [x] OQ-004 基准指数代码可用性已实现并关闭（`dim_index` + 映射驱动 `dwd_index_eod` + OQ-004 QA + runner benchmark 窗口校验）
 - [x] OQ-007 退市日类型已复核并关闭，PR #9 后依赖链已重建并通过 P0 / 策略 1 QA
+- [x] OQ-005 Composer exit phase 1 foundation已落地到实现分支：新增 `ashare-pipeline-control` 薄控制面服务、`ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` Workflows YAML、部署脚本和 README；本轮未部署、未验证。
+- [ ] OQ-005 follow-up：迁移 `ashare_warehouse_full_rebuild` 到 Workflows，并保持显式状态写回、同步终态轮询和锁语义。
+- [ ] OQ-005 follow-up：迁移 `ashare_pipeline_alert_checker` 到 `Cloud Scheduler + Cloud Run`，摆脱 Composer 常驻环境依赖。
+- [ ] OQ-005 follow-up：补 Cloud Scheduler / IAM bootstrap / shadow-run / cutover 脚本，完成 Composer 真正下线前的生产切换路径。
+- [ ] OQ-005 follow-up：若 shadow run 暴露锁过期边界，再给 `ashare-pipeline-control` stale-lock reclaim 补 Workflows execution liveness 检查；当前 phase 1 先以显式 SQL call timeout + 更长 lease headroom 收敛风险。

@@ -1,0 +1,884 @@
+main:
+  params: [args]
+  steps:
+    - init_base:
+        assign:
+          - project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+          - region: ${sys.get_env("GOOGLE_CLOUD_LOCATION")}
+          - workflow_id: ${sys.get_env("GOOGLE_CLOUD_WORKFLOW_ID")}
+          - workflow_execution_id: ${sys.get_env("GOOGLE_CLOUD_WORKFLOW_EXECUTION_ID")}
+          - orchestration_log_url: ${"https://console.cloud.google.com/workflows/workflow/" + region + "/" + workflow_id + "/executions/" + workflow_execution_id + "?project=" + project_id}
+          - control_service_url: "__PIPELINE_CONTROL_URL__"
+          - dag_id: "ashare_ods_ingestion_daily"
+          - pipeline_run_id: ${workflow_execution_id}
+          - transform_backend: "bigquery_sql"
+          - warehouse_mode: "not_applicable"
+          - bq_location: "asia-east2"
+          - run_label: null
+          - business_date: null
+          - date_to: null
+          - pipeline_dry_run: null
+          - scheduled_run: null
+          - force_non_trading_day_gate: null
+          - skip_ingestion: null
+          - skip_downstream_refresh: null
+          - trigger_downstream_refresh: null
+          - require_business_partition: ""
+          - current_task_id: null
+          - current_task_type: null
+          - current_error_summary: null
+          - current_error_payload: null
+          - input_business_date: ${map.get(args, "business_date")}
+          - input_date_to: ${map.get(args, "date_to")}
+          - input_run_label: ${map.get(args, "run_label")}
+          - input_pipeline_dry_run: ${map.get(args, "pipeline_dry_run")}
+          - input_scheduled_run: ${map.get(args, "scheduled_run")}
+          - input_force_non_trading_day_gate: ${map.get(args, "force_non_trading_day_gate")}
+          - input_skip_ingestion: ${map.get(args, "skip_ingestion")}
+          - input_skip_downstream_refresh: ${map.get(args, "skip_downstream_refresh")}
+          - input_trigger_downstream_refresh: ${map.get(args, "trigger_downstream_refresh")}
+    - resolve_business_date:
+        switch:
+          - condition: ${input_business_date == null or input_business_date == ""}
+            next: set_business_date_default
+        next: set_business_date_input
+    - set_business_date_default:
+        assign:
+          - business_date: ${text.substring(time.format(sys.now(), "Asia/Shanghai"), 0, 10)}
+        next: resolve_date_to
+    - set_business_date_input:
+        assign:
+          - business_date: ${input_business_date}
+        next: resolve_date_to
+    - resolve_date_to:
+        switch:
+          - condition: ${input_date_to == null or input_date_to == ""}
+            next: set_date_to_default
+        next: set_date_to_input
+    - set_date_to_default:
+        assign:
+          - date_to: ${business_date}
+        next: resolve_run_label
+    - set_date_to_input:
+        assign:
+          - date_to: ${input_date_to}
+        next: resolve_run_label
+    - resolve_run_label:
+        switch:
+          - condition: ${input_run_label == null or input_run_label == ""}
+            next: set_run_label_default
+        next: set_run_label_input
+    - set_run_label_default:
+        assign:
+          - run_label: "daily_ingestion"
+        next: resolve_pipeline_dry_run
+    - set_run_label_input:
+        assign:
+          - run_label: ${input_run_label}
+        next: resolve_pipeline_dry_run
+    - resolve_pipeline_dry_run:
+        switch:
+          - condition: ${input_pipeline_dry_run == null or input_pipeline_dry_run == ""}
+            next: set_pipeline_dry_run_default
+        next: set_pipeline_dry_run_input
+    - set_pipeline_dry_run_default:
+        assign:
+          - pipeline_dry_run: "true"
+        next: resolve_scheduled_run
+    - set_pipeline_dry_run_input:
+        assign:
+          - pipeline_dry_run: ${input_pipeline_dry_run}
+        next: resolve_scheduled_run
+    - resolve_scheduled_run:
+        switch:
+          - condition: ${input_scheduled_run == null or input_scheduled_run == ""}
+            next: set_scheduled_run_default
+        next: set_scheduled_run_input
+    - set_scheduled_run_default:
+        assign:
+          - scheduled_run: "false"
+        next: resolve_force_non_trading_day_gate
+    - set_scheduled_run_input:
+        assign:
+          - scheduled_run: ${input_scheduled_run}
+        next: resolve_force_non_trading_day_gate
+    - resolve_force_non_trading_day_gate:
+        switch:
+          - condition: ${input_force_non_trading_day_gate == null or input_force_non_trading_day_gate == ""}
+            next: set_force_non_trading_day_gate_default
+        next: set_force_non_trading_day_gate_input
+    - set_force_non_trading_day_gate_default:
+        assign:
+          - force_non_trading_day_gate: "false"
+        next: resolve_skip_ingestion
+    - set_force_non_trading_day_gate_input:
+        assign:
+          - force_non_trading_day_gate: ${input_force_non_trading_day_gate}
+        next: resolve_skip_ingestion
+    - resolve_skip_ingestion:
+        switch:
+          - condition: ${input_skip_ingestion == null or input_skip_ingestion == ""}
+            next: set_skip_ingestion_default
+        next: set_skip_ingestion_input
+    - set_skip_ingestion_default:
+        assign:
+          - skip_ingestion: "false"
+        next: resolve_skip_downstream_refresh
+    - set_skip_ingestion_input:
+        assign:
+          - skip_ingestion: ${input_skip_ingestion}
+        next: resolve_skip_downstream_refresh
+    - resolve_skip_downstream_refresh:
+        switch:
+          - condition: ${input_skip_downstream_refresh == null or input_skip_downstream_refresh == ""}
+            next: set_skip_downstream_refresh_default
+        next: set_skip_downstream_refresh_input
+    - set_skip_downstream_refresh_default:
+        assign:
+          - skip_downstream_refresh: "false"
+        next: resolve_trigger_downstream_refresh
+    - set_skip_downstream_refresh_input:
+        assign:
+          - skip_downstream_refresh: ${input_skip_downstream_refresh}
+        next: resolve_trigger_downstream_refresh
+    - resolve_trigger_downstream_refresh:
+        switch:
+          - condition: ${input_trigger_downstream_refresh == null or input_trigger_downstream_refresh == ""}
+            next: set_trigger_downstream_refresh_default
+        next: set_trigger_downstream_refresh_input
+    - set_trigger_downstream_refresh_default:
+        assign:
+          - trigger_downstream_refresh: "false"
+        next: orchestrate
+    - set_trigger_downstream_refresh_input:
+        assign:
+          - trigger_downstream_refresh: ${input_trigger_downstream_refresh}
+        next: orchestrate
+    - orchestrate:
+        try:
+          steps:
+            - set_task_start:
+                assign:
+                  - current_task_id: "start"
+                  - current_task_type: "orchestration"
+            - mark_start_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - set_task_setup:
+                assign:
+                  - current_task_id: "setup"
+                  - current_task_type: "orchestration"
+            - mark_setup_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - set_task_pipeline_start_status:
+                assign:
+                  - current_task_id: "pipeline_start_status"
+                  - current_task_type: "metadata"
+            - write_pipeline_run_running:
+                call: write_pipeline_run_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  upstream_pipeline_run_id: ""
+                  triggered_by_dag_id: ""
+                  status: "running"
+                  error_summary: null
+                  error_payload: null
+            - mark_pipeline_start_status_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - decide_gate_enabled:
+                switch:
+                  - condition: ${scheduled_run == "true" or scheduled_run == true or force_non_trading_day_gate == "true" or force_non_trading_day_gate == true}
+                    next: set_task_non_trading_day_gate
+                next: set_task_branch_ingestion
+            - set_task_non_trading_day_gate:
+                assign:
+                  - current_task_id: "non_trading_day_gate"
+                  - current_task_type: "branch"
+            - call_sse_gate:
+                call: call_sse_gate
+                args:
+                  control_service_url: ${control_service_url}
+                  business_date: ${business_date}
+                result: sse_gate_result
+            - mark_non_trading_day_gate_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - branch_on_sse_open:
+                switch:
+                  - condition: ${not map.get(sse_gate_result, "is_open")}
+                    next: set_task_skip_non_trading_day
+                next: set_task_branch_ingestion
+            - set_task_skip_non_trading_day:
+                assign:
+                  - current_task_id: "skip_non_trading_day"
+                  - current_task_type: "orchestration"
+            - mark_skip_non_trading_day:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "skipped"
+                  error_summary: "SSE closed on business_date; ingestion skipped"
+                  error_payload: null
+                  resource_name: null
+                next: finalize_pipeline_success
+            - set_task_branch_ingestion:
+                assign:
+                  - current_task_id: "branch_ingestion"
+                  - current_task_type: "branch"
+            - mark_branch_ingestion_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - branch_ingestion:
+                switch:
+                  - condition: ${skip_ingestion == "true" or skip_ingestion == true}
+                    next: set_task_ods_readiness
+                  - condition: ${pipeline_dry_run == "true" or pipeline_dry_run == true}
+                    next: set_task_ingestion_dry_run
+                next: set_task_ingestion_write
+            - set_task_ingestion_dry_run:
+                assign:
+                  - current_task_id: "ingestion.ingest_current_scope_dry_run"
+                  - current_task_type: "cloud_run"
+                next: mark_ingestion_dry_run_running
+            - mark_ingestion_dry_run_running:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: "current_scope"
+                  status: "running"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - run_ingestion_dry_run:
+                call: googleapis.run.v2.projects.locations.jobs.run
+                args:
+                  name: ${"projects/" + project_id + "/locations/" + region + "/jobs/ashare-ingest-current-scope"}
+                  body:
+                    overrides:
+                      containerOverrides:
+                        - args:
+                            - "--endpoint-group"
+                            - "current_scope"
+                            - "--business-date"
+                            - ${business_date}
+                            - "--ingestion-run-id"
+                            - "composer_current_scope_dry_run"
+                            - "--dry-run"
+                  connector_params:
+                    timeout: 7200
+                result: ingestion_dry_run_execution
+            - mark_ingestion_dry_run_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: "current_scope"
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: ${map.get(ingestion_dry_run_execution, "name")}
+                next: set_task_ods_readiness
+            - set_task_ingestion_write:
+                assign:
+                  - current_task_id: "ingestion.ingest_current_scope_write"
+                  - current_task_type: "cloud_run"
+                next: mark_ingestion_write_running
+            - mark_ingestion_write_running:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: "current_scope"
+                  status: "running"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - run_ingestion_write:
+                call: googleapis.run.v2.projects.locations.jobs.run
+                args:
+                  name: ${"projects/" + project_id + "/locations/" + region + "/jobs/ashare-ingest-current-scope"}
+                  body:
+                    overrides:
+                      containerOverrides:
+                        - args:
+                            - "--endpoint-group"
+                            - "current_scope"
+                            - "--business-date"
+                            - ${business_date}
+                            - "--ingestion-run-id"
+                            - "composer_current_scope_write"
+                            - "--allow-gcs-write"
+                  connector_params:
+                    timeout: 7200
+                result: ingestion_write_execution
+            - mark_ingestion_write_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: "current_scope"
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: ${map.get(ingestion_write_execution, "name")}
+            - set_task_ods_readiness:
+                assign:
+                  - current_task_id: "ods_daily_partition_readiness"
+                  - current_task_type: "bigquery"
+            - run_ods_readiness:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/qa/09_ods_daily_partition_readiness.sql"
+                  query_parameters:
+                    - name: "pipeline_run_id"
+                      type: "STRING"
+                      value: ${pipeline_run_id}
+                    - name: "business_date"
+                      type: "STRING"
+                      value: ${business_date}
+                    - name: "pipeline_dry_run"
+                      type: "STRING"
+                      value: ${pipeline_dry_run}
+                    - name: "require_business_partition"
+                      type: "STRING"
+                      value: ${require_business_partition}
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ""
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - set_task_branch_downstream_refresh:
+                assign:
+                  - current_task_id: "branch_downstream_refresh"
+                  - current_task_type: "branch"
+            - mark_branch_downstream_refresh_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - branch_downstream_refresh:
+                switch:
+                  - condition: ${skip_downstream_refresh == "true" or skip_downstream_refresh == true}
+                    next: set_task_skip_downstream_refresh
+                  - condition: ${pipeline_dry_run == "true" or pipeline_dry_run == true}
+                    next: set_task_skip_downstream_refresh
+                  - condition: ${(skip_ingestion == "true" or skip_ingestion == true) and not (trigger_downstream_refresh == "true" or trigger_downstream_refresh == true)}
+                    next: set_task_skip_downstream_refresh
+                next: set_task_trigger_warehouse_window_refresh
+            - set_task_skip_downstream_refresh:
+                assign:
+                  - current_task_id: "skip_downstream_refresh"
+                  - current_task_type: "orchestration"
+                next: mark_skip_downstream_refresh
+            - mark_skip_downstream_refresh:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "skipped"
+                  error_summary: "downstream refresh skipped by branch conditions"
+                  error_payload: null
+                  resource_name: null
+                next: finalize_pipeline_success
+            - set_task_trigger_warehouse_window_refresh:
+                assign:
+                  - current_task_id: "trigger_warehouse_window_refresh"
+                  - current_task_type: "workflow"
+            - mark_trigger_warehouse_window_refresh_running:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "running"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - run_child_warehouse_window_refresh:
+                call: googleapis.workflowexecutions.v1.projects.locations.workflows.executions.run
+                args:
+                  project_id: ${project_id}
+                  location: ${region}
+                  workflow_id: "ashare_warehouse_window_refresh"
+                  connector_params:
+                    timeout: 7200
+                  argument:
+                    business_date: ${business_date}
+                    date_to: ${date_to}
+                    warehouse_mode: "daily_current"
+                    pipeline_dry_run: "false"
+                    upstream_pipeline_run_id: ${pipeline_run_id}
+                    triggered_by_dag_id: ${dag_id}
+                    run_label: "triggered_daily_current"
+                result: child_workflow_result
+            - mark_trigger_warehouse_window_refresh_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: ${child_workflow_result}
+                  resource_name: null
+            - finalize_pipeline_success:
+                assign:
+                  - current_task_id: "pipeline_finalize_status"
+                  - current_task_type: "metadata"
+            - write_pipeline_run_success:
+                call: write_pipeline_run_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  upstream_pipeline_run_id: ""
+                  triggered_by_dag_id: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+            - mark_pipeline_finalize_status_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - set_task_finish:
+                assign:
+                  - current_task_id: "finish"
+                  - current_task_type: "orchestration"
+            - mark_finish_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+        except:
+          as: e
+          steps:
+            - set_failure_error_fields:
+                assign:
+                  - current_error_summary: ${text.substring(json.encode_to_string(e), 0, 1000)}
+                  - current_error_payload: ${e}
+            - write_pipeline_run_failed:
+                call: write_pipeline_run_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  upstream_pipeline_run_id: ""
+                  triggered_by_dag_id: ""
+                  status: "failed"
+                  error_summary: ${current_error_summary}
+                  error_payload: ${current_error_payload}
+            - maybe_write_failed_task_status:
+                switch:
+                  - condition: ${current_task_id != null}
+                    next: write_failed_task_status
+                next: rethrow_error
+            - write_failed_task_status:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ${"current_scope" if text.match_regex(current_task_id, "^ingestion\\.") else ""}
+                  status: "failed"
+                  error_summary: ${current_error_summary}
+                  error_payload: ${current_error_payload}
+                  resource_name: null
+            - rethrow_error:
+                raise: ${e}
+    - return_success:
+        return:
+          dag_id: ${dag_id}
+          pipeline_run_id: ${pipeline_run_id}
+          workflow_id: ${workflow_id}
+          workflow_execution_id: ${workflow_execution_id}
+          business_date: ${business_date}
+          date_to: ${date_to}
+          pipeline_dry_run: ${pipeline_dry_run}
+          run_label: ${run_label}
+
+call_sse_gate:
+  params: [control_service_url, business_date]
+  steps:
+    - post_sse_gate:
+        call: http.post
+        args:
+          url: ${control_service_url + "/v1/gates/sse-is-open"}
+          auth:
+            type: OIDC
+          body:
+            business_date: ${business_date}
+        result: sse_gate_response
+    - return_sse_gate:
+        return: ${sse_gate_response.body}
+
+write_pipeline_run_status:
+  params: [control_service_url, dag_id, pipeline_run_id, business_date, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url, upstream_pipeline_run_id, triggered_by_dag_id, status, error_summary, error_payload]
+  steps:
+    - post_status:
+        call: http.post
+        args:
+          url: ${control_service_url + "/v1/pipeline-runs/status"}
+          auth:
+            type: OIDC
+          body:
+            dag_id: ${dag_id}
+            pipeline_run_id: ${pipeline_run_id}
+            business_date: ${business_date}
+            date_from: ""
+            date_to: ${date_to}
+            run_label: ${run_label}
+            warehouse_mode: ${warehouse_mode}
+            transform_backend: ${transform_backend}
+            workflow_id: ${workflow_id}
+            workflow_execution_id: ${workflow_execution_id}
+            orchestration_log_url: ${orchestration_log_url}
+            upstream_pipeline_run_id: ${upstream_pipeline_run_id}
+            triggered_by_dag_id: ${triggered_by_dag_id}
+            status: ${status}
+            error_summary: ${error_summary}
+            error_payload: ${error_payload}
+        result: pipeline_run_status_response
+    - return_pipeline_run_status:
+        return: ${pipeline_run_status_response.body}
+
+write_task_status:
+  params: [control_service_url, dag_id, pipeline_run_id, task_id, task_type, business_date, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url, endpoint, status, error_summary, error_payload, resource_name]
+  steps:
+    - post_task_status:
+        call: http.post
+        args:
+          url: ${control_service_url + "/v1/tasks/status"}
+          auth:
+            type: OIDC
+          body:
+            dag_id: ${dag_id}
+            pipeline_run_id: ${pipeline_run_id}
+            task_id: ${task_id}
+            task_type: ${task_type}
+            business_date: ${business_date}
+            date_from: ""
+            date_to: ${date_to}
+            run_label: ${run_label}
+            warehouse_mode: ${warehouse_mode}
+            transform_backend: ${transform_backend}
+            workflow_id: ${workflow_id}
+            workflow_execution_id: ${workflow_execution_id}
+            orchestration_log_url: ${orchestration_log_url}
+            endpoint: ${endpoint}
+            status: ${status}
+            error_summary: ${error_summary}
+            error_payload: ${error_payload}
+            resource_name: ${resource_name}
+        result: task_status_response
+    - return_task_status:
+        return: ${task_status_response.body}
+
+run_bigquery_task:
+  params: [control_service_url, dag_id, pipeline_run_id, task_id, task_type, sql_path, query_parameters, location, business_date, date_from, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url]
+  steps:
+    - post_bigquery_task:
+        call: http.post
+        args:
+          url: ${control_service_url + "/v1/tasks/bigquery"}
+          timeout: 3300
+          auth:
+            type: OIDC
+          body:
+            dag_id: ${dag_id}
+            pipeline_run_id: ${pipeline_run_id}
+            task_id: ${task_id}
+            task_type: ${task_type}
+            sql_path: ${sql_path}
+            query_parameters: ${query_parameters}
+            location: ${location}
+            business_date: ${business_date}
+            date_from: ${date_from}
+            date_to: ${date_to}
+            run_label: ${run_label}
+            warehouse_mode: ${warehouse_mode}
+            transform_backend: ${transform_backend}
+            workflow_id: ${workflow_id}
+            workflow_execution_id: ${workflow_execution_id}
+            orchestration_log_url: ${orchestration_log_url}
+        result: bigquery_task_response
+    - return_bigquery_task:
+        return: ${bigquery_task_response.body}

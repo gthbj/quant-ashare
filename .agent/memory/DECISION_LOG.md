@@ -1688,3 +1688,41 @@ Model: GPT-5 Codex
 ### Related files
 
 `sql/ml/strategy1/10_qa_runner_outputs.sql`, `scripts/strategy1_cloudrun/backtest_report.py`, `scripts/strategy1/diagnose_acceptance_gate_v2.py`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260608-06: OQ-005 phase 1 采用薄 pipeline-control 服务承接 Workflows 公共能力
+
+Date: 2026-06-08
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5 Codex
+
+### Context
+
+开始实现 OQ-005 Composer exit 时，需要在 Workflows 保持显式 task 状态写回、复用 canonical SQL、保留 SSE 交易日 gate 语义，并补回 `ashare_warehouse_window_refresh` 的串行写路径约束。如果把大段 SQL 直接嵌进 Workflow YAML，或者把过多流程逻辑搬进自定义服务，都会增加迁移复杂度和后续维护风险。
+
+### Decision
+
+引入 `ashare-pipeline-control` 作为薄 Cloud Run 适配层，专门承接四类 Workflows 公共能力：
+1. `pipeline_run` / `pipeline_task_status` 写回；
+2. 执行仓库内打包 SQL；
+3. SSE 交易日 gate 查询；
+4. `ashare_warehouse_window_refresh` 的 GCS lease lock。
+
+Workflows 仍然是编排真相源；BigQuery 仍然执行 SQL；`ashare-ingest-current-scope` 仍然执行 ODS ingestion。
+
+### Rationale
+
+这样可以保留 Workflows 的声明式编排，把可复用的横切能力集中在一个很薄的 runtime 里，同时继续以仓库内 canonical SQL 为唯一业务口径，避免把业务 SQL 和状态写回逻辑分散到多个 workflow step body 中。
+
+### Impact
+
+后续 workflow 部署依赖一个额外的 Cloud Run service；后续 PR 必须保持这个 service 的“薄适配层”边界，不能把业务编排主逻辑继续外移成通用 orchestrator。
+
+### Alternatives
+
+把大段 SQL 直接写进 Workflow YAML；放弃，因为维护和 review 成本高，且更容易偏离 canonical SQL。直接实现更大的 Cloud Run orchestrator；放弃，因为会削弱 Workflows 作为主编排层的地位。
+
+### Related files
+
+`scripts/pipeline_control/state.py`, `scripts/pipeline_control/service.py`, `orchestration/workflows/ashare_ods_ingestion_daily.yaml`, `orchestration/workflows/ashare_warehouse_window_refresh.yaml`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`

@@ -1,3 +1,8 @@
+## 当前交接摘要（2026-06-08）
+- OQ-005 Composer exit 进入实现阶段 1：已在 `codex/implement-composer-exit` 落地 `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows YAML，以及 `ashare-pipeline-control` 薄控制面服务、部署脚本和 README。
+- 本轮范围只覆盖主编排链路：ODS ingestion、ODS readiness、window DWD/DWS/market-state、QA 链、状态写回、GCS 锁和同步 child workflow；`ashare_warehouse_full_rebuild`、`ashare_pipeline_alert_checker`、Cloud Scheduler / IAM bootstrap / cutover 仍未迁移。
+- 本轮未做部署或运行验证；下一步应在实现 PR review 后补 Workflows YAML 细节审阅、补齐 full rebuild / alert checker / Scheduler，再进入 shadow run 与 cutover。
+
 # Agent 交接（Agent Handoff）
 
 本文件保存供后续 Agent 使用的最新交接记录。新交接用 `templates/HANDOFF_TEMPLATE.md` 追加到底部，并同步刷新下面的「当前交接摘要」。
@@ -3419,3 +3424,65 @@ Run ID: fix_index_benchmark_qa_date_bound_20260608
 
 - 提 PR 并合并后，同步 `sql/qa/03_index_benchmark_checks.sql` 到 Composer bucket。
 - 重新触发或等待当前 smoke retry，让 `qa_after_window.index_benchmark_checks` 使用新口径通过。
+
+---
+Date: 2026-06-08
+Model: GPT-5 Codex
+Branch: codex/implement-composer-exit
+Summary:
+- Added first implementation slice for OQ-005 Composer exit on a dedicated worktree branch.
+- Added thin `ashare-pipeline-control` Cloud Run service for pipeline status writeback, bundled SQL execution, SSE trading-day gate, and GCS-backed orchestration locks.
+- Added Workflows definitions for `ashare_ods_ingestion_daily` and `ashare_warehouse_window_refresh` with explicit per-task status writes and synchronous child workflow invocation.
+- Added deployment scaffolding and directory README for the workflows migration path.
+Files:
+- scripts/pipeline_control/__init__.py
+- scripts/pipeline_control/requirements.txt
+- scripts/pipeline_control/state.py
+- scripts/pipeline_control/service.py
+- orchestration/workflows/Dockerfile.pipeline_control
+- orchestration/workflows/cloudbuild.pipeline_control.yaml
+- orchestration/workflows/deploy_pipeline_control_service.sh
+- orchestration/workflows/deploy_workflows.sh
+- orchestration/workflows/README.md
+- orchestration/workflows/ashare_ods_ingestion_daily.yaml
+- orchestration/workflows/ashare_warehouse_window_refresh.yaml
+- sql/meta/01_create_meta_tables.sql
+Open follow-ups:
+- Migrate `ashare_warehouse_full_rebuild` to Workflows with the same hard constraints.
+- Migrate `ashare_pipeline_alert_checker` off Composer.
+- Add Cloud Scheduler jobs, runtime IAM bootstrap, and shadow-run / cutover scripts.
+- Review Workflows YAML semantics against PRD hard constraints before deployment.
+Validation:
+- Not run in this turn by owner instruction.
+
+---
+Date: 2026-06-08
+Model: GPT-5 Codex
+Branch: codex/implement-composer-exit
+Summary:
+- Addressed PR #110 review P2 items and one additional runtime blocker in the control service.
+- Added explicit Workflow `http.post` timeout for `/v1/tasks/bigquery` and increased warehouse lock lease headroom.
+- Wired lock lease semantics end-to-end in seconds and made lock endpoints backward-compatible with current workflow payload shape while resolving generation by owner when omitted.
+- Fixed `/v1/tasks/bigquery` to accept the current flattened workflow payload as context, not only nested `context` form.
+Files:
+- orchestration/workflows/ashare_ods_ingestion_daily.yaml
+- orchestration/workflows/ashare_warehouse_window_refresh.yaml
+- scripts/pipeline_control/service.py
+- scripts/pipeline_control/state.py
+Open follow-ups:
+- Consider adding Workflow execution liveness checks before stale-lock reclaim if phase 1 runtime shows lock-expiry edge cases.
+Validation:
+- Not run in this turn by owner instruction.
+
+---
+Date: 2026-06-08
+Model: GPT-5 Codex
+Branch: codex/implement-composer-exit
+Summary:
+- Addressed PR #110 re-review runtime bug in the lock compatibility path.
+- Fixed `lock_generation_for_owner` to construct the GCS blob and read lock content correctly before deriving generation by owner.
+- This restores the intended heartbeat/release path for workflows that omit explicit `generation` and rely on backward-compatible `lock_name`/`owner` payloads.
+Files:
+- scripts/pipeline_control/state.py
+Validation:
+- Not run in this turn by owner instruction.
