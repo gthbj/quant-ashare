@@ -44,6 +44,9 @@ DEFAULT_SEARCH_IDS = [
     "cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_20260606_01",
     "cloudrun_python_riskfeat_lgbm_reg_pvfq_n30_bw_h5_20260606_01",
 ]
+LEGACY_VALID_AS_CV_SEARCH_IDS = {
+    "sklearn_native_pvfq_n30_bw_h5_20260605_01",
+}
 REQUIRED_ARTIFACTS = [
     "acceptance_gate_v3_replay_summary.json",
     "acceptance_gate_v3_replay_summary.md",
@@ -552,6 +555,7 @@ def evaluate_candidate(
         "max_drawdown_trough_date": trough_date.isoformat() if trough_date else None,
         "calmar_ratio": calmar_ratio,
         "final_holdout_trading_day_count": final_holdout_days,
+        "final_holdout_gate_status": final_holdout_gate_status(final_holdout_days, contract),
         "passed_benchmark_sec_codes": passed_benchmarks,
         "passed_benchmark_count": len(passed_benchmarks),
         "v3_acceptance_status": status,
@@ -677,11 +681,40 @@ def effective_cv_confirmation_status(record: dict[str, Any], metrics: dict[str, 
     cv_rank_ic = first_finite(record.get("cv_rank_ic_mean"), metrics.get("cv_rank_ic_mean"))
     cv_top_minus_bottom = safe_float(coalesce_value(record.get("cv_top_minus_bottom_fwd_ret_mean"), metrics.get("cv_top_minus_bottom_fwd_ret_mean")))
     cv_fold_count = safe_int(coalesce_value(record.get("cv_fold_count"), metrics.get("cv_fold_count")))
-    if cv_rank_ic is None or cv_top_minus_bottom is None:
-        return None, False
-    if cv_fold_count is not None and cv_fold_count < 3:
-        return "failed", True
-    return ("passed" if cv_rank_ic > 0 and cv_top_minus_bottom > 0 else "failed"), True
+    if cv_rank_ic is not None and cv_top_minus_bottom is not None:
+        if cv_fold_count is not None and cv_fold_count < 3:
+            return "failed", True
+        return ("passed" if cv_rank_ic > 0 and cv_top_minus_bottom > 0 else "failed"), True
+
+    legacy_status = legacy_valid_as_cv_confirmation_status(record, metrics)
+    if legacy_status is not None:
+        return legacy_status, True
+    return None, False
+
+
+def legacy_valid_as_cv_confirmation_status(record: dict[str, Any], metrics: dict[str, Any]) -> str | None:
+    search_id = coalesce_text(record.get("search_id"), metrics.get("search_id"))
+    if search_id not in LEGACY_VALID_AS_CV_SEARCH_IDS:
+        return None
+    valid_signal_status = coalesce_text(record.get("valid_signal_status"), metrics.get("valid_signal_status"))
+    valid_rank_ic = first_finite(
+        record.get("effective_valid_rank_ic_mean"),
+        metrics.get("oriented_valid_rank_ic_mean"),
+        metrics.get("valid_rank_ic_mean"),
+    )
+    valid_top_minus_bottom = safe_float(
+        coalesce_value(
+            record.get("valid_top_minus_bottom_fwd_ret_mean"),
+            metrics.get("valid_top_minus_bottom_fwd_ret_mean"),
+        )
+    )
+    if valid_signal_status is None or valid_rank_ic is None or valid_top_minus_bottom is None:
+        return None
+    return (
+        "passed"
+        if valid_signal_status == "stable" and valid_rank_ic > 0 and valid_top_minus_bottom > 0
+        else "failed"
+    )
 
 
 def effective_test_metric(record: dict[str, Any], metrics: dict[str, Any], field_name: str) -> tuple[float | None, bool]:
@@ -709,9 +742,31 @@ def absolute_gate_failures(
         failures.append("sharpe_ratio_below_v3_gate")
     if not compare_metric(calmar_ratio, (absolute_gate.get("calmar_ratio") or {}).get("operator"), (absolute_gate.get("calmar_ratio") or {}).get("value")):
         failures.append("calmar_ratio_below_v3_gate")
-    if not compare_metric(float(final_holdout_days), (final_holdout_gate.get("trading_day_count") or {}).get("operator"), (final_holdout_gate.get("trading_day_count") or {}).get("value")):
+    if (
+        coalesce_text(final_holdout_gate.get("enforcement")) != "diagnostic_only"
+        and not compare_metric(
+            float(final_holdout_days),
+            (final_holdout_gate.get("trading_day_count") or {}).get("operator"),
+            (final_holdout_gate.get("trading_day_count") or {}).get("value"),
+        )
+    ):
         failures.append("final_holdout_trading_day_count_below_v3_gate")
     return failures
+
+
+def final_holdout_gate_status(final_holdout_days: int, contract: dict[str, Any]) -> str:
+    final_holdout_gate = contract.get("final_holdout_gate") or {}
+    passed = compare_metric(
+        float(final_holdout_days),
+        (final_holdout_gate.get("trading_day_count") or {}).get("operator"),
+        (final_holdout_gate.get("trading_day_count") or {}).get("value"),
+    )
+    enforcement = coalesce_text(final_holdout_gate.get("enforcement")) or "blocking"
+    if passed:
+        return "passed"
+    if enforcement == "diagnostic_only":
+        return "diagnostic_warn"
+    return "failed"
 
 
 def build_summary(

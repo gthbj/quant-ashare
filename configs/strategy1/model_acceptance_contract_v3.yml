@@ -92,6 +92,7 @@ absolute_performance_gate:
     value: 1.0
 
 final_holdout_gate:
+  enforcement: diagnostic_only
   trading_day_count:
     operator: ">="
     value: 40

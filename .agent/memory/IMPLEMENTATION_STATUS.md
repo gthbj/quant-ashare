@@ -6,6 +6,27 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：`v3` final_holdout 已从 hard veto 改为 diagnostic-only
+
+- `configs/strategy1/model_acceptance_contract_v3.yml` 现在显式把 `final_holdout_gate.enforcement` 标成 `diagnostic_only`；`final_holdout trading days >= 40` 仍保留为字段与诊断阈值，但不再阻断 `v3` accepted / rejected 判定。
+- `scripts/strategy1/replay_acceptance_gate_v3.py` 已同步：`absolute_gate_failures()` 不再因为 final_holdout trading days 不足而追加拒绝原因；candidate artifact 新增 `final_holdout_gate_status`，用于区分 `passed` / `diagnostic_warn` / `failed`（若将来再切回 blocking）。
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 的 `QA-V3-6` 已同步降级：不再要求 `>= 40`，只要求所有 replay selected row 的 final_holdout trading day count 可计算。
+- 本轮没有重跑 replay / `24` QA；下一步若要确认通过数变化，应重新执行两者。
+
+### 最新补充（2026-06-08）：`v3` replay 已成功重跑，`24` QA 已推进到 `QA-V3-6`
+
+- `scripts/strategy1/replay_acceptance_gate_v3.py` 已在 `codex/run-v3-replay-qa` 工作树中重新执行成功；结果仍为 `25` 个候选、`1 accepted / 24 rejected`，contract hash 为 `03be9f1c6c392973c8c298eba7f68ea8e957b760cbb5e9761d44e0cf0d075283`。
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 使用只替换首个 contract hash 占位符的执行方式后，`QA-V3-1` 到 `QA-V3-5` 已全部通过；其中 `QA-V3-5` 说明首轮 sklearn native search 的 legacy valid-as-CV fallback 已生效。
+- 当前唯一剩余失败项是 `QA-V3-6`：首轮 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 的 5 个 historical selected row 在 `2026-01-05..2026-04-30` 没有任何 NAV 行，因此 `final_holdout trading days = 0`，低于 `v3` 要求的 `>= 40`。
+- 这意味着 `v3` replay / QA 现在不再被历史字段缺口阻塞，而是进入真正的门语义决策：是否对没有 2026 holdout 的历史 search 保持 hard fail，或再定义一条仅限历史 replay 的兼容规则。
+
+### 最新补充（2026-06-08）：v3 replay / `24` QA 已为首轮 sklearn native search 增加 legacy valid-as-CV 兼容口径
+
+- `scripts/strategy1/replay_acceptance_gate_v3.py` 已新增只对 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 生效的 `cv_confirmation_status` fallback：当历史 row 没有 `cv_confirmation_status` / `cv_rank_ic_mean` / `cv_top_minus_bottom_fwd_ret_mean` 时，改用同一 row 已持久化的 `valid_signal_status`、`valid_rank_ic`、`valid_top_minus_bottom_fwd_ret_mean` 作为 legacy 兼容证据。
+- 兼容规则固定为：`valid_signal_status='stable' AND valid_rank_ic>0 AND valid_top_minus_bottom_fwd_ret_mean>0` 记为 `passed`，否则记为 `failed`；这条规则只用于该首轮 sklearn native search 的 historical replay，不扩展到后续 LightGBM / risk-feature 搜索。
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 已同步采用同一条 legacy fallback，确保 Python replay 与 BigQuery QA 对这 5 个历史 selected row 的 `effective_cv_confirmation_status` 口径一致。
+- 本轮未重跑 replay 或 `24` QA；下一步应在独立执行中重新跑两者，确认 `QA-V3-5` 已被该 legacy fallback 打通。
+
 ### 最新补充（2026-06-08）：PR #119 review follow-up 已修 v3 replay fallback 对称性与可追溯性
 
 - `scripts/strategy1/replay_acceptance_gate_v3.py` 已修 `effective_test_metric` 对两个 test 指标的不对称处理：`test_rank_ic_mean` 与 `test_top_minus_bottom_fwd_ret_mean` 现在都先取有限 raw 值，再回退到 source-fallback，避免 `inf` / 非有限 raw 值把 fallback 短路。

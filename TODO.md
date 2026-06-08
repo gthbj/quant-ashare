@@ -2,6 +2,10 @@
 
 ## 最新状态（2026-06-08）
 
+- [x] owner 已明确 `v3` 的 `final_holdout` 不是 hard veto：`model_acceptance_contract_v3.yml` 已将 `final_holdout_gate` 标成 `diagnostic_only`，replay 不再因天数不足拒绝，`24` QA 只要求可计算；下一步若要看影响，再重跑 replay / `24` QA
+- [~] `v3` replay 已成功重跑，结果仍是 `25` 个候选里 `1 accepted / 24 rejected`；`24` QA 也已推进到只剩 final_holdout 相关断言。现在 owner 已决定 final_holdout 非硬 veto，代码已同步修改；下一步只需按新口径重跑 replay / `24` QA 看通过数与 QA 结果如何变化
+- [x] `v3` replay / `24` QA 已为首轮 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 增加 legacy valid-as-CV 兼容口径：当历史 selected row 缺 `cv_confirmation_status` / `cv_*` 字段时，允许用 `valid_signal_status + valid_rank_ic + valid_top_minus_bottom` 代理 CV confirmation；下一步只需重跑 replay / `24` QA 验证 `QA-V3-5`
+
 - [x] PR #108 comment follow-up 已把 Composer 迁出 PRD 加硬到实现级：per-task `pipeline_task_status` 显式写回、`ashare_warehouse_window_refresh` 分布式锁、生产 ingestion -> refresh 同步 child workflow、旧 `warehouse_refresh_missing` watchdog 退役路径，以及 BigQuery / Cloud Run 轮询与 Workflows 限额复核都已写入 PRD。
 
 - [x] 新增 OQ-005 编排迁出 Composer 主 PRD：`docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md` 已明确长期目标改为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，当前 Composer DAG 拆分与 smoke 只视为 cutover 前过渡态；目标是在迁移验收后删除 Composer 环境，消除固定 `standard milli DCU-hours` 底座成本。
