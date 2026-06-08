@@ -128,4 +128,4 @@
 
 ## 2026-06-08 完成
 - [x] 修复 Strategy1 Cloud Run `prepare_matrix` 对 `has_fin_*` JSON 布尔特征的解包错误，并在 `000001.SH` 下跑通 `12` 候选 LightGBM regression smoke（`cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_smoke_20260608_05`）。
-
+- [x] 处理 PR #113 review follow-up：将 Strategy1 Cloud Run `BOOLEAN_FEATURE_COLUMNS` 收窄回仅 4 个真实 JSON 布尔字段 `has_fin_*`，避免把 10 个数值型 `risk_*` / `is_*` 特征静默解包为 `NULL`。

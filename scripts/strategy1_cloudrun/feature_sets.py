@@ -124,11 +124,6 @@ BOOLEAN_FEATURE_COLUMNS = [
     "has_fin_income",
     "has_fin_balancesheet",
     "has_fin_cashflow",
-    *RISK_FLAG_FEATURE_COLUMNS,
-    "is_smallcap_trend_down",
-    "is_breadth_weak",
-    "is_limit_down_diffusion",
-    "is_risk_off",
 ]
 
 RISK_INTERACTION_FEATURE_COLUMNS = [

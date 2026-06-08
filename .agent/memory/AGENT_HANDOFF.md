@@ -3679,6 +3679,11 @@ Run ID: oq005-composer-exit-next-20260608
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #113 review 已确认上一版 bool 白名单过宽：`risk_*` 6 列与 `is_*` 4 列在 training panel JSON 中是数字 `1.0/0.0` 或 `1/0`，不能按 `BOOL` 解包。
+> - 已将 Strategy1 Cloud Run `BOOLEAN_FEATURE_COLUMNS` 收窄为仅 4 个 `has_fin_*`；它们继续走 `BOOL -> INT64`，其余 `risk_*` / `is_*` 恢复走 `FLOAT64`。
+> - 这次是针对 review 的最小纠偏，不改 runner 其他逻辑；现有 PR #113 需以这版为准，上一条 handoff 中“新增布尔特征时同步更新布尔清单”仍成立，但布尔清单只应收录真实 JSON 布尔字段。
+
 ## 2026-06-08 - GPT-5 Codex
 - Date: 2026-06-08
 - Model: GPT-5 Codex
@@ -3689,3 +3694,12 @@ Run ID: oq005-composer-exit-next-20260608
 - Notes: 本地 `gcloud` 若需继续追 execution describe，需显式绑定 `CLOUDSDK_PYTHON` 到仓库运行时的 Python 3.10+；这是工作站环境事项，不属于仓库代码变更。
 - Next Steps: 继续基于当前 `v1` 门做下一轮模型/特征搜索；`v2` 路径后续忽略。
 
+## 2026-06-08 - GPT-5 Codex
+- Date: 2026-06-08
+- Model: GPT-5 Codex
+- Branch: `codex/cloudrun-boolfix-benchmark-smoke`
+- Summary: 处理 PR #113 review，纠正 Strategy1 Cloud Run JSON 布尔特征白名单过宽的问题，避免把 10 个数值型 `risk_*` / `is_*` 特征静默解码为 `NULL`。
+- Files: `scripts/strategy1_cloudrun/feature_sets.py`
+- Validation: 基于 `sql/cloudrun/strategy1/01_build_training_panel.sql` 的字段类型复核，确认仅 4 个 `has_fin_*` 是 JSON 布尔；`risk_*` 为 `1.0/0.0`，`is_*` 为 `1/0`，必须继续走数值解包路径。
+- Notes: 这是对同一 PR 的后续修复，未重跑新的 Cloud Run smoke；现有 smoke 结果只说明链路跑通，不再作为这 10 个字段解码正确性的证据。
+- Next Steps: push 到 PR #113，并按该 review 结论继续后续搜索。

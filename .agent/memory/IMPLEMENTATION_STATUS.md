@@ -6,6 +6,12 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：PR #113 review 修复 bool-feature 白名单过宽
+
+- PR #113 comment 已确认上一版 `BOOLEAN_FEATURE_COLUMNS` 过宽：`risk_*` 六列在 training panel JSON 中由 `CASE ... THEN 1.0 ELSE 0.0 END` 生成，是 JSON 数字；`is_smallcap_trend_down`、`is_breadth_weak`、`is_limit_down_diffusion`、`is_risk_off` 四列在 panel SQL 中显式 `CAST(... AS INT64)`，也是 JSON 数字 `1/0`。
+- 现已将 Strategy1 Cloud Run `BOOLEAN_FEATURE_COLUMNS` 收窄为仅四个 `has_fin_*` 真布尔字段；`risk_*` / `is_*` 恢复走原有 `FLOAT64` 数值解包路径，避免被 `SAFE_CAST(... AS BOOL)` 静默吞成 `NULL`。
+- 本次是对同一 PR 的 review follow-up，未重跑新的 Cloud Run smoke；上一轮 `000001.SH` smoke 仍可证明 live path 通畅，但不能再被视为这 10 个 risk/regime flag 字段解码正确性的验证。
+
 ### 最新补充（2026-06-08）：OQ-005 Workflows phase 1 基础设施已部署并通过真实 smoke
 
 - 已在工作树 `codex/workflows-smoke` 补最小锁集成测试：新增 `tests/pipeline_control/test_state_lock.py`，覆盖 `acquire -> lock_generation_for_owner -> heartbeat -> release` 与 owner mismatch 路径；本地 `python3 -m unittest discover -s tests/pipeline_control -p 'test_state_lock.py'` 已通过。
@@ -323,4 +329,3 @@ Last updated: 2026-06-08
 - 修复 `scripts/strategy1_cloudrun/prepare_matrix.py` / `scripts/strategy1_cloudrun/feature_sets.py`：四个 `has_fin_*` JSON 布尔特征不再按 `FLOAT64` 解包，统一走 `BOOL -> INT64`，避免 Cloud Run matrix build 在 `train` split 产出 all-null expected feature columns。
 - 基于 `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 完成 `12` 候选 LightGBM regression Cloud Run smoke：`search_id=cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_smoke_20260608_05`。
 - smoke 已验证 live path 在 `000001.SH` 下正确产出 `*_vs_primary_benchmark`、Top1 backtest 与 comparison artifacts；Top1 仍为 `rejected`，说明 benchmark 切换链路已打通，后续问题回到策略表现本身。
-
