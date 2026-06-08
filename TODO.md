@@ -122,3 +122,4 @@
 - [ ] OQ-005 follow-up：迁移 `ashare_warehouse_full_rebuild` 到 Workflows，并保持显式状态写回、同步终态轮询和锁语义。
 - [ ] OQ-005 follow-up：迁移 `ashare_pipeline_alert_checker` 到 `Cloud Scheduler + Cloud Run`，摆脱 Composer 常驻环境依赖。
 - [ ] OQ-005 follow-up：补 Cloud Scheduler / IAM bootstrap / shadow-run / cutover 脚本，完成 Composer 真正下线前的生产切换路径。
+- [ ] OQ-005 follow-up：若 shadow run 暴露锁过期边界，再给 `ashare-pipeline-control` stale-lock reclaim 补 Workflows execution liveness 检查；当前 phase 1 先以显式 SQL call timeout + 更长 lease headroom 收敛风险。

@@ -298,3 +298,4 @@ Last updated: 2026-06-08
 - Added deployment scaffolding under `orchestration/workflows/` for the control service and workflow deployment.
 - Scope intentionally excludes `ashare_warehouse_full_rebuild`, `ashare_pipeline_alert_checker`, Scheduler/IAM bootstrap, and production cutover.
 - Validation/deployment not executed in this turn.
+- PR #110 review follow-up: fixed Workflow BigQuery control-call timeout gap by adding explicit `http.post` timeout to both `run_bigquery_task` subworkflows; wired lock lease semantics end-to-end in seconds; and made `ashare-pipeline-control` lock endpoints backward-compatible with current workflow payload shape (`lock_name`/`owner`) while resolving generation internally.

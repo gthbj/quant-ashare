@@ -46,3 +46,4 @@
 - How should Cloud Scheduler payloads encode `scheduled_run` / `pipeline_dry_run` defaults so manual workflow executions keep the current fail-safe semantics while scheduled runs preserve production write behavior?
 - Should workflow task ids keep introducing new lock-related synthetic ids such as `window_refresh_lock`, or should lock acquisition/release be represented only as implementation detail under existing logical tasks?
 - When migrating `ashare_warehouse_full_rebuild`, should it reuse the same control service and lock namespace, or use a distinct lock key / workflow pair?
+- Should stale-lock reclaim in `ashare-pipeline-control` grow a Workflows execution liveness probe, or is bounded SQL-call timeout + lease headroom sufficient for phase 1 cutover?

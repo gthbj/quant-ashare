@@ -506,7 +506,7 @@ WHEN NOT MATCHED THEN INSERT (
         *,
         lock_key: str,
         owner: str,
-        ttl_minutes: int,
+        lease_seconds: int,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         bucket = self._storage().bucket(self.config.lock_bucket)
@@ -514,7 +514,7 @@ WHEN NOT MATCHED THEN INSERT (
         payload = {
             "lock_key": lock_key,
             "lock_owner": owner,
-            "lease_expires_at": (utc_now() + timedelta(minutes=ttl_minutes)).isoformat(),
+            "lease_expires_at": (utc_now() + timedelta(seconds=lease_seconds)).isoformat(),
             "acquired_at": utc_now().isoformat(),
         }
         if metadata:
@@ -553,12 +553,12 @@ WHEN NOT MATCHED THEN INSERT (
             "lock_path": blob.name,
         }
 
-    def heartbeat_lock(self, *, lock_key: str, generation: int, ttl_minutes: int) -> dict[str, Any]:
+    def heartbeat_lock(self, *, lock_key: str, generation: int, lease_seconds: int) -> dict[str, Any]:
         bucket = self._storage().bucket(self.config.lock_bucket)
         blob = bucket.blob(f"{self.config.lock_prefix.rstrip('/')}/{lock_key}.lock")
         try:
             existing = json.loads(blob.download_as_bytes(if_generation_match=generation))
-            lease_expires_at = utc_now() + timedelta(minutes=ttl_minutes)
+            lease_expires_at = utc_now() + timedelta(seconds=lease_seconds)
             existing["last_heartbeat_at"] = utc_now().isoformat()
             existing["lease_expires_at"] = lease_expires_at.isoformat()
             blob.upload_from_string(
@@ -586,6 +586,17 @@ WHEN NOT MATCHED THEN INSERT (
         except PreconditionFailed as exc:
             raise RuntimeError(f"lock release lost ownership for {lock_key}: {exc}") from exc
 
+    def lock_generation_for_owner(self, *, lock_key: str, owner: str) -> int:
+        current = self._read_lock_blob(lock_key)
+        if str(current.get("lock_owner", "")) != owner:
+            raise RuntimeError(
+                f"lock owner mismatch for {lock_key}: expected {owner}, got {current.get('lock_owner')}"
+            )
+        generation = current.get("generation")
+        if generation is None:
+            raise RuntimeError(f"lock generation missing for {lock_key}")
+        return int(generation)
+
     def _read_lock_blob(self, blob: storage.Blob) -> dict[str, Any]:
         blob.reload()
         content = json.loads(blob.download_as_bytes())
@@ -605,4 +616,3 @@ WHEN NOT MATCHED THEN INSERT (
             return True
         except Exception:
             return False
-

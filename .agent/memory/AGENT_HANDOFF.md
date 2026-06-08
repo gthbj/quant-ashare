@@ -3454,3 +3454,22 @@ Open follow-ups:
 - Review Workflows YAML semantics against PRD hard constraints before deployment.
 Validation:
 - Not run in this turn by owner instruction.
+
+---
+Date: 2026-06-08
+Model: GPT-5 Codex
+Branch: codex/implement-composer-exit
+Summary:
+- Addressed PR #110 review P2 items and one additional runtime blocker in the control service.
+- Added explicit Workflow `http.post` timeout for `/v1/tasks/bigquery` and increased warehouse lock lease headroom.
+- Wired lock lease semantics end-to-end in seconds and made lock endpoints backward-compatible with current workflow payload shape while resolving generation by owner when omitted.
+- Fixed `/v1/tasks/bigquery` to accept the current flattened workflow payload as context, not only nested `context` form.
+Files:
+- orchestration/workflows/ashare_ods_ingestion_daily.yaml
+- orchestration/workflows/ashare_warehouse_window_refresh.yaml
+- scripts/pipeline_control/service.py
+- scripts/pipeline_control/state.py
+Open follow-ups:
+- Consider adding Workflow execution liveness checks before stale-lock reclaim if phase 1 runtime shows lock-expiry edge cases.
+Validation:
+- Not run in this turn by owner instruction.

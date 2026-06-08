@@ -859,6 +859,7 @@ run_bigquery_task:
         call: http.post
         args:
           url: ${control_service_url + "/v1/tasks/bigquery"}
+          timeout: 3300
           auth:
             type: OIDC
           body:

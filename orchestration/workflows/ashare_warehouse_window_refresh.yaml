@@ -27,7 +27,7 @@ main:
           - current_error_payload: null
           - lock_name: "ashare_warehouse_window_refresh"
           - lock_owner: ${workflow_execution_id}
-          - lock_lease_seconds: 1800
+          - lock_lease_seconds: 4500
           - qa_task_prefix: "qa_after_window"
           - input_business_date: ${map.get(args, "business_date")}
           - input_date_from: ${map.get(args, "date_from")}
@@ -1264,6 +1264,7 @@ run_bigquery_task:
         call: http.post
         args:
           url: ${control_service_url + "/v1/tasks/bigquery"}
+          timeout: 3300
           auth:
             type: OIDC
           body:

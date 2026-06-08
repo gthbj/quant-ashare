@@ -44,6 +44,33 @@ def _require(payload: dict[str, Any], key: str) -> Any:
     return payload[key]
 
 
+def _lock_key(payload: dict[str, Any]) -> str:
+    raw = payload.get("lock_key", payload.get("lock_name"))
+    if raw in (None, ""):
+        raise ValueError("missing required field: lock_key")
+    return str(raw)
+
+
+def _lease_seconds(payload: dict[str, Any]) -> int:
+    raw_lease_seconds = payload.get("lease_seconds")
+    if raw_lease_seconds not in (None, ""):
+        return max(1, int(raw_lease_seconds))
+    raw_ttl_minutes = payload.get("ttl_minutes")
+    if raw_ttl_minutes not in (None, ""):
+        return max(1, int(raw_ttl_minutes)) * 60
+    return 1800
+
+
+def _lock_generation(payload: dict[str, Any], *, lock_key: str) -> int:
+    raw_generation = payload.get("generation")
+    if raw_generation not in (None, ""):
+        return int(raw_generation)
+    raw_owner = payload.get("owner")
+    if raw_owner not in (None, ""):
+        return STATE.lock_generation_for_owner(lock_key=lock_key, owner=str(raw_owner))
+    raise ValueError("missing required field: generation")
+
+
 @app.errorhandler(Exception)
 def handle_error(exc: Exception):  # type: ignore[override]
     status_code = getattr(exc, "code", 500)
@@ -94,7 +121,8 @@ def task_status():
 @app.post("/v1/tasks/bigquery")
 def task_bigquery():
     payload = _body()
-    context = dict(_require(payload, "context"))
+    raw_context = payload.get("context")
+    context = dict(raw_context) if isinstance(raw_context, dict) else dict(payload)
     task_id = str(_require(payload, "task_id"))
     sql_path = str(_require(payload, "sql_path"))
     result = STATE.run_sql_task(
@@ -112,9 +140,9 @@ def task_bigquery():
 def lock_acquire():
     payload = _body()
     result = STATE.acquire_lock(
-        lock_key=str(_require(payload, "lock_key")),
+        lock_key=_lock_key(payload),
         owner=str(_require(payload, "owner")),
-        ttl_minutes=int(payload.get("ttl_minutes", 30)),
+        lease_seconds=_lease_seconds(payload),
         metadata=dict(payload.get("metadata", {})),
     )
     return jsonify({"ok": result.get("acquired", False), **result}), (200 if result.get("acquired", False) else 409)
@@ -123,10 +151,11 @@ def lock_acquire():
 @app.post("/v1/locks/heartbeat")
 def lock_heartbeat():
     payload = _body()
+    lock_key = _lock_key(payload)
     result = STATE.heartbeat_lock(
-        lock_key=str(_require(payload, "lock_key")),
-        generation=int(_require(payload, "generation")),
-        ttl_minutes=int(payload.get("ttl_minutes", 30)),
+        lock_key=lock_key,
+        generation=_lock_generation(payload, lock_key=lock_key),
+        lease_seconds=_lease_seconds(payload),
     )
     return jsonify({"ok": True, **result})
 
@@ -134,9 +163,9 @@ def lock_heartbeat():
 @app.post("/v1/locks/release")
 def lock_release():
     payload = _body()
+    lock_key = _lock_key(payload)
     result = STATE.release_lock(
-        lock_key=str(_require(payload, "lock_key")),
-        generation=int(_require(payload, "generation")),
+        lock_key=lock_key,
+        generation=_lock_generation(payload, lock_key=lock_key),
     )
     return jsonify({"ok": True, **result})
-
