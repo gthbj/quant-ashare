@@ -1,4 +1,8 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #115 第二轮复评里指出的本地绝对路径 nit 已修：OQ-005 PRD 不再把 `/Users/fisher/...` 写进提交文本，已统一改回仓库相对路径 `orchestration/workflows/deploy_scheduler_jobs.sh`。
+> - 这次没有新增实现决策，只是把文档表述从“机器本地路径”收敛回“仓库路径”。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - PR #115 review follow-up 已把 OQ-005 alert checker 改道写成实现级硬约束：Scheduler caller service account 必须具备目标 workflow 的 `roles/workflows.invoker`，Workflows runtime service account 必须保留 `ashare-pipeline-control` 的 `roles/run.invoker`。
 > - 也已明确：`main` 上现有 `orchestration/workflows/deploy_scheduler_jobs.sh` 仍是被放弃的 `Scheduler -> authenticated Cloud Run` 直连实现，在改写为 Workflows Executions API 之前视为 `superseded / do-not-run`。
 > - 此次还会把分支 rebase 到最新 `main`，把已合入 `main` 的 `v3` PRD 噪音从 PR #115 中清掉；本 PR 继续保持 OQ-005 doc-only 范围。
