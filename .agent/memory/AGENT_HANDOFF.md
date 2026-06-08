@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：OQ-005 长期目标改为迁出 Composer。** 已新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`，明确当前 Composer 费用主体是常驻 `standard milli DCU-hours` 底座，而现有 DAG 主要只做编排。长期架构改为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，单步 `ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler + Cloud Run`；当前 Composer DAG 拆分、window refresh、alert checker 和 smoke 只视为 cutover 前过渡态，目标是在迁移验收后删除 Composer 环境。
+
 - **2026-06-08 GPT-5 Codex：index benchmark QA 日期上限修复。** PR #106 合并后的 Composer smoke 验证新增 `market_state_dws` / `market_state_checks` 成功，但后置 `qa_after_window.index_benchmark_checks` 因默认扫到 `CURRENT_DATE` 而在 2026-06-08 当天 000001.SH 未到数时误失败。新分支 `codex/fix-index-benchmark-qa-date-bound` 已将 `sql/qa/03_index_benchmark_checks.sql` 默认 `dwd_end_date` 改为 DWD 中 `000001.SH` 完整 price + dailybasic 可用的最新 SSE 开市日，并真实跑通 `03` QA。
 
 - **2026-06-08 GPT-5 Codex：PR #106 comment follow-up。** 已按 review 修复 market-state 日更全表重建问题：新增 `sql/incremental/03_refresh_market_state_window.sql`，Composer `windowed_transform` 改为窗口 MERGE；`sql/dws/08_dws_market_state_daily.sql` 只保留初始化 / full rebuild。`market_state_v0_20260606` 的 `sse_composite_*` 字段改为 `NULL`，`market_state_v1_20260607` 才填充上证指数指标，`11_market_state_checks` 已补断言。ODS index external table URI SQL 改为由 `scripts/ingestion/generate_index_external_table_uris.py` 从 current-scope manifest 生成，可用 `--check` 防漂移。
@@ -217,6 +219,62 @@ Agent 实例 ID: Codex desktop session
 运行环境: Codex desktop
 Run ID: strategy1_risk_feature_search_implementation_20260607
 相关 issue/PR: 待创建 PR
+
+---
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: Codex desktop session
+模型: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: oq005_exit_composer_prd_20260608
+相关 issue/PR: 待创建 PR
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`，将 OQ-005 的长期编排方向从“长期保留 Composer”调整为“迁出 Composer 后删除环境”。
+- PRD 明确推荐架构为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，并将 `ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler + Cloud Run`。
+- 已同步更新 `PROJECT_CONTEXT.md`、`ARCHITECTURE_MEMORY.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md`、`TODO.md`，把当前 Composer DAG 拆分、window refresh、alert checker 与 smoke 统一标注为 cutover 前过渡态。
+
+### 重要上下文
+
+- 当前 Composer 费用问题的核心不是 DAG 次数，而是常驻 `Cloud Composer 3 standard milli DCU-hours` 底座费；迁移完成前，减少 DAG 次数本身不能显著降本。
+- 本次只写 PRD 和记忆/TODO，不改现有 DAG、Cloud Run、BigQuery SQL 或告警实现。
+- PRD 默认路径不要求 owner 额外拍板：多步编排使用 Workflows，单步 alert checker 直接走 Scheduler + Cloud Run。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `TODO.md`
+- `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`
+
+### 测试 / 验证
+
+- 本次未运行 BigQuery / Cloud Run / Composer 验证。
+- 仅完成文档与记忆同步。
+
+### 阻塞项
+
+- 无当前阻塞；下一阶段才需要实现 Workflows/Scheduler 基础设施和 cutover smoke。
+
+### 下一步建议
+
+- 新开实现分支，先落 Workflows/Scheduler 基础设施。
+- 保持现有 SQL、metadata、QA 和 alert checker 语义不变，优先做无语义漂移迁移。
+- 完成 `qa_only` / `daily_current` / `backfill` / 非交易日 skip 手工 smoke 后，再安排 scheduled cutover。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `TODO.md`
 
 ### 已完成工作
 
