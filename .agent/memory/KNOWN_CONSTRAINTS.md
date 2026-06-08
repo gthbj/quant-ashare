@@ -92,3 +92,5 @@
 - `airflow_monitoring` 是 Cloud Composer 托管的环境健康 DAG，不由仓库 DAG 代码控制；在 Composer 仍存在时不能靠改 repo 把它降频到每小时以内。要消除这部分 run/底座费用，必须 cutover 后删除 Composer 环境。
 - `ashare_pipeline_alert_checker` 在迁移期与迁移后统一按“最多每小时 1 次”设计：schedule `0 * * * *`，lookback `70` 分钟，heartbeat 缺失告警窗口 `120` 分钟，避免 1 小时 cadence 下出现空窗误报。
 - `ashare_warehouse_full_rebuild` 当前不应在 Workflows 生产部署：`ashare-pipeline-control` 的 BigQuery task 仍同步等待 `job.result()`，full rebuild 长 SQL 可能超过 Cloud Run / Workflows 单步时限。部署前要么改成 submit + poll 终态，要么拆分为更小的可轮询步骤。
+- 标准 `deploy_workflows.sh` 路径只允许部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`；`ashare_warehouse_full_rebuild` 必须通过显式 `DEPLOY_FULL_REBUILD=true` opt-in，且在 BigQuery 执行路径异步化前不应在生产执行。
+- 启用 `Cloud Scheduler -> ashare-pipeline-control /v1/tasks/alert-check` 时，必须同步 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑、重复 heartbeat 和重复 alert 日志。

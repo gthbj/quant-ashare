@@ -2,7 +2,8 @@
 - OQ-005 phase 1 foundation 仍保持已部署状态：`ashare-pipeline-control` Cloud Run service、`ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh` 两个 Workflows 已上线，既有 `qa_only` 与 `daily_current` smoke 继续作为当前 live 通过证据。
 - `ashare_pipeline_alert_checker` 已按 owner 要求改为“最多每小时 1 次”：Composer 过渡态 DAG schedule 改为 `0 * * * *`，lookback 统一到 `70` 分钟，heartbeat 缺失告警窗口统一到 `120` 分钟；同时已补 `ashare-pipeline-control` `/v1/tasks/alert-check` 和 `orchestration/workflows/deploy_scheduler_jobs.sh`，为 cutover 后的 `Cloud Scheduler + Cloud Run` 小时级告警检查准备好入口。
 - `airflow_monitoring` 已确认是 Composer 平台托管健康监控 DAG，不能在仓库代码里单独降频；只要 Composer 环境还在，它就会继续按平台频率运行。要真正把这部分 run 和固定底座费用降掉，必须完成 OQ-005 cutover 并删除 Composer 环境。
-- `ashare_warehouse_full_rebuild` 已补出 Workflow 草案和部署接线，但当前 `ashare-pipeline-control` 的 BigQuery task 仍同步等待 `job.result()`，full rebuild 长 SQL 有 Cloud Run / Workflows 单步超时风险，因此现在仍是代码草案，未部署、未 smoke。
+- `ashare_warehouse_full_rebuild` 已补出 Workflow 草案，但 review follow-up 已把它从标准 `deploy_workflows.sh` 中移出；现在只有显式 `DEPLOY_FULL_REBUILD=true` 才会部署。当前 `ashare-pipeline-control` 的 BigQuery task 仍同步等待 `job.result()`，full rebuild 长 SQL 有 Cloud Run / Workflows 单步超时风险，因此它仍是代码草案，未部署、未 smoke。
+- `ashare-pipeline-control` 镜像现在会一起打包 `scripts/alerting`，避免 `service.py` 模块级导入 alert checker 时报 `ModuleNotFoundError` 导致整个控制面启动崩溃。后续启用 `Cloud Scheduler` alert checker 时，必须同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
 
 # Agent 交接（Agent Handoff）
 
@@ -12,6 +13,7 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：PR #112 review follow-up 已把不安全路径真正封住。** `Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 `scripts.alerting.check_alerts` 时导致整个 `ashare-pipeline-control` 启动崩溃。`deploy_workflows.sh` 默认只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`；`ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 路径，直到控制层 BigQuery 改成 async submit + poll 为止。README 也已补明：启用 `Cloud Scheduler` alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
 - **2026-06-08 GPT-5 Codex：OQ-005 告警检查已统一限频到每小时。** `ashare_pipeline_alert_checker` 在 Composer 过渡态中的 schedule 已改为 `0 * * * *`，`check_alerts.py` lookback 调整为 `70` 分钟，heartbeat 缺失告警窗口调整为 `120` 分钟；cutover 后同一小时级口径将由 `Cloud Scheduler -> ashare-pipeline-control /v1/tasks/alert-check` 延续，部署脚本为 `orchestration/workflows/deploy_scheduler_jobs.sh`。
 - **2026-06-08 GPT-5 Codex：`airflow_monitoring` 不能在仓库内单独降频。** 已确认它是 Composer 平台托管健康监控 DAG；只要 Composer 环境存在，它就会继续按平台频率运行。停止这类 run 和固定 `standard milli DCU-hours` 费用的路径是完成 OQ-005 cutover 并删除 Composer 环境，而不是继续在 repo 中找调频开关。
 - **2026-06-08 GPT-5 Codex：`ashare_warehouse_full_rebuild` 目前仍是代码草案。** 已新增 `orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 并接入 `deploy_workflows.sh`，但当前 `ashare-pipeline-control` 的 BigQuery 执行仍同步等待 `job.result()`；在改成 submit + poll 或进一步拆步前，full rebuild 长 SQL 存在 Cloud Run / Workflows 单步超时风险，因此现在未部署、未 smoke。
@@ -177,6 +179,59 @@ Run ID: oq005-workflows-smoke-20260608
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: composer-exit-next-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: pr112-review-followup-20260608
+相关 issue/PR: PR #112
+
+### 已完成工作
+
+- 修复 `ashare-pipeline-control` 镜像启动崩溃风险：`Dockerfile.pipeline_control` 现已打包 `scripts/alerting`，使 `service.py` 的 alert-check 模块级导入可在运行镜像中解析。
+- 把 `ashare_warehouse_full_rebuild` 从标准 `deploy_workflows.sh` 路径移出，改成显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 部署。
+- 更新 `orchestration/workflows/README.md`，明确 full rebuild 仍未 deployment-ready，且启用 `Cloud Scheduler` alert-check 时必须同步 pause / delete Composer DAG `ashare_pipeline_alert_checker`。
+
+### 重要上下文
+
+- 这轮是 review follow-up，没有新增部署或 smoke。
+- full rebuild 现在虽然仍存在 workflow 文件，但默认部署脚本不会再把它注册到 GCP；这样“code-only”不再只是文档声明，而是代码层的真实约束。
+- alert checker 双跑问题当前靠部署约束解决，不靠运行时去重。
+
+### 改动文件
+
+- `orchestration/workflows/Dockerfile.pipeline_control`
+- `orchestration/workflows/deploy_workflows.sh`
+- `orchestration/workflows/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行新的本地测试。
+- 未部署新的 Cloud Run / Workflows / Cloud Scheduler。
+
+### 阻塞项
+
+- `ashare_warehouse_full_rebuild` 的核心阻塞不变：控制层 BigQuery 仍同步 `job.result()`，未解决前不应投入生产。
+
+### 下一步建议
+
+- 若继续收口 PR #112，优先看是否还需要把“pause Composer checker”写进实际 cutover runbook / deploy script 输出。
+- 后续继续做 full rebuild 时，先实现 async submit + poll，或把 workflow 继续拆成可稳定落在 step 时限内的更小单元。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/DECISION_LOG.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`

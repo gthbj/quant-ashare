@@ -8,8 +8,8 @@ WORKDIR /app
 COPY scripts/pipeline_control/requirements.txt /app/scripts/pipeline_control/requirements.txt
 RUN pip install --no-cache-dir -r /app/scripts/pipeline_control/requirements.txt
 
+COPY scripts/alerting /app/scripts/alerting
 COPY scripts/pipeline_control /app/scripts/pipeline_control
 COPY sql /app/sql
 
 ENTRYPOINT ["gunicorn", "--bind", ":8080", "--workers", "2", "--threads", "4", "scripts.pipeline_control.service:app"]
-

@@ -5,10 +5,10 @@ This directory contains the first implementation slice of the Composer exit plan
 Included in this PR:
 - `ashare_ods_ingestion_daily.yaml`: ODS daily ingestion workflow with explicit task-status writes, SSE non-trading-day gate support, Cloud Run Job execution, ODS readiness QA, and synchronous child workflow invocation.
 - `ashare_warehouse_window_refresh.yaml`: warehouse window refresh workflow with explicit task-status writes, GCS-backed distributed lock, window DWD/DWS refresh, market-state refresh, and QA chain execution.
-- `ashare_warehouse_full_rebuild.yaml`: manual full rebuild workflow with explicit confirmation gate, shared warehouse-write lock, full DIM/DWD/DWS rebuild order, metadata refresh, and QA chain execution.
+- `ashare_warehouse_full_rebuild.yaml`: code-only draft for a manual full rebuild workflow with explicit confirmation gate, shared warehouse-write lock, full DIM/DWD/DWS rebuild order, metadata refresh, and QA chain execution.
 - `Dockerfile.pipeline_control`: thin Cloud Run control-plane adapter image that executes bundled SQL, writes `pipeline_run` / `pipeline_task_status`, and manages orchestration leases.
 - `deploy_pipeline_control_service.sh`: build and deploy the control-plane Cloud Run service.
-- `deploy_workflows.sh`: deploy the three workflows after substituting the control-service URL.
+- `deploy_workflows.sh`: deploy the two production-ready workflows after substituting the control-service URL; `ashare_warehouse_full_rebuild` is opt-in only via `DEPLOY_FULL_REBUILD=true`.
 - `deploy_scheduler_jobs.sh`: create or update the hourly Cloud Scheduler job that invokes the alert-check endpoint on the control service.
 
 Also included in this PR:
@@ -16,6 +16,7 @@ Also included in this PR:
 - hourly alert-check scheduling target (`0 * * * *`) for the non-Composer path
 
 Not included in this PR:
+- production deployment of `ashare_warehouse_full_rebuild`
 - ODS / warehouse production Cloud Scheduler cutover jobs
 - IAM bootstrap / production cutover scripts
 
@@ -33,14 +34,17 @@ Deploy order:
    - execute child workflows
    - query BigQuery and write `ashare_meta`
    - read/write the orchestration lock bucket
-3. Deploy the workflows
-4. Deploy the hourly alert-check scheduler job
-5. Add ODS / warehouse production triggers in a later PR
+3. Deploy the two production-ready workflows
+4. Leave `ashare_warehouse_full_rebuild` undeployed by default; only deploy it later with `DEPLOY_FULL_REBUILD=true` after the BigQuery execution path becomes async/polled and production-ready
+5. Deploy the hourly alert-check scheduler job, and pause or delete the Composer DAG `ashare_pipeline_alert_checker` at the same time to avoid double-running the checker
+6. Add ODS / warehouse production triggers in a later PR
 
 Example:
 ```bash
 cd orchestration/workflows
 ./deploy_pipeline_control_service.sh
 PIPELINE_CONTROL_URL="https://ashare-pipeline-control-xxxxx-uc.a.run.app" ./deploy_workflows.sh
+# Optional only after full rebuild is production-ready:
+# DEPLOY_FULL_REBUILD=true PIPELINE_CONTROL_URL="https://ashare-pipeline-control-xxxxx-uc.a.run.app" ./deploy_workflows.sh
 PIPELINE_CONTROL_URL="https://ashare-pipeline-control-xxxxx-uc.a.run.app" ./deploy_scheduler_jobs.sh
 ```
