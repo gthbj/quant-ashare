@@ -587,7 +587,9 @@ WHEN NOT MATCHED THEN INSERT (
             raise RuntimeError(f"lock release lost ownership for {lock_key}: {exc}") from exc
 
     def lock_generation_for_owner(self, *, lock_key: str, owner: str) -> int:
-        current = self._read_lock_blob(lock_key)
+        bucket = self._storage().bucket(self.config.lock_bucket)
+        blob = bucket.blob(f"{self.config.lock_prefix.rstrip('/')}/{lock_key}.lock")
+        current = self._read_lock_blob(blob)
         if str(current.get("lock_owner", "")) != owner:
             raise RuntimeError(
                 f"lock owner mismatch for {lock_key}: expected {owner}, got {current.get('lock_owner')}"

@@ -3473,3 +3473,16 @@ Open follow-ups:
 - Consider adding Workflow execution liveness checks before stale-lock reclaim if phase 1 runtime shows lock-expiry edge cases.
 Validation:
 - Not run in this turn by owner instruction.
+
+---
+Date: 2026-06-08
+Model: GPT-5 Codex
+Branch: codex/implement-composer-exit
+Summary:
+- Addressed PR #110 re-review runtime bug in the lock compatibility path.
+- Fixed `lock_generation_for_owner` to construct the GCS blob and read lock content correctly before deriving generation by owner.
+- This restores the intended heartbeat/release path for workflows that omit explicit `generation` and rely on backward-compatible `lock_name`/`owner` payloads.
+Files:
+- scripts/pipeline_control/state.py
+Validation:
+- Not run in this turn by owner instruction.

@@ -299,3 +299,4 @@ Last updated: 2026-06-08
 - Scope intentionally excludes `ashare_warehouse_full_rebuild`, `ashare_pipeline_alert_checker`, Scheduler/IAM bootstrap, and production cutover.
 - Validation/deployment not executed in this turn.
 - PR #110 review follow-up: fixed Workflow BigQuery control-call timeout gap by adding explicit `http.post` timeout to both `run_bigquery_task` subworkflows; wired lock lease semantics end-to-end in seconds; and made `ashare-pipeline-control` lock endpoints backward-compatible with current workflow payload shape (`lock_name`/`owner`) while resolving generation internally.
+- PR #110 re-review follow-up: fixed `lock_generation_for_owner` to build and read the actual GCS lock blob before deriving generation from owner; this unblocks the normal heartbeat/release path after the previous backward-compat lock API hardening.
