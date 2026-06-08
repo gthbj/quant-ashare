@@ -91,7 +91,7 @@ gcloud composer environments run ashare-composer \
   --location=asia-east2 dags list -- --output json
 ```
 
-OQ-005 迁出 Composer 后，推荐生产入口切到 `Cloud Scheduler -> ashare-pipeline-control /v1/tasks/alert-check`；当前 README 同时保留现有定时入口与迁移目标口径。
+OQ-005 迁出 Composer 后，推荐生产入口切到 `Cloud Scheduler -> Workflows -> ashare-pipeline-control /v1/tasks/alert-check`；当前 README 同时保留现有定时入口与迁移目标口径。
 
 ### 4. 查询异常
 

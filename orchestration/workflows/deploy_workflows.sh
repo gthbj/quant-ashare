@@ -36,6 +36,7 @@ deploy_workflow() {
 
 deploy_workflow "ashare_warehouse_window_refresh" "${WORKFLOW_DIR}/ashare_warehouse_window_refresh.yaml"
 deploy_workflow "ashare_ods_ingestion_daily" "${WORKFLOW_DIR}/ashare_ods_ingestion_daily.yaml"
+deploy_workflow "ashare_pipeline_alert_checker" "${WORKFLOW_DIR}/ashare_pipeline_alert_checker.yaml"
 
 if [[ "${DEPLOY_FULL_REBUILD}" == "true" ]]; then
   deploy_workflow "ashare_warehouse_full_rebuild" "${WORKFLOW_DIR}/ashare_warehouse_full_rebuild.yaml"
