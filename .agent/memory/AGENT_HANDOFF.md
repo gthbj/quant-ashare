@@ -10,7 +10,7 @@
 
 - **2026-06-08 GPT-5 Codex：OQ-005 长期目标改为迁出 Composer。** 已新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`，明确当前 Composer 费用主体是常驻 `standard milli DCU-hours` 底座，而现有 DAG 主要只做编排。长期架构改为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，单步 `ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler + Cloud Run`；当前 Composer DAG 拆分、window refresh、alert checker 和 smoke 只视为 cutover 前过渡态，目标是在迁移验收后删除 Composer 环境。
 
-- **2026-06-08 GPT-5 Codex：策略 1 runner / acceptance 默认 benchmark 切到上证指数并完成独立 replay。** 已把 BigQuery SQL runner `08/09`、Cloud Run Python ledger、OQ-010 调度器默认 `p_benchmark`、v2 acceptance contract、报告渲染和相关 QA/诊断默认 benchmark 从 `000852.SH` 切到 `000001.SH`，并把 v2 诊断 artifact 的主 benchmark 字段名改为 `*_vs_primary_benchmark`。随后用新 ids `s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01` / `bt_s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01` 重跑 fixed-prediction lot-aware reference，不覆盖旧 `000852.SH` 审计结果；`10` 采用 fixed-prediction split override 手工补跑，`10/12/20/22/23` QA 已通过。新的 acceptance artifact `acceptance_gate_v2_lotaware_ref_bm000001_20260608_01` 仍为 `rejected`，原因是 `full_period_excess_return_vs_primary_benchmark<=-0.03` 与 `full_period_information_ratio<0.0`。
+- **2026-06-08 GPT-5 Codex：策略 1 runner / acceptance 默认 benchmark 切到上证指数并完成独立 replay。** 已把 BigQuery SQL runner `08/09`、Cloud Run Python ledger、OQ-010 调度器默认 `p_benchmark`、v2 acceptance contract、报告渲染和相关 QA/诊断默认 benchmark 从 `000852.SH` 切到 `000001.SH`，并把 v2 诊断 artifact 与 live 搜索 acceptance 路径的主 benchmark 字段名统一为 `*_vs_primary_benchmark`。随后用新 ids `s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01` / `bt_s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01` 重跑 fixed-prediction lot-aware reference，不覆盖旧 `000852.SH` 审计结果；`10` 采用 fixed-prediction split override 手工补跑，`10/12/20/22/23` QA 已通过。新的 acceptance artifact `acceptance_gate_v2_lotaware_ref_bm000001_20260608_01` 仍为 `rejected`，原因是 `full_period_excess_return_vs_primary_benchmark<=-0.03` 与 `full_period_information_ratio<0.0`。
 
 - **2026-06-08 GPT-5 Codex：index benchmark QA 日期上限修复。** PR #106 合并后的 Composer smoke 验证新增 `market_state_dws` / `market_state_checks` 成功，但后置 `qa_after_window.index_benchmark_checks` 因默认扫到 `CURRENT_DATE` 而在 2026-06-08 当天 000001.SH 未到数时误失败。新分支 `codex/fix-index-benchmark-qa-date-bound` 已将 `sql/qa/03_index_benchmark_checks.sql` 默认 `dwd_end_date` 改为 DWD 中 `000001.SH` 完整 price + dailybasic 可用的最新 SSE 开市日，并真实跑通 `03` QA。
 
@@ -121,6 +121,56 @@ Run ID: strategy1-benchmark-default-switch-20260608
 **OQ-005 非交易日 skip gate 已部署验收（2026-06-06）**：PR #83 已合并到 `main`（`3723f52`），`ashare_daily_pipeline_v0.py` 已同步到 Composer bucket `gs://asia-east2-ashare-composer-b2629133-bucket/dags/`，本地与 bucket SHA256 均为 `e4b07ba402716b914bfbd6fe27fa38f97fab8e1c12f6a0bcce9e5fd8c58696af`。`manual_smoke_skip_non_trading_day_pr83_20260606_02` 使用 `business_date=2026-06-06`、`warehouse_mode=daily_current`、`force_non_trading_day_gate=true`、`pipeline_dry_run=true` 成功：`non_trading_day_gate=success`、`skip_non_trading_day=success`，`pipeline_task_status` 写入 `skip_non_trading_day status='skipped'`，ingestion/readiness/transform 全部 skipped，Cloud Run 最新 execution 仍为 01:53 的旧 PR #80 run，未被 smoke 触发。DAG 当前 active/unpaused、无 import errors。首次 smoke `manual_smoke_skip_non_trading_day_pr83_20260606_01` 在 Composer 新旧 serialized DAG 切换窗口内走到旧路径，已中止、确认未触发 Cloud Run，并在 `pipeline_run` 标为 `partial` 防止假告警；`v_alert_summary` 对两次 smoke 为空。
 
 **OQ-005 PR #83 记忆一致性 follow-up（2026-06-06）**：PR #83 review comment `4637354942` 指出 `IMPLEMENTATION_STATUS.md` 已完成区仍残留旧的部署等待状态。已将相关 durable bullet 改为“后续已由 PR #80/PR #83 部署与 smoke 覆盖”，并把几条历史补充明确标为部署前状态，避免同一记忆文件内当前状态自相矛盾。
+
+## 交接条目
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: main-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: pr109_comment_followup_primary_benchmark_fields_20260608
+相关 issue/PR: PR #109
+
+### 已完成工作
+
+- 处理 PR #109 的 P2 comment：补齐 live 搜索 acceptance 路径的 benchmark 输出字段命名。
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py` 不再输出 `test_year_excess_return_vs_000852`、`overall_excess_return_vs_000852`、`final_holdout_excess_return_vs_000852`，统一改为 `*_vs_primary_benchmark`。
+- `scripts/strategy1_cloudrun/acceptance.py` 读取时优先使用新字段名，并兼容回退旧字段名与通用字段，保持阈值键 `*_vs_000852` 暂不重命名的兼容策略。
+
+### 重要上下文
+
+- 本次只修正 live 搜索 acceptance 的输出字段名，不改阈值键名，不改 benchmark 数值逻辑。
+- 目的不是改计算口径，而是避免 benchmark 已切到 `000001.SH` 后，registry / comparison artifact 继续写 `*_vs_000852` 的误导命名。
+- v2 diagnosis 路径和 live 搜索 acceptance 路径现在都统一到 `*_vs_primary_benchmark` 输出命名。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1_cloudrun/acceptance.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行新的 Cloud Run / BigQuery replay。
+- 本次是 PR comment follow-up 的命名一致性修复，未改数值计算逻辑。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 把本次 follow-up 追加到 PR #109。
+- 如果后续要彻底清理 benchmark 历史命名债，再单独重构 contract / QA 内部阈值键 `*_vs_000852`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 交接条目
 

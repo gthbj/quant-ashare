@@ -48,6 +48,18 @@ def _threshold_float(thresholds: dict[str, Any], key: str, default: float) -> fl
     return value if math.isfinite(value) else default
 
 
+def _primary_benchmark_metric(
+    row: dict[str, Any],
+    primary_key: str,
+    legacy_key: str,
+    fallback_key: str | None = None,
+) -> Any:
+    keys = [primary_key, legacy_key]
+    if fallback_key is not None:
+        keys.append(fallback_key)
+    return _first(row, *keys)
+
+
 def full_period_max_drawdown_threshold(contract: dict[str, Any]) -> float:
     thresholds = contract.get("thresholds") or {}
     fallback = _threshold_float(thresholds, "min_max_drawdown", -0.25)
@@ -174,12 +186,12 @@ def decide_acceptance(row: dict[str, Any], contract: dict[str, Any]) -> tuple[st
         ("valid_signal_status", row.get("valid_signal_status"), required.get("valid_signal_status", "stable"), "eq"),
         ("test_rank_ic_mean", row.get("test_rank_ic_mean"), thresholds.get("min_test_rank_ic", 0.0), "gt"),
         ("test_top_minus_bottom_fwd_ret_mean", row.get("test_top_minus_bottom_fwd_ret_mean"), thresholds.get("min_test_top_minus_bottom_fwd_ret", 0.0), "gt"),
-        ("test_year_excess_return_vs_000852", _first(row, "test_year_excess_return_vs_000852", "test_year_excess_return"), thresholds.get("min_test_year_excess_return_vs_000852", 0.0), "gt"),
-        ("overall_excess_return_vs_000852", _first(row, "overall_excess_return_vs_000852", "excess_return"), thresholds.get("min_overall_excess_return_vs_000852", 0.0), "gt"),
+        ("test_year_excess_return_vs_primary_benchmark", _primary_benchmark_metric(row, "test_year_excess_return_vs_primary_benchmark", "test_year_excess_return_vs_000852", "test_year_excess_return"), thresholds.get("min_test_year_excess_return_vs_000852", 0.0), "gt"),
+        ("overall_excess_return_vs_primary_benchmark", _primary_benchmark_metric(row, "overall_excess_return_vs_primary_benchmark", "overall_excess_return_vs_000852", "excess_return"), thresholds.get("min_overall_excess_return_vs_000852", 0.0), "gt"),
         ("total_return", row.get("total_return"), thresholds.get("min_total_return", 0.0), "gt"),
         ("sharpe", row.get("sharpe"), thresholds.get("min_sharpe", 0.70), "ge"),
         ("max_drawdown", row.get("max_drawdown"), thresholds.get("min_max_drawdown", -0.25), "ge"),
-        ("final_holdout_excess_return_vs_000852", row.get("final_holdout_excess_return_vs_000852"), thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05), "gt"),
+        ("final_holdout_excess_return_vs_primary_benchmark", _primary_benchmark_metric(row, "final_holdout_excess_return_vs_primary_benchmark", "final_holdout_excess_return_vs_000852"), thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05), "gt"),
         ("final_holdout_total_return", row.get("final_holdout_total_return"), thresholds.get("min_final_holdout_total_return", -0.08), "gt"),
     ]
     unmatched = []
@@ -199,7 +211,13 @@ def decide_acceptance(row: dict[str, Any], contract: dict[str, Any]) -> tuple[st
     if unmatched:
         return "rejected", ";".join(unmatched), derived
 
-    final_excess = safe_float(row.get("final_holdout_excess_return_vs_000852"))
+    final_excess = safe_float(
+        _primary_benchmark_metric(
+            row,
+            "final_holdout_excess_return_vs_primary_benchmark",
+            "final_holdout_excess_return_vs_000852",
+        )
+    )
     final_total = safe_float(row.get("final_holdout_total_return"))
     if (math.isfinite(final_excess) and final_excess < 0) or (math.isfinite(final_total) and final_total < 0):
         derived["holdout_watch_flag"] = True
@@ -221,7 +239,13 @@ def derive_final_holdout_status(row: dict[str, Any], contract: dict[str, Any]) -
     min_excess = safe_float(thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05))
     min_total = safe_float(thresholds.get("min_final_holdout_total_return", -0.08))
     days = safe_float(row.get("final_holdout_trading_days"))
-    excess = safe_float(row.get("final_holdout_excess_return_vs_000852"))
+    excess = safe_float(
+        _primary_benchmark_metric(
+            row,
+            "final_holdout_excess_return_vs_primary_benchmark",
+            "final_holdout_excess_return_vs_000852",
+        )
+    )
     total = safe_float(row.get("final_holdout_total_return"))
     if not all(math.isfinite(value) for value in (days, excess, total)):
         return None
@@ -251,8 +275,8 @@ def _hard_reject_reasons(row: dict[str, Any], contract: dict[str, Any]) -> list[
         ("valid_top_minus_bottom_fwd_ret_mean", row.get("valid_top_minus_bottom_fwd_ret_mean"), thresholds.get("min_valid_top_minus_bottom_fwd_ret", 0.0), "le"),
         ("test_rank_ic_mean", row.get("test_rank_ic_mean"), thresholds.get("min_test_rank_ic", 0.0), "le"),
         ("test_top_minus_bottom_fwd_ret_mean", row.get("test_top_minus_bottom_fwd_ret_mean"), thresholds.get("min_test_top_minus_bottom_fwd_ret", 0.0), "le"),
-        ("test_year_excess_return_vs_000852", _first(row, "test_year_excess_return_vs_000852", "test_year_excess_return"), thresholds.get("min_test_year_excess_return_vs_000852", 0.0), "le"),
-        ("overall_excess_return_vs_000852", _first(row, "overall_excess_return_vs_000852", "excess_return"), thresholds.get("min_overall_excess_return_vs_000852", 0.0), "le"),
+        ("test_year_excess_return_vs_primary_benchmark", _primary_benchmark_metric(row, "test_year_excess_return_vs_primary_benchmark", "test_year_excess_return_vs_000852", "test_year_excess_return"), thresholds.get("min_test_year_excess_return_vs_000852", 0.0), "le"),
+        ("overall_excess_return_vs_primary_benchmark", _primary_benchmark_metric(row, "overall_excess_return_vs_primary_benchmark", "overall_excess_return_vs_000852", "excess_return"), thresholds.get("min_overall_excess_return_vs_000852", 0.0), "le"),
         ("total_return", row.get("total_return"), thresholds.get("min_total_return", 0.0), "le"),
         ("sharpe", row.get("sharpe"), thresholds.get("min_sharpe", 0.70), "lt"),
         ("max_drawdown", row.get("max_drawdown"), thresholds.get("min_max_drawdown", -0.25), "lt"),
@@ -267,7 +291,7 @@ def _hard_reject_reasons(row: dict[str, Any], contract: dict[str, Any]) -> list[
         elif op == "lt" and actual_value < threshold_value:
             reasons.append(f"{name}<{threshold_value}")
     final_numeric_checks = [
-        ("final_holdout_excess_return_vs_000852", row.get("final_holdout_excess_return_vs_000852"), thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05), "le"),
+        ("final_holdout_excess_return_vs_primary_benchmark", _primary_benchmark_metric(row, "final_holdout_excess_return_vs_primary_benchmark", "final_holdout_excess_return_vs_000852"), thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05), "le"),
         ("final_holdout_total_return", row.get("final_holdout_total_return"), thresholds.get("min_final_holdout_total_return", -0.08), "le"),
     ]
     for name, actual, threshold, op in final_numeric_checks:
@@ -304,7 +328,7 @@ def _needs_more_evidence_reasons(row: dict[str, Any], contract: dict[str, Any]) 
     actual_days = safe_int(row.get("final_holdout_trading_days"))
     if actual_days < min_days:
         reasons.append(f"final_holdout_trading_days<{min_days}")
-    if row.get("final_holdout_excess_return_vs_000852") is None or row.get("final_holdout_total_return") is None:
+    if _primary_benchmark_metric(row, "final_holdout_excess_return_vs_primary_benchmark", "final_holdout_excess_return_vs_000852") is None or row.get("final_holdout_total_return") is None:
         reasons.append("final_holdout_metrics=missing")
     wave_no = safe_int(row.get("test_reuse_wave_no"))
     required_after = safe_int(test_reuse.get("final_holdout_required_after_wave", 3))
