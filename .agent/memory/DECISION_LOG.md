@@ -1545,3 +1545,83 @@ Decision: `sql/qa/03_index_benchmark_checks.sql` 的默认 `dwd_end_date` 不再
 Rationale: 该 QA 的目标是验证已落库指数 DWD 的 canonical 映射和历史覆盖质量，不应因当天数据尚未采集/刷新而让 backfill 或日内 smoke 失败。覆盖终点对齐已可用 DWD 数据日仍能发现历史缺口、重复和 valuation 字段缺失。
 Impact: 调度默认 QA 不再要求覆盖到自然今天；如需验证某个最新业务日，必须先补齐 ODS/DWD，或显式执行带目标日期语义的窗口 QA。
 Related files: sql/qa/03_index_benchmark_checks.sql, dataform/definitions/assertions/03_index_benchmark_checks.sqlx
+
+## DECISION-20260608-02: OQ-005 长期编排层迁出 Cloud Composer
+
+Date: 2026-06-08
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5 Codex
+
+### Context
+
+`data-aquarium.gcp_billing` 在 `2026-06-05`、`2026-06-06`、`2026-06-07` 的账单显示，Cloud Composer 费用主体稳定集中在 `Cloud Composer 3 standard milli DCU-hours (asia-east2)`，约 `160.97 USD/天`。当前项目中的 Composer 主要承担调度、分支控制、ODS readiness、window refresh 串接和 alert checker，不承担核心业务计算；核心计算仍在 `Cloud Run Jobs` 与 `BigQuery SQL / Dataform`。继续保留 Composer 作为长期编排层与实际复杂度和成本目标不匹配。
+
+### Decision
+
+1. OQ-005 的长期目标不再是“长期保留 Cloud Composer 编排”。
+2. 长期编排层改为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`。
+3. 多步业务编排统一使用 `Cloud Workflows`；单步 `ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler + Cloud Run`。
+4. 当前 Composer DAG 拆分、window refresh、alert checker 和相关 smoke 只视为 cutover 前过渡态，不再代表长期目标架构。
+5. cutover 验收完成后应删除 Composer 环境，以消除固定 `standard milli DCU-hours` 底座成本。
+6. 本次架构迁移不顺手改 BigQuery SQL、metadata、QA、ODS current-scope 或策略业务口径。
+
+### Rationale
+
+减少 Composer 中的 DAG 次数不能显著降低固定底座费；只有把调度完全迁出并删除 Composer 环境，才能真正消除这笔常驻成本。`Cloud Workflows` 能提供当前需要的状态机、重试、分支和补跑能力，同时没有常驻环境费用，比继续保留 Composer 或自建 `Cloud Run orchestrator` 更符合当前 OQ-005 的复杂度与成本目标。
+
+### Impact
+
+- `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md` 成为 OQ-005 长期编排层的主 PRD。
+- 此前 `docs/prd/PRD_20260603_03_GCP数据流水线方案.md`、`docs/prd/PRD_20260606_02_OQ005ComposerDAG拆分.md` 中关于“长期保留 Composer”的表述被本决策覆盖，但这些文档中的 ODS current-scope、window refresh、000001.SH、market-state、metadata 与 QA 业务事实仍然有效。
+- 后续实现优先级应调整为：先迁 Workflows/Scheduler 并完成 cutover，再删除 Composer；不是继续在 Composer 上叠加新生产职责。
+
+### Alternatives considered
+
+- 继续保留 Composer，只减少 DAG 次数：放弃，因为固定 `standard milli DCU-hours` 费用仍在。
+- 自建 `Cloud Run orchestrator`：放弃作为默认方案，因为当前编排复杂度不足以证明要自行维护状态机和重试系统。
+- 直接把所有逻辑改成 BigQuery Scheduled Queries：放弃，因为当前 OQ-005 需要非交易日 gate、Cloud Run ingestion、窗口模式和多步状态写回，单靠定时查询不足以承载。
+
+### Related files
+
+`docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`, `.agent/memory/PROJECT_CONTEXT.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260608-03: OQ-005 Workflows 实现必须显式补回 Airflow 免费语义
+
+Date: 2026-06-08
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5 Codex
+
+### Context
+
+PR #108 review 指出，从 Airflow / Composer 迁到 Workflows 时，最容易静默退化的不是主流程顺序，而是 Airflow 原本“免费提供”的三类能力：task 级状态 callback、`max_active_runs=1` 串行约束，以及父 DAG -> 子 DAG 触发的 observability 语义。若不在 PRD 中显式定义，后续实现很容易只保留 pipeline 开始/结束状态，或让 scheduled `daily_current` 与手工 `backfill` 并发进入窗口写路径。
+
+### Decision
+
+1. OQ-005 的 Workflows 实现必须把 `pipeline_task_status` 保真下沉为硬要求：每个业务步骤都要显式写 started/succeeded/failed/skipped/warning 状态。
+2. `ashare_warehouse_window_refresh` 不得假设存在 Airflow `max_active_runs=1` 等价能力，必须实现显式分布式锁；推荐复用 GCS lease lock 语义。
+3. 生产 scheduled ingestion -> refresh 路径固定为同步 child workflow 调用，父 workflow 阻塞等待 child workflow 终态。
+4. 因为生产路径采用同步 child workflow，旧 `warehouse_refresh_missing` watchdog 只保留到迁移过渡期；新长期路径由父 workflow 对 child refresh 的同步成功/失败承担主告警语义。
+5. Workflows 调 BigQuery / Cloud Run 必须按“提交 -> 捕获 ID -> 轮询终态 -> 写状态”实现；`full_rebuild` 必须在 Phase 1 复核 Workflows execution duration / step count / payload 限额，必要时拆分。
+
+### Rationale
+
+这些能力在 Airflow 中看似是“系统默认行为”，但在 Workflows 中都要人工补回。如果不先写成设计硬约束，后续实现最容易出现的退化是：task 级告警消失、scheduled 与 backfill 并发冲突、refresh 失败只在下游局部可见、`full_rebuild` 在新编排器里接近限额才被动暴露。
+
+### Impact
+
+- `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md` 已补到实现级要求。
+- 后续实现 PR 如果没有显式 task 状态写回层、分布式锁或同步 child workflow 语义，应视为不满足 PRD。
+- 旧 `warehouse_refresh_missing` 观测与告警在 cutover 完成后不再作为长期保留项。
+
+### Alternatives considered
+
+- 先写高层 PRD，等实现时再决定这些细节：放弃，因为这三项正是迁移时最容易静默退化的能力。
+- 继续保留旧 watchdog 作为长期主机制：放弃，因为同步 child workflow 的新生产路径下，父 workflow 直接知道 refresh 是否发生且是否成功，继续依赖“缺刷新”旁路告警会重复且更脆弱。
+
+### Related files
+
+`docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`

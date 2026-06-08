@@ -6,6 +6,20 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：PR #108 comment follow-up 加硬 Composer 迁出 PRD
+
+- 已按 PR #108 comment 加硬 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`，补上 4 个 Workflows 相对 Airflow 的易退化点。
+- `pipeline_task_status` 不再只停留在“保持语义”的原则层，而是下沉为实现硬要求：每个业务步骤都必须显式写 task 状态，失败路径也要写回，不能只写 `pipeline_start_status` / `pipeline_finalize_status`。
+- `ashare_warehouse_window_refresh` 的串行执行不再依赖抽象表述，PRD 已明确要求显式分布式锁，推荐复用 GCS lease lock 语义，替代 Airflow `max_active_runs=1`。
+- 生产 scheduled ingestion -> refresh 路径已在 PRD 中明确为同步 child workflow 调用；因此 cutover 后旧 `warehouse_refresh_missing` watchdog 只保留为迁移期观察项，不再作为长期主告警机制。
+- PRD 也已补 Workflows 对 BigQuery / Cloud Run 的“提交 -> 轮询终态”模型，以及 `full_rebuild` 需要复核 execution duration / step count / payload 限额。
+
+### 最新补充（2026-06-08）：OQ-005 长期编排目标改为迁出 Composer
+
+- 已新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`。该 PRD 明确当前 Composer 3 成本主体是常驻 `standard milli DCU-hours` 底座，而现有 DAG 主要只做编排，不做核心计算。
+- OQ-005 的长期目标已从“Cloud Composer 负责全流程编排”调整为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`；`ashare_pipeline_alert_checker` 迁到无 Composer 的定时入口，cutover 验收后删除 Composer 环境。
+- 当前已上线的 Composer DAG 拆分、window refresh、market-state、000001.SH 指数链路和 alert checker 仍保留为过渡态实现，不再视为长期目标架构。
+
 ### 最新补充（2026-06-08）：指数 benchmark QA 默认日期上限修复
 
 - PR #106 合并后的 Composer smoke `manual_pr106_market_state_window_smoke_20260605_20260608_01` 已验证新增 windowed market-state 链路核心任务通过：`index_dwd_window`、`windowed_index_refresh_checks`、`stock_dwd_dws_window`、`windowed_stock_refresh_checks`、`market_state_dws`、`market_state_checks` 均 success；生产 `dws_market_state_daily` 已重建到最终语义，`11_market_state_checks` 的 `QA-MKT-0..9` 全部通过。
@@ -243,7 +257,7 @@ Last updated: 2026-06-08
 
 - `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置。
 - 「从 ODS 继承字段描述」的脚本（bq show → 映射 → bq update）。
-- OQ-005 剩余生产化：Composer DAG 拆分、`upstream_pipeline_run_id` 跨 DAG 血缘、refresh-missing watchdog 和补跑/resume 首版 helper 已完成；仍待新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然通过，再继续 Dataform definitions 和完整 ODS→ADS 运维观测闭环。
+- OQ-005 调度迁出 Composer：新 PRD 已定义 `Cloud Scheduler + Cloud Workflows` 取代 Composer。当前 Composer DAG 拆分、window refresh、alert checker 和相关 smoke 只作为 cutover 前过渡态；下一步是实现 Workflows/Scheduler 基础设施、迁移 alert checker、完成 `qa_only` / `daily_current` / `backfill` / 非交易日 skip 手工 smoke，再做两个开市日加一个非交易日的生产 cutover 验收并删除 Composer 环境。
 - 增量调度（dbt 或 Airflow + SQL）、数据质量断言。
 - 策略 1 Cloud Run runner 后续验收：真实 Cloud Run smoke、GCS model/report artifact、ADS 回写、`strategy1_experiment_run_status` 和 `16` / `17` QA 已跑通；sklearn native search 首轮未建立 accepted baseline。PRD04 Cloud Run Python LightGBM baseline search 代码实现已进入 PR；下一步是合并部署后真实执行 40 候选 wave 2，并按 Top5 acceptance 结论决定是否进入 `lightgbm_regression` wave 3，同时继续补 Python ledger vs 历史 SQL ledger 的差异 / 一致性验收。
 - P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily` 已落地物化（OQ-003 默认合并报表口径）；`dws_market_state_daily` 仍待补。三大报表单季 `q_*` 派生延后 P1。
