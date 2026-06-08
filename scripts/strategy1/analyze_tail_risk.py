@@ -90,7 +90,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--backtest-id", required=True)
     parser.add_argument("--search-id", default=None)
     parser.add_argument("--feature-version", default="strategy1_pv_v0_20260601")
-    parser.add_argument("--benchmark-sec-code", default="000852.SH")
+    parser.add_argument("--benchmark-sec-code", default="000001.SH")
     parser.add_argument("--analysis-start-date", default=None)
     parser.add_argument("--analysis-end-date", default=None)
     parser.add_argument("--max-drawdown-top-k", type=int, default=5)

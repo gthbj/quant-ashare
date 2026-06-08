@@ -214,7 +214,7 @@ lot-aware ledger QA（PRD-20260606-05）：Cloud Run Python `backtest_report.py`
 | `p_slippage_buy_bps` | 买入滑点，默认 5.0（成交价向上偏移） |
 | `p_slippage_sell_bps` | 卖出滑点，默认 5.0（成交价向下偏移） |
 | `p_cost_bps` | 兼容字段，旧一揽子成本 30 bps；已由分项成本取代，不再作为默认撮合成本来源 |
-| `p_benchmark` | **评估主基准** canonical 代码，默认 `000852.SH`（中证 1000）；执行前必须存在于 `dim_index` 且完整覆盖回测 NAV 窗口 |
+| `p_benchmark` | **评估主基准** canonical 代码，默认 `000001.SH`（上证指数）；执行前必须存在于 `dim_index` 且完整覆盖回测 NAV 窗口 |
 | `p_force_replace` | 是否覆盖同 run_id 结果（默认 FALSE） |
 | `p_initial_state_mode` | `08/09/10` 使用；`fresh` 从现金+空仓开始，`resume_from_backtest` 从父回测恢复状态 |
 | `p_parent_backtest_id` | resume 父回测 ID；仅 `p_initial_state_mode='resume_from_backtest'` 时必填 |
@@ -241,7 +241,7 @@ lot-aware ledger QA（PRD-20260606-05）：Cloud Run Python `backtest_report.py`
 
 | 角色 | canonical `sec_code` | 名称 | 用途 |
 |---|---|---|---|
-| **评估主基准** | `000852.SH` | 中证 1000 | 计算超额收益、信息比率、alpha/beta 归因。ADS 主字段写入此基准。 |
+| **评估主基准** | `000001.SH` | 上证指数 | 计算超额收益、信息比率、alpha/beta 归因。ADS 主字段写入此基准。 |
 | **展示对比基准** | `000300.SH` | 沪深 300 | owner 默认阅读口径，报告中展示对比。不写入 ADS 主 benchmark 字段。 |
 | **辅助风格基准** | `000905.SH` | 中证 500 | 可选中盘风格对照，报告中展示。 |
 
@@ -457,7 +457,7 @@ QA 断言（`10` QA-ORIENT-1..4）验证 registry 有 `score_orientation`、pred
 - **04 动态模型引用**：用 `EXECUTE IMMEDIATE FORMAT(...)` 自动引用 03 选出的 selected model URI，无需手动替换。
 - **回测交易与卖出口径（ledger_exec_v1）**：`rebalance_date` 是信号日，08 推导下一开市日为 `execution_date` 并按开盘价交易；卖出先于买入，按实际持仓与目标持仓净差额 netting；买不进不候补，卖不出进入 `pending_sell` 并在后续每个开市日继续尝试卖出；现金不足的买单按比例缩放并记为 `FILLED_SCALED_CASH`。
 - **基准窗口校验**：08 执行前校验 `p_benchmark` 是 `dim_index` 中的可用收益基准，并且 `dwd_index_eod` 对 NAV 窗口每个开市日有且只有一条有效价格记录。
-- **评估主基准**：`08` 和 `09` 的 `p_benchmark` 默认值为 `000852.SH`（中证 1000），ADS 主字段写入此基准。展示对比基准（沪深 300）和辅助基准（中证 500）由 `render_report.py` 从 `dwd_index_eod` 读取并固化到 `benchmark_nav.csv`。
+- **评估主基准**：`08` 和 `09` 的 `p_benchmark` 默认值为 `000001.SH`（上证指数），ADS 主字段写入此基准。展示对比基准（沪深 300）和辅助基准（中证 500）由 `render_report.py` 从 `dwd_index_eod` 读取并固化到 `benchmark_nav.csv`。
 - **报告渲染**：`render_report.py` 生成中文 Markdown + HTML + PNG + CSV 附件 + 证据包 + AI 诊断。默认上传 GCS 并写回 `metrics_json`；`--skip-gcs-upload` 仅写本地镜像。
 - **AI 诊断**：`auto` 模式在无凭据或 LLM 失败时自动退化为 `evidence_only`，保证报告始终可生成。AI 只能引用证据包中的事实，不得编造外部原因。
 - **OQ-010 参数**使用示例值，非业务定稿。

@@ -20,6 +20,15 @@ Last updated: 2026-06-08
 - OQ-005 的长期目标已从“Cloud Composer 负责全流程编排”调整为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`；`ashare_pipeline_alert_checker` 迁到无 Composer 的定时入口，cutover 验收后删除 Composer 环境。
 - 当前已上线的 Composer DAG 拆分、window refresh、market-state、000001.SH 指数链路和 alert checker 仍保留为过渡态实现，不再视为长期目标架构。
 
+### 最新补充（2026-06-08）：策略 1默认 benchmark 切到上证指数并完成独立 replay
+
+- 已把策略 1 runner 与默认验收 benchmark 从中证1000 `000852.SH` 切到上证指数 `000001.SH`：更新了 BigQuery SQL runner `08/09`、Cloud Run Python ledger 默认值、OQ-010 调度器默认 `p_benchmark`、v2 acceptance contract `primary_benchmark_sec_code`、报告渲染默认评估主基准，以及 runner/benchmark QA 的默认口径。
+- 已同步 `sql/ml/strategy1/10_qa_runner_outputs.sql` 的主 benchmark 断言，从 `000852.SH` 改为 `000001.SH`；`sql/qa/03_index_benchmark_checks.sql` 的示例 `p_benchmark` 默认值也改为 `000001.SH`。
+- 已同步报告/诊断默认口径：`render_report.py` 评估主基准改为“上证指数”，`analyze_tail_risk.py`、`diagnose_acceptance_window.py`、`diagnose_acceptance_gate_v2.py`、`diagnose_model_quality.py` 与 `11_model_quality_diagnostics.sql` 的默认 benchmark 口径改到 `000001.SH`；其中 v2 诊断 artifact 的主 benchmark 相关字段名改为 `*_vs_primary_benchmark`，避免继续输出 `*_vs_000852` 的误导命名。
+- 已完成不覆盖旧审计结果的 fixed-prediction lot-aware replay：新增 run/backtest `s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01` / `bt_s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01`，复用 prediction run `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`，重新生成基于 `000001.SH` 的 summary、report、model diagnosis、tail-risk 和 acceptance gate v2 artifact。
+- 由于源 prediction stream 没有独立 `final_holdout` split_tag，本次手工执行 `10_qa_runner_outputs.sql` 时采用 fixed-prediction override：`p_test_end=2026-04-30`，`p_final_holdout_start=NULL`，`p_final_holdout_end=NULL`；随后 `12`、`20`、`22`、`23` QA 也已全部通过。
+- 新 acceptance artifact `acceptance_gate_v2_lotaware_ref_bm000001_20260608_01` 状态仍为 `rejected`，原因是 `full_period_excess_return_vs_primary_benchmark<=-0.03` 与 `full_period_information_ratio<0.0`。旧 `000852.SH` historical summary / report / diagnosis / gate artifact 保留为审计记录，不回写覆盖。
+
 ### 最新补充（2026-06-08）：指数 benchmark QA 默认日期上限修复
 
 - PR #106 合并后的 Composer smoke `manual_pr106_market_state_window_smoke_20260605_20260608_01` 已验证新增 windowed market-state 链路核心任务通过：`index_dwd_window`、`windowed_index_refresh_checks`、`stock_dwd_dws_window`、`windowed_stock_refresh_checks`、`market_state_dws`、`market_state_checks` 均 success；生产 `dws_market_state_daily` 已重建到最终语义，`11_market_state_checks` 的 `QA-MKT-0..9` 全部通过。

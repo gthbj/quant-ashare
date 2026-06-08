@@ -994,20 +994,20 @@ ASSERT (
 -- PRD-20260602-03 策略 1 中文报告与归因分析 QA
 -- ============================================================
 
--- QA-REPORT-1: 评估主基准必须是中证 1000 (000852.SH)，不能是沪深 300
+-- QA-REPORT-1: 评估主基准必须是上证指数 (000001.SH)
 ASSERT (
-  SELECT COUNT(*) > 0 AND COUNTIF(bs.benchmark_sec_code != '000852.SH') = 0
+  SELECT COUNT(*) > 0 AND COUNTIF(bs.benchmark_sec_code != '000001.SH') = 0
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
-) AS 'QA-REPORT-1: benchmark_sec_code in performance_summary must be 000852.SH (assessment benchmark)';
+) AS 'QA-REPORT-1: benchmark_sec_code in performance_summary must be 000001.SH (assessment benchmark)';
 
--- QA-REPORT-2: NAV 表的 benchmark_sec_code 也必须是 000852.SH
+-- QA-REPORT-2: NAV 表的 benchmark_sec_code 也必须是 000001.SH
 ASSERT (
-  SELECT COUNT(*) > 0 AND COUNTIF(nav.benchmark_sec_code != '000852.SH') = 0
+  SELECT COUNT(*) > 0 AND COUNTIF(nav.benchmark_sec_code != '000001.SH') = 0
   FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
   WHERE nav.backtest_id = p_backtest_id
     AND nav.trade_date BETWEEN p_predict_start AND p_predict_end
-) AS 'QA-REPORT-2: benchmark_sec_code in nav_daily must be 000852.SH';
+) AS 'QA-REPORT-2: benchmark_sec_code in nav_daily must be 000001.SH';
 
 -- QA-REPORT-3: report_version 已写入 metrics_json（render_report.py 回写）
 ASSERT (

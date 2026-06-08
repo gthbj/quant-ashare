@@ -65,7 +65,7 @@ except Exception:
 REPORT_VERSION = "strategy1_zh_report_v2"
 EVIDENCE_SCHEMA_VERSION = "strategy1_report_evidence_v1"
 
-ASSESSMENT_BENCHMARK = {"sec_code": "000852.SH", "name": "中证1000"}
+ASSESSMENT_BENCHMARK = {"sec_code": "000001.SH", "name": "上证指数"}
 DISPLAY_BENCHMARK = {"sec_code": "000300.SH", "name": "沪深300"}
 AUXILIARY_BENCHMARKS = [{"sec_code": "000905.SH", "name": "中证500"}]
 

@@ -365,10 +365,10 @@ WHERE t.backtest_id = p_backtest_id
 GROUP BY t.trade_date
 ORDER BY t.trade_date;
 
--- ── FR-DIAG-8: market regime (中证 1000) ─────────────────────────────────────
+-- ── FR-DIAG-8: market regime (上证指数) ─────────────────────────────────────
 SELECT trade_date, close, pct_chg
 FROM `data-aquarium.ashare_dwd.dwd_index_eod`
-WHERE sec_code = '000852.SH'
+WHERE sec_code = '000001.SH'
   AND trade_date BETWEEN p_test_start AND p_test_end
 ORDER BY trade_date;
 

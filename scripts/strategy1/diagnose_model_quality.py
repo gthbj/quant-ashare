@@ -860,7 +860,7 @@ def fetch_market_regime(client: bigquery.Client, project: str,
     sql = f"""
     SELECT trade_date, close, pct_chg
     FROM `{project}.ashare_dwd.dwd_index_eod`
-    WHERE sec_code = '000852.SH'
+    WHERE sec_code = '000001.SH'
       AND trade_date BETWEEN @sd AND @ed
     ORDER BY trade_date
     """

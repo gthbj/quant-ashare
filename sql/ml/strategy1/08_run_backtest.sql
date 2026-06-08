@@ -35,7 +35,7 @@ DECLARE p_stamp_tax_sell_bps FLOAT64 DEFAULT 5.0;
 DECLARE p_slippage_buy_bps FLOAT64 DEFAULT 5.0;
 DECLARE p_slippage_sell_bps FLOAT64 DEFAULT 5.0;
 DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;        -- 兼容字段，不再作为默认撮合成本来源
-DECLARE p_benchmark STRING DEFAULT '000852.SH';  -- OQ-010 示例值
+DECLARE p_benchmark STRING DEFAULT '000001.SH';  -- OQ-010 示例值
 DECLARE p_tail_risk_profile_id STRING DEFAULT 'diagnostic_only';
 DECLARE p_market_state_version STRING DEFAULT 'market_state_v0_20260606';
 DECLARE p_force_replace BOOL DEFAULT FALSE;

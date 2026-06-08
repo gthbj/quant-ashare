@@ -10,6 +10,8 @@
 
 - **2026-06-08 GPT-5 Codex：OQ-005 长期目标改为迁出 Composer。** 已新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`，明确当前 Composer 费用主体是常驻 `standard milli DCU-hours` 底座，而现有 DAG 主要只做编排。长期架构改为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，单步 `ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler + Cloud Run`；当前 Composer DAG 拆分、window refresh、alert checker 和 smoke 只视为 cutover 前过渡态，目标是在迁移验收后删除 Composer 环境。
 
+- **2026-06-08 GPT-5 Codex：策略 1 runner / acceptance 默认 benchmark 切到上证指数并完成独立 replay。** 已把 BigQuery SQL runner `08/09`、Cloud Run Python ledger、OQ-010 调度器默认 `p_benchmark`、v2 acceptance contract、报告渲染和相关 QA/诊断默认 benchmark 从 `000852.SH` 切到 `000001.SH`，并把 v2 诊断 artifact 的主 benchmark 字段名改为 `*_vs_primary_benchmark`。随后用新 ids `s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01` / `bt_s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01` 重跑 fixed-prediction lot-aware reference，不覆盖旧 `000852.SH` 审计结果；`10` 采用 fixed-prediction split override 手工补跑，`10/12/20/22/23` QA 已通过。新的 acceptance artifact `acceptance_gate_v2_lotaware_ref_bm000001_20260608_01` 仍为 `rejected`，原因是 `full_period_excess_return_vs_primary_benchmark<=-0.03` 与 `full_period_information_ratio<0.0`。
+
 - **2026-06-08 GPT-5 Codex：index benchmark QA 日期上限修复。** PR #106 合并后的 Composer smoke 验证新增 `market_state_dws` / `market_state_checks` 成功，但后置 `qa_after_window.index_benchmark_checks` 因默认扫到 `CURRENT_DATE` 而在 2026-06-08 当天 000001.SH 未到数时误失败。新分支 `codex/fix-index-benchmark-qa-date-bound` 已将 `sql/qa/03_index_benchmark_checks.sql` 默认 `dwd_end_date` 改为 DWD 中 `000001.SH` 完整 price + dailybasic 可用的最新 SSE 开市日，并真实跑通 `03` QA。
 
 - **2026-06-08 GPT-5 Codex：PR #106 comment follow-up。** 已按 review 修复 market-state 日更全表重建问题：新增 `sql/incremental/03_refresh_market_state_window.sql`，Composer `windowed_transform` 改为窗口 MERGE；`sql/dws/08_dws_market_state_daily.sql` 只保留初始化 / full rebuild。`market_state_v0_20260606` 的 `sse_composite_*` 字段改为 `NULL`，`market_state_v1_20260607` 才填充上证指数指标，`11_market_state_checks` 已补断言。ODS index external table URI SQL 改为由 `scripts/ingestion/generate_index_external_table_uris.py` 从 current-scope manifest 生成，可用 `--check` 防漂移。
@@ -44,6 +46,70 @@
 
 **OQ-005 alert setup review follow-up（2026-06-06）**：分支 `codex/oq005-alert-logmetric-alreadyexists`。针对 `fd8aefe` review 的 Low finding，`scripts/alerting/setup_alerts.py` 已将 log metric 已存在的幂等判断从异常 message substring 改为显式捕获 `google.api_core.exceptions.AlreadyExists`，其他异常仍 fail-fast。该分支只改告警配置脚本和记忆，不改 Composer DAG、BigQuery SQL 或生产调度状态；验证为 `python3 -m py_compile scripts/alerting/setup_alerts.py` 和 `git diff --check`。
 
+## 交接条目
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: main-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: strategy1-benchmark-default-switch-20260608
+相关 issue/PR: N/A
+
+### 已完成工作
+
+- 把策略 1 runner / acceptance 的默认 benchmark 从 `000852.SH` 切到 `000001.SH`。
+- 更新 BigQuery SQL runner `08/09`、Cloud Run Python ledger、OQ-010 调度器默认 `p_benchmark`、v2 acceptance contract、报告渲染默认评估主基准、runner/benchmark QA 默认断言与诊断默认参数。
+- 把 v2 acceptance 诊断 artifact 中主 benchmark 相关字段名从 `*_vs_000852` 改成 `*_vs_primary_benchmark`，避免在默认 benchmark 切换后继续输出误导字段名。
+
+### 重要上下文
+
+- 这次只改了默认值和直接耦合的 QA/报告/诊断口径，没有重跑任何 Cloud Run / BigQuery 历史 reference，也没有改历史 PRD 对 `000852.SH` 的叙述。
+- 现有已落库的 historical summary / report / diagnosis / acceptance artifact 仍然是相对 `000852.SH` 的审计结果；如果要正式启用新默认值，下一步必须先做 reference / acceptance replay。
+
+### 改动文件
+
+- `configs/strategy1/model_acceptance_contract_v2.yml`
+- `scripts/strategy1_cloudrun/ledger.py`
+- `scripts/strategy1/run_oq010_experiments.py`
+- `scripts/strategy1/render_report.py`
+- `scripts/strategy1/analyze_tail_risk.py`
+- `scripts/strategy1/diagnose_acceptance_window.py`
+- `scripts/strategy1/diagnose_acceptance_gate_v2.py`
+- `scripts/strategy1/diagnose_model_quality.py`
+- `sql/ml/strategy1/08_run_backtest.sql`
+- `sql/ml/strategy1/09_build_metrics_and_report_inputs.sql`
+- `sql/ml/strategy1/10_qa_runner_outputs.sql`
+- `sql/ml/strategy1/11_model_quality_diagnostics.sql`
+- `sql/qa/03_index_benchmark_checks.sql`
+- `sql/ml/strategy1/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行 Cloud Run / BigQuery runner。
+- 未重跑 `03` / `10` / `19` / `22` QA。
+- 本次为默认值与口径切换，后续需要 replay 验证历史 reference / acceptance artifact。
+
+### 阻塞项
+
+- 无硬阻塞。
+
+### 下一步建议
+
+- 先用 `000001.SH` 重跑 fixed reference / acceptance replay，确认 summary、report、diagnosis 与 gate artifact 全部换到新主 benchmark。
+- 再决定是否把 v1/v2 contract / QA 内部仍沿用的 `*_vs_000852` 阈值键名做兼容重命名。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
+
 **OQ-005 Composer DAG 拆分生产切换（2026-06-06）**：PR #86 已合并并完成 Composer 部署 / smoke。已应用 meta DDL 与观测视图，部署 `ashare_common.py`、`ashare_ods_ingestion_daily.py`、`ashare_warehouse_window_refresh.py`、`ashare_warehouse_full_rebuild.py` 和仓库 `sql/` 到 Composer bucket。旧 `ashare_daily_pipeline_v0` 已暂停，新 scheduled DAG `ashare_ods_ingestion_daily` 已 unpause；`ashare_warehouse_window_refresh` 与 `ashare_warehouse_full_rebuild` 无 schedule。`setup_alerts.py` 已补真实 GCP apply 兼容修复，`ashare_pipeline_warehouse_refresh_missing` metric 与 `Ashare Pipeline: Warehouse Refresh Missing` policy 已创建 / 对齐。Smoke：`manual_split_skip_gate_20260606_01` 非交易日 gate 成功且 Cloud Run 未触发；`manual_split_qa_only_20260605_01` 5 个 QA success；`manual_split_backfill_20260605_01` 1 日窗口刷新和全部 QA success；refresh-missing synthetic transaction smoke 通过；`check_alerts.py --lookback-minutes 20` 返回空。后续只剩新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然观察，以及 Dataform 生产接入 / shadow 验证、完整 ODS→ADS 运维观测闭环和后续自然 scheduled 观察。
 
 **OQ-010 尾部风险 P0/P1/P2 当前版收口（2026-06-06）**：PR #84（`docs/prd/PRD_20260606_01_策略1尾部风险控制.md`）已合并，P0 固定最大回撤诊断已由 PR #87 实现并通过真实 `20` QA；P1 个股硬风险过滤 profile A/B 已完成，`individual_risk_guard_v0` 对回撤有轻度改善但仍跑输中证1000；P2 market risk-off 已由 PR #92 合并、物化 DWS 并完成 A/B。当前可复用的事实链路是 `tail_risk/` artifact、`20_qa_tail_risk_outputs.sql` 和 P1/P2 A/B 结果；当前不应把 P2 v0 `skip_new_buys` 设为默认策略。
@@ -55,6 +121,74 @@
 **OQ-005 非交易日 skip gate 已部署验收（2026-06-06）**：PR #83 已合并到 `main`（`3723f52`），`ashare_daily_pipeline_v0.py` 已同步到 Composer bucket `gs://asia-east2-ashare-composer-b2629133-bucket/dags/`，本地与 bucket SHA256 均为 `e4b07ba402716b914bfbd6fe27fa38f97fab8e1c12f6a0bcce9e5fd8c58696af`。`manual_smoke_skip_non_trading_day_pr83_20260606_02` 使用 `business_date=2026-06-06`、`warehouse_mode=daily_current`、`force_non_trading_day_gate=true`、`pipeline_dry_run=true` 成功：`non_trading_day_gate=success`、`skip_non_trading_day=success`，`pipeline_task_status` 写入 `skip_non_trading_day status='skipped'`，ingestion/readiness/transform 全部 skipped，Cloud Run 最新 execution 仍为 01:53 的旧 PR #80 run，未被 smoke 触发。DAG 当前 active/unpaused、无 import errors。首次 smoke `manual_smoke_skip_non_trading_day_pr83_20260606_01` 在 Composer 新旧 serialized DAG 切换窗口内走到旧路径，已中止、确认未触发 Cloud Run，并在 `pipeline_run` 标为 `partial` 防止假告警；`v_alert_summary` 对两次 smoke 为空。
 
 **OQ-005 PR #83 记忆一致性 follow-up（2026-06-06）**：PR #83 review comment `4637354942` 指出 `IMPLEMENTATION_STATUS.md` 已完成区仍残留旧的部署等待状态。已将相关 durable bullet 改为“后续已由 PR #80/PR #83 部署与 smoke 覆盖”，并把几条历史补充明确标为部署前状态，避免同一记忆文件内当前状态自相矛盾。
+
+## 交接条目
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: main-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: strategy1-benchmark-replay-000001-20260608
+相关 issue/PR: N/A
+
+### 已完成工作
+
+- 在默认 benchmark 已切到 `000001.SH` 的前提下，完成不覆盖旧审计结果的 fixed-prediction lot-aware replay：
+  `run_id=s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01`
+  `backtest_id=bt_s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01`
+  `prediction_run_id=s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`
+- 已重新生成并上传新 replay 的 report、model diagnosis、tail-risk 和 acceptance gate v2 artifact。
+- 已手工补跑 `10`、`12`、`20`、`22`、`23` QA，均通过。
+- 新 acceptance artifact `acceptance_gate_v2_lotaware_ref_bm000001_20260608_01` 已上传，状态为 `rejected`。
+
+### 重要上下文
+
+- 旧 `000852.SH` 口径 historical summary / report / diagnosis / gate artifact 保留不动，继续作为审计对照。
+- 这次 replay 复用的 source prediction stream 没有独立 `final_holdout` split_tag，所以 `10_qa_runner_outputs.sql` 必须按 fixed-prediction override 跑：
+  `p_test_end=2026-04-30`
+  `p_final_holdout_start=NULL`
+  `p_final_holdout_end=NULL`
+- acceptance gate v2 仍按 replay NAV 的时间窗计算 final holdout；override 只用于 runner QA 的 split_tag 一致性。
+- 新 gate 的拒绝原因是：
+  `full_period_excess_return_vs_primary_benchmark<=-0.03`
+  `full_period_information_ratio<0.0`
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m scripts.strategy1_cloudrun.backtest_report --experiment-json ...`
+- `python3 scripts/strategy1/diagnose_model_quality.py --project data-aquarium --run-id s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01 --prediction-run-id s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01 --backtest-id bt_s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01 --artifact-base-uri gs://ashare-artifacts/reports/strategy1 --local-mirror-root reports/strategy1`
+- `python3 scripts/strategy1/analyze_tail_risk.py --project data-aquarium --run-id s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01 --prediction-run-id s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01 --backtest-id bt_s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01 --artifact-base-uri gs://ashare-artifacts/reports/strategy1 --local-mirror-root reports/strategy1`
+- `python3 scripts/strategy1/diagnose_acceptance_gate_v2.py --project data-aquarium --diagnosis-id acceptance_gate_v2_lotaware_ref_bm000001_20260608_01 --reference-run-id s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01 --reference-backtest-id bt_s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01 --prediction-run-id s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01 --contract configs/strategy1/model_acceptance_contract_v2.yml --feature-version strategy1_pv_fin_quality_v0_20260603 --label-version open_to_close_h1_5_10_20_v20260601 --horizon 5 --full-start-date 2024-01-02 --full-end-date 2026-04-30 --valid-start-date 2024-01-02 --valid-end-date 2024-12-31 --test-start-date 2025-01-02 --test-end-date 2025-12-31 --final-holdout-start-date 2026-01-05 --final-holdout-end-date 2026-04-30 --artifact-base-uri gs://ashare-artifacts/reports/strategy1 --local-mirror-root reports/strategy1`
+- 通过 `scripts.strategy1_cloudrun.sql_runner.run_sql_script` 手工执行：
+  `sql/ml/strategy1/10_qa_runner_outputs.sql`
+  `sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql`
+  `sql/ml/strategy1/20_qa_tail_risk_outputs.sql`
+  `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`
+  `sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql`
+
+### 阻塞项
+
+- 无硬阻塞。
+
+### 下一步建议
+
+- 若 owner 要把 `000001.SH` 口径作为后续统一对外口径，可继续补 v1/v2 契约和 QA 内部历史 `*_vs_000852` 阈值键名的 benchmark-neutral 重命名。
+- 若要继续 OQ-010 训练 / 搜索，后续相对 benchmark 的新结论应统一引用这次 `000001.SH` replay，而不是混用旧 `000852.SH` audit。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
 
 **OQ-010 PRD04 Cloud Run Python baseline search 实现（2026-06-06）**：PR #79 review follow-up、PR #82 runtime 修复和真实 wave 2 / wave 3 执行均已完成。真实 LightGBM binary wave 2 `cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01` 与 regression wave 3 `cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01` 均完成 Top5 回测/报告/诊断和 QA，Top5 全部 rejected，当前不建立 `cloud_run_python_baseline_v1`。运行资源口径为 40 候选 / 20 并发 / 2 vCPU 8Gi；后续建议进入下一模型族、特征增强或训练目标改造，而不是继续围绕已拒绝的两波 LightGBM 搜索。
 
