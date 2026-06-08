@@ -52,6 +52,6 @@
 ## 2026-06-08 OQ-005 alert checker Scheduler/Workflow cutover
 
 - 状态: open
-- 问题: owner 已接受将 `ashare_pipeline_alert_checker` 的目标路径改为 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`，当前仓库已补齐 `ashare_pipeline_alert_checker.yaml` 和把 `orchestration/workflows/deploy_scheduler_jobs.sh` 切到 Workflows Executions API 的代码实现，但尚未做真实部署与 smoke。实现时必须同时补齐 Scheduler caller service account 的 `roles/workflows.invoker`，并保留 Workflows runtime service account 对 `ashare-pipeline-control` 的 `roles/run.invoker`。
+- 问题: owner 已接受将 `ashare_pipeline_alert_checker` 的目标路径改为 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`，当前仓库已补齐 `ashare_pipeline_alert_checker.yaml` 和把 `orchestration/workflows/deploy_scheduler_jobs.sh` 切到 Workflows Executions API 的代码实现，但尚未做真实部署与 smoke。按 PR #117 review follow-up，alert-check workflow 现在故意不写 `pipeline_run` / `pipeline_task_status`，避免自指告警闭环和 recent-runs 观测污染。实现时仍必须同时补齐 Scheduler caller service account 的 `roles/workflows.invoker`，并保留 Workflows runtime service account 对 `ashare-pipeline-control` 的 `roles/run.invoker`。
 - 影响: 在实现和 live cutover 完成前，生产仍不能依赖新的无 Composer 告警入口。
 - 建议后续: 先做真实部署与 smoke：部署更新后的 workflow 和 scheduler job，验证 manual execute 与一次真实 Scheduler fire；再停用 Composer DAG `ashare_pipeline_alert_checker`。

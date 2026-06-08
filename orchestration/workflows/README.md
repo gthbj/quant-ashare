@@ -5,7 +5,7 @@ This directory contains the first implementation slice of the Composer exit plan
 Included in this PR:
 - `ashare_ods_ingestion_daily.yaml`: ODS daily ingestion workflow with explicit task-status writes, SSE non-trading-day gate support, Cloud Run Job execution, ODS readiness QA, and synchronous child workflow invocation.
 - `ashare_warehouse_window_refresh.yaml`: warehouse window refresh workflow with explicit task-status writes, GCS-backed distributed lock, window DWD/DWS refresh, market-state refresh, and QA chain execution.
-- `ashare_pipeline_alert_checker.yaml`: hourly alert-check workflow with explicit pipeline/task status writes and a single authenticated call into `ashare-pipeline-control /v1/tasks/alert-check`.
+- `ashare_pipeline_alert_checker.yaml`: hourly alert-check workflow with parameter normalization and a single authenticated call into `ashare-pipeline-control /v1/tasks/alert-check`.
 - `ashare_warehouse_full_rebuild.yaml`: code-only draft for a manual full rebuild workflow with explicit confirmation gate, shared warehouse-write lock, full DIM/DWD/DWS rebuild order, metadata refresh, and QA chain execution.
 - `Dockerfile.pipeline_control`: thin Cloud Run control-plane adapter image that executes bundled SQL, writes `pipeline_run` / `pipeline_task_status`, and manages orchestration leases.
 - `deploy_pipeline_control_service.sh`: build and deploy the control-plane Cloud Run service.
@@ -15,6 +15,7 @@ Included in this PR:
 Also included in this PR:
 - `ashare-pipeline-control` alert-check endpoint that reuses `scripts/alerting/check_alerts.py`
 - hourly alert-check scheduling target (`0 * * * *`) for the non-Composer path via `Cloud Scheduler -> Workflows -> ashare-pipeline-control`
+- alert-check workflow intentionally does not write `ashare_meta.pipeline_run` / `pipeline_task_status`, to avoid self-referential alerts and observability-table pollution
 
 Not included in this PR:
 - production deployment of `ashare_warehouse_full_rebuild`
@@ -26,6 +27,7 @@ Design boundary:
 - BigQuery remains the execution engine for SQL tasks.
 - Cloud Run Job `ashare-ingest-current-scope` remains the execution engine for ODS ingestion.
 - `ashare-pipeline-control` is a thin adapter for status writeback, SQL execution, SSE gate queries, and distributed lock management. It is not a general custom orchestrator.
+- `ashare_pipeline_alert_checker` is the exception to workflow-level state writeback: it relies on Workflows execution status plus Cloud Logging heartbeat/absence alerting, and intentionally does not write `pipeline_run` / `pipeline_task_status`.
 
 Deploy order:
 1. Deploy `ashare-pipeline-control`
