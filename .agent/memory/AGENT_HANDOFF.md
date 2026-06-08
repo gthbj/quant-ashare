@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - 已新增 `docs/prd/PRD_20260608_02_策略1验收门v3切换实施.md`，把后续切门路线冻结为直接 `v1 -> v3`，明确忽略 `v2`。
+> - 本次只写 PRD，不改 acceptance 实现、不改 manifest、不改 QA；当前 live search 仍使用 `model_acceptance_contract_v1.yml`。
+> - `v3` 何时可用的标准已写清：先落 `model_acceptance_contract_v3.yml`，再做历史正式搜索 replay、补 `v3` QA，最后才切主写回门。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - Strategy1 Cloud Run `prepare_matrix` 已修复 JSON 布尔特征误按 `FLOAT64` 解包导致 `train split` 预期列全 `NULL` 的问题；已改为 `BOOL -> INT64`。
 > - 已用 `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 跑通 `12` 候选 LightGBM regression smoke，主 benchmark 为 `000001.SH`，`*_vs_primary_benchmark`、Top1 backtest、comparison artifacts 链路已验证。
 > - 最终 smoke `search_id=cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_smoke_20260608_05`，Top1 为 `lgbm_r03_l63_lr002_n600_leaf300_ff09_bf09_l1_01_l2_1`，结果 `rejected`，原因为 `overall_excess_return_vs_primary_benchmark<=0.0;sharpe<0.7;max_drawdown<-0.25`。
@@ -3703,3 +3708,14 @@ Run ID: oq005-composer-exit-next-20260608
 - Validation: 基于 `sql/cloudrun/strategy1/01_build_training_panel.sql` 的字段类型复核，确认仅 4 个 `has_fin_*` 是 JSON 布尔；`risk_*` 为 `1.0/0.0`，`is_*` 为 `1/0`，必须继续走数值解包路径。
 - Notes: 这是对同一 PR 的后续修复，未重跑新的 Cloud Run smoke；现有 smoke 结果只说明链路跑通，不再作为这 10 个字段解码正确性的证据。
 - Next Steps: push 到 PR #113，并按该 review 结论继续后续搜索。
+
+## 2026-06-08 - GPT-5 Codex
+- Date: 2026-06-08
+- Model: GPT-5 Codex
+- Branch: `main`
+- Summary: 新增策略 1 验收门 `v3` 切换实施 PRD，明确当前仍是 `v1` 主写回门，后续直接 `v1 -> v3`，不经过 `v2`。
+- Files: `docs/prd/PRD_20260608_02_策略1验收门v3切换实施.md`
+- Validation: 文档级变更；未改代码、未跑 Cloud Run、未跑 BigQuery QA。
+- Notes: `v3` 当前仍是 doc + replay gate，不是 production write-back gate。实现前置顺序已经固定为 contract -> replay -> QA -> live cutover。
+- Next Steps: 新增 `configs/strategy1/model_acceptance_contract_v3.yml`，再实现 `v3` replay 和对应 QA。
+

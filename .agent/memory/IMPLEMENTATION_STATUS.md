@@ -6,6 +6,13 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：策略 1 验收门 v3 切换实施 PRD 已新增
+
+- 已新增 `docs/prd/PRD_20260608_02_策略1验收门v3切换实施.md`，明确当前 live write-back gate 仍是 `v1`，后续切门路线为直接 `v1 -> v3`，不经过 `v2`。
+- 本 PRD 只冻结切门实施路径，不改 live search 代码：先落 `model_acceptance_contract_v3.yml`，再做只读 replay、补 `v3` QA，最后才切 Cloud Run live search 默认 contract。
+- PRD 同时冻结了当前已确认的 `v3` 口径：主 benchmark 为 `000001.SH`，年化使用复利，保留信号质量门，收益风险门只看 `Sharpe >= 0.70` 与 `Calmar Ratio > 1`，Final holdout 只看交易日数，五指数相对门要求“同指数的正超额复合年化收益 + (Excess Calmar > 1 或 策略最大回撤同期超额 > 0)”。
+
+
 ### 最新补充（2026-06-08）：PR #113 review 修复 bool-feature 白名单过宽
 
 - PR #113 comment 已确认上一版 `BOOLEAN_FEATURE_COLUMNS` 过宽：`risk_*` 六列在 training panel JSON 中由 `CASE ... THEN 1.0 ELSE 0.0 END` 生成，是 JSON 数字；`is_smallcap_trend_down`、`is_breadth_weak`、`is_limit_down_diffusion`、`is_risk_off` 四列在 panel SQL 中显式 `CAST(... AS INT64)`，也是 JSON 数字 `1/0`。
