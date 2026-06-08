@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - OQ-005 已按 owner 决策跳过 shadow run，直接完成真实 cutover：Scheduler jobs `ashare-pipeline-alert-checker` 和 `ashare-ods-ingestion-daily` 已 `ENABLED`，caller SA 已统一切到 `ashare-scheduler-invoker@data-aquarium.iam.gserviceaccount.com`。
+> - 真实触发证据：alert-checker execution `978c920c-3810-4299-b904-3c954e8d221d` succeeded；ODS parent execution `31ac0d61-d40c-4a88-9865-b13f61d369c1` succeeded，并带起 child warehouse execution `919f2aba-b9d4-4181-9915-fa848487bb90` succeeded。
+> - 现在 OQ-005 剩余项不再是“要不要 shadow run”，而是是否保留短期观测窗口，以及何时删除 Composer 环境来停止固定底座费用。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - PR #120 第二轮 review follow-up 已继续收口 full rebuild poll 终态：`get_job(...)` 用尽内部重试后，现在会显式把 task 写成 `failed`，不再让 `pipeline_task_status` 卡在 `running`。
 > - `ashare_warehouse_full_rebuild` 还补了 `bigquery_max_polls` workflow 输入化，默认仍是 `1440`；以后若全量窗口继续变大，可以只调 workflow 参数，不必改 YAML 常量。
 > - 另外已把 control service 当前 poll 重试的同步 `time.sleep` 约束写进 README 和 `KNOWN_CONSTRAINTS.md`：单次 `/v1/tasks/bigquery/poll` 最坏会多占一个 worker 约 `15s`，这是 cutover 前需要接受的显式容量边界。
@@ -4086,5 +4091,48 @@ Run ID: oq005-full-rebuild-and-smokes-20260608
 
 - 推回 PR #120 并继续看 review。
 - 若 comment 收敛，可再决定是否需要做一次只读 dry-run / deploy smoke 来闭环这轮失败终态与 `bigquery_max_polls` 输入化。
+
+Model: GPT-5 Codex
+
+## 2026-06-08 GPT-5 Codex - OQ-005 direct cutover to Scheduler + Workflows
+
+### 本轮完成
+
+- 新增 `orchestration/workflows/bootstrap_scheduler_iam.sh`，把 `ashare-scheduler-invoker` 与 `ashare-workflows-runtime` 当前真实依赖的 IAM 绑定固化为可重放脚本。
+- 重写 `orchestration/workflows/deploy_scheduler_jobs.sh`，统一管理 `ashare-pipeline-alert-checker` 与 `ashare-ods-ingestion-daily` 两个 Scheduler jobs。
+- 新增 `orchestration/workflows/cutover_scheduler_jobs.sh`，用于 bootstrap IAM、启用 Scheduler jobs，并保持 Composer 业务 DAG paused。
+- 已真实执行 cutover：
+  - alert-checker scheduler execution `978c920c-3810-4299-b904-3c954e8d221d` succeeded
+  - ODS parent execution `31ac0d61-d40c-4a88-9865-b13f61d369c1` succeeded
+  - child warehouse execution `919f2aba-b9d4-4181-9915-fa848487bb90` succeeded
+- 两个生产 Scheduler jobs 当前都为 `ENABLED`，caller SA 为 `ashare-scheduler-invoker@data-aquarium.iam.gserviceaccount.com`。
+
+### 本轮未做
+
+- 没有删除 Composer 环境。
+- 没有执行真实 full rebuild 写路径。
+
+### 影响文件
+
+- `orchestration/workflows/bootstrap_scheduler_iam.sh`
+- `orchestration/workflows/deploy_scheduler_jobs.sh`
+- `orchestration/workflows/cutover_scheduler_jobs.sh`
+- `orchestration/workflows/README.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 阻塞项
+
+- 无新的技术阻塞。
+- OQ-005 现在只剩是否保留短期观测窗口，以及何时删除 Composer 环境。
+
+### 下一步建议
+
+- 若不再需要额外观察窗口，下一步就是删除 Composer 环境，停止固定 `Cloud Composer 3 standard milli DCU-hours` 成本。
+- 若仍想保守一点，可先观察下一次自然 scheduled ODS run，再删环境。
 
 Model: GPT-5 Codex
