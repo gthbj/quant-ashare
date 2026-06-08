@@ -119,6 +119,18 @@ MARKET_STATE_FEATURE_COLUMNS = [
     "is_risk_off",
 ]
 
+BOOLEAN_FEATURE_COLUMNS = [
+    "has_fin_indicator",
+    "has_fin_income",
+    "has_fin_balancesheet",
+    "has_fin_cashflow",
+    *RISK_FLAG_FEATURE_COLUMNS,
+    "is_smallcap_trend_down",
+    "is_breadth_weak",
+    "is_limit_down_diffusion",
+    "is_risk_off",
+]
+
 RISK_INTERACTION_FEATURE_COLUMNS = [
     "stock_drawdown_x_market_riskoff",
     "stock_vol_x_market_vol",
@@ -239,6 +251,10 @@ SOURCE_TABLE_BY_GROUP = {
 def expected_feature_columns(feature_set_id: str) -> list[str] | None:
     columns = FEATURE_COLUMNS_BY_SET.get(feature_set_id)
     return list(columns) if columns is not None else None
+
+
+def boolean_feature_names() -> set[str]:
+    return set(BOOLEAN_FEATURE_COLUMNS)
 
 
 def base_feature_set_id(feature_set_id: str) -> str | None:

@@ -317,3 +317,10 @@ Last updated: 2026-06-08
 - `airflow_monitoring` 已确认是 Composer 托管健康监控 DAG，频率不能在项目代码里下调；只要 Composer 环境存在，监控 run 仍会继续出现。真正把它降到 `<=1/hour` 的唯一路径是完成 cutover 后删除 Composer 环境。
 - `ashare_warehouse_full_rebuild` 已补 Workflow 草案 `orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 和部署脚本接线，但暂未部署/验烟：当前 `scripts/pipeline_control/state.py` 的 BigQuery 执行仍是同步 `job.result()`，受 Cloud Run request timeout 和 Workflows step timeout 约束，full rebuild 直接上线存在长 SQL 超时风险。
 - PR #112 review follow-up：`orchestration/workflows/Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 alert checker 时触发确定性启动崩溃；`deploy_workflows.sh` 默认只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`，`ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 路径，直到控制层 BigQuery 改成异步 submit + poll 为止。README 也已补明：启用 Cloud Scheduler alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
+
+## 2026-06-08 最新补充：Strategy1 Cloud Run bool-feature 解包修复与 `000001.SH` smoke 验证
+
+- 修复 `scripts/strategy1_cloudrun/prepare_matrix.py` / `scripts/strategy1_cloudrun/feature_sets.py`：四个 `has_fin_*` JSON 布尔特征不再按 `FLOAT64` 解包，统一走 `BOOL -> INT64`，避免 Cloud Run matrix build 在 `train` split 产出 all-null expected feature columns。
+- 基于 `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 完成 `12` 候选 LightGBM regression Cloud Run smoke：`search_id=cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_smoke_20260608_05`。
+- smoke 已验证 live path 在 `000001.SH` 下正确产出 `*_vs_primary_benchmark`、Top1 backtest 与 comparison artifacts；Top1 仍为 `rejected`，说明 benchmark 切换链路已打通，后续问题回到策略表现本身。
+

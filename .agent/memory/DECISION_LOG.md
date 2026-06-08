@@ -1835,3 +1835,31 @@ PR #112 初版把 `ashare_warehouse_full_rebuild.yaml` 接进了标准 `deploy_w
 ### 相关文件
 
 `orchestration/workflows/Dockerfile.pipeline_control`, `orchestration/workflows/deploy_workflows.sh`, `orchestration/workflows/README.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260608-06: Strategy1 Cloud Run JSON 布尔特征解包必须使用 `BOOL -> INT64`
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+Cloud Run `prepare_matrix` 先前把训练面板 JSON 中的所有特征统一按 `SAFE_CAST(... AS FLOAT64)` 解包。四个财务可用性特征 `has_fin_indicator`、`has_fin_income`、`has_fin_balancesheet`、`has_fin_cashflow` 实际存储为 JSON 布尔值，因此在 BigQuery 解包后全部变成 `NULL`，导致 `train` split 触发 `all-null expected feature columns` 并使 live search smoke 失败。
+
+### Decision
+
+Strategy1 Cloud Run 训练矩阵构建必须显式区分布尔特征与数值特征：
+
+- 已知 JSON 布尔特征统一按 `SAFE_CAST(JSON_VALUE(...) AS BOOL)` 读取，再 `CAST(... AS INT64)` 进入矩阵；
+- 数值特征继续按 `SAFE_CAST(... AS FLOAT64)` 解包；
+- 新增布尔特征时，必须同步更新 `scripts/strategy1_cloudrun/feature_sets.py` 中的布尔特征清单。
+
+### Rationale
+
+下游训练矩阵仍需要数值型列，但布尔特征在 JSON 层已经有稳定类型信息，先按 `BOOL` 读取再映射到 `INT64` 可以保留语义且避免 BigQuery 在类型不匹配时静默产出 `NULL`。
+
+### Impact
+
+该规则恢复了 Strategy1 Cloud Run live search 在 `000001.SH` 主 benchmark 下的小规模 smoke，可持续产出 `*_vs_primary_benchmark`、Top1 backtest 和 comparison artifacts。后续若新增 JSON 布尔特征而未登记，会再次触发同类故障。
+

@@ -38,6 +38,7 @@ from scripts.strategy1_cloudrun.config import (
 )
 from scripts.strategy1_cloudrun.feature_sets import (
     PV_FIN_RISK_FEATURE_SET_ID,
+    boolean_feature_names,
     expected_feature_columns,
     feature_delta_vs_base,
     feature_metadata,
@@ -360,10 +361,11 @@ def load_training_panel_with_job(
       feature_values_json,
       feature_column_list,"""
     else:
+        bool_feature_names = boolean_feature_names()
         feature_select = """
       feature_column_list,""" + "".join(
             f"""
-      SAFE_CAST(JSON_VALUE(feature_values_json, '$.{column}') AS FLOAT64) AS `{column}`,"""
+      {feature_json_sql(column, column in bool_feature_names)} AS `{column}`,"""
             for column in feature_columns
         )
     sql = f"""
@@ -408,6 +410,12 @@ def normalize_feature_column_list(value):
     else:
         parsed = list(value)
     return [str(item) for item in parsed]
+
+
+def feature_json_sql(column: str, is_bool_feature: bool) -> str:
+    if is_bool_feature:
+        return f"CAST(SAFE_CAST(JSON_VALUE(feature_values_json, '$.{column}') AS BOOL) AS INT64)"
+    return f"SAFE_CAST(JSON_VALUE(feature_values_json, '$.{column}') AS FLOAT64)"
 
 
 def validate_expected_feature_columns(

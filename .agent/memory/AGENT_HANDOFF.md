@@ -1,3 +1,8 @@
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - Strategy1 Cloud Run `prepare_matrix` 已修复 JSON 布尔特征误按 `FLOAT64` 解包导致 `train split` 预期列全 `NULL` 的问题；已改为 `BOOL -> INT64`。
+> - 已用 `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 跑通 `12` 候选 LightGBM regression smoke，主 benchmark 为 `000001.SH`，`*_vs_primary_benchmark`、Top1 backtest、comparison artifacts 链路已验证。
+> - 最终 smoke `search_id=cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_smoke_20260608_05`，Top1 为 `lgbm_r03_l63_lr002_n600_leaf300_ff09_bf09_l1_01_l2_1`，结果 `rejected`，原因为 `overall_excess_return_vs_primary_benchmark<=0.0;sharpe<0.7;max_drawdown<-0.25`。
+
 ## 当前交接摘要（2026-06-08）
 - OQ-005 phase 1 foundation 仍保持已部署状态：`ashare-pipeline-control` Cloud Run service、`ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh` 两个 Workflows 已上线，既有 `qa_only` 与 `daily_current` smoke 继续作为当前 live 通过证据。
 - `ashare_pipeline_alert_checker` 已按 owner 要求改为“最多每小时 1 次”：Composer 过渡态 DAG schedule 改为 `0 * * * *`，lookback 统一到 `70` 分钟，heartbeat 缺失告警窗口统一到 `120` 分钟；同时已补 `ashare-pipeline-control` `/v1/tasks/alert-check` 和 `orchestration/workflows/deploy_scheduler_jobs.sh`，为 cutover 后的 `Cloud Scheduler + Cloud Run` 小时级告警检查准备好入口。
@@ -3673,3 +3678,14 @@ Run ID: oq005-composer-exit-next-20260608
 - `.agent/memory/DECISION_LOG.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
+
+## 2026-06-08 - GPT-5 Codex
+- Date: 2026-06-08
+- Model: GPT-5 Codex
+- Branch: `codex/cloudrun-boolfix-benchmark-smoke`
+- Summary: 修复 Strategy1 Cloud Run `prepare_matrix` 把 JSON 布尔特征按 `FLOAT64` 解包而导致矩阵构建失败的问题，并完成 `000001.SH` 主 benchmark 下的 `12` 候选 LightGBM regression smoke。
+- Files: `scripts/strategy1_cloudrun/feature_sets.py`, `scripts/strategy1_cloudrun/prepare_matrix.py`
+- Validation: Cloud Run smoke `search_id=cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_smoke_20260608_05` 成功；Top1 `lgbm_r03_l63_lr002_n600_leaf300_ff09_bf09_l1_01_l2_1` 的最终 artifact 已写出 `benchmark_sec_code=000001.SH` 和 `*_vs_primary_benchmark` 路径结果。
+- Notes: 本地 `gcloud` 若需继续追 execution describe，需显式绑定 `CLOUDSDK_PYTHON` 到仓库运行时的 Python 3.10+；这是工作站环境事项，不属于仓库代码变更。
+- Next Steps: 继续基于当前 `v1` 门做下一轮模型/特征搜索；`v2` 路径后续忽略。
+
