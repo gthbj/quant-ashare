@@ -5,38 +5,60 @@
 -- 本 QA 不回写 ADS；它只从现有 registry / backtest / index DWD 复算
 -- v3 所需的源数据不变量，确保 replay 和后续 live cutover 有一致口径。
 
-DECLARE p_acceptance_gate_version STRING DEFAULT 'strategy1_acceptance_gate_v3';
-DECLARE p_acceptance_contract_version STRING DEFAULT 'model_acceptance_contract_v3';
+DECLARE p_acceptance_gate_version STRING DEFAULT 'standalone_acceptance_gate_version_required';
+DECLARE p_acceptance_contract_version STRING DEFAULT 'standalone_contract_version_required';
 DECLARE p_acceptance_contract_sha256 STRING DEFAULT 'standalone_contract_hash_required';
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
-DECLARE p_search_ids ARRAY<STRING> DEFAULT [
-  'sklearn_native_pvfq_n30_bw_h5_20260605_01',
-  'cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01',
-  'cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_20260605_01',
-  'cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_20260606_01',
-  'cloudrun_python_riskfeat_lgbm_reg_pvfq_n30_bw_h5_20260606_01'
-];
-DECLARE p_top_k_per_search INT64 DEFAULT 5;
-DECLARE p_primary_benchmark_sec_code STRING DEFAULT '000001.SH';
-DECLARE p_comparison_benchmark_sec_codes ARRAY<STRING> DEFAULT [
-  '000016.SH', '000300.SH', '000852.SH', '000001.SH', '399001.SZ'
-];
-DECLARE p_full_start_date DATE DEFAULT DATE '2024-01-02';
-DECLARE p_full_end_date DATE DEFAULT DATE '2026-04-30';
-DECLARE p_valid_start_date DATE DEFAULT DATE '2024-01-02';
-DECLARE p_valid_end_date DATE DEFAULT DATE '2024-12-31';
-DECLARE p_test_start_date DATE DEFAULT DATE '2025-01-02';
-DECLARE p_test_end_date DATE DEFAULT DATE '2025-12-31';
-DECLARE p_final_holdout_start_date DATE DEFAULT DATE '2026-01-05';
-DECLARE p_final_holdout_end_date DATE DEFAULT DATE '2026-04-30';
-DECLARE p_min_valid_rank_ic FLOAT64 DEFAULT 0.0;
-DECLARE p_min_valid_top_minus_bottom_fwd_ret FLOAT64 DEFAULT 0.0;
-DECLARE p_min_test_rank_ic FLOAT64 DEFAULT 0.0;
-DECLARE p_min_test_top_minus_bottom_fwd_ret FLOAT64 DEFAULT 0.0;
-DECLARE p_min_sharpe FLOAT64 DEFAULT 0.70;
-DECLARE p_min_calmar_ratio FLOAT64 DEFAULT 1.0;
-DECLARE p_min_final_holdout_trading_days INT64 DEFAULT 40;
-DECLARE p_allowed_score_orientations ARRAY<STRING> DEFAULT ['identity', 'reverse_probability'];
+DECLARE p_search_ids_json STRING DEFAULT 'standalone_search_ids_json_required';
+DECLARE p_search_ids ARRAY<STRING> DEFAULT IFNULL(
+  (
+    SELECT ARRAY_AGG(JSON_VALUE(item))
+    FROM UNNEST(JSON_QUERY_ARRAY(p_search_ids_json)) AS item
+  ),
+  ARRAY<STRING>[]
+);
+DECLARE p_top_k_per_search INT64 DEFAULT standalone_top_k_per_search_required;
+DECLARE p_primary_benchmark_sec_code STRING DEFAULT 'standalone_primary_benchmark_sec_code_required';
+DECLARE p_comparison_benchmark_sec_codes_json STRING DEFAULT 'standalone_comparison_benchmark_sec_codes_json_required';
+DECLARE p_comparison_benchmark_sec_codes ARRAY<STRING> DEFAULT IFNULL(
+  (
+    SELECT ARRAY_AGG(JSON_VALUE(item))
+    FROM UNNEST(JSON_QUERY_ARRAY(p_comparison_benchmark_sec_codes_json)) AS item
+  ),
+  ARRAY<STRING>[]
+);
+DECLARE p_final_holdout_enforcement STRING DEFAULT 'standalone_final_holdout_enforcement_required';
+DECLARE p_legacy_valid_as_cv_search_ids_json STRING DEFAULT 'standalone_legacy_valid_as_cv_search_ids_json_required';
+DECLARE p_legacy_valid_as_cv_search_ids ARRAY<STRING> DEFAULT IFNULL(
+  (
+    SELECT ARRAY_AGG(JSON_VALUE(item))
+    FROM UNNEST(JSON_QUERY_ARRAY(p_legacy_valid_as_cv_search_ids_json)) AS item
+  ),
+  ARRAY<STRING>[]
+);
+DECLARE p_full_start_date DATE DEFAULT DATE 'standalone_full_start_date_required';
+DECLARE p_full_end_date DATE DEFAULT DATE 'standalone_full_end_date_required';
+DECLARE p_valid_start_date DATE DEFAULT DATE 'standalone_valid_start_date_required';
+DECLARE p_valid_end_date DATE DEFAULT DATE 'standalone_valid_end_date_required';
+DECLARE p_test_start_date DATE DEFAULT DATE 'standalone_test_start_date_required';
+DECLARE p_test_end_date DATE DEFAULT DATE 'standalone_test_end_date_required';
+DECLARE p_final_holdout_start_date DATE DEFAULT DATE 'standalone_final_holdout_start_date_required';
+DECLARE p_final_holdout_end_date DATE DEFAULT DATE 'standalone_final_holdout_end_date_required';
+DECLARE p_min_valid_rank_ic FLOAT64 DEFAULT standalone_min_valid_rank_ic_required;
+DECLARE p_min_valid_top_minus_bottom_fwd_ret FLOAT64 DEFAULT standalone_min_valid_top_minus_bottom_required;
+DECLARE p_min_test_rank_ic FLOAT64 DEFAULT standalone_min_test_rank_ic_required;
+DECLARE p_min_test_top_minus_bottom_fwd_ret FLOAT64 DEFAULT standalone_min_test_top_minus_bottom_required;
+DECLARE p_min_sharpe FLOAT64 DEFAULT standalone_min_sharpe_required;
+DECLARE p_min_calmar_ratio FLOAT64 DEFAULT standalone_min_calmar_ratio_required;
+DECLARE p_min_final_holdout_trading_days INT64 DEFAULT standalone_min_final_holdout_trading_days_required;
+DECLARE p_allowed_score_orientations_json STRING DEFAULT 'standalone_allowed_score_orientations_json_required';
+DECLARE p_allowed_score_orientations ARRAY<STRING> DEFAULT IFNULL(
+  (
+    SELECT ARRAY_AGG(JSON_VALUE(item))
+    FROM UNNEST(JSON_QUERY_ARRAY(p_allowed_score_orientations_json)) AS item
+  ),
+  ARRAY<STRING>[]
+);
 
 CREATE TEMP FUNCTION qa_required(condition BOOL) AS (IFNULL(condition, FALSE));
 CREATE TEMP FUNCTION qa_gross_from_returns(log_sum FLOAT64) AS (EXP(log_sum));
@@ -151,10 +173,23 @@ SELECT
   sr.valid_top_minus_bottom,
   CASE
     WHEN sr.cv_confirmation_status_raw IS NOT NULL THEN sr.cv_confirmation_status_raw
-    WHEN sr.cv_rank_ic_mean_raw IS NULL OR sr.cv_top_minus_bottom_raw IS NULL THEN NULL
-    WHEN COALESCE(sr.cv_fold_count_raw, 3) < 3 THEN 'failed'
-    WHEN sr.cv_rank_ic_mean_raw > 0 AND sr.cv_top_minus_bottom_raw > 0 THEN 'passed'
-    ELSE 'failed'
+    WHEN sr.cv_rank_ic_mean_raw IS NOT NULL AND sr.cv_top_minus_bottom_raw IS NOT NULL THEN
+      CASE
+        WHEN COALESCE(sr.cv_fold_count_raw, 3) < 3 THEN 'failed'
+        WHEN sr.cv_rank_ic_mean_raw > 0 AND sr.cv_top_minus_bottom_raw > 0 THEN 'passed'
+        ELSE 'failed'
+      END
+    WHEN sr.search_id IN UNNEST(p_legacy_valid_as_cv_search_ids)
+      AND sr.valid_signal_status IS NOT NULL
+      AND sr.valid_rank_ic IS NOT NULL
+      AND sr.valid_top_minus_bottom IS NOT NULL THEN
+      CASE
+        WHEN sr.valid_signal_status = 'stable'
+          AND sr.valid_rank_ic > 0
+          AND sr.valid_top_minus_bottom > 0 THEN 'passed'
+        ELSE 'failed'
+      END
+    ELSE NULL
   END AS effective_cv_confirmation_status,
   COALESCE(sr.test_rank_ic_mean_raw, tri.test_rank_ic_mean) AS effective_test_rank_ic,
   COALESCE(sr.test_top_minus_bottom_raw, tbs.test_top_minus_bottom_fwd_ret_mean) AS effective_test_top_minus_bottom
@@ -170,8 +205,9 @@ ASSERT (
   p_acceptance_gate_version = 'strategy1_acceptance_gate_v3'
   AND p_acceptance_contract_version = 'model_acceptance_contract_v3'
   AND p_acceptance_contract_sha256 != 'standalone_contract_hash_required'
-  AND LENGTH(p_acceptance_contract_sha256) >= 16
+  AND REGEXP_CONTAINS(p_acceptance_contract_sha256, r'^[0-9a-f]{64}$')
   AND p_primary_benchmark_sec_code = '000001.SH'
+  AND p_final_holdout_enforcement IN ('diagnostic_only', 'blocking')
 ) AS 'QA-V3-1: acceptance gate v3 must use model_acceptance_contract_v3 with non-empty hash and primary benchmark 000001.SH';
 
 -- QA-V3-2: replay default search universe must be exactly five unique completed searches.
@@ -251,27 +287,31 @@ ASSERT (
   FROM qa_v3_selected_rows
 ) AS 'QA-V3-5: v3 signal-quality fields must exist or be source-derivable on all replayed selected rows';
 
--- QA-V3-6: final_holdout trading days must be computable and satisfy the current v3 floor.
+CREATE TEMP TABLE qa_v3_final_holdout_days AS
+WITH selected_backtests AS (
+  SELECT DISTINCT backtest_id
+  FROM qa_v3_selected_rows
+)
+SELECT
+  sb.backtest_id,
+  COUNT(nav.trade_date) AS trading_days
+FROM selected_backtests AS sb
+LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+  ON nav.backtest_id = sb.backtest_id
+ AND nav.trade_date BETWEEN p_final_holdout_start_date AND p_final_holdout_end_date
+GROUP BY sb.backtest_id
+;
+
+-- QA-V3-6: final_holdout enforcement must follow the contract; if diagnostic_only, do not hard-fail on the threshold.
 ASSERT (
-  WITH selected_backtests AS (
-    SELECT DISTINCT backtest_id
-    FROM qa_v3_selected_rows
-  ),
-  holdout_days AS (
-    SELECT
-      nav.backtest_id,
-      COUNT(*) AS trading_days
-    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
-    JOIN selected_backtests AS sb
-      ON sb.backtest_id = nav.backtest_id
-    WHERE nav.trade_date BETWEEN p_final_holdout_start_date AND p_final_holdout_end_date
-    GROUP BY nav.backtest_id
-  )
   SELECT
     COUNT(*) = ARRAY_LENGTH(p_search_ids) * p_top_k_per_search
-    AND LOGICAL_AND(qa_required(trading_days >= p_min_final_holdout_trading_days))
-  FROM holdout_days
-) AS 'QA-V3-6: replayed selected candidates must have at least 40 final_holdout trading days';
+    AND (
+      p_final_holdout_enforcement = 'diagnostic_only'
+      OR LOGICAL_AND(qa_required(trading_days >= p_min_final_holdout_trading_days))
+    )
+  FROM qa_v3_final_holdout_days
+) AS 'QA-V3-6: final_holdout enforcement must match the contract-defined blocking behavior';
 
 -- QA-V3-7: v3 absolute metrics must be source-computable and the formula-locked thresholds must be evaluable.
 ASSERT (
@@ -302,10 +342,10 @@ ASSERT (
     SELECT
       backtest_id,
       trade_date,
-      nav,
+      nav.nav AS nav,
       daily_return,
       running_peak_nav,
-      SAFE_DIVIDE(nav, running_peak_nav) - 1.0 AS drawdown
+      SAFE_DIVIDE(nav.nav, running_peak_nav) - 1.0 AS drawdown
     FROM nav
   ),
   trough AS (
@@ -400,12 +440,12 @@ ASSERT (
     SELECT
       backtest_id,
       trade_date,
-      nav,
+      nav.nav AS nav,
       daily_return,
       running_peak_nav,
       window_start_date,
       window_end_date,
-      SAFE_DIVIDE(nav, running_peak_nav) - 1.0 AS drawdown
+      SAFE_DIVIDE(nav.nav, running_peak_nav) - 1.0 AS drawdown
     FROM nav
   ),
   trough AS (
@@ -474,9 +514,11 @@ ASSERT (
     LEFT JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_prev
       ON b_prev.sec_code = bench_code
      AND b_prev.trade_date = nav.previous_trade_date
+     AND b_prev.trade_date BETWEEN p_full_start_date AND p_full_end_date
     LEFT JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_curr
       ON b_curr.sec_code = bench_code
      AND b_curr.trade_date = nav.trade_date
+     AND b_curr.trade_date BETWEEN p_full_start_date AND p_full_end_date
     GROUP BY nav.backtest_id, benchmark_sec_code
   ),
   candidate_benchmark AS (
@@ -497,9 +539,11 @@ ASSERT (
     JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_peak
       ON b_peak.sec_code = bench_code
      AND b_peak.trade_date = sm.peak_date
+     AND b_peak.trade_date BETWEEN p_full_start_date AND p_full_end_date
     JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_trough
       ON b_trough.sec_code = bench_code
      AND b_trough.trade_date = sm.trough_date
+     AND b_trough.trade_date BETWEEN p_full_start_date AND p_full_end_date
     JOIN UNNEST([STRUCT(bench_code AS sec_code)]) AS bench
   ),
   scored AS (

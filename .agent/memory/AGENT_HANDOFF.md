@@ -1,4 +1,14 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #122 最新 re-review 指出的 `QA-V3-1` sentinel/render bug 已修：`run_acceptance_gate_v3_replay_qa.py` 对 placeholder 改回单次替换，`24_qa_acceptance_gate_v3_replay_outputs.sql` 的 primary benchmark 断言恢复成对固定 `000001.SH` 的真校验。
+> - 按这版代码已重新真跑 `replay_acceptance_gate_v3.py` 和 `run_acceptance_gate_v3_replay_qa.py --project data-aquarium`；结果仍为 `25` 个候选里 `1 accepted / 24 rejected`，且 `24` QA 全部通过。
+> - 最新 replay / QA contract hash 已更新为 `8a84447e8190290fef2ae61b71a31678bc02fffda52b5a4701be36593e1ea1ed`，PR #122 body 也已同步刷新。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #122 新一轮 comment follow-up 已继续收口 `24` QA 的 contract 边界：`run_acceptance_gate_v3_replay_qa.py` 现在不只渲染 `contract_hash / legacy_valid_as_cv_search_ids / final_holdout_enforcement`，还会把 replay search scope、Top-K、benchmark 集合、窗口、signal/absolute gate 阈值、final_holdout trading-day 阈值和允许的 score orientation 一并从 `model_acceptance_contract_v3.yml` 注入 SQL。
+> - `model_acceptance_contract_v3.yml` 已新增 `replay_scope`，把五次正式搜索 `search_id` 列表和 `top_k_per_search` 纳入 contract；`24_qa_acceptance_gate_v3_replay_outputs.sql` 因此不再维护第二份 search scope 默认值。
+> - 这轮没有再重跑 replay / `24` QA；目的是收口“QA 仍有残留硬编码，contract 还不是完整唯一事实来源”的 review。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - PR #121 review follow-up 已收紧两处生产边界：`ashare-workflows-runtime` 不再依赖项目级 `roles/run.developer`，而改为 `ashare-ingest-current-scope` job 级 `roles/run.invoker`；`cutover_scheduler_jobs.sh` 也改成默认先创建 paused Scheduler jobs、再 pause Composer，只有显式 `RESUME_SCHEDULER_JOBS=true` 才启用。
 > - 这轮没有再重跑生产 scheduler；只会把最小权限变更打到 live IAM，避免为了验证 comment 再额外触发一次真实生产链。
 
@@ -16,6 +26,29 @@
 > - PR #120 合并后已做 live deploy：`ashare-pipeline-control` 升到 revision `ashare-pipeline-control-00005-mk5`，`ashare_warehouse_full_rebuild` 升到 workflow revision `000002-e70`。
 > - post-merge dry-run smoke `773f26c1-2a80-41ab-9b85-fa7c208f0342` 已 success，说明这轮补进去的 poll 失败终态写回和 `bigquery_max_polls` 输入化至少没有造成新的接线回归。
 > - 本轮仍然没有执行真实 full rebuild 写路径；OQ-005 在 full rebuild 这条线上的剩余风险，已经收敛回 cutover 前是否要做一次更大范围 dry-run 或真实写入验证。
+> - `v3` replay 与 helper 驱动的 `24` QA 已按最新 contract 真执行成功：`replay_acceptance_gate_v3.py` 结果仍为 `25` 个候选里 `1 accepted / 24 rejected`，最新 contract hash 为 `6e6d77881e8ca8f437154be9bec9b4972e35140c0b2562e7732150e37b9e8418`。
+> - `run_acceptance_gate_v3_replay_qa.py` 已成功驱动 `24_qa_acceptance_gate_v3_replay_outputs.sql` 全部通过；这意味着 legacy valid-as-CV carve-out、`final_holdout=diagnostic_only`、五指数公式锁定和 contract-driven 参数注入都已在真实 BigQuery 执行中收口。
+> - 为让 `24` QA 跑通，本轮额外修了两个 SQL 实现问题：`nav_drawdown` 曾误把整行 `nav` struct 当成数值列，现已改成 `nav.nav AS nav`；`QA-V3-8` 对 `dwd_index_eod` 的 4 个 join 已补显式分区过滤，避免 BigQuery partition elimination 报错。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - `24` QA 现在不再靠 SQL 里的手工镜像默认值维持语义一致性。已新增 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`，从 `model_acceptance_contract_v3.yml` 注入 `contract_hash`、`legacy_valid_as_cv_search_ids` 和 `final_holdout_enforcement` 后再执行 BigQuery QA。
+> - `replay_acceptance_gate_v3.py` 也已改成从 contract 读取 `replay_compatibility.legacy_valid_as_cv_search_ids`，不再保留 Python 侧硬编码 allowlist。
+> - 这套 helper / 新语义现已完成真实 replay 与真实 `24` QA 验证，不再停留在代码就绪状态。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - owner 已明确：`final_holdout` 在 `v3` 中不再是 hard veto。contract 现在把 `final_holdout_gate.enforcement` 标成 `diagnostic_only`，`trading_day_count >= 40` 只保留为诊断阈值。
+> - `replay_acceptance_gate_v3.py` 已同步：`absolute_gate_failures()` 不再因 final_holdout 天数不足而拒绝，candidate artifact 新增 `final_holdout_gate_status`。
+> - `24` QA 的 `QA-V3-6` 也已同步降级，只要求 final_holdout trading day count 可计算，不再要求 `>= 40`。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - `v3` replay 已在新工作树重跑成功，结果仍是 `25` 个候选里 `1 accepted / 24 rejected`；contract hash 仍为 `03be9f1c6c392973c8c298eba7f68ea8e957b760cbb5e9761d44e0cf0d075283`。
+> - `24` QA 现在已经从 `QA-V3-5` 推进到 `QA-V3-6`：legacy valid-as-CV fallback 生效后，字段缺口不再阻塞。
+> - 当前唯一剩余失败项是首轮 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 的 5 个 historical selected row 在 `2026-01-05..2026-04-30` 没有任何 NAV 行，因此 `final_holdout trading days = 0`；下一步需要 owner 决定这类“没有 2026 holdout 的历史 search”在 `v3` replay 中是保持 hard fail，还是再定义历史兼容规则。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - `v3` replay / `24` QA 现在又补了一层只对首轮 native search 生效的 legacy 兼容：`sklearn_native_pvfq_n30_bw_h5_20260605_01` 缺 `cv_confirmation_status` / `cv_*` 字段时，不再判成不可算，而是用同 row 已持久化的 `valid_signal_status`、`valid_rank_ic`、`valid_top_minus_bottom_fwd_ret_mean` 代替 CV 证据。
+> - 兼容规则已经钉死：`stable + valid_rank_ic>0 + valid_top_minus_bottom>0 => passed`，否则 `failed`；只对这轮历史 sklearn search 生效，不推广到后续 LightGBM / risk-feature 搜索。
+> - 这次还没有重跑 replay / `24` QA；下一步应直接验证 `QA-V3-5` 是否被这条 legacy fallback 打通。
 
 > 当前交接补充（2026-06-08，GPT-5 Codex）
 > - PR #120 第二轮 review follow-up 已继续收口 full rebuild poll 终态：`get_job(...)` 用尽内部重试后，现在会显式把 task 写成 `failed`，不再让 `pipeline_task_status` 卡在 `running`。
@@ -87,6 +120,13 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：PR #122 最新 re-review 已闭环。** `run_acceptance_gate_v3_replay_qa.py` 的 placeholder 渲染现已改回单次替换，`QA-V3-1` 不再把 hash sentinel 一起替掉；`24_qa_acceptance_gate_v3_replay_outputs.sql` 的 primary benchmark 断言也恢复成对固定 `000001.SH` 的真校验。按这版代码已重新真跑 replay 与 helper 驱动的 `24` QA，结果仍为 `25` 个候选里 `1 accepted / 24 rejected`，`24` QA 全部通过，最新 contract hash 为 `8a84447e8190290fef2ae61b71a31678bc02fffda52b5a4701be36593e1ea1ed`。
+- **2026-06-08 GPT-5 Codex：`24` QA 剩余业务口径已继续收口到 v3 contract。** `run_acceptance_gate_v3_replay_qa.py` 现在会把 replay search scope、Top-K、benchmark 集合、窗口、signal/absolute gate 阈值、`final_holdout` trading-day 阈值和允许的 `score_orientation` 一并从 `model_acceptance_contract_v3.yml` 注入 `24_qa_acceptance_gate_v3_replay_outputs.sql`；contract 新增 `replay_scope` 后，QA 不再维护第二份 search scope 默认值。这轮没有再重跑 replay / `24` QA，目的是收口 PR #122 关于“contract 还不是完整唯一事实来源”的 review。
+- **2026-06-08 GPT-5 Codex：`v3` replay 和 helper 驱动的 `24` QA 已真执行成功。** `replay_acceptance_gate_v3.py` 在最新 `model_acceptance_contract_v3.yml` 下结果仍为 `25` 个候选里 `1 accepted / 24 rejected`，contract hash 为 `6e6d77881e8ca8f437154be9bec9b4972e35140c0b2562e7732150e37b9e8418`。`run_acceptance_gate_v3_replay_qa.py` 也已成功驱动 `24_qa_acceptance_gate_v3_replay_outputs.sql` 全部通过；legacy valid-as-CV carve-out、`final_holdout=diagnostic_only` 和五指数公式锁定都已在真实 BigQuery 执行中验证。过程中补修了两个 SQL 实现问题：`nav_drawdown` 改为 `nav.nav AS nav`，`QA-V3-8` 对 `dwd_index_eod` 的 4 个 join 补了显式分区过滤。
+- **2026-06-08 GPT-5 Codex：`24` QA 已改成 contract-driven helper 执行。** 新增 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 后，`24_qa_acceptance_gate_v3_replay_outputs.sql` 不再依赖手工在 SQL 顶部镜像 `contract_hash`、legacy replay carve-out 或 `final_holdout` enforcement；这些值都由 helper 从 `model_acceptance_contract_v3.yml` 注入，`sql/ml/strategy1/README.md` 也已改成通过 helper 跑 `24` QA。`replay_acceptance_gate_v3.py` 同时移除了 Python 常量里的 legacy search allowlist，统一从 contract 的 `replay_compatibility` 读取。
+- **2026-06-08 GPT-5 Codex：`v3` final_holdout 已被 owner 降成 diagnostic-only。** `model_acceptance_contract_v3.yml` 现在显式声明 `final_holdout_gate.enforcement=diagnostic_only`；`final_holdout trading days >= 40` 保留为 replay artifact / QA 的诊断字段，但不再阻断 `v3` accepted / rejected。`replay_acceptance_gate_v3.py` 已新增 `final_holdout_gate_status`，`24_qa_acceptance_gate_v3_replay_outputs.sql` 的 `QA-V3-6` 也已同步改为只要求可计算。当前尚未按这条新口径重跑 replay / `24` QA。
+- **2026-06-08 GPT-5 Codex：`v3` replay 已成功重跑，旧阻塞已定位到 final_holdout 历史覆盖缺口。** replay 结果未变，仍是 `25` 个候选里 `1 accepted / 24 rejected`。应用 legacy valid-as-CV fallback 后，`24` QA 已通过 `QA-V3-5`，说明历史字段缺口问题已被消化；当时剩余的 `QA-V3-6` 失败来自首轮 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 的 5 个 historical selected row 在 `2026-01-05..2026-04-30` 没有任何 NAV 行，`final_holdout trading days = 0`。该问题现已被 owner 通过“final_holdout 非硬 veto”决策收口，后续只需按新口径重跑 replay / `24` QA。
+- **2026-06-08 GPT-5 Codex：`v3` replay / `24` QA 已为首轮 sklearn native search 增加 legacy valid-as-CV 兼容口径。** `sklearn_native_pvfq_n30_bw_h5_20260605_01` 的 5 个 historical selected row 缺 `cv_confirmation_status` / `cv_*` 持久化字段时，不再直接判成不可算，而是用已持久化的 `valid_signal_status`、`valid_rank_ic`、`valid_top_minus_bottom_fwd_ret_mean` 作为兼容代理：`stable + valid_rank_ic>0 + valid_top_minus_bottom>0 => passed`，否则 `failed`。这条规则只对该首轮 native search 生效，不推广到后续 LightGBM / risk-feature 搜索。当前尚未重跑 replay / `24` QA，下一步先验证 `QA-V3-5` 是否已打通。
 - **2026-06-08 GPT-5 Codex：PR #119 review follow-up 已把 `v3` replay fallback 再收口一轮。** `effective_test_metric` 现在对 `test_rank_ic_mean` 和 `test_top_minus_bottom_fwd_ret_mean` 统一走“有限 raw 值优先，否则 fallback”，避免 spread 字段遇到 `inf`/非有限 raw 值时把 fallback 吞掉。candidate artifact 也新增了 `cv_confirmation_status_from_fallback`、`test_rank_ic_from_fallback`、`test_top_minus_bottom_fwd_ret_from_fallback`，便于审计值来源；`24` QA 则把 `selected_registry -> backtest_summary` 改回 `LEFT JOIN`，继续显式暴露缺 summary 的 selected row。当前仍未重跑 replay / `24` QA。
 - **2026-06-08 GPT-5 Codex：Strategy1 `v3` replay / `24` QA 已改为兼容历史 search 的信号字段缺口。** `replay_acceptance_gate_v3.py` 不再把历史 `cv_confirmation_status` / `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 缺失当硬阻断，而是按 source-of-truth fallback 读取：`cv_confirmation_status` 用已有 `cv_rank_ic_mean` + `cv_top_minus_bottom_fwd_ret_mean`（以及存在时的 `cv_fold_count`）回推，`test_*` 则从 `ads_model_prediction_daily` + `ads_ml_training_panel_daily` 的 `test` 窗口按原 orchestrator 公式现算。`24_qa_acceptance_gate_v3_replay_outputs.sql` 已同步改成校验“字段存在或可由 source 推导”。本轮尚未重跑 replay / `24` QA，下一步先执行这两步。
 - **2026-06-08 GPT-5 Codex：OQ-005 scheduled production cutover 与 Composer 下线均已完成。** `ashare-ods-ingestion-daily`（`0 20 * * *`）和 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 scheduler 已 `ENABLED`，目标分别为 `ashare_ods_ingestion_daily` / `ashare_pipeline_alert_checker` workflows；真实 cutover 证据是 alert-checker execution `978c920c-3810-4299-b904-3c954e8d221d` succeeded，以及 ODS parent `31ac0d61-d40c-4a88-9865-b13f61d369c1` 和 child warehouse `919f2aba-b9d4-4181-9915-fa848487bb90` 均 succeeded。Composer 业务 DAG 已全部停用，`ashare-composer` 环境已删除，`gcloud composer environments describe ashare-composer --location=asia-east2` 返回 `NOT_FOUND`。后续只需补短观察窗记录。

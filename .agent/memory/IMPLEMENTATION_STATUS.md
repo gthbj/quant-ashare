@@ -6,6 +6,52 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：修复 QA-V3-1 sentinel 渲染问题后，v3 replay 与 helper 驱动的 24 QA 已再次真执行成功
+
+- `run_acceptance_gate_v3_replay_qa.py` 现在对所有 placeholder 使用单次替换，避免把 `QA-V3-1` 里用于检测 hash 是否被填充的 sentinel 一并替掉；`24_qa_acceptance_gate_v3_replay_outputs.sql` 的 primary benchmark 断言也已恢复成对固定 `000001.SH` 的真校验。
+- 按这版代码重跑后，`scripts/strategy1/replay_acceptance_gate_v3.py` 结果仍为 `25` 个候选、`1 accepted / 24 rejected`；最新 contract hash 为 `8a84447e8190290fef2ae61b71a31678bc02fffda52b5a4701be36593e1ea1ed`。
+- `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py --project data-aquarium` 也已成功跑通，说明 PR #122 最新 comment 指出的 `QA-V3-1`/primary benchmark 渲染 bug 已关闭。
+
+### 最新补充（2026-06-08）：`24` QA 的 replay scope / 窗口 / 阈值 / benchmark 集合已全部改为从 v3 contract 派生
+
+- `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 不再只渲染 `contract_hash`、`legacy_valid_as_cv_search_ids` 和 `final_holdout_enforcement`；现已把 replay search scope、Top-K、primary/comparison benchmark、full/valid/test/final_holdout 窗口、signal/absolute gate 阈值、`final_holdout trading_day_count` 和允许的 `score_orientation` 一并从 `model_acceptance_contract_v3.yml` 渲染进 `24_qa_acceptance_gate_v3_replay_outputs.sql`。
+- `configs/strategy1/model_acceptance_contract_v3.yml` 已新增 `replay_scope`，把五次正式搜索 `search_id` 列表和 `top_k_per_search` 纳入 contract；`24` QA 不再额外维护第二份 search scope 默认值。
+- 这轮没有再重跑 replay 或 `24` QA；当前改动目的是收口 PR #122 review 指出的“QA 仍有残留硬编码，contract 还不是完整唯一事实来源”问题。
+
+### 最新补充（2026-06-08）：`v3` replay 与 helper 驱动的 `24` QA 已按最新 contract 真执行成功
+
+- `scripts/strategy1/replay_acceptance_gate_v3.py` 已在 `codex/run-v3-replay-qa` 工作树中按最新 `model_acceptance_contract_v3.yml` 真执行成功；结果为 `25` 个候选、`1 accepted / 24 rejected`，最新 contract hash 为 `6e6d77881e8ca8f437154be9bec9b4972e35140c0b2562e7732150e37b9e8418`。
+- `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 已成功驱动 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 跑通；`24` QA 现已不再依赖手工替换 SQL 默认值，也没有剩余业务断言失败。
+- 为让 `24` QA 真正跑通，本轮额外修了两个 SQL 实现问题：`QA-V3-7/8` 中 `nav_drawdown` 先前误把整行 `nav` struct 当成数值列，现已收窄为 `nav.nav AS nav`；`QA-V3-8` 对 `ashare_dwd.dwd_index_eod` 的 4 个 join 已补显式 `trade_date BETWEEN p_full_start_date AND p_full_end_date` 分区过滤，避免 BigQuery partition elimination 报错。
+
+### 最新补充（2026-06-08）：`24` QA 已改成通过 helper 从 contract 渲染语义参数
+
+- 已新增 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`，用 `model_acceptance_contract_v3.yml` 渲染并执行 `24_qa_acceptance_gate_v3_replay_outputs.sql`，不再依赖手工替换 hash 或在 SQL 默认值里镜像 legacy carve-out / final_holdout enforcement。
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 当前仍是 SQL template，但其 `contract_hash`、`legacy_valid_as_cv_search_ids` 和 `final_holdout_enforcement` 都由 helper 从 contract 注入；`sql/ml/strategy1/README.md` 已同步改为通过 helper 执行 `24` QA。
+- `scripts/strategy1/replay_acceptance_gate_v3.py` 也已不再使用 Python 常量维护 `legacy_valid_as_cv_search_ids`，而是从 contract 的 `replay_compatibility.legacy_valid_as_cv_search_ids` 读取。
+- 这套 helper / 新语义现已完成真实 replay 与真实 `24` QA 验证。
+
+### 最新补充（2026-06-08）：`v3` final_holdout 已从 hard veto 改为 diagnostic-only
+
+- `configs/strategy1/model_acceptance_contract_v3.yml` 现在显式把 `final_holdout_gate.enforcement` 标成 `diagnostic_only`；`final_holdout trading days >= 40` 仍保留为字段与诊断阈值，但不再阻断 `v3` accepted / rejected 判定。
+- `scripts/strategy1/replay_acceptance_gate_v3.py` 已同步：`absolute_gate_failures()` 不再因为 final_holdout trading days 不足而追加拒绝原因；candidate artifact 新增 `final_holdout_gate_status`，用于区分 `passed` / `diagnostic_warn` / `failed`（若将来再切回 blocking）。
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 的 `QA-V3-6` 已同步降级：不再要求 `>= 40`，只要求所有 replay selected row 的 final_holdout trading day count 可计算。
+- 本轮没有重跑 replay / `24` QA；下一步若要确认通过数变化，应重新执行两者。
+
+### 最新补充（2026-06-08）：`v3` replay 已成功重跑，`24` QA 已推进到 `QA-V3-6`
+
+- `scripts/strategy1/replay_acceptance_gate_v3.py` 已在 `codex/run-v3-replay-qa` 工作树中重新执行成功；结果仍为 `25` 个候选、`1 accepted / 24 rejected`，contract hash 为 `03be9f1c6c392973c8c298eba7f68ea8e957b760cbb5e9761d44e0cf0d075283`。
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 使用只替换首个 contract hash 占位符的执行方式后，`QA-V3-1` 到 `QA-V3-5` 已全部通过；其中 `QA-V3-5` 说明首轮 sklearn native search 的 legacy valid-as-CV fallback 已生效。
+- 当前唯一剩余失败项是 `QA-V3-6`：首轮 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 的 5 个 historical selected row 在 `2026-01-05..2026-04-30` 没有任何 NAV 行，因此 `final_holdout trading days = 0`，低于 `v3` 要求的 `>= 40`。
+- 这意味着 `v3` replay / QA 现在不再被历史字段缺口阻塞，而是进入真正的门语义决策：是否对没有 2026 holdout 的历史 search 保持 hard fail，或再定义一条仅限历史 replay 的兼容规则。
+
+### 最新补充（2026-06-08）：v3 replay / `24` QA 已为首轮 sklearn native search 增加 legacy valid-as-CV 兼容口径
+
+- `scripts/strategy1/replay_acceptance_gate_v3.py` 已新增只对 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 生效的 `cv_confirmation_status` fallback：当历史 row 没有 `cv_confirmation_status` / `cv_rank_ic_mean` / `cv_top_minus_bottom_fwd_ret_mean` 时，改用同一 row 已持久化的 `valid_signal_status`、`valid_rank_ic`、`valid_top_minus_bottom_fwd_ret_mean` 作为 legacy 兼容证据。
+- 兼容规则固定为：`valid_signal_status='stable' AND valid_rank_ic>0 AND valid_top_minus_bottom_fwd_ret_mean>0` 记为 `passed`，否则记为 `failed`；这条规则只用于该首轮 sklearn native search 的 historical replay，不扩展到后续 LightGBM / risk-feature 搜索。
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 已同步采用同一条 legacy fallback，确保 Python replay 与 BigQuery QA 对这 5 个历史 selected row 的 `effective_cv_confirmation_status` 口径一致。
+- 本轮未重跑 replay 或 `24` QA；下一步应在独立执行中重新跑两者，确认 `QA-V3-5` 已被该 legacy fallback 打通。
+
 ### 最新补充（2026-06-08）：PR #119 review follow-up 已修 v3 replay fallback 对称性与可追溯性
 
 - `scripts/strategy1/replay_acceptance_gate_v3.py` 已修 `effective_test_metric` 对两个 test 指标的不对称处理：`test_rank_ic_mean` 与 `test_top_minus_bottom_fwd_ret_mean` 现在都先取有限 raw 值，再回退到 source-fallback，避免 `inf` / 非有限 raw 值把 fallback 短路。

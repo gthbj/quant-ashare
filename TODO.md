@@ -2,6 +2,13 @@
 
 ## 最新状态（2026-06-08）
 
+- [x] PR #122 最新 comment follow-up：修复 `run_acceptance_gate_v3_replay_qa.py` 的全量 replace 导致的 `QA-V3-1` sentinel 渲染 bug，并恢复 `24` QA 对固定 primary benchmark `000001.SH` 的真校验；按这版代码已重新真跑 replay 与 helper 驱动的 `24` QA，结果仍是 `25` 个候选里 `1 accepted / 24 rejected`，`24` QA 全部通过
+- [x] PR #122 comment follow-up：`24` QA 剩余的 replay scope / Top-K / benchmark 集合 / 窗口 / 信号阈值 / Sharpe-Calmar 阈值 / allowed score orientation 已全部改为从 `model_acceptance_contract_v3.yml` 渲染，`v3` contract 新增 `replay_scope`，不再在 SQL 里维护第二份业务默认值
+- [x] `24` QA 已切到 contract-driven helper：新增 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`，从 `model_acceptance_contract_v3.yml` 注入 `contract_hash`、legacy replay carve-out 和 `final_holdout` enforcement 后执行 `24_qa_acceptance_gate_v3_replay_outputs.sql`；`README` 已同步，不再建议裸跑 SQL
+- [x] owner 已明确 `v3` 的 `final_holdout` 不是 hard veto：`model_acceptance_contract_v3.yml` 已将 `final_holdout_gate` 标成 `diagnostic_only`，replay 不再因天数不足拒绝，`24` QA 只要求可计算；按这条新口径的 replay 与 `24` QA 已全部真执行通过
+- [x] `v3` replay 已按最新 contract 成功重跑，结果仍是 `25` 个候选里 `1 accepted / 24 rejected`；helper 驱动的 `24` QA 也已全部通过
+- [x] `v3` replay / `24` QA 已为首轮 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 增加 legacy valid-as-CV 兼容口径：当历史 selected row 缺 `cv_confirmation_status` / `cv_*` 字段时，允许用 `valid_signal_status + valid_rank_ic + valid_top_minus_bottom` 代理 CV confirmation；下一步只需重跑 replay / `24` QA 验证 `QA-V3-5`
+
 - [x] PR #108 comment follow-up 已把 Composer 迁出 PRD 加硬到实现级：per-task `pipeline_task_status` 显式写回、`ashare_warehouse_window_refresh` 分布式锁、生产 ingestion -> refresh 同步 child workflow、旧 `warehouse_refresh_missing` watchdog 退役路径，以及 BigQuery / Cloud Run 轮询与 Workflows 限额复核都已写入 PRD。
 
 - [x] 新增 OQ-005 编排迁出 Composer 主 PRD：`docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md` 已明确长期目标改为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，当前 Composer DAG 拆分与 smoke 只视为 cutover 前过渡态；目标是在迁移验收后删除 Composer 环境，消除固定 `standard milli DCU-hours` 底座成本。
@@ -140,5 +147,5 @@
 
 ## 策略 1 验收门 v3 后续
 - [x] 实现 `v3` 只读 replay：新增 `scripts/strategy1/replay_acceptance_gate_v3.py`，对五次正式搜索 Top-K 只读重算 `v3` 的 `Sharpe` / `Calmar` / 五指数相对门 / `Final holdout 交易日数`，不回写历史 `accepted/rejected`。
-- [x] 新增 `v3` QA：新增 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`，校验 contract version/hash、五指数窗口覆盖、绝对指标可计算性、正超额复合年化收益前置条件和 `Final holdout 交易日数 >= 40`。
+- [x] 新增 `v3` QA：新增 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`，校验 contract version/hash、五指数窗口覆盖、绝对指标可计算性、正超额复合年化收益前置条件和 `final_holdout` enforcement；`run_acceptance_gate_v3_replay_qa.py` 已按最新 contract 驱动真执行通过。
 - [ ] replay 和 QA 通过后，再把 Cloud Run live search 的 `acceptance_contract_path` 从 `v1` 切到 `v3`。
