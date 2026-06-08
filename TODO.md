@@ -127,6 +127,8 @@
 - [ ] OQ-005 follow-up：若 shadow run 暴露锁过期边界，再给 `ashare-pipeline-control` stale-lock reclaim 补 Workflows execution liveness 检查；当前 phase 1 先以显式 SQL call timeout + 更长 lease headroom 收敛风险。
 
 ## 2026-06-08 完成
+- [x] 处理 PR #119 review follow-up：统一 `effective_test_metric` 的 raw/fallback 语义、给 `v3` replay candidate artifact 增加 `*_from_fallback` 审计字段，并把 `24` QA 的 backtest summary 连接改回 `LEFT JOIN` 保留显式缺 summary 断言。
+- [x] 修复 Strategy1 `v3` replay / `24` QA 对历史 search 缺失 `cv_confirmation_status` / `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 的兼容：改为 source-derivable fallback，不回填历史 registry；下一步重新执行 replay 与 `24` QA 确认 `QA-V3-5` 解锁。
 - [x] 修复 Strategy1 Cloud Run `prepare_matrix` 对 `has_fin_*` JSON 布尔特征的解包错误，并在 `000001.SH` 下跑通 `12` 候选 LightGBM regression smoke（`cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_smoke_20260608_05`）。
 - [x] 处理 PR #113 review follow-up：将 Strategy1 Cloud Run `BOOLEAN_FEATURE_COLUMNS` 收窄回仅 4 个真实 JSON 布尔字段 `has_fin_*`，避免把 10 个数值型 `risk_*` / `is_*` 特征静默解包为 `NULL`。
 - [x] 新增 `docs/prd/PRD_20260608_02_策略1验收门v3切换实施.md`，冻结后续切门路线为 `v1 -> v3`，明确 `v2` 不再参与未来切门。

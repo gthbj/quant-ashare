@@ -6,6 +6,22 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：PR #119 review follow-up 已修 v3 replay fallback 对称性与可追溯性
+
+- `scripts/strategy1/replay_acceptance_gate_v3.py` 已修 `effective_test_metric` 对两个 test 指标的不对称处理：`test_rank_ic_mean` 与 `test_top_minus_bottom_fwd_ret_mean` 现在都先取有限 raw 值，再回退到 source-fallback，避免 `inf` / 非有限 raw 值把 fallback 短路。
+- replay candidate artifact 已新增 `cv_confirmation_status_from_fallback`、`test_rank_ic_from_fallback`、`test_top_minus_bottom_fwd_ret_from_fallback`，用于区分输出值来自历史 `metrics_json` 还是只读 fallback。
+- `valid_rank_ic` 相关 dead record 分支已清理，当前优先使用 `effective_valid_rank_ic_mean`，再回退到 `metrics_json` 中的 legacy valid 字段，不再引用 SQL 已不再 select 的列。
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 已把 `selected_registry -> ads_backtest_performance_summary` 改回 `LEFT JOIN`，继续显式保留“selected row 缺 backtest summary”这一类 QA 失败模式，而不是在前置 CTE 中静默过滤。
+- 本轮仍未执行 `py_compile`、BigQuery dry-run、replay 或 `24` QA；这是按 PR review 直接做的代码修复与记忆更新。
+
+### 最新补充（2026-06-08）：Strategy1 `v3` replay / `24` QA 已兼容历史 search 缺失的 signal-quality 字段
+
+- 已修 `scripts/strategy1/replay_acceptance_gate_v3.py`：不再把历史 `ads_model_registry.metrics_json` 里缺失的 `cv_confirmation_status` / `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 当作硬阻断，而是使用可追溯 fallback。
+- `cv_confirmation_status` 的 fallback 现在按既有训练期口径回推：优先读历史原字段；若缺失，则用已有 `cv_rank_ic_mean`、`cv_top_minus_bottom_fwd_ret_mean`，并在存在 `cv_fold_count` 且 `<3` 时直接判 `failed`。这使首轮 `sklearn_native_*` 旧 search 不需要回填 registry 也能按 v3 重算。
+- `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 的 fallback 现在直接复用当年 search orchestrator 的 source-of-truth 公式：从 `ads_model_prediction_daily` + `ads_ml_training_panel_daily` 在 `test` 窗口现算 daily RankIC 和 5 桶 top-bottom spread。这样 `riskfeat` 两轮历史 search 即使 registry 没持久化这两个字段，也能被 v3 replay / QA 读取。
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 已同步改为校验“字段存在或可由 source 推导”，不再死盯历史 raw `metrics_json` 原字段存在性；Replay 与 SQL QA 的 fallback 口径已对齐。
+- 本轮仍未重跑 `replay_acceptance_gate_v3.py` 或 `24_qa_acceptance_gate_v3_replay_outputs.sql`；当前完成的是兼容修复代码，下一步应在独立执行中重新跑 replay 与 `24` QA。
+
 ### 最新补充（2026-06-08）：OQ-005 alert checker 已完成真实部署与 manual/scheduler smoke
 
 - `ashare-pipeline-control` 已重新部署到 Cloud Run revision `ashare-pipeline-control-00003-sfd`；最新镜像已包含 `scripts/alerting`，并继续使用 runtime service account `ashare-workflows-runtime@data-aquarium.iam.gserviceaccount.com`。
