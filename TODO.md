@@ -2,6 +2,8 @@
 
 ## 最新状态（2026-06-08）
 
+- [x] PR #108 comment follow-up 已把 Composer 迁出 PRD 加硬到实现级：per-task `pipeline_task_status` 显式写回、`ashare_warehouse_window_refresh` 分布式锁、生产 ingestion -> refresh 同步 child workflow、旧 `warehouse_refresh_missing` watchdog 退役路径，以及 BigQuery / Cloud Run 轮询与 Workflows 限额复核都已写入 PRD。
+
 - [x] 新增 OQ-005 编排迁出 Composer 主 PRD：`docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md` 已明确长期目标改为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，当前 Composer DAG 拆分与 smoke 只视为 cutover 前过渡态；目标是在迁移验收后删除 Composer 环境，消除固定 `standard milli DCU-hours` 底座成本。
 
 - [x] PR #106 合并后生产补数 / Composer smoke 已推进：生产 `dws_market_state_daily` 已重建到最终 v0/v1 语义并通过 `11_market_state_checks`；Composer 已同步相关 SQL 和 `ashare_common.py`；smoke `manual_pr106_market_state_window_smoke_20260605_20260608_01` 中 `index_dwd_window`、`stock_dwd_dws_window`、`market_state_dws` 和 `market_state_checks` 均 success。smoke 后置 `03_index_benchmark_checks` 暴露默认 `CURRENT_DATE` 误扫未来/未到数日期的问题；新分支 `codex/fix-index-benchmark-qa-date-bound` 已将默认 `dwd_end_date` 改为 DWD 中 `000001.SH` 完整可用的最新 SSE 开市日，并用真实 BigQuery `03` QA 验证通过。
@@ -21,6 +23,7 @@
 ## P0 — 当前优先
 
 - [ ] OQ-005 编排迁出 Composer Phase 0/1：按 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md` 落 `Cloud Scheduler + Cloud Workflows` 基础设施，保持现有 Cloud Run Jobs、BigQuery SQL/Dataform、metadata、QA 和 window refresh 语义不变
+- [ ] OQ-005 编排迁出 Composer Phase 1 补硬要求：实现统一 `pipeline_task_status` 显式写回层、`ashare_warehouse_window_refresh` 分布式锁，以及同步 child workflow 的 production path
 - [ ] OQ-005 编排迁出 Composer 验收：完成 `qa_only` / `daily_current` / `backfill` / 非交易日 skip 手工 smoke，切 scheduled 入口后完成 2 个自然开市日和 1 个自然非交易日 cutover 观察，再删除 Composer 环境
 - [x] 补 P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily` 已落地；`dws_market_state_daily` 已进入 BigQuery 生产链路并按 2026-06-07/08 口径补上证指数 `000001.SH` / `SSE_COMPOSITE` 市场状态字段，修改前快照保存在 `ashare_backup.dws_market_state_daily_v0`，生产表保留 `market_state_v0_20260606` 兼容行并新增 `market_state_v1_20260607`，且日更 / 补跑使用窗口 MERGE。后续若要把 v1 纳入训练或修改 risk-off 触发逻辑，应另开策略/feature-set 变更。
 - [~] 收口 OQ-012 ODS 外部表 Parquet schema mismatch：PR #43 已实现 schema contract YAML × 10 endpoint、修复/验证脚本、QA SQL 和执行 README，并按 review 补齐 QA 参数格式、INT->FLOAT64 fail-closed、null count 阻断、BQ staging 行数/列可读验证和 staging 清理；2026-06-05 `sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围只读复核均通过，`ods_tushare_stk_limit` 2019+ 可读行数 10,662,140，当前 BigQuery 读层未再暴露 mismatch；下一步由 owner 决定关闭/归档 OQ-012，或保留 schema contract 与 ingestion 显式 cast 防复发任务

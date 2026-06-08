@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：PR #108 comment follow-up 已把迁出 Composer PRD 加硬到实现级。** 已补 4 个 Workflows 易静默退化点：每个业务步骤都要显式写 `pipeline_task_status`，不能只写 start/finalize；`ashare_warehouse_window_refresh` 必须有显式分布式锁，不能假设存在 `max_active_runs=1`；生产 scheduled ingestion -> refresh 固定为同步 child workflow 调用，旧 `warehouse_refresh_missing` watchdog 只保留到迁移期；BigQuery / Cloud Run 调用按“提交 -> 轮询终态 -> 写状态”建模，并要求 Phase 1 先复核 Workflows 限额和 `full_rebuild` 是否要拆分。
+
 - **2026-06-08 GPT-5 Codex：OQ-005 长期目标改为迁出 Composer。** 已新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`，明确当前 Composer 费用主体是常驻 `standard milli DCU-hours` 底座，而现有 DAG 主要只做编排。长期架构改为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，单步 `ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler + Cloud Run`；当前 Composer DAG 拆分、window refresh、alert checker 和 smoke 只视为 cutover 前过渡态，目标是在迁移验收后删除 Composer 环境。
 
 - **2026-06-08 GPT-5 Codex：index benchmark QA 日期上限修复。** PR #106 合并后的 Composer smoke 验证新增 `market_state_dws` / `market_state_checks` 成功，但后置 `qa_after_window.index_benchmark_checks` 因默认扫到 `CURRENT_DATE` 而在 2026-06-08 当天 000001.SH 未到数时误失败。新分支 `codex/fix-index-benchmark-qa-date-bound` 已将 `sql/qa/03_index_benchmark_checks.sql` 默认 `dwd_end_date` 改为 DWD 中 `000001.SH` 完整 price + dailybasic 可用的最新 SSE 开市日，并真实跑通 `03` QA。
@@ -235,17 +237,20 @@ Run ID: oq005_exit_composer_prd_20260608
 - 新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`，将 OQ-005 的长期编排方向从“长期保留 Composer”调整为“迁出 Composer 后删除环境”。
 - PRD 明确推荐架构为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，并将 `ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler + Cloud Run`。
 - 已同步更新 `PROJECT_CONTEXT.md`、`ARCHITECTURE_MEMORY.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md`、`TODO.md`，把当前 Composer DAG 拆分、window refresh、alert checker 与 smoke 统一标注为 cutover 前过渡态。
+- 已按 PR #108 comment follow-up 补强 PRD：把 per-task 状态写回、显式分布式锁、同步 child workflow / 退役 refresh-missing watchdog、BigQuery/Cloud Run 轮询模型和 Workflows 限额复核写成实现硬要求。
 
 ### 重要上下文
 
 - 当前 Composer 费用问题的核心不是 DAG 次数，而是常驻 `Cloud Composer 3 standard milli DCU-hours` 底座费；迁移完成前，减少 DAG 次数本身不能显著降本。
 - 本次只写 PRD 和记忆/TODO，不改现有 DAG、Cloud Run、BigQuery SQL 或告警实现。
 - PRD 默认路径不要求 owner 额外拍板：多步编排使用 Workflows，单步 alert checker 直接走 Scheduler + Cloud Run。
+- PR #108 review 已指出 4 个 Airflow -> Workflows 容易静默回退的点；这些已全部在 PRD 中转成硬要求，不再留到实现时自由发挥。
 
 ### 改动文件
 
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/PROJECT_CONTEXT.md`
@@ -271,6 +276,7 @@ Run ID: oq005_exit_composer_prd_20260608
 
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/PROJECT_CONTEXT.md`

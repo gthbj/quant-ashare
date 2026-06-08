@@ -6,6 +6,14 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：PR #108 comment follow-up 加硬 Composer 迁出 PRD
+
+- 已按 PR #108 comment 加硬 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`，补上 4 个 Workflows 相对 Airflow 的易退化点。
+- `pipeline_task_status` 不再只停留在“保持语义”的原则层，而是下沉为实现硬要求：每个业务步骤都必须显式写 task 状态，失败路径也要写回，不能只写 `pipeline_start_status` / `pipeline_finalize_status`。
+- `ashare_warehouse_window_refresh` 的串行执行不再依赖抽象表述，PRD 已明确要求显式分布式锁，推荐复用 GCS lease lock 语义，替代 Airflow `max_active_runs=1`。
+- 生产 scheduled ingestion -> refresh 路径已在 PRD 中明确为同步 child workflow 调用；因此 cutover 后旧 `warehouse_refresh_missing` watchdog 只保留为迁移期观察项，不再作为长期主告警机制。
+- PRD 也已补 Workflows 对 BigQuery / Cloud Run 的“提交 -> 轮询终态”模型，以及 `full_rebuild` 需要复核 execution duration / step count / payload 限额。
+
 ### 最新补充（2026-06-08）：OQ-005 长期编排目标改为迁出 Composer
 
 - 已新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`。该 PRD 明确当前 Composer 3 成本主体是常驻 `standard milli DCU-hours` 底座，而现有 DAG 主要只做编排，不做核心计算。

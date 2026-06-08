@@ -1586,3 +1586,42 @@ Model: GPT-5 Codex
 ### Related files
 
 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`, `.agent/memory/PROJECT_CONTEXT.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260608-03: OQ-005 Workflows 实现必须显式补回 Airflow 免费语义
+
+Date: 2026-06-08
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5 Codex
+
+### Context
+
+PR #108 review 指出，从 Airflow / Composer 迁到 Workflows 时，最容易静默退化的不是主流程顺序，而是 Airflow 原本“免费提供”的三类能力：task 级状态 callback、`max_active_runs=1` 串行约束，以及父 DAG -> 子 DAG 触发的 observability 语义。若不在 PRD 中显式定义，后续实现很容易只保留 pipeline 开始/结束状态，或让 scheduled `daily_current` 与手工 `backfill` 并发进入窗口写路径。
+
+### Decision
+
+1. OQ-005 的 Workflows 实现必须把 `pipeline_task_status` 保真下沉为硬要求：每个业务步骤都要显式写 started/succeeded/failed/skipped/warning 状态。
+2. `ashare_warehouse_window_refresh` 不得假设存在 Airflow `max_active_runs=1` 等价能力，必须实现显式分布式锁；推荐复用 GCS lease lock 语义。
+3. 生产 scheduled ingestion -> refresh 路径固定为同步 child workflow 调用，父 workflow 阻塞等待 child workflow 终态。
+4. 因为生产路径采用同步 child workflow，旧 `warehouse_refresh_missing` watchdog 只保留到迁移过渡期；新长期路径由父 workflow 对 child refresh 的同步成功/失败承担主告警语义。
+5. Workflows 调 BigQuery / Cloud Run 必须按“提交 -> 捕获 ID -> 轮询终态 -> 写状态”实现；`full_rebuild` 必须在 Phase 1 复核 Workflows execution duration / step count / payload 限额，必要时拆分。
+
+### Rationale
+
+这些能力在 Airflow 中看似是“系统默认行为”，但在 Workflows 中都要人工补回。如果不先写成设计硬约束，后续实现最容易出现的退化是：task 级告警消失、scheduled 与 backfill 并发冲突、refresh 失败只在下游局部可见、`full_rebuild` 在新编排器里接近限额才被动暴露。
+
+### Impact
+
+- `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md` 已补到实现级要求。
+- 后续实现 PR 如果没有显式 task 状态写回层、分布式锁或同步 child workflow 语义，应视为不满足 PRD。
+- 旧 `warehouse_refresh_missing` 观测与告警在 cutover 完成后不再作为长期保留项。
+
+### Alternatives considered
+
+- 先写高层 PRD，等实现时再决定这些细节：放弃，因为这三项正是迁移时最容易静默退化的能力。
+- 继续保留旧 watchdog 作为长期主机制：放弃，因为同步 child workflow 的新生产路径下，父 workflow 直接知道 refresh 是否发生且是否成功，继续依赖“缺刷新”旁路告警会重复且更脆弱。
+
+### Related files
+
+`docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
