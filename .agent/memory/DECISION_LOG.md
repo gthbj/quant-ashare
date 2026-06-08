@@ -1963,3 +1963,54 @@ PR #114 review 指出：`v3` 切门 PRD 若不显式写死 `max_drawdown` 的符
 1. 后续 `model_acceptance_contract_v3.yml` 必须把这些技术约定体现在字段、公式或注释中。
 2. replay 和 QA 不仅要校验阈值，还要校验窗口、符号和价格字段一致性。
 3. 未来若要改变 `000001.SH` 在 pass/fail 中的角色，应作为新的 `v3.x` 规则变更单独讨论，而不是在当前实现阶段临时变更。
+
+## DECISION-20260608-13: OQ-005 alert checker cutover 改为 `Cloud Scheduler -> Workflows`，并废止旧的直连 Cloud Run scheduler 路径
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+OQ-005 原 PRD 把 `ashare_pipeline_alert_checker` 的目标路径定义为 `Cloud Scheduler -> authenticated Cloud Run`。`2026-06-08` 的 live 验证中，`Cloud Scheduler` 对 `ashare-pipeline-control /v1/tasks/alert-check` 的请求持续在 Cloud Run 鉴权层返回 `403`；更换 canonical URL、OIDC service account 和多组 IAM 绑定后问题仍复现。与此同时，`Workflows -> ashare-pipeline-control` 已在 phase 1 `qa_only` / `daily_current` smoke 中真实成功。
+
+### Decision
+
+`ashare_pipeline_alert_checker` 的 cutover 路径从：
+
+```text
+Cloud Scheduler -> authenticated Cloud Run
+```
+
+改为：
+
+```text
+Cloud Scheduler -> Workflows -> ashare-pipeline-control
+```
+
+并固定以下前提：
+
+1. Scheduler caller service account 必须具备目标 workflow 的 `roles/workflows.invoker`。
+2. Workflows runtime service account 必须继续具备 `ashare-pipeline-control` 的 `roles/run.invoker`。
+3. `main` 上现有 `orchestration/workflows/deploy_scheduler_jobs.sh` 的直连 Cloud Run 实现，在被改写为调用 Workflows Executions API 之前视为 `superseded / do-not-run`。
+
+### Rationale
+
+1. 该改法复用了已经被真实 smoke 验证过的 `Workflows -> ashare-pipeline-control` 认证路径。
+2. `Cloud Scheduler` 改为调用 Google API `workflowexecutions.googleapis.com`，不再直接承担 Cloud Run OIDC 鉴权的不确定性。
+3. 该变化不影响告警语义、lookback、heartbeat、日志结构或下游 alert policy，只改变触发面和 IAM 边界。
+
+### Impact
+
+1. OQ-005 PRD、后续实现 PR、deploy 脚本和 cutover runbook 都应以 `Scheduler -> Workflows` 为 alert checker 唯一目标路径。
+2. `Cloud Scheduler -> authenticated Cloud Run` 不再作为本项目 alert checker 的推荐生产方案。
+3. 后续实现时应新增独立的 `ashare_pipeline_alert_checker` workflow，并让 scheduler job 调用 Workflows Executions API。
+
+### Alternatives
+
+继续死磕 `Cloud Scheduler -> authenticated Cloud Run`；放弃，因为当前已经出现 live 级别的持续 `403`，而项目里已有更稳定、已验证的 Workflows 路径。允许 unauthenticated Cloud Run 再做应用层验签；放弃，因为会弱化安全边界，且没有必要。
+
+### Related Files
+
+`docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`, `orchestration/workflows/deploy_scheduler_jobs.sh`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
