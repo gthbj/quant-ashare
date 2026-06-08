@@ -6,6 +6,16 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：OQ-005 alert checker 已完成真实部署与 manual/scheduler smoke
+
+- `ashare-pipeline-control` 已重新部署到 Cloud Run revision `ashare-pipeline-control-00003-sfd`；最新镜像已包含 `scripts/alerting`，并继续使用 runtime service account `ashare-workflows-runtime@data-aquarium.iam.gserviceaccount.com`。
+- `ashare_pipeline_alert_checker` workflow 已部署到 revision `000002-31c`；`orchestration/workflows/deploy_scheduler_jobs.sh` 也已切到 Workflows Executions API，并修复了当前 `gcloud` 版本下 `create http` 用 `--headers`、`update http` 必须改用 `--update-headers` 的 deploy 兼容问题。
+- live smoke 暴露并修复了第二类 Workflows 运行期契约 bug：原先对 `lookback_minutes` 和一组 bool flag 的“空值判断”直接拿原生 `int` / `bool` 与 `""` 比较；现已统一改为 `input == null or string(input) == ""`，覆盖 `ashare_pipeline_alert_checker`、`ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh` 和 `ashare_warehouse_full_rebuild` 中所有会接原生 JSON bool/int 的 resolve 分支。
+- 真实 manual smoke 已通过：execution `a2743da9-2654-4521-9222-4fbf2b5dc113`，`status=no_alerts`、`alerts_count=0`、`log_entries_written=0`。
+- 真实 Scheduler smoke 已通过：旧 paused job 已更新为 `Cloud Scheduler -> Workflows Executions API`，手工 `run` 后产生 execution `ca8b6bdd-f137-4727-9311-29b5b8fb9d20`，状态 `SUCCEEDED`。
+- live smoke 过程中曾遇到两次真实阻塞，现均已收口：其一是 workflow 输入归一对原生 `int`/`bool` 的类型比较错误；其二是 runtime service account 缺少 `roles/logging.logWriter`，已补到 `ashare-workflows-runtime@data-aquarium.iam.gserviceaccount.com` 并验证生效。
+- 当前 scheduler job 已重新 `PAUSED`，避免在 OQ-005 仍未完成整体 cutover、Composer 环境仍未删除时引入额外双跑；后续切生产入口时再统一决定启用状态。
+
 ### 最新补充（2026-06-08）：PR #116 review follow-up 已修 v3 replay 的 `inf` gate 和信号门 operator 问题
 
 - 已按 PR #116 review 修复 `scripts/strategy1/replay_acceptance_gate_v3.py` 中 `inf` 被 `safe_float` 吞成 `None` 并误判 absolute gate 失败的问题；`compare_metric` 现在保留 `±inf` 比较语义，与 contract 的 `zero_denominator_behavior` 一致。

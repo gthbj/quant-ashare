@@ -31,7 +31,7 @@ main:
         next: resolve_lookback_minutes
     - resolve_lookback_minutes:
         switch:
-          - condition: ${input_lookback_minutes == null or input_lookback_minutes == ""}
+          - condition: ${input_lookback_minutes == null or string(input_lookback_minutes) == ""}
             next: set_lookback_minutes_default
         next: set_lookback_minutes_input
     - set_lookback_minutes_default:
@@ -44,7 +44,7 @@ main:
         next: resolve_write_log
     - resolve_write_log:
         switch:
-          - condition: ${input_write_log == null or input_write_log == ""}
+          - condition: ${input_write_log == null or string(input_write_log) == ""}
             next: set_write_log_default
         next: set_write_log_input
     - set_write_log_default:
@@ -57,7 +57,7 @@ main:
         next: resolve_write_heartbeat
     - resolve_write_heartbeat:
         switch:
-          - condition: ${input_write_heartbeat == null or input_write_heartbeat == ""}
+          - condition: ${input_write_heartbeat == null or string(input_write_heartbeat) == ""}
             next: set_write_heartbeat_default
         next: set_write_heartbeat_input
     - set_write_heartbeat_default:

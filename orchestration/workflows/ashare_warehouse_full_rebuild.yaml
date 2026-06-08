@@ -104,7 +104,7 @@ main:
         next: resolve_pipeline_dry_run
     - resolve_pipeline_dry_run:
         switch:
-          - condition: ${input_pipeline_dry_run == null or input_pipeline_dry_run == ""}
+          - condition: ${input_pipeline_dry_run == null or string(input_pipeline_dry_run) == ""}
             next: set_pipeline_dry_run_default
         next: set_pipeline_dry_run_input
     - set_pipeline_dry_run_default:
@@ -117,7 +117,7 @@ main:
         next: resolve_confirm_full_rebuild
     - resolve_confirm_full_rebuild:
         switch:
-          - condition: ${input_confirm_full_rebuild == null or input_confirm_full_rebuild == ""}
+          - condition: ${input_confirm_full_rebuild == null or string(input_confirm_full_rebuild) == ""}
             next: set_confirm_full_rebuild_default
         next: set_confirm_full_rebuild_input
     - set_confirm_full_rebuild_default:

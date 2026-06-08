@@ -3,6 +3,11 @@
 > - 原因是避免 checker 失败被下一轮 checker 自己读回成 pipeline failure 告警，以及避免 `v_pipeline_recent_runs` 被每小时 checker 行刷满。
 
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - OQ-005 alert checker 的 `Cloud Scheduler -> Workflows -> ashare-pipeline-control` 已完成真实部署与 smoke：manual execution `a2743da9-2654-4521-9222-4fbf2b5dc113` succeeded，Scheduler execution `ca8b6bdd-f137-4727-9311-29b5b8fb9d20` 也 succeeded。
+> - 这次 live 路径补出了两个真实运行期问题并已修复：`deploy_scheduler_jobs.sh` 需要区分 `create http --headers` 与 `update http --update-headers`，以及 Workflow resolve 分支里原生 `int/bool` 不能再直接和 `\"\"` 比较。
+> - 当前 scheduler job 已重新置回 `PAUSED`，避免在整体 OQ-005 cutover 前引入双跑。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - OQ-005 alert checker 的实现代码已在工作树落地：新增 `orchestration/workflows/ashare_pipeline_alert_checker.yaml`，并把 `orchestration/workflows/deploy_scheduler_jobs.sh` 从直连 Cloud Run 改成调用 Workflows Executions API。
 > - 这次没有做真实部署；当前状态是“代码已实现，Scheduler caller SA `workflows.invoker` + live smoke 仍待执行”。
 
@@ -50,6 +55,7 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：OQ-005 alert checker 新路径已 smoke 成功，但 scheduler 暂时保持 paused。** `ashare-pipeline-control` 已升到 revision `00003-sfd`，`ashare_pipeline_alert_checker` workflow 已部署到 revision `000002-31c`，manual execution `a2743da9-2654-4521-9222-4fbf2b5dc113` 和 Scheduler execution `ca8b6bdd-f137-4727-9311-29b5b8fb9d20` 均 succeeded。live 验证顺手修了两类真实问题：`deploy_scheduler_jobs.sh` 对当前 `gcloud` 必须区分 `create http --headers` 与 `update http --update-headers`；Workflow resolve 阶段的原生 `int/bool` 参数不能再直接和空字符串比较，相关修复已覆盖 alert-check、ODS、window-refresh 和 full-rebuild 四个 workflow 文件。为避免 cutover 前双跑，scheduler job 现已重新 `PAUSED`。
 - **2026-06-08 GPT-5 Codex：PR #112 review follow-up 已把不安全路径真正封住。** `Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 `scripts.alerting.check_alerts` 时导致整个 `ashare-pipeline-control` 启动崩溃。`deploy_workflows.sh` 默认只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`；`ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 路径，直到控制层 BigQuery 改成 async submit + poll 为止。README 也已补明：启用 `Cloud Scheduler` alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
 - **2026-06-08 GPT-5 Codex：OQ-005 告警检查已统一限频到每小时。** `ashare_pipeline_alert_checker` 在 Composer 过渡态中的 schedule 已改为 `0 * * * *`，`check_alerts.py` lookback 调整为 `70` 分钟，heartbeat 缺失告警窗口调整为 `120` 分钟；cutover 后同一小时级口径将由 `Cloud Scheduler -> Workflows -> ashare-pipeline-control` 延续。注意：`main` 上现有 `orchestration/workflows/deploy_scheduler_jobs.sh` 仍是旧的直连 Cloud Run 版本，在实现 PR 改写为 Workflows Executions API 前视为 `superseded / do-not-run`。
 - **2026-06-08 GPT-5 Codex：`airflow_monitoring` 不能在仓库内单独降频。** 已确认它是 Composer 平台托管健康监控 DAG；只要 Composer 环境存在，它就会继续按平台频率运行。停止这类 run 和固定 `standard milli DCU-hours` 费用的路径是完成 OQ-005 cutover 并删除 Composer 环境，而不是继续在 repo 中找调频开关。
@@ -1163,6 +1169,68 @@ Run ID: pr96_acceptance_window_review_followup_20260606
 
 - review / 合并 PR #96。
 - 合并后先让 owner 决定是否调整接受门，再决定是否启动第 4 波风险特征训练。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+## 交接条目
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: main-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: oq005-alert-checker-live-smoke-20260608
+相关 issue/PR: 待创建
+
+### 已完成工作
+
+- 重新部署 `ashare-pipeline-control` 到 Cloud Run revision `ashare-pipeline-control-00003-sfd`，确保镜像已包含 `scripts/alerting`。
+- 重新部署 `ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh` 和 `ashare_pipeline_alert_checker` 三个 workflow；alert checker 当前 revision 为 `000002-31c`。
+- 修复 `orchestration/workflows/deploy_scheduler_jobs.sh` 对当前 `gcloud` CLI 的兼容问题：`create http` 仍用 `--headers`，`update http` 改为 `--update-headers`。
+- 修复 workflow resolve 阶段对原生 JSON `int/bool` 输入的运行期类型错误：相关 workflow 现在统一使用 `input == null or string(input) == ""` 判空，覆盖 alert-check、ODS、window-refresh 和 full-rebuild 四个 workflow 文件。
+- 给 `ashare-workflows-runtime@data-aquarium.iam.gserviceaccount.com` 补 `roles/logging.logWriter`，收口 alert-check endpoint 写 Cloud Logging 时的 `logging.logEntries.create` 403。
+- 完成真实 manual smoke：`ashare_pipeline_alert_checker` execution `a2743da9-2654-4521-9222-4fbf2b5dc113` succeeded，返回 `status=no_alerts`、`alerts_count=0`、`log_entries_written=0`。
+- 完成真实 Scheduler smoke：job `ashare-pipeline-alert-checker` 已切到 Workflows Executions API，手工 `run` 触发 execution `ca8b6bdd-f137-4727-9311-29b5b8fb9d20`，状态 `SUCCEEDED`。
+- smoke 完成后已把 scheduler job 重新置回 `PAUSED`，避免在整体 OQ-005 cutover 前引入双跑。
+
+### 重要上下文
+
+- 这次 live 路径先后暴露了两类真实问题，而且都不是静态检查能抓到的：一是 scheduler deploy 脚本对 `gcloud scheduler jobs update http` 的 flag 使用错误；二是 Workflows resolve 分支对原生 `int/bool` 与空字符串比较导致 execution 直接失败。
+- alert checker 新路径本身现在已可用，但当前仍不等于“生产已切走 Composer”；只是证明 `Cloud Scheduler -> Workflows -> ashare-pipeline-control` 技术链路跑通。
+- 当前 scheduler job 刻意保留 `PAUSED` 是为了防止 cutover 前双跑，不是因为新路径失败。
+
+### 改动文件
+
+- `orchestration/workflows/deploy_scheduler_jobs.sh`
+- `orchestration/workflows/ashare_pipeline_alert_checker.yaml`
+- `orchestration/workflows/ashare_ods_ingestion_daily.yaml`
+- `orchestration/workflows/ashare_warehouse_window_refresh.yaml`
+- `orchestration/workflows/ashare_warehouse_full_rebuild.yaml`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- Cloud Build + Cloud Run deploy：`ashare-pipeline-control-00003-sfd`
+- Manual workflow execute success: `a2743da9-2654-4521-9222-4fbf2b5dc113`
+- Scheduler-triggered workflow execute success: `ca8b6bdd-f137-4727-9311-29b5b8fb9d20`
+
+### 阻塞项
+
+- 无新的硬阻塞；剩余都是 OQ-005 总体 cutover 范围内未完成项。
+
+### 下一步建议
+
+- 继续做 `ashare_warehouse_full_rebuild` 的可部署方案（async submit+poll 或进一步拆步）。
+- 补 `backfill` 与非交易日 skip 的 Workflows smoke。
+- 做 shadow run / cutover 验收后，再统一决定何时启用 scheduler job 并删除 Composer 环境。
 
 ### 已更新记忆文件
 
