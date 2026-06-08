@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #120 第二轮 review follow-up 已继续收口 full rebuild poll 终态：`get_job(...)` 用尽内部重试后，现在会显式把 task 写成 `failed`，不再让 `pipeline_task_status` 卡在 `running`。
+> - `ashare_warehouse_full_rebuild` 还补了 `bigquery_max_polls` workflow 输入化，默认仍是 `1440`；以后若全量窗口继续变大，可以只调 workflow 参数，不必改 YAML 常量。
+> - 另外已把 control service 当前 poll 重试的同步 `time.sleep` 约束写进 README 和 `KNOWN_CONSTRAINTS.md`：单次 `/v1/tasks/bigquery/poll` 最坏会多占一个 worker 约 `15s`，这是 cutover 前需要接受的显式容量边界。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - PR #117 review 的 P1 已按建议收敛：`ashare_pipeline_alert_checker.yaml` 不再写 `pipeline_run` / `pipeline_task_status`，只做参数归一后调用 `/v1/tasks/alert-check`。
 > - 原因是避免 checker 失败被下一轮 checker 自己读回成 pipeline failure 告警，以及避免 `v_pipeline_recent_runs` 被每小时 checker 行刷满。
 
@@ -4052,3 +4057,34 @@ Run ID: oq005-full-rebuild-and-smokes-20260608
 > - 本轮没有跑真实全量 rebuild，但已完成两层低风险验证：direct async control-plane smoke 成功轮询只读 QA job `fd1f6751-4861-4685-8377-e7dd9843ff57`，manual dry-run execution `cb8d1267-2909-4bf6-b725-29c6c8ee17e1` succeeded。
 > - `ashare_warehouse_window_refresh` 的 `backfill` execution `7cfbf799-1ace-4440-8577-95ddd45e7645` 和 `ashare_ods_ingestion_daily` 的非交易日 skip execution `29121fdb-8452-4398-85f1-052708ac7cb7` 也都已 success；OQ-005 剩余项现在收敛为 scheduled cutover 的 Cloud Scheduler / IAM bootstrap、shadow run 和最终删除 Composer 环境。
 > - PR #120 review follow-up 已继续加固 full rebuild：poll 循环未完成时也会 `heartbeat_lock`，不再把锁存活建立在“单个 step < 6h lease”的隐含假设上；`get_job(...)` 瞬时失败改为控制面内部重试，且不再直接把 task status 写成 failed。workflow 侧也补了 `submit/poll` HTTP retry、max-poll 上限和 `location` 透传。
+
+## 2026-06-08 GPT-5 Codex - PR #120 second review follow-up
+
+### 本轮完成
+
+- `scripts/pipeline_control/state.py`：`poll_sql_task(...)` 现在在 `get_job(...)` 内部重试全部耗尽后，会显式把对应 task 写成 `failed`，避免 `pipeline_task_status` 长时间残留 `running`。
+- `orchestration/workflows/ashare_warehouse_full_rebuild.yaml`：新增 workflow 输入 `bigquery_max_polls`，默认 `1440`，并透传到所有 `run_bigquery_task` 调用点。
+- `orchestration/workflows/README.md`、`.agent/memory/KNOWN_CONSTRAINTS.md`：补充当前 control-plane poll 重试的同步阻塞约束，说明单次 `/v1/tasks/bigquery/poll` 最坏会额外阻塞约 `15s`。
+
+### 本轮未做
+
+- 没有重新部署 `ashare-pipeline-control`。
+- 没有重新部署 `ashare_warehouse_full_rebuild` workflow。
+- 没有新跑 smoke / real rebuild。
+
+### 影响文件
+
+- `scripts/pipeline_control/state.py`
+- `orchestration/workflows/ashare_warehouse_full_rebuild.yaml`
+- `orchestration/workflows/README.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 下一步建议
+
+- 推回 PR #120 并继续看 review。
+- 若 comment 收敛，可再决定是否需要做一次只读 dry-run / deploy smoke 来闭环这轮失败终态与 `bigquery_max_polls` 输入化。
+
+Model: GPT-5 Codex

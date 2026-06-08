@@ -579,8 +579,21 @@ WHEN NOT MATCHED THEN INSERT (
         try:
             query_location = location or self.config.bq_location
             job = self._get_job_with_retries(job_id=job_id, location=query_location)
-        except Exception:
-            raise
+        except Exception as exc:
+            error_summary = f"BigQuery job poll failed after retries: {safe_text(exc, 900)}"
+            self.upsert_task_status(
+                {
+                    **context,
+                    "task_id": task_id,
+                    "task_type": task_type,
+                    "endpoint": endpoint,
+                    "status": "failed",
+                    "finished_at": utc_now().isoformat(),
+                    "bigquery_job_id": job_id,
+                    "error_summary": error_summary,
+                }
+            )
+            raise RuntimeError(error_summary) from exc
 
         if job.state != "DONE":
             self.upsert_task_status(

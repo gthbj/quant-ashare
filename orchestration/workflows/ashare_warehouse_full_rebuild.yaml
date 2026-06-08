@@ -37,6 +37,8 @@ main:
           - input_warehouse_mode: ${map.get(args, "warehouse_mode")}
           - input_pipeline_dry_run: ${map.get(args, "pipeline_dry_run")}
           - input_confirm_full_rebuild: ${map.get(args, "confirm_full_rebuild")}
+          - input_bigquery_max_polls: ${map.get(args, "bigquery_max_polls")}
+          - full_rebuild_bigquery_max_polls: null
     - resolve_date_from:
         switch:
           - condition: ${input_date_from == null}
@@ -123,10 +125,23 @@ main:
     - set_confirm_full_rebuild_default:
         assign:
           - confirm_full_rebuild: "false"
-        next: orchestrate
+        next: resolve_bigquery_max_polls
     - set_confirm_full_rebuild_input:
         assign:
           - confirm_full_rebuild: ${text.to_lower(string(input_confirm_full_rebuild))}
+        next: resolve_bigquery_max_polls
+    - resolve_bigquery_max_polls:
+        switch:
+          - condition: ${input_bigquery_max_polls == null or string(input_bigquery_max_polls) == ""}
+            next: set_bigquery_max_polls_default
+        next: set_bigquery_max_polls_input
+    - set_bigquery_max_polls_default:
+        assign:
+          - full_rebuild_bigquery_max_polls: 1440
+        next: orchestrate
+    - set_bigquery_max_polls_input:
+        assign:
+          - full_rebuild_bigquery_max_polls: ${int(input_bigquery_max_polls)}
         next: orchestrate
     - orchestrate:
         try:
@@ -343,6 +358,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_ods_parquet_schema_p0:
                 call: heartbeat_lock
                 args:
@@ -374,6 +390,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dim_dim_trade_calendar:
                 call: heartbeat_lock
                 args:
@@ -405,6 +422,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dim_dim_stock:
                 call: heartbeat_lock
                 args:
@@ -436,6 +454,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dim_dim_stock_name_hist:
                 call: heartbeat_lock
                 args:
@@ -467,6 +486,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dim_dim_index:
                 call: heartbeat_lock
                 args:
@@ -498,6 +518,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_stock_eod_price:
                 call: heartbeat_lock
                 args:
@@ -529,6 +550,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_stock_eod_valuation:
                 call: heartbeat_lock
                 args:
@@ -560,6 +582,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_index_eod:
                 call: heartbeat_lock
                 args:
@@ -591,6 +614,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_indicator:
                 call: heartbeat_lock
                 args:
@@ -622,6 +646,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_indicator_latest:
                 call: heartbeat_lock
                 args:
@@ -653,6 +678,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_income:
                 call: heartbeat_lock
                 args:
@@ -684,6 +710,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_income_latest:
                 call: heartbeat_lock
                 args:
@@ -715,6 +742,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_balancesheet:
                 call: heartbeat_lock
                 args:
@@ -746,6 +774,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_balancesheet_latest:
                 call: heartbeat_lock
                 args:
@@ -777,6 +806,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_cashflow:
                 call: heartbeat_lock
                 args:
@@ -808,6 +838,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_cashflow_latest:
                 call: heartbeat_lock
                 args:
@@ -839,6 +870,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_universe_daily:
                 call: heartbeat_lock
                 args:
@@ -870,6 +902,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_feature_price_daily:
                 call: heartbeat_lock
                 args:
@@ -901,6 +934,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_feature_valuation_daily:
                 call: heartbeat_lock
                 args:
@@ -932,6 +966,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_label_daily:
                 call: heartbeat_lock
                 args:
@@ -963,6 +998,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_feature_fin_daily:
                 call: heartbeat_lock
                 args:
@@ -994,6 +1030,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_feature_daily_v0:
                 call: heartbeat_lock
                 args:
@@ -1025,6 +1062,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_sample_daily:
                 call: heartbeat_lock
                 args:
@@ -1056,6 +1094,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_metadata_core_column_descriptions:
                 call: heartbeat_lock
                 args:
@@ -1087,6 +1126,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_metadata_finance_column_descriptions:
                 call: heartbeat_lock
                 args:
@@ -1118,6 +1158,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_core_smoke_checks:
                 call: heartbeat_lock
                 args:
@@ -1149,6 +1190,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_strategy1_dws_ads_checks:
                 call: heartbeat_lock
                 args:
@@ -1180,6 +1222,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_index_benchmark_checks:
                 call: heartbeat_lock
                 args:
@@ -1211,6 +1254,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_finance_caliber_checks:
                 call: heartbeat_lock
                 args:
@@ -1242,6 +1286,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_unit_contract_checks:
                 call: heartbeat_lock
                 args:
@@ -1489,7 +1534,7 @@ write_task_status:
         return: ${task_status_response.body}
 
 run_bigquery_task:
-  params: [control_service_url, dag_id, pipeline_run_id, task_id, task_type, sql_path, query_parameters, location, business_date, date_from, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url]
+  params: [control_service_url, dag_id, pipeline_run_id, task_id, task_type, sql_path, query_parameters, location, business_date, date_from, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url, max_polls]
   steps:
     - submit_bigquery_task:
         try:
@@ -1531,7 +1576,7 @@ run_bigquery_task:
           - bigquery_job_id: ${submit_bigquery_task_response.body.result.job_id}
           - bigquery_poll_interval_seconds: 60
           - bigquery_poll_count: 0
-          - bigquery_max_polls: 1440
+          - bigquery_max_polls: ${max_polls}
     - poll_bigquery_task:
         try:
           call: http.post

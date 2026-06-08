@@ -28,6 +28,7 @@ Design boundary:
 - Cloud Run Job `ashare-ingest-current-scope` remains the execution engine for ODS ingestion.
 - `ashare-pipeline-control` is a thin adapter for status writeback, SQL execution, SSE gate queries, and distributed lock management. It is not a general custom orchestrator.
 - `ashare_pipeline_alert_checker` is the exception to workflow-level state writeback: it relies on Workflows execution status plus Cloud Logging heartbeat/absence alerting, and intentionally does not write `pipeline_run` / `pipeline_task_status`.
+- `ashare_warehouse_full_rebuild` polls BigQuery through the control service; each `get_job(...)` poll can block a Cloud Run worker for up to about 15 seconds of backoff (`1+2+4+8`) before surfacing a terminal poll failure back into `pipeline_task_status`. That is acceptable for this thin adapter, but it is an explicit runtime constraint, not “free” behavior.
 
 Deploy order:
 1. Deploy `ashare-pipeline-control`
