@@ -501,6 +501,155 @@ WHEN NOT MATCHED THEN INSERT (
             )
             raise
 
+    def submit_sql_task(
+        self,
+        *,
+        context: dict[str, Any],
+        task_id: str,
+        sql_path: str,
+        query_parameters: list[dict[str, Any]] | None = None,
+        task_type: str | None = None,
+        endpoint: str = "",
+    ) -> dict[str, Any]:
+        started_at = utc_now().isoformat()
+        self.upsert_task_status(
+            {
+                **context,
+                "task_id": task_id,
+                "task_type": task_type,
+                "endpoint": endpoint,
+                "status": "running",
+                "started_at": started_at,
+            }
+        )
+        try:
+            query = read_bundled_sql(sql_path)
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[_scalar_query_parameter(spec) for spec in (query_parameters or [])]
+            )
+            job = self._bq().query(query, job_config=job_config)
+            self.upsert_task_status(
+                {
+                    **context,
+                    "task_id": task_id,
+                    "task_type": task_type,
+                    "endpoint": endpoint,
+                    "status": "running",
+                    "started_at": started_at,
+                    "bigquery_job_id": job.job_id,
+                }
+            )
+            return {
+                "job_id": job.job_id,
+                "job_url": bigquery_job_url(self.config.project_id, self.config.bq_location, job.job_id),
+                "started_at": started_at,
+                "done": False,
+                "status": "running",
+            }
+        except Exception as exc:
+            self.upsert_task_status(
+                {
+                    **context,
+                    "task_id": task_id,
+                    "task_type": task_type,
+                    "endpoint": endpoint,
+                    "status": "failed",
+                    "started_at": started_at,
+                    "finished_at": utc_now().isoformat(),
+                    "error_summary": f"{type(exc).__name__}: {safe_text(exc, 900)}",
+                }
+            )
+            raise
+
+    def poll_sql_task(
+        self,
+        *,
+        context: dict[str, Any],
+        task_id: str,
+        job_id: str,
+        task_type: str | None = None,
+        endpoint: str = "",
+    ) -> dict[str, Any]:
+        try:
+            job = self._bq().get_job(job_id, location=self.config.bq_location)
+        except Exception as exc:
+            self.upsert_task_status(
+                {
+                    **context,
+                    "task_id": task_id,
+                    "task_type": task_type,
+                    "endpoint": endpoint,
+                    "status": "failed",
+                    "finished_at": utc_now().isoformat(),
+                    "bigquery_job_id": job_id,
+                    "error_summary": f"{type(exc).__name__}: {safe_text(exc, 900)}",
+                }
+            )
+            raise
+
+        if job.state != "DONE":
+            self.upsert_task_status(
+                {
+                    **context,
+                    "task_id": task_id,
+                    "task_type": task_type,
+                    "endpoint": endpoint,
+                    "status": "running",
+                    "bigquery_job_id": job_id,
+                }
+            )
+            return {
+                "job_id": job_id,
+                "job_url": bigquery_job_url(self.config.project_id, self.config.bq_location, job_id),
+                "state": job.state,
+                "done": False,
+                "status": "running",
+            }
+
+        error_result = job.error_result or {}
+        if error_result:
+            reason = safe_text(error_result.get("reason", ""), 128)
+            message = safe_text(error_result.get("message", ""), 900)
+            error_summary = "BigQuery job failed"
+            if reason:
+                error_summary += f" ({reason})"
+            if message:
+                error_summary += f": {message}"
+            self.upsert_task_status(
+                {
+                    **context,
+                    "task_id": task_id,
+                    "task_type": task_type,
+                    "endpoint": endpoint,
+                    "status": "failed",
+                    "finished_at": utc_now().isoformat(),
+                    "bigquery_job_id": job_id,
+                    "error_summary": error_summary,
+                }
+            )
+            raise RuntimeError(error_summary)
+
+        finished_at = utc_now().isoformat()
+        self.upsert_task_status(
+            {
+                **context,
+                "task_id": task_id,
+                "task_type": task_type,
+                "endpoint": endpoint,
+                "status": "success",
+                "finished_at": finished_at,
+                "bigquery_job_id": job_id,
+            }
+        )
+        return {
+            "job_id": job_id,
+            "job_url": bigquery_job_url(self.config.project_id, self.config.bq_location, job_id),
+            "state": job.state,
+            "done": True,
+            "status": "success",
+            "finished_at": finished_at,
+        }
+
     def acquire_lock(
         self,
         *,

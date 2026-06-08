@@ -93,6 +93,11 @@ def _truthy(value: Any, default: bool = False) -> bool:
     return bool(value)
 
 
+def _task_context(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_context = payload.get("context")
+    return dict(raw_context) if isinstance(raw_context, dict) else dict(payload)
+
+
 @app.errorhandler(Exception)
 def handle_error(exc: Exception):  # type: ignore[override]
     status_code = getattr(exc, "code", 500)
@@ -143,8 +148,7 @@ def task_status():
 @app.post("/v1/tasks/bigquery")
 def task_bigquery():
     payload = _body()
-    raw_context = payload.get("context")
-    context = dict(raw_context) if isinstance(raw_context, dict) else dict(payload)
+    context = _task_context(payload)
     task_id = str(_require(payload, "task_id"))
     sql_path = str(_require(payload, "sql_path"))
     result = STATE.run_sql_task(
@@ -152,6 +156,39 @@ def task_bigquery():
         task_id=task_id,
         sql_path=sql_path,
         query_parameters=list(payload.get("query_parameters", [])),
+        task_type=payload.get("task_type"),
+        endpoint=str(payload.get("endpoint", "")),
+    )
+    return jsonify({"ok": True, "result": result})
+
+
+@app.post("/v1/tasks/bigquery/submit")
+def task_bigquery_submit():
+    payload = _body()
+    context = _task_context(payload)
+    task_id = str(_require(payload, "task_id"))
+    sql_path = str(_require(payload, "sql_path"))
+    result = STATE.submit_sql_task(
+        context=context,
+        task_id=task_id,
+        sql_path=sql_path,
+        query_parameters=list(payload.get("query_parameters", [])),
+        task_type=payload.get("task_type"),
+        endpoint=str(payload.get("endpoint", "")),
+    )
+    return jsonify({"ok": True, "result": result})
+
+
+@app.post("/v1/tasks/bigquery/poll")
+def task_bigquery_poll():
+    payload = _body()
+    context = _task_context(payload)
+    task_id = str(_require(payload, "task_id"))
+    job_id = str(_require(payload, "job_id"))
+    result = STATE.poll_sql_task(
+        context=context,
+        task_id=task_id,
+        job_id=job_id,
         task_type=payload.get("task_type"),
         endpoint=str(payload.get("endpoint", "")),
     )

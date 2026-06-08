@@ -325,7 +325,7 @@ Last updated: 2026-06-08
 
 - `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置。
 - 「从 ODS 继承字段描述」的脚本（bq show → 映射 → bq update）。
-- OQ-005 调度迁出 Composer：新 PRD 已定义 `Cloud Scheduler + Cloud Workflows` 取代 Composer。当前 Composer DAG 拆分、window refresh、alert checker 和相关 smoke 只作为 cutover 前过渡态；下一步是实现 Workflows/Scheduler 基础设施、迁移 alert checker、完成 `qa_only` / `daily_current` / `backfill` / 非交易日 skip 手工 smoke，再做两个开市日加一个非交易日的生产 cutover 验收并删除 Composer 环境。
+- OQ-005 调度迁出 Composer：新 PRD 已定义 `Cloud Scheduler + Cloud Workflows` 取代 Composer。当前 Composer DAG 拆分、window refresh、alert checker 和相关 smoke 只作为 cutover 前过渡态；`qa_only` / `daily_current` / `backfill` / 非交易日 skip 手工 smoke 已完成，`ashare_warehouse_full_rebuild` 也已补完 async `submit + poll` 控制面和 manual dry-run。下一步收敛为 scheduled cutover 的 Cloud Scheduler / IAM bootstrap、shadow run、生产观察与最终删除 Composer 环境。
 - 增量调度（dbt 或 Airflow + SQL）、数据质量断言。
 - 策略 1 Cloud Run runner 后续验收：真实 Cloud Run smoke、GCS model/report artifact、ADS 回写、`strategy1_experiment_run_status` 和 `16` / `17` QA 已跑通；sklearn native search 首轮未建立 accepted baseline。PRD04 Cloud Run Python LightGBM baseline search 代码实现已进入 PR；下一步是合并部署后真实执行 40 候选 wave 2，并按 Top5 acceptance 结论决定是否进入 `lightgbm_regression` wave 3，同时继续补 Python ledger vs 历史 SQL ledger 的差异 / 一致性验收。
 - P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily` 已落地物化（OQ-003 默认合并报表口径）；`dws_market_state_daily` 仍待补。三大报表单季 `q_*` 派生延后 P1。
@@ -363,8 +363,10 @@ Last updated: 2026-06-08
 
 - `ashare_pipeline_alert_checker` 已降为每小时 1 次：Composer DAG schedule 改为 `0 * * * *`，lookback 改为 `70` 分钟，告警 heartbeat 缺失门限改为 `120` 分钟；同时新增 `ashare-pipeline-control` `/v1/tasks/alert-check` 和 `orchestration/workflows/deploy_scheduler_jobs.sh`，为 cutover 后 `Cloud Scheduler + Cloud Run` 小时级告警检查做准备。
 - `airflow_monitoring` 已确认是 Composer 托管健康监控 DAG，频率不能在项目代码里下调；只要 Composer 环境存在，监控 run 仍会继续出现。真正把它降到 `<=1/hour` 的唯一路径是完成 cutover 后删除 Composer 环境。
-- `ashare_warehouse_full_rebuild` 已补 Workflow 草案 `orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 和部署脚本接线，但暂未部署/验烟：当前 `scripts/pipeline_control/state.py` 的 BigQuery 执行仍是同步 `job.result()`，受 Cloud Run request timeout 和 Workflows step timeout 约束，full rebuild 直接上线存在长 SQL 超时风险。
-- PR #112 review follow-up：`orchestration/workflows/Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 alert checker 时触发确定性启动崩溃；`deploy_workflows.sh` 默认只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`，`ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 路径，直到控制层 BigQuery 改成异步 submit + poll 为止。README 也已补明：启用 Cloud Scheduler alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
+- `ashare_warehouse_full_rebuild` 已从草案推进为可部署的 manual workflow：`scripts/pipeline_control/state.py` / `service.py` 新增 BigQuery async `submit + poll` 路径，`orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 的 BigQuery 子流程已切到异步轮询，shared write lock lease 提高到 `21600s`。control service 已重新部署到 revision `ashare-pipeline-control-00004-b2g`，`ashare_warehouse_full_rebuild` 已部署为 workflow revision `000001-36a`。
+- direct async control-plane smoke 已成功：通过 `ashare-pipeline-control /v1/tasks/bigquery/submit` + `/poll` 执行只读 `sql/qa/06_ods_parquet_schema_checks.sql`（`priority_filter='P0'`），BigQuery job `fd1f6751-4861-4685-8377-e7dd9843ff57` 成功轮询到 `DONE/success`。
+- workflow 级验证已补：`ashare_warehouse_full_rebuild` manual dry-run execution `cb8d1267-2909-4bf6-b725-29c6c8ee17e1` succeeded；`ashare_warehouse_window_refresh` backfill execution `7cfbf799-1ace-4440-8577-95ddd45e7645` succeeded；`ashare_ods_ingestion_daily` 非交易日 skip execution `29121fdb-8452-4398-85f1-052708ac7cb7` succeeded。
+- PR #112 review follow-up 的镜像与部署约束仍保留：`orchestration/workflows/Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 alert checker 时触发确定性启动崩溃；`deploy_workflows.sh` 继续默认只部署 `ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh` 和 `ashare_pipeline_alert_checker`，`ashare_warehouse_full_rebuild` 仍通过显式 `DEPLOY_FULL_REBUILD=true` opt-in 部署。README 也已补明：启用 Cloud Scheduler alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
 
 ## 2026-06-08 最新补充：Strategy1 Cloud Run bool-feature 解包修复与 `000001.SH` smoke 验证
 

@@ -44,7 +44,7 @@
 - OQ-005 phase 1 foundation 仍保持已部署状态：`ashare-pipeline-control` Cloud Run service、`ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh` 两个 Workflows 已上线，既有 `qa_only` 与 `daily_current` smoke 继续作为当前 live 通过证据。
 - `ashare_pipeline_alert_checker` 已按 owner 要求改为“最多每小时 1 次”：Composer 过渡态 DAG schedule 改为 `0 * * * *`，lookback 统一到 `70` 分钟，heartbeat 缺失告警窗口统一到 `120` 分钟；当前 PRD 层的 cutover 目标已从 `Cloud Scheduler + Cloud Run` 收敛为 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`。实现前提已钉死为 Scheduler caller service account 拥有 `roles/workflows.invoker`、Workflows runtime service account 保留 `ashare-pipeline-control` 的 `roles/run.invoker`。
 - `airflow_monitoring` 已确认是 Composer 平台托管健康监控 DAG，不能在仓库代码里单独降频；只要 Composer 环境还在，它就会继续按平台频率运行。要真正把这部分 run 和固定底座费用降掉，必须完成 OQ-005 cutover 并删除 Composer 环境。
-- `ashare_warehouse_full_rebuild` 已补出 Workflow 草案，但 review follow-up 已把它从标准 `deploy_workflows.sh` 中移出；现在只有显式 `DEPLOY_FULL_REBUILD=true` 才会部署。当前 `ashare-pipeline-control` 的 BigQuery task 仍同步等待 `job.result()`，full rebuild 长 SQL 有 Cloud Run / Workflows 单步超时风险，因此它仍是代码草案，未部署、未 smoke。
+- `ashare_warehouse_full_rebuild` 已推进为可部署的 manual workflow：`ashare-pipeline-control` 的 BigQuery task 已改成服务端 async `submit + poll`，workflow 也已切到异步轮询并部署为 revision `000001-36a`。本轮 direct async control-plane smoke 已成功（BigQuery job `fd1f6751-4861-4685-8377-e7dd9843ff57`），manual dry-run execution `cb8d1267-2909-4bf6-b725-29c6c8ee17e1` 也 succeeded；仍未执行真实全量 rebuild，因为那会重建整套 warehouse。
 - `ashare-pipeline-control` 镜像现在会一起打包 `scripts/alerting`，避免 `service.py` 模块级导入 alert checker 时报 `ModuleNotFoundError` 导致整个控制面启动崩溃。后续启用 `Cloud Scheduler` alert checker 时，必须同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑；在实现 PR 把 scheduler deploy 脚本改写为 Workflows Executions API 前，`orchestration/workflows/deploy_scheduler_jobs.sh` 视为 `superseded / do-not-run`。
 
 # Agent 交接（Agent Handoff）
@@ -59,7 +59,7 @@
 - **2026-06-08 GPT-5 Codex：PR #112 review follow-up 已把不安全路径真正封住。** `Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 `scripts.alerting.check_alerts` 时导致整个 `ashare-pipeline-control` 启动崩溃。`deploy_workflows.sh` 默认只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`；`ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 路径，直到控制层 BigQuery 改成 async submit + poll 为止。README 也已补明：启用 `Cloud Scheduler` alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
 - **2026-06-08 GPT-5 Codex：OQ-005 告警检查已统一限频到每小时。** `ashare_pipeline_alert_checker` 在 Composer 过渡态中的 schedule 已改为 `0 * * * *`，`check_alerts.py` lookback 调整为 `70` 分钟，heartbeat 缺失告警窗口调整为 `120` 分钟；cutover 后同一小时级口径将由 `Cloud Scheduler -> Workflows -> ashare-pipeline-control` 延续。注意：`main` 上现有 `orchestration/workflows/deploy_scheduler_jobs.sh` 仍是旧的直连 Cloud Run 版本，在实现 PR 改写为 Workflows Executions API 前视为 `superseded / do-not-run`。
 - **2026-06-08 GPT-5 Codex：`airflow_monitoring` 不能在仓库内单独降频。** 已确认它是 Composer 平台托管健康监控 DAG；只要 Composer 环境存在，它就会继续按平台频率运行。停止这类 run 和固定 `standard milli DCU-hours` 费用的路径是完成 OQ-005 cutover 并删除 Composer 环境，而不是继续在 repo 中找调频开关。
-- **2026-06-08 GPT-5 Codex：`ashare_warehouse_full_rebuild` 目前仍是代码草案。** 已新增 `orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 并接入 `deploy_workflows.sh`，但当前 `ashare-pipeline-control` 的 BigQuery 执行仍同步等待 `job.result()`；在改成 submit + poll 或进一步拆步前，full rebuild 长 SQL 存在 Cloud Run / Workflows 单步超时风险，因此现在未部署、未 smoke。
+- **2026-06-08 GPT-5 Codex：`ashare_warehouse_full_rebuild` 已补齐 async 控制面并完成 deploy + 低风险 smoke。** `scripts/pipeline_control/state.py` / `service.py` 已新增 BigQuery `submit + poll`，control service 已部署到 revision `ashare-pipeline-control-00004-b2g`，`ashare_warehouse_full_rebuild` 已部署为 workflow revision `000001-36a`。本轮 direct async control-plane smoke 成功轮询只读 QA job `fd1f6751-4861-4685-8377-e7dd9843ff57`，manual dry-run execution `cb8d1267-2909-4bf6-b725-29c6c8ee17e1` succeeded；同时，`backfill` execution `7cfbf799-1ace-4440-8577-95ddd45e7645` 和非交易日 skip execution `29121fdb-8452-4398-85f1-052708ac7cb7` 也都已 success。真实全量 rebuild 仍未执行，因为那会重建整套 warehouse。
 - **2026-06-08 GPT-5 Codex：OQ-005 Workflows phase 1 foundation 已部署并通过最小 live smoke。** 已新增 `tests/pipeline_control/test_state_lock.py` 覆盖 `acquire -> generation lookup -> heartbeat -> release`，并本地跑通 `unittest`。GCP 侧已启用 `workflows.googleapis.com`、创建并授权 runtime service account、部署 `ashare-pipeline-control` Cloud Run service，以及 `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows。真实 `qa_only` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` 与 `daily_current` 父/子 executions `2085f593-0fe9-483c-8888-6fa48fe7bb2f` / `d305d8a3-99a1-4007-9fb2-94e3698ff55c` 已 success。live 部署同时暴露并修正了 Workflows `http.* timeout <= 1800s`、布尔参数比较、窗口 SQL 必须透传 `warehouse_mode` 等运行期契约问题。当前仍未 cutover，下一步是迁 `ashare_warehouse_full_rebuild` / `ashare_pipeline_alert_checker`、补 `backfill` / 非交易日 skip smoke、接 Cloud Scheduler 并完成 shadow run / 删除 Composer。
 
 - **2026-06-08 GPT-5 Codex：PR #108 comment follow-up 已把迁出 Composer PRD 加硬到实现级。** 已补 4 个 Workflows 易静默退化点：每个业务步骤都要显式写 `pipeline_task_status`，不能只写 start/finalize；`ashare_warehouse_window_refresh` 必须有显式分布式锁，不能假设存在 `max_active_runs=1`；生产 scheduled ingestion -> refresh 固定为同步 child workflow 调用，旧 `warehouse_refresh_missing` watchdog 只保留到迁移期；BigQuery / Cloud Run 调用按“提交 -> 轮询终态 -> 写状态”建模，并要求 Phase 1 先复核 Workflows 限额和 `full_rebuild` 是否要拆分。
@@ -3974,3 +3974,80 @@ Run ID: oq005-alert-checker-workflow-impl-20260608
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
+
+## 交接条目
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: main-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: oq005-full-rebuild-and-smokes-20260608
+相关 issue/PR: 待创建
+
+### 已完成工作
+
+- 将 `scripts/pipeline_control/state.py` / `service.py` 的 BigQuery 控制面从同步 `job.result()` 扩展为 async `submit + poll`，新增 `/v1/tasks/bigquery/submit` 和 `/v1/tasks/bigquery/poll`。
+- 将 `orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 的 BigQuery helper 全量切到 async `submit + poll`，并把 full rebuild 共享写锁 lease 提高到 `21600s`。
+- 更新 `orchestration/workflows/README.md` 与 `deploy_workflows.sh`：`ashare_warehouse_full_rebuild` 不再被描述为“未就绪草案”，但仍保持 `DEPLOY_FULL_REBUILD=true` 的 manual opt-in 部署。
+- 重新部署 `ashare-pipeline-control` 到 revision `ashare-pipeline-control-00004-b2g`。
+- 部署 `ashare_warehouse_full_rebuild` workflow 到 revision `000001-36a`。
+- 完成 direct async control-plane smoke：通过 Cloud Run 认证调用 `/v1/tasks/bigquery/submit` + `/poll`，成功轮询只读 QA job `fd1f6751-4861-4685-8377-e7dd9843ff57` 到 `DONE/success`。
+- 完成 `ashare_warehouse_full_rebuild` manual dry-run smoke：execution `cb8d1267-2909-4bf6-b725-29c6c8ee17e1` succeeded。
+- 完成 `ashare_warehouse_window_refresh` 的 `backfill` smoke：execution `7cfbf799-1ace-4440-8577-95ddd45e7645` succeeded。
+- 完成 `ashare_ods_ingestion_daily` 的非交易日 skip smoke：execution `29121fdb-8452-4398-85f1-052708ac7cb7` succeeded。
+
+### 重要上下文
+
+- 本轮没有执行一次真实 `ashare_warehouse_full_rebuild` 写路径；只做了 async 控制面只读 smoke 和 workflow `pipeline_dry_run=true` smoke。原因不是代码未就绪，而是一次真实 full rebuild 会重建整套 warehouse，破坏面太大，不适合作为默认验证。
+- `ashare_pipeline_alert_checker` 的 Scheduler job 仍保持 `PAUSED`，以避免整体 cutover 前双跑；本轮没有改这个状态。
+- `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 的 live smoke 现在已覆盖 `qa_only`、`daily_current`、`backfill` 和非交易日 skip 四条关键分支。
+
+### 改动文件
+
+- `scripts/pipeline_control/state.py`
+- `scripts/pipeline_control/service.py`
+- `orchestration/workflows/ashare_warehouse_full_rebuild.yaml`
+- `orchestration/workflows/deploy_workflows.sh`
+- `orchestration/workflows/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 重新部署 `ashare-pipeline-control`：revision `ashare-pipeline-control-00004-b2g`
+- 部署 `ashare_warehouse_full_rebuild` workflow：revision `000001-36a`
+- direct async control-plane smoke：BigQuery job `fd1f6751-4861-4685-8377-e7dd9843ff57` success
+- `ashare_warehouse_full_rebuild` dry-run smoke：execution `cb8d1267-2909-4bf6-b725-29c6c8ee17e1` success
+- `ashare_warehouse_window_refresh` backfill smoke：execution `7cfbf799-1ace-4440-8577-95ddd45e7645` success
+- `ashare_ods_ingestion_daily` 非交易日 skip smoke：execution `29121fdb-8452-4398-85f1-052708ac7cb7` success
+
+### 阻塞项
+
+- 无新的技术阻塞。
+- OQ-005 仍未 cutover；剩余是 scheduled 入口、shadow run 和删除 Composer 环境。
+
+### 下一步建议
+
+- 补 ODS / warehouse scheduled cutover 的 Cloud Scheduler job 与 IAM bootstrap。
+- 做 shadow run，并至少观察 2 个自然开市日和 1 个自然非交易日。
+- cutover 验收后删除 Composer 环境，真正停止固定 `Cloud Composer` 底座费用。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - `ashare_warehouse_full_rebuild` 已不再是仅限本地草案：`ashare-pipeline-control` 新增 BigQuery async `submit + poll`，control service 已升到 revision `ashare-pipeline-control-00004-b2g`，`ashare_warehouse_full_rebuild` workflow 已部署为 revision `000001-36a`。
+> - 本轮没有跑真实全量 rebuild，但已完成两层低风险验证：direct async control-plane smoke 成功轮询只读 QA job `fd1f6751-4861-4685-8377-e7dd9843ff57`，manual dry-run execution `cb8d1267-2909-4bf6-b725-29c6c8ee17e1` succeeded。
+> - `ashare_warehouse_window_refresh` 的 `backfill` execution `7cfbf799-1ace-4440-8577-95ddd45e7645` 和 `ashare_ods_ingestion_daily` 的非交易日 skip execution `29121fdb-8452-4398-85f1-052708ac7cb7` 也都已 success；OQ-005 剩余项现在收敛为 scheduled cutover 的 Cloud Scheduler / IAM bootstrap、shadow run 和最终删除 Composer 环境。

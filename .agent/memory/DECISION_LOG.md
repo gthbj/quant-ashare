@@ -2132,3 +2132,37 @@ PR #117 初版实现把 `ashare_pipeline_alert_checker` 套进了 phase 1 workfl
 ### Related Files
 
 `orchestration/workflows/ashare_pipeline_alert_checker.yaml`, `orchestration/workflows/README.md`, `scripts/alerting/README.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`
+
+## DECISION-20260608-17: `ashare_warehouse_full_rebuild` 改为 async BigQuery submit+poll，并继续保持 manual opt-in 部署
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+OQ-005 Workflows phase 1 已经证明 `qa_only`、`daily_current` 和 alert checker 主链可跑，但 `ashare_warehouse_full_rebuild` 一直停留在代码草案：控制层 `ashare-pipeline-control` 的 BigQuery 执行仍同步 `job.result()`，full rebuild 里的长 SQL 会直接受 Cloud Run request timeout 和 Workflows `http.*` 单 step `1800s` 上限约束，因此既不能安全部署，也无法通过 review 中要求的“提交 -> 轮询终态 -> 写状态”硬约束。
+
+### Decision
+
+1. `scripts/pipeline_control/state.py` / `service.py` 为 BigQuery task 新增 async `submit + poll` 路径：
+   - `/v1/tasks/bigquery/submit`
+   - `/v1/tasks/bigquery/poll`
+2. `orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 的 BigQuery helper 固定改为走上述 async 路径，不再直接调用同步 `/v1/tasks/bigquery`。
+3. `ashare_warehouse_full_rebuild` 继续保持 manual workflow，不进入默认 `deploy_workflows.sh` 部署集；只有显式 `DEPLOY_FULL_REBUILD=true` 才部署。
+4. full rebuild 共享的 warehouse-write lock 保持与 `ashare_warehouse_window_refresh` 同一把锁，但 lease 提高到 `21600s`，减少长任务下的租约风险。
+
+### Rationale
+
+这样可以在不改 canonical SQL 顺序和 QA 语义的前提下，把 full rebuild 从“语义正确但无法安全部署”的草案推进到“控制面已异步化、可部署、可手工触发”的状态；同时保留 manual opt-in 部署，避免在 cutover 前把高破坏性的全量维护路径默认为常规工作流。
+
+### Impact
+
+1. 任何后续 full rebuild 相关实现都必须沿用 async `submit + poll`，不能再回退到同步 `job.result()`。
+2. `ashare_warehouse_full_rebuild` 现在可以部署到目标项目，但默认仍不应自动部署或调度。
+3. 本轮只补了 direct async control-plane smoke 与 workflow `pipeline_dry_run=true` smoke；真实全量写入仍需在 owner 明确要求时单独执行。
+
+### Related Files
+
+`scripts/pipeline_control/state.py`, `scripts/pipeline_control/service.py`, `orchestration/workflows/ashare_warehouse_full_rebuild.yaml`, `orchestration/workflows/deploy_workflows.sh`, `orchestration/workflows/README.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `TODO.md`
