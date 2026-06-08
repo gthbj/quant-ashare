@@ -12,7 +12,7 @@ Tushare 等数据源
 
 ## GCP 生产流水线目标架构（OQ-005）
 
-2026-06-08 起，OQ-005 的长期目标已由 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md` 接管并覆盖此前“长期保留 Cloud Composer”的表述。目标架构改为：`Cloud Scheduler` 负责定时触发，`Cloud Workflows` 负责业务编排、重试、补跑和状态机，`Cloud Run Jobs` 继续负责 Tushare 兼容 API 到 GCS Parquet 的每日采集，BigQuery SQL / Dataform 继续负责 ODS→DIM/DWD/DWS/ADS 转换与 QA，单步 `ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler + Cloud Run`。cutover 完成并验收后，应删除 Composer 环境以消除固定 `Cloud Composer 3 standard milli DCU-hours` 底座成本。
+2026-06-08 起，OQ-005 的长期目标已由 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md` 接管并覆盖此前“长期保留 Cloud Composer”的表述。目标架构改为：`Cloud Scheduler` 负责定时触发，`Cloud Workflows` 负责业务编排、重试、补跑和状态机，`Cloud Run Jobs` 继续负责 Tushare 兼容 API 到 GCS Parquet 的每日采集，BigQuery SQL / Dataform 继续负责 ODS→DIM/DWD/DWS/ADS 转换与 QA，`ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`。cutover 完成并验收后，应删除 Composer 环境以消除固定 `Cloud Composer 3 standard milli DCU-hours` 底座成本。
 
 2026-06-05 已合并剩余 ODS→ADS 生产调度链路 PRD：`docs/prd/PRD_20260605_01_OQ005剩余调度链路.md`。该文档是 Phase 1.7 生产采集之后的实现依据，定义 ODS gate、BigQuery SQL 兼容路径、Dataform definitions、ADS 契约隔离、刷新窗口、metadata、QA、pipeline 状态、告警、补跑、策略 runner/report 可选分支和 OQ-005 关闭标准。Phase 2.0 BigQuery SQL 兼容路径已由 PR #61 进入 `main` 并部署到 Composer；`skip_ingestion` / `qa_only` / `daily_current` 生产 smoke 已完成。
 
