@@ -1,8 +1,9 @@
 ## 当前交接摘要（2026-06-08）
-- OQ-005 Composer exit phase 1 foundation 已真实部署：`ashare-pipeline-control` Cloud Run service 已上线，`ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows 已部署；本轮同时补了 mock-GCS 锁最小集成测试。
-- 真实 smoke 已通过：`qa_only` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` success，`daily_current` 父/子 executions `2085f593-0fe9-483c-8888-6fa48fe7bb2f` / `d305d8a3-99a1-4007-9fb2-94e3698ff55c` success；主链路 ODS ingestion、readiness、window DWD/DWS/market-state、QA、状态写回、GCS 锁和同步 child workflow 已在 GCP 实跑通过。
-- PR #111 review follow-up 已补 Workflows flag 归一：`pipeline_dry_run`、`scheduled_run`、`force_non_trading_day_gate`、`skip_ingestion`、`skip_downstream_refresh`、`trigger_downstream_refresh` 都在 resolve 阶段统一做 `text.to_lower(string(...))`，避免后续 Cloud Scheduler / 手工 API 传 JSON boolean 时被 `"true"` 比较静默误判。
-- Composer 仍是生产入口；`ashare_warehouse_full_rebuild`、`ashare_pipeline_alert_checker`、Cloud Scheduler / IAM bootstrap、Workflows `backfill` / 非交易日 skip smoke、shadow run 与 cutover 仍待完成。
+- OQ-005 phase 1 foundation 仍保持已部署状态：`ashare-pipeline-control` Cloud Run service、`ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh` 两个 Workflows 已上线，既有 `qa_only` 与 `daily_current` smoke 继续作为当前 live 通过证据。
+- `ashare_pipeline_alert_checker` 已按 owner 要求改为“最多每小时 1 次”：Composer 过渡态 DAG schedule 改为 `0 * * * *`，lookback 统一到 `70` 分钟，heartbeat 缺失告警窗口统一到 `120` 分钟；同时已补 `ashare-pipeline-control` `/v1/tasks/alert-check` 和 `orchestration/workflows/deploy_scheduler_jobs.sh`，为 cutover 后的 `Cloud Scheduler + Cloud Run` 小时级告警检查准备好入口。
+- `airflow_monitoring` 已确认是 Composer 平台托管健康监控 DAG，不能在仓库代码里单独降频；只要 Composer 环境还在，它就会继续按平台频率运行。要真正把这部分 run 和固定底座费用降掉，必须完成 OQ-005 cutover 并删除 Composer 环境。
+- `ashare_warehouse_full_rebuild` 已补出 Workflow 草案，但 review follow-up 已把它从标准 `deploy_workflows.sh` 中移出；现在只有显式 `DEPLOY_FULL_REBUILD=true` 才会部署。当前 `ashare-pipeline-control` 的 BigQuery task 仍同步等待 `job.result()`，full rebuild 长 SQL 有 Cloud Run / Workflows 单步超时风险，因此它仍是代码草案，未部署、未 smoke。
+- `ashare-pipeline-control` 镜像现在会一起打包 `scripts/alerting`，避免 `service.py` 模块级导入 alert checker 时报 `ModuleNotFoundError` 导致整个控制面启动崩溃。后续启用 `Cloud Scheduler` alert checker 时，必须同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
 
 # Agent 交接（Agent Handoff）
 
@@ -12,8 +13,11 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：PR #112 review follow-up 已把不安全路径真正封住。** `Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 `scripts.alerting.check_alerts` 时导致整个 `ashare-pipeline-control` 启动崩溃。`deploy_workflows.sh` 默认只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`；`ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 路径，直到控制层 BigQuery 改成 async submit + poll 为止。README 也已补明：启用 `Cloud Scheduler` alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
+- **2026-06-08 GPT-5 Codex：OQ-005 告警检查已统一限频到每小时。** `ashare_pipeline_alert_checker` 在 Composer 过渡态中的 schedule 已改为 `0 * * * *`，`check_alerts.py` lookback 调整为 `70` 分钟，heartbeat 缺失告警窗口调整为 `120` 分钟；cutover 后同一小时级口径将由 `Cloud Scheduler -> ashare-pipeline-control /v1/tasks/alert-check` 延续，部署脚本为 `orchestration/workflows/deploy_scheduler_jobs.sh`。
+- **2026-06-08 GPT-5 Codex：`airflow_monitoring` 不能在仓库内单独降频。** 已确认它是 Composer 平台托管健康监控 DAG；只要 Composer 环境存在，它就会继续按平台频率运行。停止这类 run 和固定 `standard milli DCU-hours` 费用的路径是完成 OQ-005 cutover 并删除 Composer 环境，而不是继续在 repo 中找调频开关。
+- **2026-06-08 GPT-5 Codex：`ashare_warehouse_full_rebuild` 目前仍是代码草案。** 已新增 `orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 并接入 `deploy_workflows.sh`，但当前 `ashare-pipeline-control` 的 BigQuery 执行仍同步等待 `job.result()`；在改成 submit + poll 或进一步拆步前，full rebuild 长 SQL 存在 Cloud Run / Workflows 单步超时风险，因此现在未部署、未 smoke。
 - **2026-06-08 GPT-5 Codex：OQ-005 Workflows phase 1 foundation 已部署并通过最小 live smoke。** 已新增 `tests/pipeline_control/test_state_lock.py` 覆盖 `acquire -> generation lookup -> heartbeat -> release`，并本地跑通 `unittest`。GCP 侧已启用 `workflows.googleapis.com`、创建并授权 runtime service account、部署 `ashare-pipeline-control` Cloud Run service，以及 `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows。真实 `qa_only` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` 与 `daily_current` 父/子 executions `2085f593-0fe9-483c-8888-6fa48fe7bb2f` / `d305d8a3-99a1-4007-9fb2-94e3698ff55c` 已 success。live 部署同时暴露并修正了 Workflows `http.* timeout <= 1800s`、布尔参数比较、窗口 SQL 必须透传 `warehouse_mode` 等运行期契约问题。当前仍未 cutover，下一步是迁 `ashare_warehouse_full_rebuild` / `ashare_pipeline_alert_checker`、补 `backfill` / 非交易日 skip smoke、接 Cloud Scheduler 并完成 shadow run / 删除 Composer。
-- **2026-06-08 GPT-5 Codex：PR #111 comment follow-up 已补 Workflows boolean flag 归一。** 因 current smoke 都传字符串，之前 `== "true"` 判断还没出错；但 reviewer 指出后续 Cloud Scheduler / 手工 API 可能直接传 JSON boolean。现已把 ODS workflow 的 `pipeline_dry_run`、`scheduled_run`、`force_non_trading_day_gate`、`skip_ingestion`、`skip_downstream_refresh`、`trigger_downstream_refresh`，以及 warehouse workflow 的 `pipeline_dry_run`，统一在 resolve 阶段做 `${text.to_lower(string(input_flag))}`，避免 type drift 导致误进写库分支。
 
 - **2026-06-08 GPT-5 Codex：PR #108 comment follow-up 已把迁出 Composer PRD 加硬到实现级。** 已补 4 个 Workflows 易静默退化点：每个业务步骤都要显式写 `pipeline_task_status`，不能只写 start/finalize；`ashare_warehouse_window_refresh` 必须有显式分布式锁，不能假设存在 `max_active_runs=1`；生产 scheduled ingestion -> refresh 固定为同步 child workflow 调用，旧 `warehouse_refresh_missing` watchdog 只保留到迁移期；BigQuery / Cloud Run 调用按“提交 -> 轮询终态 -> 写状态”建模，并要求 Phase 1 先复核 Workflows 限额和 `full_rebuild` 是否要拆分。
 
@@ -175,6 +179,59 @@ Run ID: oq005-workflows-smoke-20260608
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: composer-exit-next-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: pr112-review-followup-20260608
+相关 issue/PR: PR #112
+
+### 已完成工作
+
+- 修复 `ashare-pipeline-control` 镜像启动崩溃风险：`Dockerfile.pipeline_control` 现已打包 `scripts/alerting`，使 `service.py` 的 alert-check 模块级导入可在运行镜像中解析。
+- 把 `ashare_warehouse_full_rebuild` 从标准 `deploy_workflows.sh` 路径移出，改成显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 部署。
+- 更新 `orchestration/workflows/README.md`，明确 full rebuild 仍未 deployment-ready，且启用 `Cloud Scheduler` alert-check 时必须同步 pause / delete Composer DAG `ashare_pipeline_alert_checker`。
+
+### 重要上下文
+
+- 这轮是 review follow-up，没有新增部署或 smoke。
+- full rebuild 现在虽然仍存在 workflow 文件，但默认部署脚本不会再把它注册到 GCP；这样“code-only”不再只是文档声明，而是代码层的真实约束。
+- alert checker 双跑问题当前靠部署约束解决，不靠运行时去重。
+
+### 改动文件
+
+- `orchestration/workflows/Dockerfile.pipeline_control`
+- `orchestration/workflows/deploy_workflows.sh`
+- `orchestration/workflows/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行新的本地测试。
+- 未部署新的 Cloud Run / Workflows / Cloud Scheduler。
+
+### 阻塞项
+
+- `ashare_warehouse_full_rebuild` 的核心阻塞不变：控制层 BigQuery 仍同步 `job.result()`，未解决前不应投入生产。
+
+### 下一步建议
+
+- 若继续收口 PR #112，优先看是否还需要把“pause Composer checker”写进实际 cutover runbook / deploy script 输出。
+- 后续继续做 full rebuild 时，先实现 async submit + poll，或把 workflow 继续拆成可稳定落在 step 时限内的更小单元。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/DECISION_LOG.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
@@ -3550,3 +3607,69 @@ Files:
 - scripts/pipeline_control/state.py
 Validation:
 - Not run in this turn by owner instruction.
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: composer-exit-next-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: oq005-composer-exit-next-20260608
+相关 issue/PR: 待创建 PR
+
+### 已完成工作
+
+- 把 Composer 过渡态的 `ashare_pipeline_alert_checker` 调整为每小时 1 次：DAG schedule 改为 `0 * * * *`，`check_alerts.py` lookback 改为 `70` 分钟。
+- 补了 cutover 后的小时级告警检查骨架：`ashare-pipeline-control` 新增 `/v1/tasks/alert-check`，并新增 `orchestration/workflows/deploy_scheduler_jobs.sh`，用 `Cloud Scheduler` 以 OIDC 调用 Cloud Run。
+- 同步把 `scripts/alerting/setup_alerts.py` / `scripts/alerting/README.md` / `orchestration/composer/README.md` / `orchestration/workflows/README.md` 改到小时级口径。
+- 补出 `orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 工作流草案，并把部署脚本接上该 workflow。
+- 确认 `airflow_monitoring` 是 Composer 平台托管健康监控 DAG，不是项目可控调度项；无法在仓库代码中降到每小时，只能在 cutover 后随 Composer 环境删除而消失。
+
+### 重要上下文
+
+- 这轮没有部署新的 Cloud Run service / Workflow / Scheduler job，也没有跑新的 smoke；当前变更仍停留在代码和记忆层。
+- `ashare_warehouse_full_rebuild` 当前只是草案。`scripts/pipeline_control/state.py` 的 BigQuery 执行仍同步等待 `job.result()`，full rebuild 长 SQL 可能超过 Cloud Run request timeout 或 Workflows step timeout；在改成 submit + poll 或进一步拆步之前，不应部署到生产。
+- owner 对告警链路的要求现在已经固化为“最多每小时 1 次”。后续如果还有频率相关需求，迁移后的 `Cloud Scheduler` 配置应继续沿用同一上限。
+
+### 改动文件
+
+- `orchestration/composer/dags/ashare_pipeline_alert_checker.py`
+- `orchestration/composer/README.md`
+- `orchestration/workflows/README.md`
+- `orchestration/workflows/deploy_workflows.sh`
+- `orchestration/workflows/deploy_scheduler_jobs.sh`
+- `orchestration/workflows/ashare_warehouse_full_rebuild.yaml`
+- `scripts/alerting/README.md`
+- `scripts/alerting/setup_alerts.py`
+- `scripts/pipeline_control/requirements.txt`
+- `scripts/pipeline_control/service.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行新的本地测试。
+- 未部署新的 Cloud Run / Workflows / Cloud Scheduler。
+- `airflow_monitoring` 不可调频这一点基于官方 Composer 文档确认，不是本地代码推断。
+
+### 阻塞项
+
+- `ashare_warehouse_full_rebuild` 仍受控制层同步 `job.result()` 设计限制，未解决前不能安全部署。
+
+### 下一步建议
+
+- 先决定 `ashare_warehouse_full_rebuild` 是改控制层为 submit + poll，还是继续拆成更小、可轮询的 SQL 步骤。
+- 把 `ashare_pipeline_alert_checker` 的 Cloud Scheduler job 和 `ashare-pipeline-control` alert-check endpoint 做一次真实部署 / smoke。
+- 再继续补 `backfill` / 非交易日 skip smoke 和 cutover runbook，收口 Composer exit。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`

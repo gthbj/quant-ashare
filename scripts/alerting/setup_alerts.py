@@ -21,7 +21,7 @@
 前置条件：
     1. 已执行 sql/observability/01_pipeline_status_views.sql 创建视图
     2. 已启用 Cloud Logging API + Cloud Monitoring API
-    3. ashare_pipeline_alert_checker Composer DAG 已部署（每 10 分钟执行）
+    3. ashare_pipeline_alert_checker 当前定时入口已部署（最多每小时 1 次）
     4. 已配置通知渠道（Email/Slack/PagerDuty）
 """
 
@@ -163,15 +163,15 @@ ALERT_POLICIES = [
         "display_name": "Ashare Pipeline: Alert Checker Heartbeat Missing",
         "description": (
             "告警 checker 自身心跳缺失。\n\n"
-            "`ashare_pipeline_alert_checker` 每 10 分钟运行并写入 heartbeat；"
-            "若 30 分钟内没有 heartbeat，说明 checker DAG 可能失败、被 pause、"
+            "`ashare_pipeline_alert_checker` 每小时运行并写入 heartbeat；"
+            "若 120 分钟内没有 heartbeat，说明 checker 定时入口可能失败、被 pause、"
             "Composer 调度异常或日志写入异常。\n\n"
             "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "alert_checker_heartbeat_absent",
         "condition_type": "absence",
         "log_metric_name": "ashare_pipeline_alert_checker_heartbeat",
-        "duration_seconds": 1800,
+        "duration_seconds": 7200,
         "severity": "ERROR",
     },
 ]
@@ -408,7 +408,7 @@ def main() -> None:
     print("=== 完成 ===")
     print()
     print("下一步：")
-    print("  1. 部署 ashare_pipeline_alert_checker Composer DAG（每 10 分钟）")
+    print("  1. 部署 ashare_pipeline_alert_checker 当前定时入口（最多每小时 1 次）")
     print("  2. 验证：https://console.cloud.google.com/monitoring/alerting?project=" + args.project)
     print("  3. 日志指标：https://console.cloud.google.com/logs/metrics?project=" + args.project)
 

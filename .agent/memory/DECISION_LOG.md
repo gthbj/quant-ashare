@@ -1763,3 +1763,75 @@ OQ-005 phase 1 Workflows 基础设施在代码 review 阶段已经过三轮 lock
 ### Related files
 
 `tests/pipeline_control/test_state_lock.py`, `orchestration/workflows/ashare_ods_ingestion_daily.yaml`, `orchestration/workflows/ashare_warehouse_window_refresh.yaml`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260608-08: Composer 迁移期告警检查统一限频到每小时，airflow_monitoring 不单独调优
+
+日期: 2026-06-08
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+owner 要求把 `airflow_monitoring` 和 `ashare_pipeline_alert_checker` 都降到“最多一小时 1 次”。其中 `ashare_pipeline_alert_checker` 是项目自有 DAG / 后续 Cloud Run 检查链路，可由仓库代码与调度配置控制；`airflow_monitoring` 则是 Cloud Composer 自带环境健康监控 DAG，不受本仓库 DAG 代码调度控制。
+
+### 决策
+
+1. 项目可控的告警检查链路统一限频为每小时一次：Composer 过渡态中的 `ashare_pipeline_alert_checker` schedule 改为 `0 * * * *`，迁移后 `Cloud Scheduler -> ashare-pipeline-control /v1/tasks/alert-check` 也保持同一 cadence。
+2. 为适配小时级 cadence，alert checker 的查询 lookback 统一调整为 `70` 分钟，heartbeat 缺失告警窗口统一调整为 `120` 分钟。
+3. `airflow_monitoring` 不做单独“降频”实现；在 Composer 仍存在时接受其平台托管频率，真正消除其 run/底座成本的路径是完成 OQ-005 cutover 后删除 Composer 环境。
+
+### 理由
+
+继续保留 10 分钟级 alert checker 对当前项目收益很低，但会增加 Composer 过渡态与 cutover 后实现之间的不一致。把项目自有检查统一到每小时一次，可以同时满足 owner 的成本目标和系统可观测性要求；`70` 分钟 lookback 与 `120` 分钟 heartbeat 窗口则给小时级调度留出迟到/抖动余量，避免误报。`airflow_monitoring` 属于平台托管行为，试图在仓库代码里“改频率”没有实际效果，只会制造错误预期。
+
+### 影响
+
+- 过渡期 Composer DAG 与未来 `Cloud Scheduler + Cloud Run` alert checker 在频率和 lookback 上保持一致。
+- 任何后续关于 `airflow_monitoring` run 数量或 Composer 固定费的讨论，都应以“删除 Composer 环境”作为解决路径，而不是继续在 repo 内找调频开关。
+- 告警链路从 10 分钟降为 60 分钟后，告警到达延迟会上升，但仍保留 heartbeat 与 lookback 冗余。
+
+### 备选方案
+
+继续保留 10 分钟 alert checker；放弃，因为不符合 owner 对成本/噪声的要求，也会让过渡态与 cutover 后实现脱节。尝试在 repo 中调低 `airflow_monitoring`；放弃，因为该 DAG 由 Composer 平台托管，不是项目可控调度项。
+
+### 相关文件
+
+`orchestration/composer/dags/ashare_pipeline_alert_checker.py`, `scripts/alerting/setup_alerts.py`, `scripts/alerting/README.md`, `scripts/pipeline_control/service.py`, `orchestration/workflows/deploy_scheduler_jobs.sh`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260608-09: full_rebuild 保持默认不部署，Scheduler alert-check cutover 必须停 Composer checker
+
+日期: 2026-06-08
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+PR #112 初版把 `ashare_warehouse_full_rebuild.yaml` 接进了标准 `deploy_workflows.sh`，但控制层 BigQuery 执行仍同步 `job.result()`，与“full_rebuild 还未 deployment-ready”的约束相冲突。同时，新的小时级 `Cloud Scheduler -> /v1/tasks/alert-check` 路径若与 Composer DAG `ashare_pipeline_alert_checker` 并存，会造成双跑。
+
+### 决策
+
+1. 标准 `deploy_workflows.sh` 只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`。
+2. `ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 部署路径；在控制层 BigQuery 改成异步 submit + poll 之前，它继续视为代码草案，不作为默认生产部署项。
+3. 启用 `Cloud Scheduler` alert-check job 时，必须同步 pause / delete Composer DAG `ashare_pipeline_alert_checker`。
+
+### 理由
+
+如果继续把 full rebuild 接在标准部署入口里，就等于把“未就绪”只留在文档里，没有代码层面的真正阻断。把它移出默认部署路径，才能让“code-only”成为真实约束。告警检查则必须保证 cutover 时只有一个调度源，避免重复 heartbeat 和重复 alert 日志污染观测。
+
+### 影响
+
+- 后续任何部署 runbook 都应把 `ashare_warehouse_full_rebuild` 视为单独、显式、人工确认的 opt-in 路径。
+- OQ-005 cutover checklist 必须包含“停 Composer checker DAG”这一项。
+- 后续若 full rebuild 进入生产，前提是控制层 BigQuery 先完成异步化或 workflow 继续拆步。
+
+### 备选方案
+
+继续把 full rebuild 放进默认部署脚本，只靠 README 声明“未就绪”；放弃，因为这不能阻止误部署。允许 Scheduler 和 Composer checker 并行；放弃，因为会造成重复日志和职责归属不清。
+
+### 相关文件
+
+`orchestration/workflows/Dockerfile.pipeline_control`, `orchestration/workflows/deploy_workflows.sh`, `orchestration/workflows/README.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`

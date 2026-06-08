@@ -7,6 +7,12 @@ from typing import Any
 
 from flask import Flask, jsonify, request
 
+from scripts.alerting.check_alerts import (
+    PROJECT_ID as ALERT_PROJECT_ID,
+    check_alerts as query_alerts,
+    write_heartbeat_to_cloud_logging,
+    write_to_cloud_logging,
+)
 from scripts.pipeline_control.state import (
     ControlConfig,
     DEFAULT_BQ_LOCATION,
@@ -69,6 +75,22 @@ def _lock_generation(payload: dict[str, Any], *, lock_key: str) -> int:
     if raw_owner not in (None, ""):
         return STATE.lock_generation_for_owner(lock_key=lock_key, owner=str(raw_owner))
     raise ValueError("missing required field: generation")
+
+
+def _truthy(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off", ""}:
+            return False
+    return bool(value)
 
 
 @app.errorhandler(Exception)
@@ -134,6 +156,34 @@ def task_bigquery():
         endpoint=str(payload.get("endpoint", "")),
     )
     return jsonify({"ok": True, "result": result})
+
+
+@app.post("/v1/tasks/alert-check")
+def task_alert_check():
+    payload = _body()
+    project_id = str(payload.get("project_id") or ALERT_PROJECT_ID)
+    lookback_minutes = int(payload.get("lookback_minutes") or 70)
+    write_log = _truthy(payload.get("write_log"), default=True)
+    write_heartbeat = _truthy(payload.get("write_heartbeat"), default=True)
+    alerts = query_alerts(project_id, lookback_minutes)
+    written = 0
+    if write_log and alerts:
+        written = write_to_cloud_logging(project_id, alerts)
+    if write_heartbeat:
+        write_heartbeat_to_cloud_logging(
+            project_id,
+            alerts_count=len(alerts),
+            lookback_minutes=lookback_minutes,
+        )
+    return jsonify(
+        {
+            "ok": True,
+            "alerts_count": len(alerts),
+            "log_entries_written": written,
+            "lookback_minutes": lookback_minutes,
+            "status": ("alerts_found" if alerts else "no_alerts"),
+        }
+    )
 
 
 @app.post("/v1/locks/acquire")
