@@ -8,8 +8,18 @@ SCHEDULER_LOCATION="${SCHEDULER_LOCATION:-${REGION}}"
 RESUME_SCHEDULER_JOBS="${RESUME_SCHEDULER_JOBS:-false}"
 WORKFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+composer_exists() {
+  gcloud composer environments describe "${COMPOSER_ENVIRONMENT}" \
+    --project="${PROJECT_ID}" \
+    --location "${REGION}" >/dev/null 2>&1
+}
+
 pause_dag() {
   local dag_id="$1"
+  if ! composer_exists; then
+    echo "Composer environment ${COMPOSER_ENVIRONMENT} not found; skipping pause for DAG ${dag_id}."
+    return 0
+  fi
   gcloud composer environments run "${COMPOSER_ENVIRONMENT}" \
     --project="${PROJECT_ID}" \
     --location "${REGION}" \

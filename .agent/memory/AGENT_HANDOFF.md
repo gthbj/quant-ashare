@@ -3,9 +3,19 @@
 > - 这轮没有再重跑生产 scheduler；只会把最小权限变更打到 live IAM，避免为了验证 comment 再额外触发一次真实生产链。
 
 > 当前交接补充（2026-06-08，GPT-5 Codex）
-> - OQ-005 已按 owner 决策跳过 shadow run，直接完成真实 cutover：Scheduler jobs `ashare-pipeline-alert-checker` 和 `ashare-ods-ingestion-daily` 已 `ENABLED`，caller SA 已统一切到 `ashare-scheduler-invoker@data-aquarium.iam.gserviceaccount.com`。
-> - 真实触发证据：alert-checker execution `978c920c-3810-4299-b904-3c954e8d221d` succeeded；ODS parent execution `31ac0d61-d40c-4a88-9865-b13f61d369c1` succeeded，并带起 child warehouse execution `919f2aba-b9d4-4181-9915-fa848487bb90` succeeded。
-> - 现在 OQ-005 剩余项不再是“要不要 shadow run”，而是是否保留短期观测窗口，以及何时删除 Composer 环境来停止固定底座费用。
+> - OQ-005 scheduled production cutover 已完成：`ashare-ods-ingestion-daily`（`0 20 * * *`）和 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 scheduler 已 `ENABLED`，目标分别为 `ashare_ods_ingestion_daily` / `ashare_pipeline_alert_checker` workflows。
+> - 真实 cutover 证据：alert-checker scheduler execution `978c920c-3810-4299-b904-3c954e8d221d` succeeded；ODS parent execution `31ac0d61-d40c-4a88-9865-b13f61d369c1` 与 child warehouse execution `919f2aba-b9d4-4181-9915-fa848487bb90` succeeded。
+> - Composer 业务 DAG 已全部停用；`ashare-composer` 环境已于 2026-06-08 删除完成，`gcloud composer environments describe ashare-composer --location=asia-east2` 返回 `NOT_FOUND`。后续只需补短观察窗记录。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #123 review follow-up 已把 OQ-005 的状态源彻底闭合：`OPEN_QUESTIONS.md` 中的 OQ-005 已删除，只保留在 `archive/CLOSED_QUESTIONS.md`。
+> - `DECISION-20260603-02` 现已被新的 superseding 决策覆盖，明确长期编排从 Composer 改为 `Cloud Scheduler + Cloud Workflows`。
+> - `orchestration/composer/README.md` 现已标注为历史路径，`orchestration/workflows/cutover_scheduler_jobs.sh` 在 Composer 环境已删除时也会 fail-soft 跳过 `dags pause`，避免后续再因为 `NOT_FOUND` 误把旧 cutover helper 当现行生产脚本。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #120 合并后已做 live deploy：`ashare-pipeline-control` 升到 revision `ashare-pipeline-control-00005-mk5`，`ashare_warehouse_full_rebuild` 升到 workflow revision `000002-e70`。
+> - post-merge dry-run smoke `773f26c1-2a80-41ab-9b85-fa7c208f0342` 已 success，说明这轮补进去的 poll 失败终态写回和 `bigquery_max_polls` 输入化至少没有造成新的接线回归。
+> - 本轮仍然没有执行真实 full rebuild 写路径；OQ-005 在 full rebuild 这条线上的剩余风险，已经收敛回 cutover 前是否要做一次更大范围 dry-run 或真实写入验证。
 
 > 当前交接补充（2026-06-08，GPT-5 Codex）
 > - PR #120 第二轮 review follow-up 已继续收口 full rebuild poll 终态：`get_job(...)` 用尽内部重试后，现在会显式把 task 写成 `failed`，不再让 `pipeline_task_status` 卡在 `running`。
@@ -79,12 +89,12 @@
 
 - **2026-06-08 GPT-5 Codex：PR #119 review follow-up 已把 `v3` replay fallback 再收口一轮。** `effective_test_metric` 现在对 `test_rank_ic_mean` 和 `test_top_minus_bottom_fwd_ret_mean` 统一走“有限 raw 值优先，否则 fallback”，避免 spread 字段遇到 `inf`/非有限 raw 值时把 fallback 吞掉。candidate artifact 也新增了 `cv_confirmation_status_from_fallback`、`test_rank_ic_from_fallback`、`test_top_minus_bottom_fwd_ret_from_fallback`，便于审计值来源；`24` QA 则把 `selected_registry -> backtest_summary` 改回 `LEFT JOIN`，继续显式暴露缺 summary 的 selected row。当前仍未重跑 replay / `24` QA。
 - **2026-06-08 GPT-5 Codex：Strategy1 `v3` replay / `24` QA 已改为兼容历史 search 的信号字段缺口。** `replay_acceptance_gate_v3.py` 不再把历史 `cv_confirmation_status` / `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 缺失当硬阻断，而是按 source-of-truth fallback 读取：`cv_confirmation_status` 用已有 `cv_rank_ic_mean` + `cv_top_minus_bottom_fwd_ret_mean`（以及存在时的 `cv_fold_count`）回推，`test_*` 则从 `ads_model_prediction_daily` + `ads_ml_training_panel_daily` 的 `test` 窗口按原 orchestrator 公式现算。`24_qa_acceptance_gate_v3_replay_outputs.sql` 已同步改成校验“字段存在或可由 source 推导”。本轮尚未重跑 replay / `24` QA，下一步先执行这两步。
-- **2026-06-08 GPT-5 Codex：OQ-005 alert checker 新路径已 smoke 成功，但 scheduler 暂时保持 paused。** `ashare-pipeline-control` 已升到 revision `00003-sfd`，`ashare_pipeline_alert_checker` workflow 已部署到 revision `000002-31c`，manual execution `a2743da9-2654-4521-9222-4fbf2b5dc113` 和 Scheduler execution `ca8b6bdd-f137-4727-9311-29b5b8fb9d20` 均 succeeded。live 验证顺手修了两类真实问题：`deploy_scheduler_jobs.sh` 对当前 `gcloud` 必须区分 `create http --headers` 与 `update http --update-headers`；Workflow resolve 阶段的原生 `int/bool` 参数不能再直接和空字符串比较，相关修复已覆盖 alert-check、ODS、window-refresh 和 full-rebuild 四个 workflow 文件。为避免 cutover 前双跑，scheduler job 现已重新 `PAUSED`。
+- **2026-06-08 GPT-5 Codex：OQ-005 scheduled production cutover 与 Composer 下线均已完成。** `ashare-ods-ingestion-daily`（`0 20 * * *`）和 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 scheduler 已 `ENABLED`，目标分别为 `ashare_ods_ingestion_daily` / `ashare_pipeline_alert_checker` workflows；真实 cutover 证据是 alert-checker execution `978c920c-3810-4299-b904-3c954e8d221d` succeeded，以及 ODS parent `31ac0d61-d40c-4a88-9865-b13f61d369c1` 和 child warehouse `919f2aba-b9d4-4181-9915-fa848487bb90` 均 succeeded。Composer 业务 DAG 已全部停用，`ashare-composer` 环境已删除，`gcloud composer environments describe ashare-composer --location=asia-east2` 返回 `NOT_FOUND`。后续只需补短观察窗记录。
 - **2026-06-08 GPT-5 Codex：PR #112 review follow-up 已把不安全路径真正封住。** `Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 `scripts.alerting.check_alerts` 时导致整个 `ashare-pipeline-control` 启动崩溃。`deploy_workflows.sh` 默认只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`；`ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 路径，直到控制层 BigQuery 改成 async submit + poll 为止。README 也已补明：启用 `Cloud Scheduler` alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
 - **2026-06-08 GPT-5 Codex：OQ-005 告警检查已统一限频到每小时。** `ashare_pipeline_alert_checker` 在 Composer 过渡态中的 schedule 已改为 `0 * * * *`，`check_alerts.py` lookback 调整为 `70` 分钟，heartbeat 缺失告警窗口调整为 `120` 分钟；cutover 后同一小时级口径将由 `Cloud Scheduler -> Workflows -> ashare-pipeline-control` 延续。注意：`main` 上现有 `orchestration/workflows/deploy_scheduler_jobs.sh` 仍是旧的直连 Cloud Run 版本，在实现 PR 改写为 Workflows Executions API 前视为 `superseded / do-not-run`。
 - **2026-06-08 GPT-5 Codex：`airflow_monitoring` 不能在仓库内单独降频。** 已确认它是 Composer 平台托管健康监控 DAG；只要 Composer 环境存在，它就会继续按平台频率运行。停止这类 run 和固定 `standard milli DCU-hours` 费用的路径是完成 OQ-005 cutover 并删除 Composer 环境，而不是继续在 repo 中找调频开关。
 - **2026-06-08 GPT-5 Codex：`ashare_warehouse_full_rebuild` 已补齐 async 控制面并完成 deploy + 低风险 smoke。** `scripts/pipeline_control/state.py` / `service.py` 已新增 BigQuery `submit + poll`，control service 已部署到 revision `ashare-pipeline-control-00004-b2g`，`ashare_warehouse_full_rebuild` 已部署为 workflow revision `000001-36a`。本轮 direct async control-plane smoke 成功轮询只读 QA job `fd1f6751-4861-4685-8377-e7dd9843ff57`，manual dry-run execution `cb8d1267-2909-4bf6-b725-29c6c8ee17e1` succeeded；同时，`backfill` execution `7cfbf799-1ace-4440-8577-95ddd45e7645` 和非交易日 skip execution `29121fdb-8452-4398-85f1-052708ac7cb7` 也都已 success。真实全量 rebuild 仍未执行，因为那会重建整套 warehouse。
-- **2026-06-08 GPT-5 Codex：OQ-005 Workflows phase 1 foundation 已部署并通过最小 live smoke。** 已新增 `tests/pipeline_control/test_state_lock.py` 覆盖 `acquire -> generation lookup -> heartbeat -> release`，并本地跑通 `unittest`。GCP 侧已启用 `workflows.googleapis.com`、创建并授权 runtime service account、部署 `ashare-pipeline-control` Cloud Run service，以及 `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows。真实 `qa_only` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` 与 `daily_current` 父/子 executions `2085f593-0fe9-483c-8888-6fa48fe7bb2f` / `d305d8a3-99a1-4007-9fb2-94e3698ff55c` 已 success。live 部署同时暴露并修正了 Workflows `http.* timeout <= 1800s`、布尔参数比较、窗口 SQL 必须透传 `warehouse_mode` 等运行期契约问题。当前仍未 cutover，下一步是迁 `ashare_warehouse_full_rebuild` / `ashare_pipeline_alert_checker`、补 `backfill` / 非交易日 skip smoke、接 Cloud Scheduler 并完成 shadow run / 删除 Composer。
+- **2026-06-08 GPT-5 Codex：OQ-005 Workflows phase 1 foundation 已部署并通过最小 live smoke。** 已新增 `tests/pipeline_control/test_state_lock.py` 覆盖 `acquire -> generation lookup -> heartbeat -> release`，并本地跑通 `unittest`。GCP 侧已启用 `workflows.googleapis.com`、创建并授权 runtime service account、部署 `ashare-pipeline-control` Cloud Run service，以及 `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows。真实 `qa_only` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` 与 `daily_current` 父/子 executions `2085f593-0fe9-483c-8888-6fa48fe7bb2f` / `d305d8a3-99a1-4007-9fb2-94e3698ff55c` 已 success。live 部署同时暴露并修正了 Workflows `http.* timeout <= 1800s`、布尔参数比较、窗口 SQL 必须透传 `warehouse_mode` 等运行期契约问题。该阶段性基础设施随后已在同日扩展到 alert checker、full rebuild、Scheduler cutover 和 Composer 删除完成。 
 
 - **2026-06-08 GPT-5 Codex：PR #108 comment follow-up 已把迁出 Composer PRD 加硬到实现级。** 已补 4 个 Workflows 易静默退化点：每个业务步骤都要显式写 `pipeline_task_status`，不能只写 start/finalize；`ashare_warehouse_window_refresh` 必须有显式分布式锁，不能假设存在 `max_active_runs=1`；生产 scheduled ingestion -> refresh 固定为同步 child workflow 调用，旧 `warehouse_refresh_missing` watchdog 只保留到迁移期；BigQuery / Cloud Run 调用按“提交 -> 轮询终态 -> 写状态”建模，并要求 Phase 1 先复核 Workflows 限额和 `full_rebuild` 是否要拆分。
 
@@ -127,6 +137,62 @@
 **OQ-005 alert setup review follow-up（2026-06-06）**：分支 `codex/oq005-alert-logmetric-alreadyexists`。针对 `fd8aefe` review 的 Low finding，`scripts/alerting/setup_alerts.py` 已将 log metric 已存在的幂等判断从异常 message substring 改为显式捕获 `google.api_core.exceptions.AlreadyExists`，其他异常仍 fail-fast。该分支只改告警配置脚本和记忆，不改 Composer DAG、BigQuery SQL 或生产调度状态；验证为 `python3 -m py_compile scripts/alerting/setup_alerts.py` 和 `git diff --check`。
 
 ## 交接条目
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: main-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: oq005-composer-delete-and-memory-closeout-20260608
+相关 issue/PR: N/A
+
+### 已完成工作
+
+- 已完成 `ashare-composer` 环境删除；当前 `gcloud composer environments describe ashare-composer --location=asia-east2` 返回 `NOT_FOUND`。
+- 把 OQ-005 的仓库记忆从“待 cutover”收口到“scheduled production cutover 已完成、Composer 业务 DAG 已停用、Composer 环境已删除、仅剩短观察窗”的状态。
+- 在 `DECISION_LOG.md` 追加持久决策：生产业务调度正式切到 `Cloud Scheduler + Cloud Workflows`。
+
+### 重要上下文
+
+- 现在生产 daily / hourly 业务调度事实来源已经不是 Composer，而是两个 Scheduler job：
+  - `ashare-ods-ingestion-daily` -> `ashare_ods_ingestion_daily`
+  - `ashare-pipeline-alert-checker` -> `ashare_pipeline_alert_checker`
+- Composer 业务 DAG 即使还存在于仓库或历史 bucket 中，也不再是生产入口；后续如果有人想“临时恢复” Composer 跑业务，应视为违背当前架构决策。
+- 这次没有新建 PR，也没有提交 git；只是更新本地记忆/TODO 并执行真实 GCP 环境删除。
+
+### 改动文件
+
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `gcloud scheduler jobs describe ashare-ods-ingestion-daily --location=asia-east2`
+- `gcloud scheduler jobs describe ashare-pipeline-alert-checker --location=asia-east2`
+- `gcloud composer environments describe ashare-composer --location=asia-east2`
+- 已确认两个 scheduler job 当前均为 `ENABLED`
+- 已确认 `gcloud composer environments describe ashare-composer --location=asia-east2` 返回 `NOT_FOUND`
+
+### 阻塞项
+
+- 无
+
+### 下一步建议
+
+- 保留一个很短的 post-cutover 观察记录即可，不需要再把 OQ-005 当设计问题继续拉长。
+
+### 已更新记忆文件
+
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 日期: 2026-06-08
 Agent ID: Codex
@@ -3578,6 +3644,32 @@ Run ID: post_merge_branch_worktree_cleanup_constraint_20260607
 ---
 
 ## 2026-06-07 上证指数 DWS market-state 补齐
+
+Model: GPT-5 Codex
+
+## 2026-06-08 GPT-5 Codex - post-merge deploy and dry-run smoke
+
+### 本轮完成
+
+- 重新部署 `ashare-pipeline-control`，Cloud Run revision 更新为 `ashare-pipeline-control-00005-mk5`。
+- 重新部署 workflows，`ashare_warehouse_full_rebuild` 更新为 revision `000002-e70`。
+- 执行 post-merge manual dry-run smoke：`ashare_warehouse_full_rebuild` execution `773f26c1-2a80-41ab-9b85-fa7c208f0342` succeeded。
+
+### 本轮未做
+
+- 没有执行真实 full rebuild 写路径。
+- 没有继续做 Cloud Scheduler / IAM bootstrap / shadow run。
+
+### 影响文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 下一步建议
+
+- 继续做 OQ-005 cutover：补 ODS / warehouse 的 Cloud Scheduler 和 IAM bootstrap。
+- 然后做 shadow run，观察真实开市日和非交易日各至少 1 个样本。
 
 Model: GPT-5 Codex
 运行环境: Codex desktop

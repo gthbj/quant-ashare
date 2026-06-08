@@ -78,7 +78,7 @@ Last updated: 2026-06-08
 - PR #111 comment follow-up 已继续补强 flag 归一：`pipeline_dry_run`、`scheduled_run`、`force_non_trading_day_gate`、`skip_ingestion`、`skip_downstream_refresh`、`trigger_downstream_refresh` 与 warehouse workflow 的 `pipeline_dry_run` 现在统一在 resolve 阶段做 `text.to_lower(string(...))`，后续 `== "true"` 判断同时兼容字符串和 JSON boolean，避免接入 Cloud Scheduler / 手工 API 触发时静默写库。
 - 真实 `qa_only` smoke 已通过：`ashare_warehouse_window_refresh` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` 在 `business_date=date_to=2026-06-05`、`warehouse_mode=qa_only` 下成功完成。
 - 真实 `daily_current` smoke 已通过：父 workflow `ashare_ods_ingestion_daily` execution `2085f593-0fe9-483c-8888-6fa48fe7bb2f` 成功触发子 workflow `ashare_warehouse_window_refresh` execution `d305d8a3-99a1-4007-9fb2-94e3698ff55c`；ODS ingestion、ODS readiness、index/stock/market-state window refresh、`core/index benchmark/finance/unit contract` QA、task 状态写回和 pipeline finalize 全部 success。
-- 当前仍未 cutover：Composer 仍是生产入口；`ashare_warehouse_full_rebuild`、Cloud Scheduler / IAM bootstrap、Workflows `backfill` / 非交易日 skip smoke、shadow run 与最终删除 Composer 环境仍待完成。2026-06-08 owner 已接受将 `ashare_pipeline_alert_checker` 的目标路径从 `Cloud Scheduler -> authenticated Cloud Run` 改为 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`；当前仓库已补齐 `ashare_pipeline_alert_checker.yaml` 和把 `orchestration/workflows/deploy_scheduler_jobs.sh` 切到 Workflows Executions API 的代码实现，但尚未做真实部署和 smoke。按 PR #117 review follow-up，alert-check workflow 现在故意不写 `pipeline_run` / `pipeline_task_status`，避免自指告警闭环和 recent-runs 观测污染。实现前提已补明：Scheduler caller service account 必须具备目标 workflow 的 `roles/workflows.invoker`，Workflows runtime service account 必须保留 `ashare-pipeline-control` 的 `roles/run.invoker`。
+- 该阶段性补充中的未 cutover 状态已在 2026-06-08 当天后续动作中被推进为生产事实：alert-check workflow 已完成真实部署和 smoke，`deploy_scheduler_jobs.sh` 已切到 Workflows Executions API，ODS / warehouse / alert-checker 的 scheduled production cutover 已完成，Composer 业务 DAG 已停用，`ashare-composer` 环境也已删除。保留本段的意义仅在于记录 phase 1 foundation 当时暴露的运行期契约问题与其后续收口路径。
 
 ### 最新补充（2026-06-08）：PR #108 comment follow-up 加硬 Composer 迁出 PRD
 
@@ -341,7 +341,7 @@ Last updated: 2026-06-08
 
 - `lookback_start_date` 从固定默认值升级为按最大滚动窗口计算/调度配置。
 - 「从 ODS 继承字段描述」的脚本（bq show → 映射 → bq update）。
-- OQ-005 调度迁出 Composer：新 PRD 已定义 `Cloud Scheduler + Cloud Workflows` 取代 Composer。当前 Composer DAG 拆分、window refresh、alert checker 和相关 smoke 只作为 cutover 前过渡态；`qa_only` / `daily_current` / `backfill` / 非交易日 skip 手工 smoke 已完成，`ashare_warehouse_full_rebuild` 也已补完 async `submit + poll` 控制面和 manual dry-run。下一步收敛为 scheduled cutover 的 Cloud Scheduler / IAM bootstrap、shadow run、生产观察与最终删除 Composer 环境。
+- OQ-005 调度迁出 Composer：生产入口已切到 `Cloud Scheduler + Cloud Workflows`。当前 `ashare-ods-ingestion-daily` scheduler（`0 20 * * *`）与 `ashare-pipeline-alert-checker` scheduler（`0 * * * *`）均已 `ENABLED`，Composer 业务 DAG 已全部停用，`ashare-composer` 环境也已删除；`qa_only` / `daily_current` / `backfill` / 非交易日 skip / alert checker / full rebuild dry-run 的 Workflows smoke 均已完成。剩余动作只收敛为 cutover 后短观察窗记录。
 - 增量调度（dbt 或 Airflow + SQL）、数据质量断言。
 - 策略 1 Cloud Run runner 后续验收：真实 Cloud Run smoke、GCS model/report artifact、ADS 回写、`strategy1_experiment_run_status` 和 `16` / `17` QA 已跑通；sklearn native search 首轮未建立 accepted baseline。PRD04 Cloud Run Python LightGBM baseline search 代码实现已进入 PR；下一步是合并部署后真实执行 40 候选 wave 2，并按 Top5 acceptance 结论决定是否进入 `lightgbm_regression` wave 3，同时继续补 Python ledger vs 历史 SQL ledger 的差异 / 一致性验收。
 - P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily` 已落地物化（OQ-003 默认合并报表口径）；`dws_market_state_daily` 仍待补。三大报表单季 `q_*` 派生延后 P1。
@@ -360,7 +360,7 @@ Last updated: 2026-06-08
 | P0 建表 SQL | 已完成 | `sql/` 已新增 4 张 DIM + 5 张 DWD + QA；OQ-004 新增 `dim_index` 和专项 QA |
 | P0 表物化/QA | 已完成 | 4 张 DIM + 5 张 DWD 已物化；PR #9 后 `dim_stock` 依赖链已重建，P0 smoke QA 通过；OQ-004 专项 QA 通过 |
 | DWS/ADS 设计 | 已完成 | 两篇设计文档已完成；策略 1 DWS 六表、ADS 表契约与 runner 脚本已落地 |
-| ETL/调度 | 部分完成 | OQ-005 Phase 0/1/1.5/1.6/1.7 采集 manifest/schema/meta/stub、endpoint worker、Cloud Run Jobs、Direct VPC egress + Cloud NAT 固定出口、`ashare-ingest-current-scope` 生产入口、GCS 小范围写入 smoke、ODS 外部表可读性 QA、每日轻量 readiness QA、Composer 3 环境、DAG default Celery queue smoke 和 `2026-05-20` 至 `2026-06-05` 当前范围 ODS 生产采集已完成；PR #80 后 `daily_current` 与 `qa_only` 生产 smoke 均通过；scheduled 非交易日 skip gate 已由 PR #83 合并部署并完成 force hook smoke；PR #86 后 production DAG 已拆为 `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` / `ashare_warehouse_full_rebuild` 并完成非交易日 skip、`qa_only`、1 日 backfill 和 refresh-missing watchdog smoke；仍待新 DAG 连续开市日 scheduled 观察、完整 Dataform 生产接入 / shadow 验证和完整 ODS→ADS 运维观测闭环 |
+| ETL/调度 | 高 | OQ-005 已完成业务调度从 Composer 到 `Cloud Scheduler + Cloud Workflows` 的 production cutover：ODS daily、child warehouse refresh、alert checker、manual full rebuild 路径均已落地，scheduled 入口已启用，Composer 业务 DAG 已停用，Composer 环境已删除。当前只剩 cutover 后短观察窗和非阻塞的 Dataform/运维收尾。 |
 | 财务三大报表 DWD | 已完成 | `dwd_fin_income/balancesheet/cashflow` + `_latest`（`sql/dwd/06-11`）已物化，保留 report_type 口径字段，`sql/qa/04` + OQ-006 `sql/qa/05` 通过 |
 | DWS 特征/标签 SQL | 部分完成 | 策略 1 universe、价格/估值特征、标签、宽表、样本 + `dws_stock_feature_fin_daily`（默认合并口径财务特征）已物化并 QA；市场状态待补 |
 | 策略/ADS 闭环 | 已跑通 | `ml_pv_clf_v0` runner 01-10 已在 BigQuery 端到端实跑（PR #12），08 为账户级 ledger，`10` 16 断言全过；模型质量待迭代（OQ-010） |
@@ -387,6 +387,15 @@ Last updated: 2026-06-08
 - direct async control-plane smoke 已成功：通过 `ashare-pipeline-control /v1/tasks/bigquery/submit` + `/poll` 执行只读 `sql/qa/06_ods_parquet_schema_checks.sql`（`priority_filter='P0'`），BigQuery job `fd1f6751-4861-4685-8377-e7dd9843ff57` 成功轮询到 `DONE/success`。
 - workflow 级验证已补：`ashare_warehouse_full_rebuild` manual dry-run execution `cb8d1267-2909-4bf6-b725-29c6c8ee17e1` succeeded；`ashare_warehouse_window_refresh` backfill execution `7cfbf799-1ace-4440-8577-95ddd45e7645` succeeded；`ashare_ods_ingestion_daily` 非交易日 skip execution `29121fdb-8452-4398-85f1-052708ac7cb7` succeeded。
 - PR #112 review follow-up 的镜像与部署约束仍保留：`orchestration/workflows/Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 alert checker 时触发确定性启动崩溃；`deploy_workflows.sh` 继续默认只部署 `ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh` 和 `ashare_pipeline_alert_checker`，`ashare_warehouse_full_rebuild` 仍通过显式 `DEPLOY_FULL_REBUILD=true` opt-in 部署。README 也已补明：启用 Cloud Scheduler alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
+
+## 2026-06-08 最新补充：OQ-005 scheduled cutover 已完成
+
+- 已完成 ODS / warehouse / alert-checker 的 Cloud Scheduler + IAM bootstrap；当前生产 scheduler 入口为：
+  - `ashare-ods-ingestion-daily` -> `ashare_ods_ingestion_daily` workflow（`0 20 * * *`）
+  - `ashare-pipeline-alert-checker` -> `ashare_pipeline_alert_checker` workflow（`0 * * * *`）
+- 真实 cutover 证据已具备：alert-checker scheduler execution `978c920c-3810-4299-b904-3c954e8d221d` succeeded；ODS parent execution `31ac0d61-d40c-4a88-9865-b13f61d369c1` 与 child warehouse execution `919f2aba-b9d4-4181-9915-fa848487bb90` 均 succeeded。
+- Composer 业务 DAG 已全部停用；`ashare-composer` 环境已于 2026-06-08 删除完成，`gcloud composer environments describe ashare-composer --location=asia-east2` 返回 `NOT_FOUND`。这意味着 OQ-005 已不再是“是否 cutover”的设计问题，只剩 cutover 后短观察窗记录。
+- PR #123 review follow-up 已继续补齐收口：OQ-005 已从 `OPEN_QUESTIONS.md` 删除并只保留在 `archive/CLOSED_QUESTIONS.md`；`DECISION-20260603-02` 已被 supersede，明确长期编排从 Composer 切到 `Cloud Scheduler + Cloud Workflows`；`orchestration/composer/README.md` 和 `orchestration/workflows/cutover_scheduler_jobs.sh` 也已补“Composer 已删 / 历史路径 / 环境缺失时跳过 pause”的说明，避免后续误把已删资源当成当前生产入口。
 
 ## 2026-06-08 最新补充：Strategy1 Cloud Run bool-feature 解包修复与 `000001.SH` smoke 验证
 
