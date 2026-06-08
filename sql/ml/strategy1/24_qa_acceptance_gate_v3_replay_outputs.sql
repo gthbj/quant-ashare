@@ -56,6 +56,115 @@ CREATE TEMP FUNCTION qa_zero_safe_ratio(numerator FLOAT64, denominator FLOAT64) 
   END
 );
 
+CREATE TEMP TABLE qa_v3_selected_rows AS
+WITH selected_registry AS (
+  SELECT
+    reg.model_id,
+    bs.backtest_id,
+    JSON_VALUE(reg.model_params_json, '$.run_id') AS run_id,
+    JSON_VALUE(reg.metrics_json, '$.search_id') AS search_id,
+    JSON_VALUE(reg.metrics_json, '$.cv_confirmation_status') AS cv_confirmation_status_raw,
+    JSON_VALUE(reg.metrics_json, '$.valid_signal_status') AS valid_signal_status,
+    JSON_VALUE(reg.metrics_json, '$.score_orientation') AS score_orientation,
+    SAFE_CAST(COALESCE(JSON_VALUE(reg.metrics_json, '$.oriented_valid_rank_ic_mean'), JSON_VALUE(reg.metrics_json, '$.valid_rank_ic_mean')) AS FLOAT64) AS valid_rank_ic,
+    SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS valid_top_minus_bottom,
+    SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.cv_rank_ic_mean') AS FLOAT64) AS cv_rank_ic_mean_raw,
+    SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.cv_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS cv_top_minus_bottom_raw,
+    SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.cv_fold_count') AS INT64) AS cv_fold_count_raw,
+    SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) AS test_rank_ic_mean_raw,
+    SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS test_top_minus_bottom_raw
+  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+  JOIN `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+    ON bs.model_id = reg.model_id
+  WHERE reg.strategy_id = p_strategy_id
+    AND reg.status = 'selected'
+    AND JSON_VALUE(reg.metrics_json, '$.search_id') IN UNNEST(p_search_ids)
+),
+test_rank_ic AS (
+  SELECT
+    day_ic.run_id,
+    AVG(day_ic.rank_ic) AS test_rank_ic_mean
+  FROM (
+    SELECT
+      pred.run_id,
+      pred.predict_date,
+      CORR(CAST(score_rank AS FLOAT64), CAST(ret_rank AS FLOAT64)) AS rank_ic
+    FROM (
+      SELECT
+        pred.run_id,
+        pred.predict_date,
+        pred.sec_code,
+        RANK() OVER (PARTITION BY pred.run_id, pred.predict_date ORDER BY pred.score) AS score_rank,
+        RANK() OVER (PARTITION BY pred.run_id, pred.predict_date ORDER BY tp.target_return) AS ret_rank
+      FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
+      JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+        ON tp.run_id = pred.run_id
+       AND tp.trade_date = pred.predict_date
+       AND tp.sec_code = pred.sec_code
+      WHERE pred.run_id IN (SELECT DISTINCT run_id FROM selected_registry)
+        AND pred.predict_date BETWEEN p_test_start_date AND p_test_end_date
+        AND tp.split_tag = 'test'
+        AND tp.target_return IS NOT NULL
+    ) AS pred
+    GROUP BY pred.run_id, pred.predict_date
+  ) AS day_ic
+  GROUP BY day_ic.run_id
+),
+test_bucket_spread AS (
+  SELECT
+    scored.run_id,
+    AVG(scored.top_minus_bottom) AS test_top_minus_bottom_fwd_ret_mean
+  FROM (
+    SELECT
+      bucketed.run_id,
+      bucketed.predict_date,
+      AVG(IF(bucketed.score_bucket = 5, bucketed.target_return, NULL))
+        - AVG(IF(bucketed.score_bucket = 1, bucketed.target_return, NULL)) AS top_minus_bottom
+    FROM (
+      SELECT
+        pred.run_id,
+        pred.predict_date,
+        tp.target_return,
+        NTILE(5) OVER (PARTITION BY pred.run_id, pred.predict_date ORDER BY pred.score) AS score_bucket
+      FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
+      JOIN `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+        ON tp.run_id = pred.run_id
+       AND tp.trade_date = pred.predict_date
+       AND tp.sec_code = pred.sec_code
+      WHERE pred.run_id IN (SELECT DISTINCT run_id FROM selected_registry)
+        AND pred.predict_date BETWEEN p_test_start_date AND p_test_end_date
+        AND tp.split_tag = 'test'
+        AND tp.target_return IS NOT NULL
+    ) AS bucketed
+    GROUP BY bucketed.run_id, bucketed.predict_date
+  ) AS scored
+  GROUP BY scored.run_id
+)
+SELECT
+  sr.model_id,
+  sr.backtest_id,
+  sr.run_id,
+  sr.search_id,
+  sr.valid_signal_status,
+  sr.score_orientation,
+  sr.valid_rank_ic,
+  sr.valid_top_minus_bottom,
+  CASE
+    WHEN sr.cv_confirmation_status_raw IS NOT NULL THEN sr.cv_confirmation_status_raw
+    WHEN sr.cv_rank_ic_mean_raw IS NULL OR sr.cv_top_minus_bottom_raw IS NULL THEN NULL
+    WHEN COALESCE(sr.cv_fold_count_raw, 3) < 3 THEN 'failed'
+    WHEN sr.cv_rank_ic_mean_raw > 0 AND sr.cv_top_minus_bottom_raw > 0 THEN 'passed'
+    ELSE 'failed'
+  END AS effective_cv_confirmation_status,
+  COALESCE(sr.test_rank_ic_mean_raw, tri.test_rank_ic_mean) AS effective_test_rank_ic,
+  COALESCE(sr.test_top_minus_bottom_raw, tbs.test_top_minus_bottom_fwd_ret_mean) AS effective_test_top_minus_bottom
+FROM selected_registry AS sr
+LEFT JOIN test_rank_ic AS tri
+  ON tri.run_id = sr.run_id
+LEFT JOIN test_bucket_spread AS tbs
+  ON tbs.run_id = sr.run_id
+;
+
 -- QA-V3-1: gate identity must be explicit and contract hash-backed.
 ASSERT (
   p_acceptance_gate_version = 'strategy1_acceptance_gate_v3'
@@ -78,16 +187,11 @@ ASSERT (
 ASSERT (
   WITH selected AS (
     SELECT
-      JSON_VALUE(reg.metrics_json, '$.search_id') AS search_id,
+      search_id,
       COUNT(*) AS selected_rows,
-      COUNTIF(JSON_VALUE(reg.metrics_json, '$.search_id') IS NOT NULL) AS nonnull_search_rows,
-      COUNTIF(bs.backtest_id IS NOT NULL) AS backtest_rows
-    FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
-    LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
-      ON bs.model_id = reg.model_id
-    WHERE reg.strategy_id = p_strategy_id
-      AND reg.status = 'selected'
-      AND JSON_VALUE(reg.metrics_json, '$.search_id') IN UNNEST(p_search_ids)
+      COUNTIF(search_id IS NOT NULL) AS nonnull_search_rows,
+      COUNTIF(backtest_id IS NOT NULL) AS backtest_rows
+    FROM qa_v3_selected_rows
     GROUP BY search_id
   )
   SELECT
@@ -101,13 +205,8 @@ ASSERT (
 -- QA-V3-4: comparison benchmarks must cover every candidate NAV trade_date in the replay window.
 ASSERT (
   WITH selected_backtests AS (
-    SELECT DISTINCT bs.backtest_id
-    FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
-    JOIN `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
-      ON bs.model_id = reg.model_id
-    WHERE reg.strategy_id = p_strategy_id
-      AND reg.status = 'selected'
-      AND JSON_VALUE(reg.metrics_json, '$.search_id') IN UNNEST(p_search_ids)
+    SELECT DISTINCT backtest_id
+    FROM qa_v3_selected_rows
   ),
   expected_dates AS (
     SELECT DISTINCT nav.trade_date
@@ -138,32 +237,25 @@ ASSERT (
   CROSS JOIN expected
 ) AS 'QA-V3-4: all five comparison benchmarks must fully cover every replay NAV trade_date';
 
--- QA-V3-5: signal-quality inputs required by v3 must exist on all selected rows.
+-- QA-V3-5: signal-quality inputs required by v3 must exist or be source-derivable on all selected rows.
 ASSERT (
-  SELECT COUNT(*) = ARRAY_LENGTH(p_search_ids) * p_top_k_per_search
-    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.cv_confirmation_status') IS NOT NULL))
-    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.valid_signal_status') IS NOT NULL))
-    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.score_orientation') IN UNNEST(p_allowed_score_orientations)))
-    AND LOGICAL_AND(qa_required(SAFE_CAST(COALESCE(JSON_VALUE(reg.metrics_json, '$.oriented_valid_rank_ic_mean'), JSON_VALUE(reg.metrics_json, '$.valid_rank_ic_mean')) AS FLOAT64) IS NOT NULL))
-    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) IS NOT NULL))
-    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) IS NOT NULL))
-    AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) IS NOT NULL))
-  FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
-  WHERE reg.strategy_id = p_strategy_id
-    AND reg.status = 'selected'
-    AND JSON_VALUE(reg.metrics_json, '$.search_id') IN UNNEST(p_search_ids)
-) AS 'QA-V3-5: v3 signal-quality source fields must exist on all replayed selected rows';
+  SELECT
+    COUNT(*) = ARRAY_LENGTH(p_search_ids) * p_top_k_per_search
+    AND LOGICAL_AND(qa_required(effective_cv_confirmation_status IS NOT NULL))
+    AND LOGICAL_AND(qa_required(valid_signal_status IS NOT NULL))
+    AND LOGICAL_AND(qa_required(score_orientation IN UNNEST(p_allowed_score_orientations)))
+    AND LOGICAL_AND(qa_required(valid_rank_ic IS NOT NULL))
+    AND LOGICAL_AND(qa_required(valid_top_minus_bottom IS NOT NULL))
+    AND LOGICAL_AND(qa_required(effective_test_rank_ic IS NOT NULL))
+    AND LOGICAL_AND(qa_required(effective_test_top_minus_bottom IS NOT NULL))
+  FROM qa_v3_selected_rows
+) AS 'QA-V3-5: v3 signal-quality fields must exist or be source-derivable on all replayed selected rows';
 
 -- QA-V3-6: final_holdout trading days must be computable and satisfy the current v3 floor.
 ASSERT (
   WITH selected_backtests AS (
-    SELECT DISTINCT bs.backtest_id
-    FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
-    JOIN `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
-      ON bs.model_id = reg.model_id
-    WHERE reg.strategy_id = p_strategy_id
-      AND reg.status = 'selected'
-      AND JSON_VALUE(reg.metrics_json, '$.search_id') IN UNNEST(p_search_ids)
+    SELECT DISTINCT backtest_id
+    FROM qa_v3_selected_rows
   ),
   holdout_days AS (
     SELECT
@@ -185,19 +277,14 @@ ASSERT (
 ASSERT (
   WITH selected_rows AS (
     SELECT
-      reg.model_id,
-      bs.backtest_id,
-      JSON_VALUE(reg.metrics_json, '$.search_id') AS search_id,
-      SAFE_CAST(COALESCE(JSON_VALUE(reg.metrics_json, '$.oriented_valid_rank_ic_mean'), JSON_VALUE(reg.metrics_json, '$.valid_rank_ic_mean')) AS FLOAT64) AS valid_rank_ic,
-      SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS valid_top_minus_bottom,
-      SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) AS test_rank_ic,
-      SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS test_top_minus_bottom
-    FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
-    JOIN `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
-      ON bs.model_id = reg.model_id
-    WHERE reg.strategy_id = p_strategy_id
-      AND reg.status = 'selected'
-      AND JSON_VALUE(reg.metrics_json, '$.search_id') IN UNNEST(p_search_ids)
+      model_id,
+      backtest_id,
+      search_id,
+      valid_rank_ic,
+      valid_top_minus_bottom,
+      effective_test_rank_ic AS test_rank_ic,
+      effective_test_top_minus_bottom AS test_top_minus_bottom
+    FROM qa_v3_selected_rows
   ),
   nav AS (
     SELECT
@@ -289,15 +376,10 @@ ASSERT (
 ASSERT (
   WITH selected_rows AS (
     SELECT
-      reg.model_id,
-      bs.backtest_id,
-      JSON_VALUE(reg.metrics_json, '$.search_id') AS search_id
-    FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
-    JOIN `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
-      ON bs.model_id = reg.model_id
-    WHERE reg.strategy_id = p_strategy_id
-      AND reg.status = 'selected'
-      AND JSON_VALUE(reg.metrics_json, '$.search_id') IN UNNEST(p_search_ids)
+      model_id,
+      backtest_id,
+      search_id
+    FROM qa_v3_selected_rows
   ),
   nav AS (
     SELECT

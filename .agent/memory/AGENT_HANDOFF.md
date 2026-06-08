@@ -4,6 +4,11 @@
 > - 另外已把 control service 当前 poll 重试的同步 `time.sleep` 约束写进 README 和 `KNOWN_CONSTRAINTS.md`：单次 `/v1/tasks/bigquery/poll` 最坏会多占一个 worker 约 `15s`，这是 cutover 前需要接受的显式容量边界。
 
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - Strategy1 `v3` replay / `24` QA 已补历史 search 字段缺口兼容：不再要求旧 `metrics_json` 必须原生带齐 `cv_confirmation_status` / `test_*`，而是按 source-of-truth fallback 读取。
+> - 具体口径：`cv_confirmation_status` 缺失时按 `cv_rank_ic_mean` + `cv_top_minus_bottom_fwd_ret_mean`（以及存在时的 `cv_fold_count`）回推；`test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 缺失时，从 `ads_model_prediction_daily` + `ads_ml_training_panel_daily` 的 `test` 窗口按原 orchestrator 公式现算。
+> - 这次没有重跑 replay 或 `24` QA；下一步应先重新执行这两步，确认 `QA-V3-5` 不再被历史字段缺口阻断。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - PR #117 review 的 P1 已按建议收敛：`ashare_pipeline_alert_checker.yaml` 不再写 `pipeline_run` / `pipeline_task_status`，只做参数归一后调用 `/v1/tasks/alert-check`。
 > - 原因是避免 checker 失败被下一轮 checker 自己读回成 pipeline failure 告警，以及避免 `v_pipeline_recent_runs` 被每小时 checker 行刷满。
 
@@ -60,6 +65,7 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：Strategy1 `v3` replay / `24` QA 已改为兼容历史 search 的信号字段缺口。** `replay_acceptance_gate_v3.py` 不再把历史 `cv_confirmation_status` / `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 缺失当硬阻断，而是按 source-of-truth fallback 读取：`cv_confirmation_status` 用已有 `cv_rank_ic_mean` + `cv_top_minus_bottom_fwd_ret_mean`（以及存在时的 `cv_fold_count`）回推，`test_*` 则从 `ads_model_prediction_daily` + `ads_ml_training_panel_daily` 的 `test` 窗口按原 orchestrator 公式现算。`24_qa_acceptance_gate_v3_replay_outputs.sql` 已同步改成校验“字段存在或可由 source 推导”。本轮尚未重跑 replay / `24` QA，下一步先执行这两步。
 - **2026-06-08 GPT-5 Codex：OQ-005 alert checker 新路径已 smoke 成功，但 scheduler 暂时保持 paused。** `ashare-pipeline-control` 已升到 revision `00003-sfd`，`ashare_pipeline_alert_checker` workflow 已部署到 revision `000002-31c`，manual execution `a2743da9-2654-4521-9222-4fbf2b5dc113` 和 Scheduler execution `ca8b6bdd-f137-4727-9311-29b5b8fb9d20` 均 succeeded。live 验证顺手修了两类真实问题：`deploy_scheduler_jobs.sh` 对当前 `gcloud` 必须区分 `create http --headers` 与 `update http --update-headers`；Workflow resolve 阶段的原生 `int/bool` 参数不能再直接和空字符串比较，相关修复已覆盖 alert-check、ODS、window-refresh 和 full-rebuild 四个 workflow 文件。为避免 cutover 前双跑，scheduler job 现已重新 `PAUSED`。
 - **2026-06-08 GPT-5 Codex：PR #112 review follow-up 已把不安全路径真正封住。** `Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 `scripts.alerting.check_alerts` 时导致整个 `ashare-pipeline-control` 启动崩溃。`deploy_workflows.sh` 默认只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`；`ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 路径，直到控制层 BigQuery 改成 async submit + poll 为止。README 也已补明：启用 `Cloud Scheduler` alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
 - **2026-06-08 GPT-5 Codex：OQ-005 告警检查已统一限频到每小时。** `ashare_pipeline_alert_checker` 在 Composer 过渡态中的 schedule 已改为 `0 * * * *`，`check_alerts.py` lookback 调整为 `70` 分钟，heartbeat 缺失告警窗口调整为 `120` 分钟；cutover 后同一小时级口径将由 `Cloud Scheduler -> Workflows -> ashare-pipeline-control` 延续。注意：`main` 上现有 `orchestration/workflows/deploy_scheduler_jobs.sh` 仍是旧的直连 Cloud Run 版本，在实现 PR 改写为 Workflows Executions API 前视为 `superseded / do-not-run`。
@@ -1179,6 +1185,59 @@ Run ID: pr96_acceptance_window_review_followup_20260606
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: v3-replay-fallback-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: strategy1-v3-replay-fallback-fix-20260608
+相关 issue/PR: N/A
+
+### 已完成工作
+
+- 在独立工作树 `codex/fix-v3-replay-fallbacks` 中修复 `scripts/strategy1/replay_acceptance_gate_v3.py`，让 `v3` replay 对历史 search 缺失的 `cv_confirmation_status`、`test_rank_ic_mean`、`test_top_minus_bottom_fwd_ret_mean` 使用可追溯 fallback，而不是直接失败。
+- `cv_confirmation_status` 的 fallback 采用既有训练期语义：优先读历史原字段；若缺失，则按 `cv_rank_ic_mean > 0` 且 `cv_top_minus_bottom_fwd_ret_mean > 0` 回推，并在存在 `cv_fold_count < 3` 时判 `failed`。
+- `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 的 fallback 直接复用原 search orchestrator 的 source-of-truth 公式，从 `ads_model_prediction_daily` + `ads_ml_training_panel_daily` 的 `test` 窗口现算。
+- 同步修复 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`：新增临时表汇总这些有效字段，`QA-V3-5` 改成校验“字段存在或可由 source 推导”，`QA-V3-3/4/6/7/8` 也改为复用同一 selected-row 视图，避免 Python replay 和 SQL QA 口径分叉。
+
+### 重要上下文
+
+- 本修复是针对已经实跑暴露出来的 `QA-V3-5` 阻塞：历史 selected rows 的 `metrics_json` 不完整，不是 v3 公式本身错，也不是 benchmark 覆盖缺失。
+- 这次明确不回填历史 registry / summary；fallback 只用于 `v3` replay 和其 SQL QA 的只读判定。
+- 本轮没有重跑 `replay_acceptance_gate_v3.py` 或 `24_qa_acceptance_gate_v3_replay_outputs.sql`；下一步应先执行这两步，确认 `QA-V3-5` 已解除。
+
+### 改动文件
+
+- `scripts/strategy1/replay_acceptance_gate_v3.py`
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行新的 replay。
+- 未运行新的 `24_qa_acceptance_gate_v3_replay_outputs.sql`。
+- 本次为代码修复与记忆更新。
+
+### 阻塞项
+
+- 无新的实现阻塞；当前待执行的是 replay / QA 复跑。
+
+### 下一步建议
+
+- 重新执行 `scripts/strategy1/replay_acceptance_gate_v3.py`。
+- 再执行 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`，确认 `QA-V3-5` 不再因为历史字段缺口失败。
+- 若 replay / QA 通过，再继续 live gate cutover。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 
