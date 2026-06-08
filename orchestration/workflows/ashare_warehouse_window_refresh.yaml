@@ -104,7 +104,7 @@ main:
         next: resolve_pipeline_dry_run
     - resolve_pipeline_dry_run:
         switch:
-          - condition: ${input_pipeline_dry_run == null or input_pipeline_dry_run == ""}
+          - condition: ${input_pipeline_dry_run == null or string(input_pipeline_dry_run) == ""}
             next: set_pipeline_dry_run_default
         next: set_pipeline_dry_run_input
     - set_pipeline_dry_run_default:

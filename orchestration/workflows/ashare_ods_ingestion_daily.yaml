@@ -78,7 +78,7 @@ main:
         next: resolve_pipeline_dry_run
     - resolve_pipeline_dry_run:
         switch:
-          - condition: ${input_pipeline_dry_run == null or input_pipeline_dry_run == ""}
+          - condition: ${input_pipeline_dry_run == null or string(input_pipeline_dry_run) == ""}
             next: set_pipeline_dry_run_default
         next: set_pipeline_dry_run_input
     - set_pipeline_dry_run_default:
@@ -91,7 +91,7 @@ main:
         next: resolve_scheduled_run
     - resolve_scheduled_run:
         switch:
-          - condition: ${input_scheduled_run == null or input_scheduled_run == ""}
+          - condition: ${input_scheduled_run == null or string(input_scheduled_run) == ""}
             next: set_scheduled_run_default
         next: set_scheduled_run_input
     - set_scheduled_run_default:
@@ -104,7 +104,7 @@ main:
         next: resolve_force_non_trading_day_gate
     - resolve_force_non_trading_day_gate:
         switch:
-          - condition: ${input_force_non_trading_day_gate == null or input_force_non_trading_day_gate == ""}
+          - condition: ${input_force_non_trading_day_gate == null or string(input_force_non_trading_day_gate) == ""}
             next: set_force_non_trading_day_gate_default
         next: set_force_non_trading_day_gate_input
     - set_force_non_trading_day_gate_default:
@@ -117,7 +117,7 @@ main:
         next: resolve_skip_ingestion
     - resolve_skip_ingestion:
         switch:
-          - condition: ${input_skip_ingestion == null or input_skip_ingestion == ""}
+          - condition: ${input_skip_ingestion == null or string(input_skip_ingestion) == ""}
             next: set_skip_ingestion_default
         next: set_skip_ingestion_input
     - set_skip_ingestion_default:
@@ -130,7 +130,7 @@ main:
         next: resolve_skip_downstream_refresh
     - resolve_skip_downstream_refresh:
         switch:
-          - condition: ${input_skip_downstream_refresh == null or input_skip_downstream_refresh == ""}
+          - condition: ${input_skip_downstream_refresh == null or string(input_skip_downstream_refresh) == ""}
             next: set_skip_downstream_refresh_default
         next: set_skip_downstream_refresh_input
     - set_skip_downstream_refresh_default:
@@ -143,7 +143,7 @@ main:
         next: resolve_trigger_downstream_refresh
     - resolve_trigger_downstream_refresh:
         switch:
-          - condition: ${input_trigger_downstream_refresh == null or input_trigger_downstream_refresh == ""}
+          - condition: ${input_trigger_downstream_refresh == null or string(input_trigger_downstream_refresh) == ""}
             next: set_trigger_downstream_refresh_default
         next: set_trigger_downstream_refresh_input
     - set_trigger_downstream_refresh_default:

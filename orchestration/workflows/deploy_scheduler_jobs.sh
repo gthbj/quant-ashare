@@ -28,15 +28,18 @@ COMMON_ARGS=(
   --time-zone="${TIME_ZONE}"
   --uri="${TARGET_URL}"
   --http-method=POST
-  --headers="Content-Type=application/json"
   --message-body="${BODY}"
   --oauth-service-account-email="${CALLER_SERVICE_ACCOUNT}"
 )
 
 if gcloud scheduler jobs describe "${JOB_NAME}" --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" >/dev/null 2>&1; then
-  gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}"
+  gcloud scheduler jobs update http "${JOB_NAME}" \
+    "${COMMON_ARGS[@]}" \
+    --update-headers="Content-Type=application/json"
 else
-  gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}"
+  gcloud scheduler jobs create http "${JOB_NAME}" \
+    "${COMMON_ARGS[@]}" \
+    --headers="Content-Type=application/json"
 fi
 
 gcloud scheduler jobs describe "${JOB_NAME}" \
