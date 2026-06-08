@@ -2,9 +2,15 @@
 
 这是实现状态的唯一事实来源。面向「已完成/进行中/受阻的整体状态」；「下一步要做什么」见根目录 `TODO.md`。
 
-Last updated: 2026-06-07
+Last updated: 2026-06-08
 
 ## 当前状态
+
+### 最新补充（2026-06-08）：指数 benchmark QA 默认日期上限修复
+
+- PR #106 合并后的 Composer smoke `manual_pr106_market_state_window_smoke_20260605_20260608_01` 已验证新增 windowed market-state 链路核心任务通过：`index_dwd_window`、`windowed_index_refresh_checks`、`stock_dwd_dws_window`、`windowed_stock_refresh_checks`、`market_state_dws`、`market_state_checks` 均 success；生产 `dws_market_state_daily` 已重建到最终语义，`11_market_state_checks` 的 `QA-MKT-0..9` 全部通过。
+- smoke 后置 `qa_after_window.index_benchmark_checks` 暴露 `sql/qa/03_index_benchmark_checks.sql` 默认 `dwd_end_date = CURRENT_DATE('Asia/Shanghai')` 的口径问题：在 2026-06-08 当天 000001.SH ODS/DWD 未到数时，backfill smoke 会被“必须覆盖到今天”的全史断言误判失败。
+- 新分支 `codex/fix-index-benchmark-qa-date-bound` 已修复：`03_index_benchmark_checks.sql` 默认 `dwd_end_date` 改为 `dwd_index_eod` 中 `000001.SH` 已有完整 price + dailybasic 的最新 SSE 开市日，并新增 `dwd_end_date` 非空 / 不早于起始日断言；同步 Dataform SQLX。真实执行 `bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/03_index_benchmark_checks.sql` 已通过全部 ASSERT。
 
 ### 最新补充（2026-06-07）：上证指数 000001.SH ODS/DIM/DWD/DWS 补齐与指数窗口刷新
 

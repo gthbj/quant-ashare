@@ -6,6 +6,8 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：index benchmark QA 日期上限修复。** PR #106 合并后的 Composer smoke 验证新增 `market_state_dws` / `market_state_checks` 成功，但后置 `qa_after_window.index_benchmark_checks` 因默认扫到 `CURRENT_DATE` 而在 2026-06-08 当天 000001.SH 未到数时误失败。新分支 `codex/fix-index-benchmark-qa-date-bound` 已将 `sql/qa/03_index_benchmark_checks.sql` 默认 `dwd_end_date` 改为 DWD 中 `000001.SH` 完整 price + dailybasic 可用的最新 SSE 开市日，并真实跑通 `03` QA。
+
 - **2026-06-08 GPT-5 Codex：PR #106 comment follow-up。** 已按 review 修复 market-state 日更全表重建问题：新增 `sql/incremental/03_refresh_market_state_window.sql`，Composer `windowed_transform` 改为窗口 MERGE；`sql/dws/08_dws_market_state_daily.sql` 只保留初始化 / full rebuild。`market_state_v0_20260606` 的 `sse_composite_*` 字段改为 `NULL`，`market_state_v1_20260607` 才填充上证指数指标，`11_market_state_checks` 已补断言。ODS index external table URI SQL 改为由 `scripts/ingestion/generate_index_external_table_uris.py` 从 current-scope manifest 生成，可用 `--check` 防漂移。
 
 - **2026-06-07 GPT-5 Codex：上证指数 `000001.SH` ODS/DIM/DWD/DWS 补齐。** 已把 `index_daily_000001_SH` / `index_dailybasic_000001_SH` 加入 current-scope manifest、ODS external table 显式 `sourceUris`、`dim_index` seed 和 `dwd_index_eod`；BigQuery 手工补数和 2019-01-01 至 2026-06-05 指数窗口 backfill 均完成，`03` / `05` / `12` QA 通过。后续按 owner 要求创建 `ashare_backup`，把修改前 `dws_market_state_daily` 备份为 `ashare_backup.dws_market_state_daily_v0`，生产 DWS 已重建为 `market_state_v0_20260606` 兼容行 + `market_state_v1_20260607` 上证指数字段行；本次不写 ADS，不改变 risk-off 触发逻辑。
@@ -3122,3 +3124,50 @@ Run ID: pr106_review_followup_market_state_window_20260608
 
 - 如 owner 要求生产即时落地，执行 market-state 全量或窗口刷新并跑 `11_market_state_checks.sql`。
 - 更新 PR #106 正文 / 回复 review comment，说明三条 comment 已处理。
+
+---
+
+## 2026-06-08 index benchmark QA 日期上限修复
+
+Model: GPT-5 Codex
+运行环境: Codex desktop
+Run ID: fix_index_benchmark_qa_date_bound_20260608
+相关 issue/PR: 待创建 PR
+
+### 已完成工作
+
+- PR #106 合并后，生产 `dws_market_state_daily` 已重建并通过 `sql/qa/11_market_state_checks.sql`（`QA-MKT-0..9` 全部 successful）。
+- Composer 已同步 PR #106 相关 SQL 与 `ashare_common.py`，并触发 smoke `manual_pr106_market_state_window_smoke_20260605_20260608_01`。
+- smoke 中 `index_dwd_window`、`windowed_index_refresh_checks`、`stock_dwd_dws_window`、`windowed_stock_refresh_checks`、`market_state_dws`、`market_state_checks` 均 success。
+- smoke 后置 `qa_after_window.index_benchmark_checks` 暴露默认 `dwd_end_date = CURRENT_DATE('Asia/Shanghai')` 问题：2026-06-08 当天 000001.SH ODS/DWD 未到数时，backfill smoke 被误判为“000001.SH 未覆盖每个 2019+ SSE 开市日”。
+- 新分支 `codex/fix-index-benchmark-qa-date-bound` 已修复 `sql/qa/03_index_benchmark_checks.sql`：默认 `dwd_end_date` 改为 `dwd_index_eod` 中 `000001.SH` 已有完整 price + dailybasic 的最新 SSE 开市日，并新增 `dwd_end_date` 非空 / 不早于 `dwd_start_date` 断言。
+- 同步生成 `dataform/definitions/assertions/03_index_benchmark_checks.sqlx`。
+
+### 重要上下文
+
+- 该修复不降低 000001.SH 覆盖质量门，只是把默认检查终点从“不确定的今天”改成“DWD 中已完整落库的最新可用日期”。
+- 若后续需要强制检查某个最新业务日，应通过补齐 ODS/DWD 后再运行 QA，或显式改参数化版本；不要把调度默认恢复为 `CURRENT_DATE`。
+- 当前仍有未跟踪临时文件 `scripts/ingestion/backfill_index_000001.py`，本修复未纳入该文件。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
+- `dataform/definitions/assertions/03_index_benchmark_checks.sqlx`
+- `sql/qa/03_index_benchmark_checks.sql`
+
+### 测试 / 验证
+
+- `python3 scripts/dataform/generate_sqlx_from_sql.py`
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/03_index_benchmark_checks.sql`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提 PR 并合并后，同步 `sql/qa/03_index_benchmark_checks.sql` 到 Composer bucket。
+- 重新触发或等待当前 smoke retry，让 `qa_after_window.index_benchmark_checks` 使用新口径通过。

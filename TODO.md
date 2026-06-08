@@ -1,6 +1,8 @@
 # TODO
 
-## 最新状态（2026-06-07）
+## 最新状态（2026-06-08）
+
+- [x] PR #106 合并后生产补数 / Composer smoke 已推进：生产 `dws_market_state_daily` 已重建到最终 v0/v1 语义并通过 `11_market_state_checks`；Composer 已同步相关 SQL 和 `ashare_common.py`；smoke `manual_pr106_market_state_window_smoke_20260605_20260608_01` 中 `index_dwd_window`、`stock_dwd_dws_window`、`market_state_dws` 和 `market_state_checks` 均 success。smoke 后置 `03_index_benchmark_checks` 暴露默认 `CURRENT_DATE` 误扫未来/未到数日期的问题；新分支 `codex/fix-index-benchmark-qa-date-bound` 已将默认 `dwd_end_date` 改为 DWD 中 `000001.SH` 完整可用的最新 SSE 开市日，并用真实 BigQuery `03` QA 验证通过。
 
 - [x] 上证指数 `000001.SH` 的 `index_daily` / `index_dailybasic` 已补入生产 BigQuery 链路：ODS external table 显式 URI 已加入两个 endpoint，`dim_index` 已加入 `SSE_COMPOSITE` seed，`dwd_index_eod` 已重建并通过 `03_index_benchmark_checks` 与 `05_unit_contract_checks`；新增指数 DWD 窗口刷新 SQL 和 `12_windowed_index_refresh_checks` 已完成 2019-01-01 至 2026-06-05 backfill 实跑（13,770 行，其中 `000001.SH` 1,799 行）并通过 QA。后续已按 owner 要求补 DWS：修改前 `dws_market_state_daily` 已备份到 `ashare_backup.dws_market_state_daily_v0`，生产 `dws_market_state_daily` 已重建为 `market_state_v0_20260606` 兼容行 + `market_state_v1_20260607` 上证指数字段行；本次不写 ADS，不静默改变 risk-off 触发逻辑。PR #106 review follow-up 已补：日更路径改用 `sql/incremental/03_refresh_market_state_window.sql` 窗口 MERGE，v0 上证字段保持 `NULL`，ODS index URI SQL 改由 `scripts/ingestion/generate_index_external_table_uris.py` 从 manifest 生成。
 
