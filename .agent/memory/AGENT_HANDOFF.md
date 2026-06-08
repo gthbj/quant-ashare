@@ -1,4 +1,12 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #117 review 的 P1 已按建议收敛：`ashare_pipeline_alert_checker.yaml` 不再写 `pipeline_run` / `pipeline_task_status`，只做参数归一后调用 `/v1/tasks/alert-check`。
+> - 原因是避免 checker 失败被下一轮 checker 自己读回成 pipeline failure 告警，以及避免 `v_pipeline_recent_runs` 被每小时 checker 行刷满。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - OQ-005 alert checker 的实现代码已在工作树落地：新增 `orchestration/workflows/ashare_pipeline_alert_checker.yaml`，并把 `orchestration/workflows/deploy_scheduler_jobs.sh` 从直连 Cloud Run 改成调用 Workflows Executions API。
+> - 这次没有做真实部署；当前状态是“代码已实现，Scheduler caller SA `workflows.invoker` + live smoke 仍待执行”。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - PR #115 第二轮复评里指出的本地绝对路径 nit 已修：OQ-005 PRD 不再把 `/Users/fisher/...` 写进提交文本，已统一改回仓库相对路径 `orchestration/workflows/deploy_scheduler_jobs.sh`。
 > - 这次没有新增实现决策，只是把文档表述从“机器本地路径”收敛回“仓库路径”。
 
@@ -3833,6 +3841,68 @@ Run ID: pr115-oq005-review-followup-20260608
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+## 交接条目
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: main-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: oq005-alert-checker-workflow-impl-20260608
+相关 issue/PR: 待创建
+
+### 已完成工作
+
+- 新增 `orchestration/workflows/ashare_pipeline_alert_checker.yaml`，把 `ashare_pipeline_alert_checker` 从“Scheduler 直连 Cloud Run”改成“Scheduler -> Workflows -> ashare-pipeline-control”的实现骨架。
+- PR #117 review follow-up 后，alert-check workflow 已收敛为“参数归一 + 调 `/v1/tasks/alert-check` + 失败直接抛出”，不再写 `pipeline_run` / `pipeline_task_status`，避免自指告警和观测污染。
+- 将 `orchestration/workflows/deploy_workflows.sh` 扩展为同时部署 `ashare_pipeline_alert_checker`。
+- 将 `orchestration/workflows/deploy_scheduler_jobs.sh` 从直连 `ashare-pipeline-control` 的 OIDC 调用改为调用 Workflows Executions API 的 OAuth 调用；默认 job 目标 workflow 为 `ashare_pipeline_alert_checker`。
+- 更新 `orchestration/workflows/README.md` 与 `scripts/alerting/README.md`，把 alert checker 的迁移目标路径统一为 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`。
+- 同步更新 `IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md`、`TODO.md`，把 alert checker 的当前状态推进到“代码已实现，部署/真实 smoke 待执行”。
+
+### 重要上下文
+
+- 这次只做实现代码和项目记忆更新，没有部署 Cloud Run / Workflows / Cloud Scheduler，没有跑真实 smoke。
+- `deploy_scheduler_jobs.sh` 现在不再依赖 `PIPELINE_CONTROL_URL`，而是直接调用 `workflowexecutions.googleapis.com`；对应 caller service account 仍需具备目标 workflow 的 `roles/workflows.invoker`。
+- `ashare_pipeline_alert_checker.yaml` 内部调用 `/v1/tasks/alert-check` 仍沿用 Workflows -> Cloud Run 的 OIDC 模式，因此 Workflows runtime service account 仍需保留 `ashare-pipeline-control` 的 `roles/run.invoker`。
+
+### 改动文件
+
+- `orchestration/workflows/ashare_pipeline_alert_checker.yaml`
+- `orchestration/workflows/deploy_workflows.sh`
+- `orchestration/workflows/deploy_scheduler_jobs.sh`
+- `orchestration/workflows/README.md`
+- `scripts/alerting/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行测试。
+- 未做部署。
+- 未做 manual workflow execute 或 Cloud Scheduler fire smoke。
+
+### 阻塞项
+
+- 仍需真实部署 `ashare_pipeline_alert_checker` workflow。
+- 仍需给 Scheduler caller service account 补 `roles/workflows.invoker`（若当前 caller 尚未具备）。
+- 仍需做至少一次 manual execute 和一次真实 Scheduler 触发，确认 heartbeat / alert log / control service 调用链正常。
+
+### 下一步建议
+
+- 部署更新后的 workflow 和 scheduler job。
+- 做一次 manual workflow execute，再做一次真实 Scheduler fire。
+- smoke 通过后，停用 Composer DAG `ashare_pipeline_alert_checker`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/OPEN_QUESTIONS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`

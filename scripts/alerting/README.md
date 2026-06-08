@@ -91,7 +91,8 @@ gcloud composer environments run ashare-composer \
   --location=asia-east2 dags list -- --output json
 ```
 
-OQ-005 迁出 Composer 后，推荐生产入口切到 `Cloud Scheduler -> ashare-pipeline-control /v1/tasks/alert-check`；当前 README 同时保留现有定时入口与迁移目标口径。
+OQ-005 迁出 Composer 后，推荐生产入口切到 `Cloud Scheduler -> Workflows -> ashare-pipeline-control /v1/tasks/alert-check`；当前 README 同时保留现有定时入口与迁移目标口径。
+新 workflow 故意不写 `ashare_meta.pipeline_run` / `pipeline_task_status`，避免 checker 失败被下一轮 checker 自己读回并再次作为 pipeline failure 告警发出，同时也避免把 `v_pipeline_recent_runs` 等观测视图刷满。
 
 ### 4. 查询异常
 
