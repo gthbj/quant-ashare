@@ -310,3 +310,9 @@ Last updated: 2026-06-08
 - Validation/deployment not executed in this turn.
 - PR #110 review follow-up: fixed Workflow BigQuery control-call timeout gap by adding explicit `http.post` timeout to both `run_bigquery_task` subworkflows; wired lock lease semantics end-to-end in seconds; and made `ashare-pipeline-control` lock endpoints backward-compatible with current workflow payload shape (`lock_name`/`owner`) while resolving generation internally.
 - PR #110 re-review follow-up: fixed `lock_generation_for_owner` to build and read the actual GCS lock blob before deriving generation from owner; this unblocks the normal heartbeat/release path after the previous backward-compat lock API hardening.
+
+## 2026-06-08 OQ-005 composer-exit next
+
+- `ashare_pipeline_alert_checker` 已降为每小时 1 次：Composer DAG schedule 改为 `0 * * * *`，lookback 改为 `70` 分钟，告警 heartbeat 缺失门限改为 `120` 分钟；同时新增 `ashare-pipeline-control` `/v1/tasks/alert-check` 和 `orchestration/workflows/deploy_scheduler_jobs.sh`，为 cutover 后 `Cloud Scheduler + Cloud Run` 小时级告警检查做准备。
+- `airflow_monitoring` 已确认是 Composer 托管健康监控 DAG，频率不能在项目代码里下调；只要 Composer 环境存在，监控 run 仍会继续出现。真正把它降到 `<=1/hour` 的唯一路径是完成 cutover 后删除 Composer 环境。
+- `ashare_warehouse_full_rebuild` 已补 Workflow 草案 `orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 和部署脚本接线，但暂未部署/验烟：当前 `scripts/pipeline_control/state.py` 的 BigQuery 执行仍是同步 `job.result()`，受 Cloud Run request timeout 和 Workflows step timeout 约束，full rebuild 直接上线存在长 SQL 超时风险。

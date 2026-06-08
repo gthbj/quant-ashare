@@ -4,8 +4,8 @@ Periodically checks for pipeline failures and writes alerts to Cloud Logging.
 This enables the Cloud Monitoring alert pipeline:
   v_alert_summary -> check_alerts.py -> Cloud Logging -> log-based metric -> alert policy
 
-Schedule: every 10 minutes
-Lookback: 20 minutes, intentionally overlapping to tolerate scheduler jitter
+Schedule: every 60 minutes
+Lookback: 70 minutes, intentionally overlapping to tolerate scheduler jitter
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def _run_alert_check(**context) -> None:
             sys.executable,
             str(script_path),
             "--project", "data-aquarium",
-            "--lookback-minutes", "20",
+            "--lookback-minutes", "70",
             "--write-log",
             "--write-heartbeat",
         ],
@@ -74,7 +74,7 @@ with DAG(
     dag_id="ashare_pipeline_alert_checker",
     description="Ashare pipeline periodic alert checker. Queries v_alert_summary and writes to Cloud Logging.",
     start_date=pendulum.datetime(2026, 6, 5, tz="Asia/Shanghai"),
-    schedule="*/10 * * * *",
+    schedule="0 * * * *",
     catchup=False,
     max_active_runs=1,
     tags=["quant-ashare", "pipeline", "alerting"],

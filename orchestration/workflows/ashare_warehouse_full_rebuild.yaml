@@ -1,0 +1,1494 @@
+main:
+  params: [args]
+  steps:
+    - init_base:
+        assign:
+          - project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+          - region: ${sys.get_env("GOOGLE_CLOUD_LOCATION")}
+          - workflow_id: ${sys.get_env("GOOGLE_CLOUD_WORKFLOW_ID")}
+          - workflow_execution_id: ${sys.get_env("GOOGLE_CLOUD_WORKFLOW_EXECUTION_ID")}
+          - orchestration_log_url: ${"https://console.cloud.google.com/workflows/workflow/" + region + "/" + workflow_id + "/executions/" + workflow_execution_id + "?project=" + project_id}
+          - control_service_url: "__PIPELINE_CONTROL_URL__"
+          - dag_id: "ashare_warehouse_full_rebuild"
+          - pipeline_run_id: ${workflow_execution_id}
+          - transform_backend: "bigquery_sql"
+          - bq_location: "asia-east2"
+          - run_label: null
+          - warehouse_mode: null
+          - pipeline_dry_run: null
+          - confirm_full_rebuild: null
+          - business_date: null
+          - date_from: null
+          - date_to: null
+          - upstream_pipeline_run_id: ""
+          - triggered_by_dag_id: ""
+          - current_task_id: null
+          - current_task_type: null
+          - current_error_summary: null
+          - current_error_payload: null
+          - lock_name: "ashare_warehouse_window_refresh"
+          - lock_owner: ${workflow_execution_id}
+          - lock_lease_seconds: 7200
+          - lock_acquired: "false"
+          - input_business_date: ${map.get(args, "business_date")}
+          - input_date_from: ${map.get(args, "date_from")}
+          - input_date_to: ${map.get(args, "date_to")}
+          - input_run_label: ${map.get(args, "run_label")}
+          - input_warehouse_mode: ${map.get(args, "warehouse_mode")}
+          - input_pipeline_dry_run: ${map.get(args, "pipeline_dry_run")}
+          - input_confirm_full_rebuild: ${map.get(args, "confirm_full_rebuild")}
+    - resolve_date_from:
+        switch:
+          - condition: ${input_date_from == null}
+            next: set_date_from_empty
+        next: set_date_from_input
+    - set_date_from_empty:
+        assign:
+          - date_from: ""
+        next: resolve_date_to
+    - set_date_from_input:
+        assign:
+          - date_from: ${input_date_from}
+        next: resolve_date_to
+    - resolve_date_to:
+        switch:
+          - condition: ${input_date_to == null}
+            next: set_date_to_empty
+        next: set_date_to_input
+    - set_date_to_empty:
+        assign:
+          - date_to: ""
+        next: resolve_business_date
+    - set_date_to_input:
+        assign:
+          - date_to: ${input_date_to}
+        next: resolve_business_date
+    - resolve_business_date:
+        switch:
+          - condition: ${input_business_date == null or input_business_date == ""}
+            next: set_business_date_default
+        next: set_business_date_input
+    - set_business_date_default:
+        assign:
+          - business_date: ${date_to}
+        next: resolve_run_label
+    - set_business_date_input:
+        assign:
+          - business_date: ${input_business_date}
+        next: resolve_run_label
+    - resolve_run_label:
+        switch:
+          - condition: ${input_run_label == null or input_run_label == ""}
+            next: set_run_label_default
+        next: set_run_label_input
+    - set_run_label_default:
+        assign:
+          - run_label: "manual_full_rebuild"
+        next: resolve_warehouse_mode
+    - set_run_label_input:
+        assign:
+          - run_label: ${input_run_label}
+        next: resolve_warehouse_mode
+    - resolve_warehouse_mode:
+        switch:
+          - condition: ${input_warehouse_mode == null or input_warehouse_mode == ""}
+            next: set_warehouse_mode_default
+        next: set_warehouse_mode_input
+    - set_warehouse_mode_default:
+        assign:
+          - warehouse_mode: "full_rebuild"
+        next: resolve_pipeline_dry_run
+    - set_warehouse_mode_input:
+        assign:
+          - warehouse_mode: ${text.to_lower(input_warehouse_mode)}
+        next: resolve_pipeline_dry_run
+    - resolve_pipeline_dry_run:
+        switch:
+          - condition: ${input_pipeline_dry_run == null or input_pipeline_dry_run == ""}
+            next: set_pipeline_dry_run_default
+        next: set_pipeline_dry_run_input
+    - set_pipeline_dry_run_default:
+        assign:
+          - pipeline_dry_run: "true"
+        next: resolve_confirm_full_rebuild
+    - set_pipeline_dry_run_input:
+        assign:
+          - pipeline_dry_run: ${text.to_lower(string(input_pipeline_dry_run))}
+        next: resolve_confirm_full_rebuild
+    - resolve_confirm_full_rebuild:
+        switch:
+          - condition: ${input_confirm_full_rebuild == null or input_confirm_full_rebuild == ""}
+            next: set_confirm_full_rebuild_default
+        next: set_confirm_full_rebuild_input
+    - set_confirm_full_rebuild_default:
+        assign:
+          - confirm_full_rebuild: "false"
+        next: orchestrate
+    - set_confirm_full_rebuild_input:
+        assign:
+          - confirm_full_rebuild: ${text.to_lower(string(input_confirm_full_rebuild))}
+        next: orchestrate
+    - orchestrate:
+        try:
+          steps:
+            - set_task_start:
+                assign:
+                  - current_task_id: "start"
+                  - current_task_type: "orchestration"
+            - mark_start_success:
+                call: write_task_status
+                args: &common_status_args
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - set_task_setup:
+                assign:
+                  - current_task_id: "setup"
+                  - current_task_type: "orchestration"
+            - mark_setup_success:
+                call: write_task_status
+                args: *common_status_args
+            - set_task_pipeline_start_status:
+                assign:
+                  - current_task_id: "pipeline_start_status"
+                  - current_task_type: "metadata"
+            - write_pipeline_run_running:
+                call: write_pipeline_run_status
+                args: &common_run_args
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  upstream_pipeline_run_id: ${upstream_pipeline_run_id}
+                  triggered_by_dag_id: ${triggered_by_dag_id}
+                  status: "running"
+                  error_summary: null
+                  error_payload: null
+            - mark_pipeline_start_status_success:
+                call: write_task_status
+                args: *common_status_args
+            - set_task_confirm_full_rebuild:
+                assign:
+                  - current_task_id: "confirm_full_rebuild"
+                  - current_task_type: "orchestration"
+            - validate_confirm_full_rebuild:
+                switch:
+                  - condition: ${confirm_full_rebuild != "true"}
+                    next: fail_missing_confirm_full_rebuild
+                  - condition: ${warehouse_mode != "full_rebuild" and warehouse_mode != "full_rebuild_compat"}
+                    next: fail_invalid_full_rebuild_mode
+                  - condition: ${date_from == "" or date_to == ""}
+                    next: fail_missing_full_rebuild_dates
+                next: mark_confirm_full_rebuild_success
+            - fail_missing_confirm_full_rebuild:
+                raise: "confirm_full_rebuild=true is required for ashare_warehouse_full_rebuild"
+            - fail_invalid_full_rebuild_mode:
+                raise: ${"warehouse_mode must be full_rebuild or full_rebuild_compat, got " + warehouse_mode}
+            - fail_missing_full_rebuild_dates:
+                raise: "date_from and date_to are required for ashare_warehouse_full_rebuild"
+            - mark_confirm_full_rebuild_success:
+                call: write_task_status
+                args: *common_status_args
+            - branch_full_rebuild:
+                switch:
+                  - condition: ${pipeline_dry_run == "true"}
+                    next: set_task_skip_full_rebuild_write
+                next: acquire_full_rebuild_lock
+            - set_task_skip_full_rebuild_write:
+                assign:
+                  - current_task_id: "skip_full_rebuild_write"
+                  - current_task_type: "orchestration"
+            - mark_skip_full_rebuild_write:
+                call: write_task_status
+                args: *common_status_args
+                next: finalize_pipeline_success
+            - acquire_full_rebuild_lock:
+                assign:
+                  - current_task_id: "warehouse_write_lock"
+                  - current_task_type: "orchestration"
+            - acquire_full_rebuild_lock_call:
+                call: acquire_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - mark_full_rebuild_lock_acquired:
+                assign:
+                  - lock_acquired: "true"
+            - set_task_qa_ods_parquet_schema_p0:
+                assign:
+                  - current_task_id: "qa.ods_parquet_schema_p0"
+                  - current_task_type: "bigquery"
+            - run_qa_ods_parquet_schema_p0:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/qa/06_ods_parquet_schema_checks.sql"
+                  query_parameters:
+                    - name: "priority_filter"
+                      type: "STRING"
+                      value: "P0"
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_qa_ods_parquet_schema_p0:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dim_dim_trade_calendar:
+                assign:
+                  - current_task_id: "dim.dim_trade_calendar"
+                  - current_task_type: "bigquery"
+            - run_dim_dim_trade_calendar:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dim/01_dim_trade_calendar.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dim_dim_trade_calendar:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dim_dim_stock:
+                assign:
+                  - current_task_id: "dim.dim_stock"
+                  - current_task_type: "bigquery"
+            - run_dim_dim_stock:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dim/02_dim_stock.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dim_dim_stock:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dim_dim_stock_name_hist:
+                assign:
+                  - current_task_id: "dim.dim_stock_name_hist"
+                  - current_task_type: "bigquery"
+            - run_dim_dim_stock_name_hist:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dim/03_dim_stock_name_hist.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dim_dim_stock_name_hist:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dim_dim_index:
+                assign:
+                  - current_task_id: "dim.dim_index"
+                  - current_task_type: "bigquery"
+            - run_dim_dim_index:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dim/04_dim_index.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dim_dim_index:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_stock_eod_price:
+                assign:
+                  - current_task_id: "dwd.dwd_stock_eod_price"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_stock_eod_price:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/01_dwd_stock_eod_price.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_stock_eod_price:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_stock_eod_valuation:
+                assign:
+                  - current_task_id: "dwd.dwd_stock_eod_valuation"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_stock_eod_valuation:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/02_dwd_stock_eod_valuation.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_stock_eod_valuation:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_index_eod:
+                assign:
+                  - current_task_id: "dwd.dwd_index_eod"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_index_eod:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/04_dwd_index_eod.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_index_eod:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_fin_indicator:
+                assign:
+                  - current_task_id: "dwd.dwd_fin_indicator"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_fin_indicator:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/03_dwd_fin_indicator.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_fin_indicator:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_fin_indicator_latest:
+                assign:
+                  - current_task_id: "dwd.dwd_fin_indicator_latest"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_fin_indicator_latest:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/05_dwd_fin_indicator_latest.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_fin_indicator_latest:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_fin_income:
+                assign:
+                  - current_task_id: "dwd.dwd_fin_income"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_fin_income:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/06_dwd_fin_income.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_fin_income:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_fin_income_latest:
+                assign:
+                  - current_task_id: "dwd.dwd_fin_income_latest"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_fin_income_latest:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/07_dwd_fin_income_latest.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_fin_income_latest:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_fin_balancesheet:
+                assign:
+                  - current_task_id: "dwd.dwd_fin_balancesheet"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_fin_balancesheet:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/08_dwd_fin_balancesheet.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_fin_balancesheet:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_fin_balancesheet_latest:
+                assign:
+                  - current_task_id: "dwd.dwd_fin_balancesheet_latest"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_fin_balancesheet_latest:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/09_dwd_fin_balancesheet_latest.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_fin_balancesheet_latest:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_fin_cashflow:
+                assign:
+                  - current_task_id: "dwd.dwd_fin_cashflow"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_fin_cashflow:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/10_dwd_fin_cashflow.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_fin_cashflow:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dwd_dwd_fin_cashflow_latest:
+                assign:
+                  - current_task_id: "dwd.dwd_fin_cashflow_latest"
+                  - current_task_type: "bigquery"
+            - run_dwd_dwd_fin_cashflow_latest:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dwd/11_dwd_fin_cashflow_latest.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dwd_dwd_fin_cashflow_latest:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dws_dws_stock_universe_daily:
+                assign:
+                  - current_task_id: "dws.dws_stock_universe_daily"
+                  - current_task_type: "bigquery"
+            - run_dws_dws_stock_universe_daily:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dws/01_dws_stock_universe_daily.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dws_dws_stock_universe_daily:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dws_dws_stock_feature_price_daily:
+                assign:
+                  - current_task_id: "dws.dws_stock_feature_price_daily"
+                  - current_task_type: "bigquery"
+            - run_dws_dws_stock_feature_price_daily:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dws/02_dws_stock_feature_price_daily.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dws_dws_stock_feature_price_daily:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dws_dws_stock_feature_valuation_daily:
+                assign:
+                  - current_task_id: "dws.dws_stock_feature_valuation_daily"
+                  - current_task_type: "bigquery"
+            - run_dws_dws_stock_feature_valuation_daily:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dws/03_dws_stock_feature_valuation_daily.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dws_dws_stock_feature_valuation_daily:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dws_dws_stock_label_daily:
+                assign:
+                  - current_task_id: "dws.dws_stock_label_daily"
+                  - current_task_type: "bigquery"
+            - run_dws_dws_stock_label_daily:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dws/04_dws_stock_label_daily.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dws_dws_stock_label_daily:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dws_dws_stock_feature_fin_daily:
+                assign:
+                  - current_task_id: "dws.dws_stock_feature_fin_daily"
+                  - current_task_type: "bigquery"
+            - run_dws_dws_stock_feature_fin_daily:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dws/07_dws_stock_feature_fin_daily.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dws_dws_stock_feature_fin_daily:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dws_dws_stock_feature_daily_v0:
+                assign:
+                  - current_task_id: "dws.dws_stock_feature_daily_v0"
+                  - current_task_type: "bigquery"
+            - run_dws_dws_stock_feature_daily_v0:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dws/05_dws_stock_feature_daily_v0.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dws_dws_stock_feature_daily_v0:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_dws_dws_stock_sample_daily:
+                assign:
+                  - current_task_id: "dws.dws_stock_sample_daily"
+                  - current_task_type: "bigquery"
+            - run_dws_dws_stock_sample_daily:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/dws/06_dws_stock_sample_daily.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_dws_dws_stock_sample_daily:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_metadata_core_column_descriptions:
+                assign:
+                  - current_task_id: "metadata.core_column_descriptions"
+                  - current_task_type: "bigquery"
+            - run_metadata_core_column_descriptions:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/metadata/01_core_table_column_descriptions.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_metadata_core_column_descriptions:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_metadata_finance_column_descriptions:
+                assign:
+                  - current_task_id: "metadata.finance_column_descriptions"
+                  - current_task_type: "bigquery"
+            - run_metadata_finance_column_descriptions:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/metadata/02_finance_table_column_descriptions.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_metadata_finance_column_descriptions:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_qa_core_smoke_checks:
+                assign:
+                  - current_task_id: "qa.core_smoke_checks"
+                  - current_task_type: "bigquery"
+            - run_qa_core_smoke_checks:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/qa/01_core_smoke_checks.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_qa_core_smoke_checks:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_qa_strategy1_dws_ads_checks:
+                assign:
+                  - current_task_id: "qa.strategy1_dws_ads_checks"
+                  - current_task_type: "bigquery"
+            - run_qa_strategy1_dws_ads_checks:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/qa/02_strategy1_dws_ads_checks.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_qa_strategy1_dws_ads_checks:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_qa_index_benchmark_checks:
+                assign:
+                  - current_task_id: "qa.index_benchmark_checks"
+                  - current_task_type: "bigquery"
+            - run_qa_index_benchmark_checks:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/qa/03_index_benchmark_checks.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_qa_index_benchmark_checks:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_qa_finance_caliber_checks:
+                assign:
+                  - current_task_id: "qa.finance_caliber_checks"
+                  - current_task_type: "bigquery"
+            - run_qa_finance_caliber_checks:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/qa/04_finance_caliber_checks.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_qa_finance_caliber_checks:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - set_task_qa_unit_contract_checks:
+                assign:
+                  - current_task_id: "qa.unit_contract_checks"
+                  - current_task_type: "bigquery"
+            - run_qa_unit_contract_checks:
+                call: run_bigquery_task
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  sql_path: "sql/qa/05_unit_contract_checks.sql"
+                  query_parameters:                    []
+                  location: ${bq_location}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+            - heartbeat_after_qa_unit_contract_checks:
+                call: heartbeat_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+                  lease_seconds: ${lock_lease_seconds}
+            - release_full_rebuild_lock_success:
+                assign:
+                  - current_task_id: "warehouse_write_lock"
+                  - current_task_type: "orchestration"
+            - release_full_rebuild_lock_success_call:
+                call: release_lock
+                args:
+                  control_service_url: ${control_service_url}
+                  lock_name: ${lock_name}
+                  owner: ${lock_owner}
+            - mark_full_rebuild_lock_released:
+                assign:
+                  - lock_acquired: "false"
+                next: finalize_pipeline_success
+            - finalize_pipeline_success:
+                assign:
+                  - current_task_id: "pipeline_finalize_status"
+                  - current_task_type: "metadata"
+            - write_pipeline_run_success:
+                call: write_pipeline_run_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  upstream_pipeline_run_id: ${upstream_pipeline_run_id}
+                  triggered_by_dag_id: ${triggered_by_dag_id}
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+            - mark_pipeline_finalize_status_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+            - set_task_finish:
+                assign:
+                  - current_task_id: "finish"
+                  - current_task_type: "orchestration"
+            - mark_finish_success:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
+        except:
+          as: e
+          steps:
+            - set_failure_error_fields:
+                assign:
+                  - current_error_summary: ${text.substring(json.encode_to_string(e), 0, 1000)}
+                  - current_error_payload: ${e}
+            - maybe_release_lock_on_error:
+                switch:
+                  - condition: ${lock_acquired == "true"}
+                    next: release_lock_on_error
+                next: write_pipeline_run_failed
+            - release_lock_on_error:
+                try:
+                  call: release_lock
+                  args:
+                    control_service_url: ${control_service_url}
+                    lock_name: ${lock_name}
+                    owner: ${lock_owner}
+                except:
+                  as: release_error
+                  steps:
+                    - ignore_release_error:
+                        assign:
+                          - ignored_release_error: ${release_error}
+                next: mark_lock_released_after_error
+            - mark_lock_released_after_error:
+                assign:
+                  - lock_acquired: "false"
+                next: write_pipeline_run_failed
+            - write_pipeline_run_failed:
+                call: write_pipeline_run_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  upstream_pipeline_run_id: ${upstream_pipeline_run_id}
+                  triggered_by_dag_id: ${triggered_by_dag_id}
+                  status: "failed"
+                  error_summary: ${current_error_summary}
+                  error_payload: ${current_error_payload}
+            - maybe_write_failed_task_status:
+                switch:
+                  - condition: ${current_task_id != null}
+                    next: write_failed_task_status
+                next: rethrow_error
+            - write_failed_task_status:
+                call: write_task_status
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "failed"
+                  error_summary: ${current_error_summary}
+                  error_payload: ${current_error_payload}
+                  resource_name: null
+            - rethrow_error:
+                raise: ${e}
+    - return_success:
+        return:
+          dag_id: ${dag_id}
+          pipeline_run_id: ${pipeline_run_id}
+          workflow_id: ${workflow_id}
+          workflow_execution_id: ${workflow_execution_id}
+          business_date: ${business_date}
+          date_from: ${date_from}
+          date_to: ${date_to}
+          warehouse_mode: ${warehouse_mode}
+          run_label: ${run_label}
+
+write_pipeline_run_status:
+  params: [control_service_url, dag_id, pipeline_run_id, business_date, date_from, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url, upstream_pipeline_run_id, triggered_by_dag_id, status, error_summary, error_payload]
+  steps:
+    - post_status:
+        call: http.post
+        args:
+          url: ${control_service_url + "/v1/pipeline-runs/status"}
+          auth:
+            type: OIDC
+          body:
+            dag_id: ${dag_id}
+            pipeline_run_id: ${pipeline_run_id}
+            business_date: ${business_date}
+            date_from: ${date_from}
+            date_to: ${date_to}
+            run_label: ${run_label}
+            warehouse_mode: ${warehouse_mode}
+            transform_backend: ${transform_backend}
+            workflow_id: ${workflow_id}
+            workflow_execution_id: ${workflow_execution_id}
+            orchestration_log_url: ${orchestration_log_url}
+            upstream_pipeline_run_id: ${upstream_pipeline_run_id}
+            triggered_by_dag_id: ${triggered_by_dag_id}
+            status: ${status}
+            error_summary: ${error_summary}
+            error_payload: ${error_payload}
+        result: pipeline_run_status_response
+    - return_pipeline_run_status:
+        return: ${pipeline_run_status_response.body}
+
+write_task_status:
+  params: [control_service_url, dag_id, pipeline_run_id, task_id, task_type, business_date, date_from, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url, endpoint, status, error_summary, error_payload, resource_name]
+  steps:
+    - post_task_status:
+        call: http.post
+        args:
+          url: ${control_service_url + "/v1/tasks/status"}
+          auth:
+            type: OIDC
+          body:
+            dag_id: ${dag_id}
+            pipeline_run_id: ${pipeline_run_id}
+            task_id: ${task_id}
+            task_type: ${task_type}
+            business_date: ${business_date}
+            date_from: ${date_from}
+            date_to: ${date_to}
+            run_label: ${run_label}
+            warehouse_mode: ${warehouse_mode}
+            transform_backend: ${transform_backend}
+            workflow_id: ${workflow_id}
+            workflow_execution_id: ${workflow_execution_id}
+            orchestration_log_url: ${orchestration_log_url}
+            endpoint: ${endpoint}
+            status: ${status}
+            error_summary: ${error_summary}
+            error_payload: ${error_payload}
+            resource_name: ${resource_name}
+        result: task_status_response
+    - return_task_status:
+        return: ${task_status_response.body}
+
+run_bigquery_task:
+  params: [control_service_url, dag_id, pipeline_run_id, task_id, task_type, sql_path, query_parameters, location, business_date, date_from, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url]
+  steps:
+    - post_bigquery_task:
+        call: http.post
+        args:
+          url: ${control_service_url + "/v1/tasks/bigquery"}
+          timeout: 1800
+          auth:
+            type: OIDC
+          body:
+            dag_id: ${dag_id}
+            pipeline_run_id: ${pipeline_run_id}
+            task_id: ${task_id}
+            task_type: ${task_type}
+            sql_path: ${sql_path}
+            query_parameters: ${query_parameters}
+            location: ${location}
+            business_date: ${business_date}
+            date_from: ${date_from}
+            date_to: ${date_to}
+            run_label: ${run_label}
+            warehouse_mode: ${warehouse_mode}
+            transform_backend: ${transform_backend}
+            workflow_id: ${workflow_id}
+            workflow_execution_id: ${workflow_execution_id}
+            orchestration_log_url: ${orchestration_log_url}
+        result: bigquery_task_response
+    - return_bigquery_task:
+        return: ${bigquery_task_response.body}
+
+acquire_lock:
+  params: [control_service_url, lock_name, owner, lease_seconds]
+  steps:
+    - post_acquire_lock:
+        call: http.post
+        args:
+          url: ${control_service_url + "/v1/locks/acquire"}
+          auth:
+            type: OIDC
+          body:
+            lock_name: ${lock_name}
+            owner: ${owner}
+            lease_seconds: ${lease_seconds}
+        result: acquire_lock_response
+    - return_acquire_lock:
+        return: ${acquire_lock_response.body}
+
+heartbeat_lock:
+  params: [control_service_url, lock_name, owner, lease_seconds]
+  steps:
+    - post_heartbeat_lock:
+        call: http.post
+        args:
+          url: ${control_service_url + "/v1/locks/heartbeat"}
+          auth:
+            type: OIDC
+          body:
+            lock_name: ${lock_name}
+            owner: ${owner}
+            lease_seconds: ${lease_seconds}
+        result: heartbeat_lock_response
+    - return_heartbeat_lock:
+        return: ${heartbeat_lock_response.body}
+
+release_lock:
+  params: [control_service_url, lock_name, owner]
+  steps:
+    - post_release_lock:
+        call: http.post
+        args:
+          url: ${control_service_url + "/v1/locks/release"}
+          auth:
+            type: OIDC
+          body:
+            lock_name: ${lock_name}
+            owner: ${owner}
+        result: release_lock_response
+    - return_release_lock:
+        return: ${release_lock_response.body}
