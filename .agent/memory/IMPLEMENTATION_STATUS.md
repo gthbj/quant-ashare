@@ -6,6 +6,12 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：PR #116 review follow-up 已修 v3 replay 的 `inf` gate 和信号门 operator 问题
+
+- 已按 PR #116 review 修复 `scripts/strategy1/replay_acceptance_gate_v3.py` 中 `inf` 被 `safe_float` 吞成 `None` 并误判 absolute gate 失败的问题；`compare_metric` 现在保留 `±inf` 比较语义，与 contract 的 `zero_denominator_behavior` 一致。
+- `signal_quality_failures` 已不再硬编码 `>`，而是读取 contract 中每个信号质量阈值自己的 `operator` 和 `value`。
+- 指数复合年化收益的 replay 实现与 `24` QA 已从“全窗口首尾收盘”收敛为“沿用策略有效收益期的同一交易日步长复利”，更贴近 contract 写明的 `same_effective_trade_date_set_required`。
+
 ### 最新补充（2026-06-08）：策略 1 `v3` 只读 replay 与 `v3` QA 已落地代码骨架
 
 - 已新增 `scripts/strategy1/replay_acceptance_gate_v3.py`，按 `model_acceptance_contract_v3.yml` 对五次正式搜索 Top-K 做只读 replay：重算 `Sharpe`、`Calmar`、五指数相对门和 `Final holdout 交易日数`，输出独立 `acceptance_gate_v3_replay/` artifact，不重训模型、不覆盖 historical `accepted/rejected`。

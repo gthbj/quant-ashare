@@ -464,10 +464,14 @@ def evaluate_relative_benchmark(
     dates = list(nav_df["trade_date"])
     start_date = dates[0]
     end_date = dates[-1]
-    start_close = benchmark_prices.get(start_date)
-    end_close = benchmark_prices.get(end_date)
-    benchmark_gross = safe_divide(end_close, start_close)
-    benchmark_compound_annualized_return = compound_annualized_return_from_gross(benchmark_gross, return_period_count)
+    benchmark_total_return, benchmark_effective_return_period_count = benchmark_total_return_from_strategy_dates(
+        nav_df,
+        benchmark_prices,
+    )
+    benchmark_compound_annualized_return = compound_annualized_return(
+        benchmark_total_return,
+        benchmark_effective_return_period_count,
+    )
     strategy_excess_compound_annualized_return = subtract_or_none(
         strategy_compound_annualized_return,
         benchmark_compound_annualized_return,
@@ -492,6 +496,8 @@ def evaluate_relative_benchmark(
         "benchmark_name_zh": benchmark.get("benchmark_name_zh"),
         "window_start_date": start_date.isoformat(),
         "window_end_date": end_date.isoformat(),
+        "strategy_effective_return_period_count": return_period_count,
+        "benchmark_effective_return_period_count": benchmark_effective_return_period_count,
         "strategy_compound_annualized_return": strategy_compound_annualized_return,
         "benchmark_compound_annualized_return": benchmark_compound_annualized_return,
         "strategy_excess_compound_annualized_return": strategy_excess_compound_annualized_return,
@@ -525,19 +531,19 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
         failures.append("score_orientation_not_allowed")
 
     valid_rank_ic = first_finite(record.get("oriented_valid_rank_ic_mean"), record.get("valid_rank_ic_mean"), metrics.get("oriented_valid_rank_ic_mean"), metrics.get("valid_rank_ic_mean"))
-    if not greater_than(valid_rank_ic, threshold_value(thresholds, "valid_rank_ic")):
+    if not compare_metric(valid_rank_ic, threshold_operator(thresholds, "valid_rank_ic"), threshold_value(thresholds, "valid_rank_ic")):
         failures.append("valid_rank_ic<=0")
 
     valid_tb = safe_float(coalesce_value(record.get("valid_top_minus_bottom_fwd_ret_mean"), metrics.get("valid_top_minus_bottom_fwd_ret_mean")))
-    if not greater_than(valid_tb, threshold_value(thresholds, "valid_top_minus_bottom_fwd_ret")):
+    if not compare_metric(valid_tb, threshold_operator(thresholds, "valid_top_minus_bottom_fwd_ret"), threshold_value(thresholds, "valid_top_minus_bottom_fwd_ret")):
         failures.append("valid_top_minus_bottom<=0")
 
     test_rank_ic = safe_float(coalesce_value(record.get("test_rank_ic_mean"), metrics.get("test_rank_ic_mean")))
-    if not greater_than(test_rank_ic, threshold_value(thresholds, "test_rank_ic")):
+    if not compare_metric(test_rank_ic, threshold_operator(thresholds, "test_rank_ic"), threshold_value(thresholds, "test_rank_ic")):
         failures.append("test_rank_ic<=0")
 
     test_tb = safe_float(coalesce_value(record.get("test_top_minus_bottom_fwd_ret_mean"), metrics.get("test_top_minus_bottom_fwd_ret_mean")))
-    if not greater_than(test_tb, threshold_value(thresholds, "test_top_minus_bottom_fwd_ret")):
+    if not compare_metric(test_tb, threshold_operator(thresholds, "test_top_minus_bottom_fwd_ret"), threshold_value(thresholds, "test_top_minus_bottom_fwd_ret")):
         failures.append("test_top_minus_bottom<=0")
 
     primary_diagnosis = coalesce_text(record.get("primary_diagnosis"), metrics.get("primary_diagnosis"))
@@ -736,19 +742,20 @@ def first_finite(*values: Any) -> float | None:
     return None
 
 
-def greater_than(actual: float | None, threshold: float | None) -> bool:
-    return actual is not None and threshold is not None and actual > threshold
-
-
 def threshold_value(thresholds: dict[str, Any], key: str) -> float | None:
     payload = thresholds.get(key) or {}
     return safe_float(payload.get("value"))
 
 
+def threshold_operator(thresholds: dict[str, Any], key: str) -> str:
+    payload = thresholds.get(key) or {}
+    return str(payload.get("operator") or ">")
+
+
 def compare_metric(actual: float | None, operator: Any, threshold: Any) -> bool:
-    actual_value = safe_float(actual)
-    threshold_value_local = safe_float(threshold)
-    if actual_value is None or threshold_value_local is None:
+    actual_value = numeric_value(actual)
+    threshold_value_local = numeric_value(threshold)
+    if actual_value is None or threshold_value_local is None or math.isnan(actual_value) or math.isnan(threshold_value_local):
         return False
     if operator == ">":
         return actual_value > threshold_value_local
@@ -792,6 +799,32 @@ def annualized_volatility_from_daily_returns(series: pd.Series, annual_factor: i
     return float(std) * math.sqrt(annual_factor)
 
 
+def benchmark_total_return_from_strategy_dates(nav_df: pd.DataFrame, benchmark_prices: pd.Series) -> tuple[float | None, int]:
+    gross = 1.0
+    periods = 0
+    previous_trade_date: date | None = None
+    for row in nav_df.itertuples(index=False):
+        current_trade_date = row.trade_date
+        strategy_daily_return = safe_float(row.daily_return)
+        if strategy_daily_return is None or 1.0 + strategy_daily_return <= 0:
+            previous_trade_date = current_trade_date
+            continue
+        if previous_trade_date is None:
+            gross *= 1.0
+            periods += 1
+            previous_trade_date = current_trade_date
+            continue
+        previous_close = benchmark_prices.get(previous_trade_date)
+        current_close = benchmark_prices.get(current_trade_date)
+        gross_factor = safe_divide(current_close, previous_close)
+        if gross_factor is None or gross_factor <= 0:
+            return None, periods
+        gross *= gross_factor
+        periods += 1
+        previous_trade_date = current_trade_date
+    return gross - 1.0, periods
+
+
 def signed_zero_safe_ratio(numerator: float | None, denominator: float | None) -> float | None:
     if numerator is None or denominator is None:
         return None
@@ -827,6 +860,18 @@ def safe_divide(numerator: Any, denominator: Any) -> float | None:
     if num is None or den is None or math.isclose(den, 0.0, rel_tol=0.0, abs_tol=1e-12):
         return None
     return num / den
+
+
+def numeric_value(value: Any) -> float | None:
+    try:
+        if value is None or pd.isna(value):
+            return None
+    except Exception:
+        pass
+    try:
+        return float(value)
+    except Exception:
+        return None
 
 
 def subtract_or_none(left: Any, right: Any) -> float | None:

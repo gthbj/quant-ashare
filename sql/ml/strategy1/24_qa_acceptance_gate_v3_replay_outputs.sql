@@ -305,6 +305,7 @@ ASSERT (
       nav.trade_date,
       nav.nav,
       nav.daily_return,
+      LAG(nav.trade_date) OVER (PARTITION BY nav.backtest_id ORDER BY nav.trade_date) AS previous_trade_date,
       MAX(nav.nav) OVER (PARTITION BY nav.backtest_id ORDER BY nav.trade_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_peak_nav,
       MIN(nav.trade_date) OVER (PARTITION BY nav.backtest_id) AS window_start_date,
       MAX(nav.trade_date) OVER (PARTITION BY nav.backtest_id) AS window_end_date
@@ -374,6 +375,28 @@ ASSERT (
       ON p.backtest_id = sr.backtest_id
     GROUP BY sr.model_id, sr.backtest_id, sr.search_id, t.max_drawdown, p.peak_date, t.trough_date
   ),
+  benchmark_steps AS (
+    SELECT
+      nav.backtest_id,
+      bench_code AS benchmark_sec_code,
+      COUNTIF(nav.daily_return IS NOT NULL AND 1.0 + nav.daily_return > 0) AS benchmark_effective_return_period_count,
+      qa_gross_from_returns(SUM(
+        CASE
+          WHEN nav.daily_return IS NULL OR 1.0 + nav.daily_return <= 0 THEN 0.0
+          WHEN nav.previous_trade_date IS NULL THEN 0.0
+          ELSE LN(SAFE_DIVIDE(b_curr.close, b_prev.close))
+        END
+      )) AS benchmark_gross_return
+    FROM nav
+    CROSS JOIN UNNEST(p_comparison_benchmark_sec_codes) AS bench_code
+    LEFT JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_prev
+      ON b_prev.sec_code = bench_code
+     AND b_prev.trade_date = nav.previous_trade_date
+    LEFT JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_curr
+      ON b_curr.sec_code = bench_code
+     AND b_curr.trade_date = nav.trade_date
+    GROUP BY nav.backtest_id, benchmark_sec_code
+  ),
   candidate_benchmark AS (
     SELECT
       sm.model_id,
@@ -381,17 +404,14 @@ ASSERT (
       sm.search_id,
       bench.sec_code AS benchmark_sec_code,
       qa_compound_annualized_return(sm.strategy_gross_return, sm.return_period_count) AS strategy_compound_annualized_return,
-      qa_compound_annualized_return(SAFE_DIVIDE(b_end.close, b_start.close), sm.return_period_count) AS benchmark_compound_annualized_return,
+      qa_compound_annualized_return(bs.benchmark_gross_return, bs.benchmark_effective_return_period_count) AS benchmark_compound_annualized_return,
       sm.max_drawdown,
       SAFE_DIVIDE(b_trough.close, b_peak.close) - 1.0 AS benchmark_same_window_return
     FROM strategy_metrics AS sm
     CROSS JOIN UNNEST(p_comparison_benchmark_sec_codes) AS bench_code
-    JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_start
-      ON b_start.sec_code = bench_code
-     AND b_start.trade_date = sm.window_start_date
-    JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_end
-      ON b_end.sec_code = bench_code
-     AND b_end.trade_date = sm.window_end_date
+    JOIN benchmark_steps AS bs
+      ON bs.backtest_id = sm.backtest_id
+     AND bs.benchmark_sec_code = bench_code
     JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_peak
       ON b_peak.sec_code = bench_code
      AND b_peak.trade_date = sm.peak_date

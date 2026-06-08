@@ -3734,6 +3734,10 @@ Run ID: oq005-composer-exit-next-20260608
 > - `v3 replay` 当前是独立只读 artifact 路径，不会覆盖历史 `v1` report、comparison artifact 或 `accepted/rejected`。
 > - 本轮仍未执行 replay 或 `24` QA；下一步若要继续，应先做一次只读 replay / QA 实跑，再决定 live cutover。
 
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #116 review follow-up 已修三点：`inf` Sharpe/Calmar 不再被误判 gate 失败；信号质量门改为读取 contract 的 `operator`；指数复合年化收益改为沿用策略有效收益期的同一交易日步长。
+> - 我没有把 `24` 做成“读取 replay artifact 数值对账”的 QA；当前 `24` 仍是源数据/公式不变量 QA。这是本 PR 仍保留的边界。
+
 ## 2026-06-08 - GPT-5 Codex
 - Date: 2026-06-08
 - Model: GPT-5 Codex
@@ -3753,3 +3757,13 @@ Run ID: oq005-composer-exit-next-20260608
 - Validation: 未运行 replay、未执行 `24` QA、未跑 Cloud Run；本轮只完成代码/SQL/文档与记忆同步。
 - Notes: `v3 replay` 保持只读，不覆盖历史 `v1` 结论；`24` QA 只校验源数据和公式不变量，不回填 ADS 状态。
 - Next Steps: 先按 `model_acceptance_contract_v3.yml` 真实跑一遍 replay 和 `24` QA，再决定是否开始 live cutover。
+
+## 2026-06-08 - GPT-5 Codex
+- Date: 2026-06-08
+- Model: GPT-5 Codex
+- Branch: `codex/implement-v3-contract`
+- Summary: 处理 PR #116 review follow-up，修正 `v3 replay` 中 `inf` absolute gate 语义、信号门 operator 读取和指数年化的同策略有效交易日口径。
+- Files: `scripts/strategy1/replay_acceptance_gate_v3.py`, `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`
+- Validation: 未执行 replay、未执行 `24` QA；本轮只修实现与 SQL 口径。
+- Notes: `24` 仍是源数据/公式不变量 QA，不是读取 replay artifact 做数值对账的 artifact QA。
+- Next Steps: 继续看 PR #116 剩余 comment；若 owner 要求再加 Python-vs-SQL 数值对账，需要单独引入 replay 结果对账路径。
