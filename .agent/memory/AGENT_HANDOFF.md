@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - `TODO.md` 已从“完成历史 + 进行中事项混排”重写为短版，只保留当前可执行事项。
+> - 当前 TODO 只剩 3 个主动作：OQ-005 补短观察窗记录、OQ-010 继续找 accepted Python baseline、OQ-012 决定是否正式归档关闭。
+> - 完成历史不再放在 `TODO.md`，统一回到 `IMPLEMENTATION_STATUS.md` / `AGENT_HANDOFF.md` / `OPEN_QUESTIONS.md`。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - OQ-005 已完成 production cutover：生产调度入口固定为 `Cloud Scheduler + Cloud Workflows`，`ashare-composer` 环境已删除，Composer 业务 DAG 不再是现行生产路径。
 > - `orchestration/composer/` 已收口为 retired / audit-only 历史目录，只保留审计、迁移对照和受控回滚参考价值。
 > - Strategy1 `v3` replay 与 helper 驱动的 `24` QA 已按最新 contract 真执行通过；当前真正开放的主线只剩 OQ-010 可接受 Python baseline 和 OQ-012 是否正式归档。
@@ -136,6 +141,44 @@ Model: GPT-5 Codex
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
+
+## 2026-06-08 GPT-5 Codex - TODO cleanup
+
+### 已完成工作
+
+- 将 `TODO.md` 从长版状态流水重写为短版行动清单。
+- 删除已完成历史、重复背景和大量上下文，只保留当前仍需执行的事项。
+- 保留的主线现在只有：OQ-005 补短观察窗记录、OQ-010 accepted Python baseline、OQ-012 关闭/保留决策，以及少量 P1 优化项。
+
+### 重要上下文
+
+- 这次没有改代码、没有改调度语义，只是收口任务视图。
+- 历史完成记录统一以 `IMPLEMENTATION_STATUS.md` / `AGENT_HANDOFF.md` 为准，不再堆在 `TODO.md` 里。
+
+### 改动文件
+
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- 未执行。此次为任务清单精简，不涉及行为变更。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 若继续收口 OQ-005，先补 cutover 后短观察窗记录。
+- 若转回策略主线，直接继续 OQ-010 accepted baseline 探索。
+
+### 已更新记忆文件
+
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 
