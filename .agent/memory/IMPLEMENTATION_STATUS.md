@@ -6,6 +6,12 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：修复 QA-V3-1 sentinel 渲染问题后，v3 replay 与 helper 驱动的 24 QA 已再次真执行成功
+
+- `run_acceptance_gate_v3_replay_qa.py` 现在对所有 placeholder 使用单次替换，避免把 `QA-V3-1` 里用于检测 hash 是否被填充的 sentinel 一并替掉；`24_qa_acceptance_gate_v3_replay_outputs.sql` 的 primary benchmark 断言也已恢复成对固定 `000001.SH` 的真校验。
+- 按这版代码重跑后，`scripts/strategy1/replay_acceptance_gate_v3.py` 结果仍为 `25` 个候选、`1 accepted / 24 rejected`；最新 contract hash 为 `8a84447e8190290fef2ae61b71a31678bc02fffda52b5a4701be36593e1ea1ed`。
+- `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py --project data-aquarium` 也已成功跑通，说明 PR #122 最新 comment 指出的 `QA-V3-1`/primary benchmark 渲染 bug 已关闭。
+
 ### 最新补充（2026-06-08）：`24` QA 的 replay scope / 窗口 / 阈值 / benchmark 集合已全部改为从 v3 contract 派生
 
 - `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 不再只渲染 `contract_hash`、`legacy_valid_as_cv_search_ids` 和 `final_holdout_enforcement`；现已把 replay search scope、Top-K、primary/comparison benchmark、full/valid/test/final_holdout 窗口、signal/absolute gate 阈值、`final_holdout trading_day_count` 和允许的 `score_orientation` 一并从 `model_acceptance_contract_v3.yml` 渲染进 `24_qa_acceptance_gate_v3_replay_outputs.sql`。

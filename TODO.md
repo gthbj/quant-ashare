@@ -2,6 +2,7 @@
 
 ## 最新状态（2026-06-08）
 
+- [x] PR #122 最新 comment follow-up：修复 `run_acceptance_gate_v3_replay_qa.py` 的全量 replace 导致的 `QA-V3-1` sentinel 渲染 bug，并恢复 `24` QA 对固定 primary benchmark `000001.SH` 的真校验；按这版代码已重新真跑 replay 与 helper 驱动的 `24` QA，结果仍是 `25` 个候选里 `1 accepted / 24 rejected`，`24` QA 全部通过
 - [x] PR #122 comment follow-up：`24` QA 剩余的 replay scope / Top-K / benchmark 集合 / 窗口 / 信号阈值 / Sharpe-Calmar 阈值 / allowed score orientation 已全部改为从 `model_acceptance_contract_v3.yml` 渲染，`v3` contract 新增 `replay_scope`，不再在 SQL 里维护第二份业务默认值
 - [x] `24` QA 已切到 contract-driven helper：新增 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`，从 `model_acceptance_contract_v3.yml` 注入 `contract_hash`、legacy replay carve-out 和 `final_holdout` enforcement 后执行 `24_qa_acceptance_gate_v3_replay_outputs.sql`；`README` 已同步，不再建议裸跑 SQL
 - [x] owner 已明确 `v3` 的 `final_holdout` 不是 hard veto：`model_acceptance_contract_v3.yml` 已将 `final_holdout_gate` 标成 `diagnostic_only`，replay 不再因天数不足拒绝，`24` QA 只要求可计算；按这条新口径的 replay 与 `24` QA 已全部真执行通过

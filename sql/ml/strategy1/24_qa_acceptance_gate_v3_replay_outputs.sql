@@ -205,8 +205,8 @@ ASSERT (
   p_acceptance_gate_version = 'strategy1_acceptance_gate_v3'
   AND p_acceptance_contract_version = 'model_acceptance_contract_v3'
   AND p_acceptance_contract_sha256 != 'standalone_contract_hash_required'
-  AND LENGTH(p_acceptance_contract_sha256) >= 16
-  AND p_primary_benchmark_sec_code = 'standalone_primary_benchmark_sec_code_required'
+  AND REGEXP_CONTAINS(p_acceptance_contract_sha256, r'^[0-9a-f]{64}$')
+  AND p_primary_benchmark_sec_code = '000001.SH'
   AND p_final_holdout_enforcement IN ('diagnostic_only', 'blocking')
 ) AS 'QA-V3-1: acceptance gate v3 must use model_acceptance_contract_v3 with non-empty hash and primary benchmark 000001.SH';
 

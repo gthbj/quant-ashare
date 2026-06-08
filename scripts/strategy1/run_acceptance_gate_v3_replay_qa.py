@@ -98,7 +98,7 @@ def render_sql(template: str, contract: dict[str, object]) -> str:
     }
     rendered = template
     for placeholder, value in replacements.items():
-        rendered = rendered.replace(placeholder, value)
+        rendered = rendered.replace(placeholder, value, 1)
     return rendered
 
 
