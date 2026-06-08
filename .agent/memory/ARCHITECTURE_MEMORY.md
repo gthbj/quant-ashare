@@ -154,3 +154,8 @@ DWS/ADS 统一版本字段：`universe_version`、`feature_version`、`label_ver
 ## 表/字段注释
 
 所有 dim/dwd/dws 表带表级 + 字段级中文 description；财务大表字段描述**继承 ODS 同名字段**（脚本化），改名/派生/换算字段手写。详见 docs §3.4。
+
+## 2026-06-08 - Workflows control-plane adapter
+- OQ-005 implementation phase 1 introduces `ashare-pipeline-control`, a thin Cloud Run adapter that keeps Workflows declarative while centralizing four cross-cutting behaviors: `pipeline_run` / `pipeline_task_status` writeback, bundled SQL execution against BigQuery, SSE trading-day gate lookup, and GCS-backed distributed locking for `ashare_warehouse_window_refresh`.
+- Workflows remains the orchestrator; BigQuery remains the SQL execution plane; `ashare-ingest-current-scope` remains the ODS ingestion execution plane.
+- `ashare_ods_ingestion_daily` now targets synchronous child-workflow semantics for downstream warehouse refresh instead of the long-lived Composer `refresh-missing watchdog` model.

@@ -291,3 +291,10 @@ Last updated: 2026-06-08
 | DWS 特征/标签 SQL | 部分完成 | 策略 1 universe、价格/估值特征、标签、宽表、样本 + `dws_stock_feature_fin_daily`（默认合并口径财务特征）已物化并 QA；市场状态待补 |
 | 策略/ADS 闭环 | 已跑通 | `ml_pv_clf_v0` runner 01-10 已在 BigQuery 端到端实跑（PR #12），08 为账户级 ledger，`10` 16 断言全过；模型质量待迭代（OQ-010） |
 | 行业映射 | 可落地设计完成 | ODS 已有 index_member_all / ci_index_member；待 SQL 和 QA |
+
+## 2026-06-08 - OQ-005 Composer exit phase 1 implementation started
+- Added `scripts/pipeline_control/` thin control-plane runtime: bundled SQL execution, `pipeline_run` / `pipeline_task_status` writeback, SSE trading-day gate, and GCS-backed orchestration locks.
+- Added `orchestration/workflows/ashare_ods_ingestion_daily.yaml` and `orchestration/workflows/ashare_warehouse_window_refresh.yaml` as the first Workflows implementations of the main daily orchestration chain.
+- Added deployment scaffolding under `orchestration/workflows/` for the control service and workflow deployment.
+- Scope intentionally excludes `ashare_warehouse_full_rebuild`, `ashare_pipeline_alert_checker`, Scheduler/IAM bootstrap, and production cutover.
+- Validation/deployment not executed in this turn.
