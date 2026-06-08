@@ -21,9 +21,15 @@ DECLARE p_primary_benchmark_sec_code STRING DEFAULT '000001.SH';
 DECLARE p_comparison_benchmark_sec_codes ARRAY<STRING> DEFAULT [
   '000016.SH', '000300.SH', '000852.SH', '000001.SH', '399001.SZ'
 ];
-DECLARE p_legacy_valid_as_cv_search_ids ARRAY<STRING> DEFAULT [
-  'sklearn_native_pvfq_n30_bw_h5_20260605_01'
-];
+DECLARE p_final_holdout_enforcement STRING DEFAULT 'standalone_final_holdout_enforcement_required';
+DECLARE p_legacy_valid_as_cv_search_ids_json STRING DEFAULT 'standalone_legacy_valid_as_cv_search_ids_json_required';
+DECLARE p_legacy_valid_as_cv_search_ids ARRAY<STRING> DEFAULT IFNULL(
+  (
+    SELECT ARRAY_AGG(JSON_VALUE(item))
+    FROM UNNEST(JSON_QUERY_ARRAY(p_legacy_valid_as_cv_search_ids_json)) AS item
+  ),
+  ARRAY<STRING>[]
+);
 DECLARE p_full_start_date DATE DEFAULT DATE '2024-01-02';
 DECLARE p_full_end_date DATE DEFAULT DATE '2026-04-30';
 DECLARE p_valid_start_date DATE DEFAULT DATE '2024-01-02';
@@ -188,6 +194,7 @@ ASSERT (
   AND p_acceptance_contract_sha256 != 'standalone_contract_hash_required'
   AND LENGTH(p_acceptance_contract_sha256) >= 16
   AND p_primary_benchmark_sec_code = '000001.SH'
+  AND p_final_holdout_enforcement IN ('diagnostic_only', 'blocking')
 ) AS 'QA-V3-1: acceptance gate v3 must use model_acceptance_contract_v3 with non-empty hash and primary benchmark 000001.SH';
 
 -- QA-V3-2: replay default search universe must be exactly five unique completed searches.
@@ -267,27 +274,31 @@ ASSERT (
   FROM qa_v3_selected_rows
 ) AS 'QA-V3-5: v3 signal-quality fields must exist or be source-derivable on all replayed selected rows';
 
--- QA-V3-6: final_holdout trading days must be computable on all replayed selected rows.
+CREATE TEMP TABLE qa_v3_final_holdout_days AS
+WITH selected_backtests AS (
+  SELECT DISTINCT backtest_id
+  FROM qa_v3_selected_rows
+)
+SELECT
+  sb.backtest_id,
+  COUNT(nav.trade_date) AS trading_days
+FROM selected_backtests AS sb
+LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+  ON nav.backtest_id = sb.backtest_id
+ AND nav.trade_date BETWEEN p_final_holdout_start_date AND p_final_holdout_end_date
+GROUP BY sb.backtest_id
+;
+
+-- QA-V3-6: final_holdout enforcement must follow the contract; if diagnostic_only, do not hard-fail on the threshold.
 ASSERT (
-  WITH selected_backtests AS (
-    SELECT DISTINCT backtest_id
-    FROM qa_v3_selected_rows
-  ),
-  holdout_days AS (
-    SELECT
-      sb.backtest_id,
-      COUNT(nav.trade_date) AS trading_days
-    FROM selected_backtests AS sb
-    LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
-      ON nav.backtest_id = sb.backtest_id
-     AND nav.trade_date BETWEEN p_final_holdout_start_date AND p_final_holdout_end_date
-    GROUP BY sb.backtest_id
-  )
   SELECT
     COUNT(*) = ARRAY_LENGTH(p_search_ids) * p_top_k_per_search
-    AND LOGICAL_AND(qa_required(trading_days IS NOT NULL))
-  FROM holdout_days
-) AS 'QA-V3-6: replayed selected candidates must have computable final_holdout trading day counts';
+    AND (
+      p_final_holdout_enforcement = 'diagnostic_only'
+      OR LOGICAL_AND(qa_required(trading_days >= p_min_final_holdout_trading_days))
+    )
+  FROM qa_v3_final_holdout_days
+) AS 'QA-V3-6: final_holdout enforcement must match the contract-defined blocking behavior';
 
 -- QA-V3-7: v3 absolute metrics must be source-computable and the formula-locked thresholds must be evaluable.
 ASSERT (
@@ -318,10 +329,10 @@ ASSERT (
     SELECT
       backtest_id,
       trade_date,
-      nav,
+      nav.nav AS nav,
       daily_return,
       running_peak_nav,
-      SAFE_DIVIDE(nav, running_peak_nav) - 1.0 AS drawdown
+      SAFE_DIVIDE(nav.nav, running_peak_nav) - 1.0 AS drawdown
     FROM nav
   ),
   trough AS (
@@ -416,12 +427,12 @@ ASSERT (
     SELECT
       backtest_id,
       trade_date,
-      nav,
+      nav.nav AS nav,
       daily_return,
       running_peak_nav,
       window_start_date,
       window_end_date,
-      SAFE_DIVIDE(nav, running_peak_nav) - 1.0 AS drawdown
+      SAFE_DIVIDE(nav.nav, running_peak_nav) - 1.0 AS drawdown
     FROM nav
   ),
   trough AS (
@@ -490,9 +501,11 @@ ASSERT (
     LEFT JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_prev
       ON b_prev.sec_code = bench_code
      AND b_prev.trade_date = nav.previous_trade_date
+     AND b_prev.trade_date BETWEEN p_full_start_date AND p_full_end_date
     LEFT JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_curr
       ON b_curr.sec_code = bench_code
      AND b_curr.trade_date = nav.trade_date
+     AND b_curr.trade_date BETWEEN p_full_start_date AND p_full_end_date
     GROUP BY nav.backtest_id, benchmark_sec_code
   ),
   candidate_benchmark AS (
@@ -513,9 +526,11 @@ ASSERT (
     JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_peak
       ON b_peak.sec_code = bench_code
      AND b_peak.trade_date = sm.peak_date
+     AND b_peak.trade_date BETWEEN p_full_start_date AND p_full_end_date
     JOIN `data-aquarium.ashare_dwd.dwd_index_eod` AS b_trough
       ON b_trough.sec_code = bench_code
      AND b_trough.trade_date = sm.trough_date
+     AND b_trough.trade_date BETWEEN p_full_start_date AND p_full_end_date
     JOIN UNNEST([STRUCT(bench_code AS sec_code)]) AS bench
   ),
   scored AS (

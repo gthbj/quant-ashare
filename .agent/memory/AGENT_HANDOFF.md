@@ -16,6 +16,16 @@
 > - PR #120 合并后已做 live deploy：`ashare-pipeline-control` 升到 revision `ashare-pipeline-control-00005-mk5`，`ashare_warehouse_full_rebuild` 升到 workflow revision `000002-e70`。
 > - post-merge dry-run smoke `773f26c1-2a80-41ab-9b85-fa7c208f0342` 已 success，说明这轮补进去的 poll 失败终态写回和 `bigquery_max_polls` 输入化至少没有造成新的接线回归。
 > - 本轮仍然没有执行真实 full rebuild 写路径；OQ-005 在 full rebuild 这条线上的剩余风险，已经收敛回 cutover 前是否要做一次更大范围 dry-run 或真实写入验证。
+> - `v3` replay 与 helper 驱动的 `24` QA 已按最新 contract 真执行成功：`replay_acceptance_gate_v3.py` 结果仍为 `25` 个候选里 `1 accepted / 24 rejected`，最新 contract hash 为 `6e6d77881e8ca8f437154be9bec9b4972e35140c0b2562e7732150e37b9e8418`。
+> - `run_acceptance_gate_v3_replay_qa.py` 已成功驱动 `24_qa_acceptance_gate_v3_replay_outputs.sql` 全部通过；这意味着 legacy valid-as-CV carve-out、`final_holdout=diagnostic_only`、五指数公式锁定和 contract-driven 参数注入都已在真实 BigQuery 执行中收口。
+> - 为让 `24` QA 跑通，本轮额外修了两个 SQL 实现问题：`nav_drawdown` 曾误把整行 `nav` struct 当成数值列，现已改成 `nav.nav AS nav`；`QA-V3-8` 对 `dwd_index_eod` 的 4 个 join 已补显式分区过滤，避免 BigQuery partition elimination 报错。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - `24` QA 现在不再靠 SQL 里的手工镜像默认值维持语义一致性。已新增 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`，从 `model_acceptance_contract_v3.yml` 注入 `contract_hash`、`legacy_valid_as_cv_search_ids` 和 `final_holdout_enforcement` 后再执行 BigQuery QA。
+> - `replay_acceptance_gate_v3.py` 也已改成从 contract 读取 `replay_compatibility.legacy_valid_as_cv_search_ids`，不再保留 Python 侧硬编码 allowlist。
+> - 这套 helper / 新语义现已完成真实 replay 与真实 `24` QA 验证，不再停留在代码就绪状态。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - owner 已明确：`final_holdout` 在 `v3` 中不再是 hard veto。contract 现在把 `final_holdout_gate.enforcement` 标成 `diagnostic_only`，`trading_day_count >= 40` 只保留为诊断阈值。
 > - `replay_acceptance_gate_v3.py` 已同步：`absolute_gate_failures()` 不再因 final_holdout 天数不足而拒绝，candidate artifact 新增 `final_holdout_gate_status`。
 > - `24` QA 的 `QA-V3-6` 也已同步降级，只要求 final_holdout trading day count 可计算，不再要求 `>= 40`。
@@ -100,6 +110,8 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：`v3` replay 和 helper 驱动的 `24` QA 已真执行成功。** `replay_acceptance_gate_v3.py` 在最新 `model_acceptance_contract_v3.yml` 下结果仍为 `25` 个候选里 `1 accepted / 24 rejected`，contract hash 为 `6e6d77881e8ca8f437154be9bec9b4972e35140c0b2562e7732150e37b9e8418`。`run_acceptance_gate_v3_replay_qa.py` 也已成功驱动 `24_qa_acceptance_gate_v3_replay_outputs.sql` 全部通过；legacy valid-as-CV carve-out、`final_holdout=diagnostic_only` 和五指数公式锁定都已在真实 BigQuery 执行中验证。过程中补修了两个 SQL 实现问题：`nav_drawdown` 改为 `nav.nav AS nav`，`QA-V3-8` 对 `dwd_index_eod` 的 4 个 join 补了显式分区过滤。
+- **2026-06-08 GPT-5 Codex：`24` QA 已改成 contract-driven helper 执行。** 新增 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 后，`24_qa_acceptance_gate_v3_replay_outputs.sql` 不再依赖手工在 SQL 顶部镜像 `contract_hash`、legacy replay carve-out 或 `final_holdout` enforcement；这些值都由 helper 从 `model_acceptance_contract_v3.yml` 注入，`sql/ml/strategy1/README.md` 也已改成通过 helper 跑 `24` QA。`replay_acceptance_gate_v3.py` 同时移除了 Python 常量里的 legacy search allowlist，统一从 contract 的 `replay_compatibility` 读取。
 - **2026-06-08 GPT-5 Codex：`v3` final_holdout 已被 owner 降成 diagnostic-only。** `model_acceptance_contract_v3.yml` 现在显式声明 `final_holdout_gate.enforcement=diagnostic_only`；`final_holdout trading days >= 40` 保留为 replay artifact / QA 的诊断字段，但不再阻断 `v3` accepted / rejected。`replay_acceptance_gate_v3.py` 已新增 `final_holdout_gate_status`，`24_qa_acceptance_gate_v3_replay_outputs.sql` 的 `QA-V3-6` 也已同步改为只要求可计算。当前尚未按这条新口径重跑 replay / `24` QA。
 - **2026-06-08 GPT-5 Codex：`v3` replay 已成功重跑，旧阻塞已定位到 final_holdout 历史覆盖缺口。** replay 结果未变，仍是 `25` 个候选里 `1 accepted / 24 rejected`。应用 legacy valid-as-CV fallback 后，`24` QA 已通过 `QA-V3-5`，说明历史字段缺口问题已被消化；当时剩余的 `QA-V3-6` 失败来自首轮 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 的 5 个 historical selected row 在 `2026-01-05..2026-04-30` 没有任何 NAV 行，`final_holdout trading days = 0`。该问题现已被 owner 通过“final_holdout 非硬 veto”决策收口，后续只需按新口径重跑 replay / `24` QA。
 - **2026-06-08 GPT-5 Codex：`v3` replay / `24` QA 已为首轮 sklearn native search 增加 legacy valid-as-CV 兼容口径。** `sklearn_native_pvfq_n30_bw_h5_20260605_01` 的 5 个 historical selected row 缺 `cv_confirmation_status` / `cv_*` 持久化字段时，不再直接判成不可算，而是用已持久化的 `valid_signal_status`、`valid_rank_ic`、`valid_top_minus_bottom_fwd_ret_mean` 作为兼容代理：`stable + valid_rank_ic>0 + valid_top_minus_bottom>0 => passed`，否则 `failed`。这条规则只对该首轮 native search 生效，不推广到后续 LightGBM / risk-feature 搜索。当前尚未重跑 replay / `24` QA，下一步先验证 `QA-V3-5` 是否已打通。

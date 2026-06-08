@@ -97,6 +97,10 @@ final_holdout_gate:
     operator: ">="
     value: 40
 
+replay_compatibility:
+  legacy_valid_as_cv_search_ids:
+    - sklearn_native_pvfq_n30_bw_h5_20260605_01
+
 relative_gate:
   benchmark_scope: comparison_benchmarks
   pass_rule: any_one_benchmark_same_index_pass

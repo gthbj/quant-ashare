@@ -2,8 +2,9 @@
 
 ## 最新状态（2026-06-08）
 
-- [x] owner 已明确 `v3` 的 `final_holdout` 不是 hard veto：`model_acceptance_contract_v3.yml` 已将 `final_holdout_gate` 标成 `diagnostic_only`，replay 不再因天数不足拒绝，`24` QA 只要求可计算；下一步若要看影响，再重跑 replay / `24` QA
-- [~] `v3` replay 已成功重跑，结果仍是 `25` 个候选里 `1 accepted / 24 rejected`；`24` QA 也已推进到只剩 final_holdout 相关断言。现在 owner 已决定 final_holdout 非硬 veto，代码已同步修改；下一步只需按新口径重跑 replay / `24` QA 看通过数与 QA 结果如何变化
+- [x] `24` QA 已切到 contract-driven helper：新增 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`，从 `model_acceptance_contract_v3.yml` 注入 `contract_hash`、legacy replay carve-out 和 `final_holdout` enforcement 后执行 `24_qa_acceptance_gate_v3_replay_outputs.sql`；`README` 已同步，不再建议裸跑 SQL
+- [x] owner 已明确 `v3` 的 `final_holdout` 不是 hard veto：`model_acceptance_contract_v3.yml` 已将 `final_holdout_gate` 标成 `diagnostic_only`，replay 不再因天数不足拒绝，`24` QA 只要求可计算；按这条新口径的 replay 与 `24` QA 已全部真执行通过
+- [x] `v3` replay 已按最新 contract 成功重跑，结果仍是 `25` 个候选里 `1 accepted / 24 rejected`；helper 驱动的 `24` QA 也已全部通过
 - [x] `v3` replay / `24` QA 已为首轮 `sklearn_native_pvfq_n30_bw_h5_20260605_01` 增加 legacy valid-as-CV 兼容口径：当历史 selected row 缺 `cv_confirmation_status` / `cv_*` 字段时，允许用 `valid_signal_status + valid_rank_ic + valid_top_minus_bottom` 代理 CV confirmation；下一步只需重跑 replay / `24` QA 验证 `QA-V3-5`
 
 - [x] PR #108 comment follow-up 已把 Composer 迁出 PRD 加硬到实现级：per-task `pipeline_task_status` 显式写回、`ashare_warehouse_window_refresh` 分布式锁、生产 ingestion -> refresh 同步 child workflow、旧 `warehouse_refresh_missing` watchdog 退役路径，以及 BigQuery / Cloud Run 轮询与 Workflows 限额复核都已写入 PRD。
@@ -144,5 +145,5 @@
 
 ## 策略 1 验收门 v3 后续
 - [x] 实现 `v3` 只读 replay：新增 `scripts/strategy1/replay_acceptance_gate_v3.py`，对五次正式搜索 Top-K 只读重算 `v3` 的 `Sharpe` / `Calmar` / 五指数相对门 / `Final holdout 交易日数`，不回写历史 `accepted/rejected`。
-- [x] 新增 `v3` QA：新增 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`，校验 contract version/hash、五指数窗口覆盖、绝对指标可计算性、正超额复合年化收益前置条件和 `Final holdout 交易日数 >= 40`。
+- [x] 新增 `v3` QA：新增 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`，校验 contract version/hash、五指数窗口覆盖、绝对指标可计算性、正超额复合年化收益前置条件和 `final_holdout` enforcement；`run_acceptance_gate_v3_replay_qa.py` 已按最新 contract 驱动真执行通过。
 - [ ] replay 和 QA 通过后，再把 Cloud Run live search 的 `acceptance_contract_path` 从 `v1` 切到 `v3`。

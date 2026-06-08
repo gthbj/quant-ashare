@@ -127,9 +127,10 @@ python scripts/strategy1/replay_acceptance_gate_v3.py \
     --local-mirror-root reports/strategy1 \
     --skip-gcs-upload
 
-# 24 QA 只复算 v3 replay 所依赖的源数据不变量：contract identity、五次正式搜索 Top-K 覆盖、
-# 五指数窗口覆盖、绝对指标公式和 direct-pass 正超额前置条件。
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql
+# 24 QA 通过 helper 从 contract 渲染 hash / legacy replay carve-out / final_holdout enforcement，
+# 然后在 BigQuery 侧复算 v3 replay 所依赖的源数据不变量。
+python scripts/strategy1/run_acceptance_gate_v3_replay_qa.py \
+    --project data-aquarium
 ```
 
 ## Cloud Run sklearn runner（PRD-20260604-04）
@@ -193,7 +194,7 @@ P2 市场状态 risk-off（PRD-20260606-01）：先构建 `sql/dws/08_dws_market
 
 验收门 v2 与组合可行性诊断（PRD-20260606-04/05）：`configs/strategy1/model_acceptance_contract_v2.yml` 是 v2 阈值和指标定义的唯一事实来源；`scripts/strategy1/diagnose_acceptance_gate_v2.py` 只读 reference run、预测、候选、NAV、DWS 标签和价格，输出 `acceptance_gate_v2/` artifact。production accepted 必须使用 `ledger_exec_v1_lot100`；旧 FLOAT-shares reference 只作 historical audit。默认诊断 run 为 `acceptance_gate_v2_reference_20260606_01`，历史 reference run/backtest 为 `s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01` / `bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01`。产物包括 `acceptance_gate_v2_summary.*`、`portfolio_feasibility*`、`eligible_universe_benchmark*`、`score_orientation_audit.json`、低价股偏移、实际持股、现金和 exposure-adjusted 视图。`10/5%` 仅为 `diagnostic_cash_control`，不参与 accepted production baseline；可进入 accepted 判定的候选只包含 `20/5%`、`30/5%`、`40/5%`。BigQuery 侧验收使用 `sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql`，该 QA 断言 v2 contract、`target_holdings=10/20/30/40` 且无 `50`、reference run 在 v2 下 rejected、候选流可模拟 top40、score orientation 审计输入存在、valid/test 标签输入存在、BQML/SQL runner 不得登记 v2 accepted baseline，以及 v2 accepted 记录必须使用 required lot-aware ledger。
 
-验收门 v3 只读 replay（PRD-20260608-02）：`configs/strategy1/model_acceptance_contract_v3.yml` 是 `v3` benchmark、复利、Sharpe / Calmar、五指数相对门和 final_holdout trading days 的唯一事实来源。`scripts/strategy1/replay_acceptance_gate_v3.py` 只读五次正式搜索的 selected model / backtest / NAV / `dwd_index_eod`，不重训模型、不改 historical `accepted/rejected`、不回写 ADS；它输出 `acceptance_gate_v3_replay/` artifact，包括 replay summary、candidate 级结果和逐指数相对门明细。BigQuery 侧 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 不检查 artifact 文件存在性，而是复算 replay 依赖的 contract identity、五次正式搜索 Top-K 覆盖、五指数窗口覆盖、绝对指标公式，以及“direct-pass 不得绕过正超额复合年化收益”这一相对门前提。
+验收门 v3 只读 replay（PRD-20260608-02）：`configs/strategy1/model_acceptance_contract_v3.yml` 是 `v3` benchmark、复利、Sharpe / Calmar、五指数相对门、legacy replay carve-out 和 final_holdout enforcement 的唯一事实来源。`scripts/strategy1/replay_acceptance_gate_v3.py` 只读五次正式搜索的 selected model / backtest / NAV / `dwd_index_eod`，不重训模型、不改 historical `accepted/rejected`、不回写 ADS；它输出 `acceptance_gate_v3_replay/` artifact，包括 replay summary、candidate 级结果和逐指数相对门明细。BigQuery 侧不要再直接裸跑 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`；应通过 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 从 contract 渲染 `contract hash`、`legacy_valid_as_cv_search_ids` 和 `final_holdout enforcement` 后执行，这样 replay 与 QA 才共享同一 contract 语义。`24` QA 本身不检查 artifact 文件存在性，而是复算 replay 依赖的 contract identity、五次正式搜索 Top-K 覆盖、五指数窗口覆盖、绝对指标公式，以及“direct-pass 不得绕过正超额复合年化收益”这一相对门前提。
 
 lot-aware ledger QA（PRD-20260606-05）：Cloud Run Python `backtest_report.py` 默认使用 `ledger_exec_v1_lot100`，买入按 100 股整数手向下取整，清仓卖出允许 odd-lot，部分卖出按 100 股向下取整并保留余股。固定预测 reference rerun 或 production candidate 回测后运行 `sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql`，校验买入成交股数、below-lot / odd-lot 状态、现金非负、暴露约束和 summary lot 参数。
 

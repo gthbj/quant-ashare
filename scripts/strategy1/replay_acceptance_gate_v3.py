@@ -44,9 +44,6 @@ DEFAULT_SEARCH_IDS = [
     "cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_20260606_01",
     "cloudrun_python_riskfeat_lgbm_reg_pvfq_n30_bw_h5_20260606_01",
 ]
-LEGACY_VALID_AS_CV_SEARCH_IDS = {
-    "sklearn_native_pvfq_n30_bw_h5_20260605_01",
-}
 REQUIRED_ARTIFACTS = [
     "acceptance_gate_v3_replay_summary.json",
     "acceptance_gate_v3_replay_summary.md",
@@ -517,7 +514,7 @@ def evaluate_candidate(
     if not passed_benchmarks:
         reasons.append("no_comparison_benchmark_passed_v3_relative_gate")
     status = "accepted" if not reasons else "rejected"
-    cv_confirmation_status, cv_confirmation_status_from_fallback = effective_cv_confirmation_status(record, metrics)
+    cv_confirmation_status, cv_confirmation_status_from_fallback = effective_cv_confirmation_status(record, metrics, contract)
     test_rank_ic, test_rank_ic_from_fallback = effective_test_metric(record, metrics, "test_rank_ic_mean")
     test_top_minus_bottom, test_top_minus_bottom_from_fallback = effective_test_metric(
         record,
@@ -633,7 +630,7 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
     thresholds = signal_gate.get("thresholds") or {}
     diagnosis = contract.get("diagnosis") or {}
 
-    cv_status, _ = effective_cv_confirmation_status(record, metrics)
+    cv_status, _ = effective_cv_confirmation_status(record, metrics, contract)
     if cv_status != required.get("cv_confirmation_status", "passed"):
         failures.append(f"cv_confirmation_status!={required.get('cv_confirmation_status', 'passed')}")
 
@@ -674,7 +671,7 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
     return failures
 
 
-def effective_cv_confirmation_status(record: dict[str, Any], metrics: dict[str, Any]) -> tuple[str | None, bool]:
+def effective_cv_confirmation_status(record: dict[str, Any], metrics: dict[str, Any], contract: dict[str, Any]) -> tuple[str | None, bool]:
     raw_status = coalesce_text(record.get("cv_confirmation_status"), metrics.get("cv_confirmation_status"))
     if raw_status is not None:
         return raw_status, False
@@ -686,15 +683,16 @@ def effective_cv_confirmation_status(record: dict[str, Any], metrics: dict[str, 
             return "failed", True
         return ("passed" if cv_rank_ic > 0 and cv_top_minus_bottom > 0 else "failed"), True
 
-    legacy_status = legacy_valid_as_cv_confirmation_status(record, metrics)
+    legacy_status = legacy_valid_as_cv_confirmation_status(record, metrics, contract)
     if legacy_status is not None:
         return legacy_status, True
     return None, False
 
 
-def legacy_valid_as_cv_confirmation_status(record: dict[str, Any], metrics: dict[str, Any]) -> str | None:
+def legacy_valid_as_cv_confirmation_status(record: dict[str, Any], metrics: dict[str, Any], contract: dict[str, Any]) -> str | None:
     search_id = coalesce_text(record.get("search_id"), metrics.get("search_id"))
-    if search_id not in LEGACY_VALID_AS_CV_SEARCH_IDS:
+    legacy_ids = set((((contract.get("replay_compatibility") or {}).get("legacy_valid_as_cv_search_ids")) or []))
+    if search_id not in legacy_ids:
         return None
     valid_signal_status = coalesce_text(record.get("valid_signal_status"), metrics.get("valid_signal_status"))
     valid_rank_ic = first_finite(
