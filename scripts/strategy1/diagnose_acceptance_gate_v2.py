@@ -206,7 +206,7 @@ def apply_contract_defaults(args: argparse.Namespace, contract: dict[str, Any]) 
     args.test_end_date = args.test_end_date or test.get("end_date")
     args.final_holdout_start_date = args.final_holdout_start_date or final.get("start_date")
     args.final_holdout_end_date = args.final_holdout_end_date or final.get("end_date")
-    args.benchmark_sec_code = args.benchmark_sec_code or benchmarks.get("primary_benchmark_sec_code", "000852.SH")
+    args.benchmark_sec_code = args.benchmark_sec_code or benchmarks.get("primary_benchmark_sec_code", "000001.SH")
 
 
 def validate_args(args: argparse.Namespace, contract: dict[str, Any]) -> None:
@@ -401,17 +401,17 @@ def fetch_reference_metrics(client: bigquery.Client, args: argparse.Namespace) -
       full_perf.full_period_total_return,
       full_perf.full_period_benchmark_return,
       full_perf.full_period_total_return - full_perf.full_period_benchmark_return
-        AS full_period_excess_return_vs_000852,
+        AS full_period_excess_return_vs_primary_benchmark,
       full_perf.full_period_information_ratio,
       COALESCE(strategy_dd.full_period_max_drawdown, summary.summary_max_drawdown) AS full_period_max_drawdown,
       benchmark_dd.benchmark_max_drawdown AS full_period_benchmark_max_drawdown,
       COALESCE(strategy_dd.full_period_max_drawdown, summary.summary_max_drawdown) - benchmark_dd.benchmark_max_drawdown
-        AS full_period_relative_max_drawdown_vs_000852,
+        AS full_period_relative_max_drawdown_vs_primary_benchmark,
       final_perf.final_holdout_trading_days,
       final_perf.final_holdout_total_return,
       final_perf.final_holdout_benchmark_return,
       final_perf.final_holdout_total_return - final_perf.final_holdout_benchmark_return
-        AS final_holdout_excess_return_vs_000852,
+        AS final_holdout_excess_return_vs_primary_benchmark,
       summary.sharpe,
       summary.annual_return,
       summary.annual_vol,
@@ -1216,23 +1216,23 @@ def decide_acceptance_v2(
     evidence: list[str] = []
     accepted_missing: list[str] = []
 
-    full_excess = safe_float(reference_metrics.get("full_period_excess_return_vs_000852"))
+    full_excess = safe_float(reference_metrics.get("full_period_excess_return_vs_primary_benchmark"))
     full_total = safe_float(reference_metrics.get("full_period_total_return"))
     full_ir = safe_float(reference_metrics.get("full_period_information_ratio"))
     full_dd = safe_float(reference_metrics.get("full_period_max_drawdown"))
-    rel_dd = safe_float(reference_metrics.get("full_period_relative_max_drawdown_vs_000852"))
-    final_excess = safe_float(reference_metrics.get("final_holdout_excess_return_vs_000852"))
+    rel_dd = safe_float(reference_metrics.get("full_period_relative_max_drawdown_vs_primary_benchmark"))
+    final_excess = safe_float(reference_metrics.get("final_holdout_excess_return_vs_primary_benchmark"))
     eligible_return = safe_float(eligible_summary.get("eligible_executable_total_return_costed"))
     eligible_excess = full_total - eligible_return if math.isfinite(full_total) and math.isfinite(eligible_return) else math.nan
     eligible_ir = math.nan
 
     hard_checks = [
-        ("full_period_excess_return_vs_000852", full_excess, thresholds.get("hard_reject_full_period_excess_return_vs_000852", -0.03), "le"),
+        ("full_period_excess_return_vs_primary_benchmark", full_excess, thresholds.get("hard_reject_full_period_excess_return_vs_000852", -0.03), "le"),
         ("full_period_information_ratio", full_ir, thresholds.get("hard_reject_full_period_information_ratio", 0.0), "lt"),
         ("full_period_excess_return_vs_eligible_executable", eligible_excess, thresholds.get("hard_reject_full_period_excess_return_vs_eligible_executable", -0.03), "le"),
         ("full_period_max_drawdown", full_dd, thresholds.get("hard_reject_full_period_max_drawdown", -0.25), "lt"),
-        ("full_period_relative_max_drawdown_vs_000852", rel_dd, thresholds.get("hard_reject_full_period_relative_max_drawdown_vs_000852", -0.25), "lt"),
-        ("final_holdout_excess_return_vs_000852", final_excess, thresholds.get("hard_reject_final_holdout_excess_return_vs_000852", -0.10), "le"),
+        ("full_period_relative_max_drawdown_vs_primary_benchmark", rel_dd, thresholds.get("hard_reject_full_period_relative_max_drawdown_vs_000852", -0.25), "lt"),
+        ("final_holdout_excess_return_vs_primary_benchmark", final_excess, thresholds.get("hard_reject_final_holdout_excess_return_vs_000852", -0.10), "le"),
     ]
     for name, actual, threshold, op in hard_checks:
         if not math.isfinite(actual):
@@ -1256,13 +1256,13 @@ def decide_acceptance_v2(
         evidence.append("no_20_30_40_candidate_passed_implementation_gate")
 
     accepted_checks = [
-        ("full_period_excess_return_vs_000852", full_excess, thresholds.get("min_full_period_excess_return_vs_000852", 0.03), "gt"),
+        ("full_period_excess_return_vs_primary_benchmark", full_excess, thresholds.get("min_full_period_excess_return_vs_000852", 0.03), "gt"),
         ("full_period_information_ratio", full_ir, thresholds.get("min_full_period_information_ratio", 0.25), "gt"),
         ("full_period_excess_return_vs_eligible_executable", eligible_excess, thresholds.get("min_full_period_excess_return_vs_eligible_executable", 0.0), "gt"),
         ("full_period_information_ratio_vs_eligible_executable", eligible_ir, thresholds.get("min_full_period_information_ratio_vs_eligible_executable", 0.0), "gt"),
         ("full_period_max_drawdown", full_dd, thresholds.get("min_full_period_max_drawdown", -0.18), "ge"),
-        ("full_period_relative_max_drawdown_vs_000852", rel_dd, thresholds.get("min_full_period_relative_max_drawdown_vs_000852", -0.18), "ge"),
-        ("final_holdout_excess_return_vs_000852", final_excess, thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05), "gt"),
+        ("full_period_relative_max_drawdown_vs_primary_benchmark", rel_dd, thresholds.get("min_full_period_relative_max_drawdown_vs_000852", -0.18), "ge"),
+        ("final_holdout_excess_return_vs_primary_benchmark", final_excess, thresholds.get("min_final_holdout_excess_return_vs_000852", -0.05), "gt"),
         ("valid_rank_ic_mean", safe_float(signal_metrics.get("valid_rank_ic_mean")), thresholds.get("min_valid_rank_ic", 0.0), "gt"),
         ("valid_rank_ic_t_stat", safe_float(signal_metrics.get("valid_rank_ic_t_stat")), thresholds.get("min_valid_rank_ic_t_stat", 1.0), "gt"),
         ("valid_top_minus_bottom_fwd_ret_mean", safe_float(signal_metrics.get("valid_top_minus_bottom_fwd_ret_mean")), thresholds.get("min_valid_top_minus_bottom_fwd_ret", 0.0), "gt"),
@@ -1410,12 +1410,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "|---|---:|",
         f"| full_period_total_return | {pct(ref.get('full_period_total_return'))} |",
         f"| full_period_benchmark_return | {pct(ref.get('full_period_benchmark_return'))} |",
-        f"| full_period_excess_return_vs_000852 | {pct(ref.get('full_period_excess_return_vs_000852'))} |",
+        f"| full_period_excess_return_vs_primary_benchmark | {pct(ref.get('full_period_excess_return_vs_primary_benchmark'))} |",
         f"| full_period_excess_return_vs_eligible_executable | {pct(ref.get('full_period_excess_return_vs_eligible_executable'))} |",
         f"| full_period_information_ratio | {num(ref.get('full_period_information_ratio'))} |",
         f"| full_period_max_drawdown | {pct(ref.get('full_period_max_drawdown'))} |",
-        f"| full_period_relative_max_drawdown_vs_000852 | {pct(ref.get('full_period_relative_max_drawdown_vs_000852'))} |",
-        f"| final_holdout_excess_return_vs_000852 | {pct(ref.get('final_holdout_excess_return_vs_000852'))} |",
+        f"| full_period_relative_max_drawdown_vs_primary_benchmark | {pct(ref.get('full_period_relative_max_drawdown_vs_primary_benchmark'))} |",
+        f"| final_holdout_excess_return_vs_primary_benchmark | {pct(ref.get('final_holdout_excess_return_vs_primary_benchmark'))} |",
         "",
         "## Signal Metrics",
         "",

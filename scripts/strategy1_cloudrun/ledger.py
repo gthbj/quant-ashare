@@ -55,7 +55,7 @@ class LedgerParams:
     predict_start: str = "2024-01-02"
     predict_end: str = "2025-12-31"
     initial_capital: float = 100000.0
-    benchmark: str = "000852.SH"
+    benchmark: str = "000001.SH"
     commission_bps: float = 1.0
     min_commission_cny: float = 0.0
     stamp_tax_buy_bps: float = 0.0

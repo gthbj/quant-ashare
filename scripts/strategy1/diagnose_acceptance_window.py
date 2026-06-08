@@ -63,7 +63,7 @@ def parse_args() -> argparse.Namespace:
                         help="已完成 Python search_id；可重复传入。默认分析 sklearn/lgbm binary/lgbm regression 三波")
     parser.add_argument("--test-start-date", default="2025-01-02")
     parser.add_argument("--test-end-date", default="2025-12-31")
-    parser.add_argument("--benchmark-sec-code", default="000852.SH")
+    parser.add_argument("--benchmark-sec-code", default="000001.SH")
     parser.add_argument("--risk-max-drawdown-target", type=float, default=-0.18)
     parser.add_argument("--python-same-side-threshold", type=float, default=0.80)
     parser.add_argument("--artifact-base-uri", default="gs://ashare-artifacts/reports/strategy1")

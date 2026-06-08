@@ -35,7 +35,7 @@ DECLARE p_stamp_tax_sell_bps FLOAT64 DEFAULT 5.0;
 DECLARE p_slippage_buy_bps FLOAT64 DEFAULT 5.0;
 DECLARE p_slippage_sell_bps FLOAT64 DEFAULT 5.0;
 DECLARE p_cost_bps FLOAT64 DEFAULT 30.0;  -- 兼容字段
-DECLARE p_benchmark STRING DEFAULT '000852.SH';
+DECLARE p_benchmark STRING DEFAULT '000001.SH';
 DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_backtest
 DECLARE p_parent_backtest_id STRING DEFAULT NULL;
 DECLARE p_state_as_of_date DATE DEFAULT NULL;

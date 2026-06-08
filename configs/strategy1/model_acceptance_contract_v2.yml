@@ -32,7 +32,7 @@ windows:
     reuse_wave_no: 2
 
 benchmarks:
-  primary_benchmark_sec_code: 000852.SH
+  primary_benchmark_sec_code: 000001.SH
   eligible_signal_pool_benchmark:
     id: eligible_signal_pool_benchmark
     description: t-date live prediction pool equal-weight diagnostic benchmark

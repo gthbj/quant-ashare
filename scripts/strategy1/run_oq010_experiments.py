@@ -1227,7 +1227,7 @@ class ExperimentExecutor:
             "p_slippage_buy_bps": exp.get("slippage_buy_bps", 5.0),
             "p_slippage_sell_bps": exp.get("slippage_sell_bps", 5.0),
             "p_cost_bps": exp.get("cost_bps", 30.0),
-            "p_benchmark": exp.get("benchmark", "000852.SH"),
+            "p_benchmark": exp.get("benchmark", "000001.SH"),
         }
 
     def _run_python_script(self, script_path: str, log_path: str) -> bool:
