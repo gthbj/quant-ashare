@@ -92,6 +92,11 @@
 - `airflow_monitoring` 是 Cloud Composer 托管的环境健康 DAG，不由仓库 DAG 代码控制；在 Composer 仍存在时不能靠改 repo 把它降频到每小时以内。要消除这部分 run/底座费用，必须 cutover 后删除 Composer 环境。
 - `ashare_pipeline_alert_checker` 在迁移期与迁移后统一按“最多每小时 1 次”设计：schedule `0 * * * *`，lookback `70` 分钟，heartbeat 缺失告警窗口 `120` 分钟，避免 1 小时 cadence 下出现空窗误报。
 - 2026-06-08 真实 cutover 后，生产定时入口已改为 Cloud Scheduler jobs `ashare-pipeline-alert-checker` 与 `ashare-ods-ingestion-daily`，两者统一由 `ashare-scheduler-invoker@data-aquarium.iam.gserviceaccount.com` 调 Workflows Executions API。ODS daily 固定 `0 20 * * *` / `Asia/Shanghai`，payload 固定 `pipeline_dry_run=false`、`scheduled_run=true`、`run_label=scheduled_daily_ingestion`；`ashare_warehouse_window_refresh` 不建立独立 daily scheduler，继续只作为 `ashare_ods_ingestion_daily` 的同步 child workflow，避免双入口写生产窗口。
+- OQ-005 scheduler least-privilege 约束：`ashare-workflows-runtime@data-aquarium.iam.gserviceaccount.com` 不应再持有项目级 `roles/run.developer`。它在 Cloud Run 侧的最小集合是：
+  - `ashare-pipeline-control` service 上的 `roles/run.invoker`
+  - `ashare-ingest-current-scope` Cloud Run Job 上的 `roles/run.invoker`
+  任何后续 cutover / bootstrap 脚本都应显式移除项目级 `run.developer`，避免该 runtime SA 获得任意 Cloud Run service/job 的创建、修改或删除能力。
+- OQ-005 cutover 顺序约束：cutover helper 不得先 enable Scheduler jobs、后 pause Composer。安全顺序必须是：先创建/更新 Scheduler jobs 为 `PAUSED`，再 pause Composer 业务 DAG，完成至少一次真实 fire 验证后，才显式 `resume` Scheduler jobs。
 - `ashare_warehouse_full_rebuild` 的 Workflows 路径现已改为 `ashare-pipeline-control` 服务端 async `submit + poll`，不能再退回同步 `job.result()`；否则会重新暴露 Cloud Run request timeout / Workflows `http.*` step timeout 风险。共享 warehouse-write lock 仍为同一把 `ashare_warehouse_window_refresh` 锁，full rebuild lease 现为 `21600s`。
 - `ashare_warehouse_full_rebuild` 的 async poll 循环本身也必须续租共享写锁，不能只在每个 BigQuery step 结束后 heartbeat；否则单个 step 时长超过 lease 时，会被 stale-lock reclaim 打开并发写窗口。对 `get_job(...)` 的瞬时错误，不得首错即落 `failed`；必须先在控制面重试。只有两种情况允许写 task `failed` 终态：`job.error_result` 真实存在，或 `get_job(...)` 在全部内部重试耗尽后仍无法读取 job 状态，避免 `pipeline_task_status` 长时间卡在 `running`。
 - `ashare-pipeline-control` 的 BigQuery poll 重试当前使用同步退避 `time.sleep`，一次 `/v1/tasks/bigquery/poll` 最坏会因 `get_job(...)` 内部重试额外阻塞约 `15s`（`1+2+4+8`）；这是当前 thin-adapter 设计的显式容量约束。若 shadow run / cutover 后出现 worker 饱和，再考虑把 poll 从“同步 sleep + 单请求重试”拆成更细的状态机。

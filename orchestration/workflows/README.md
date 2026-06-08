@@ -10,9 +10,9 @@ Included in this PR:
 - `Dockerfile.pipeline_control`: thin Cloud Run control-plane adapter image that executes bundled SQL, writes `pipeline_run` / `pipeline_task_status`, and manages orchestration leases.
 - `deploy_pipeline_control_service.sh`: build and deploy the control-plane Cloud Run service.
 - `deploy_workflows.sh`: deploy the three production-ready workflows after substituting the control-service URL; `ashare_warehouse_full_rebuild` is opt-in only via `DEPLOY_FULL_REBUILD=true`.
-- `bootstrap_scheduler_iam.sh`: idempotently restore the scheduler caller and workflows runtime IAM needed for the Composer-free production path.
+- `bootstrap_scheduler_iam.sh`: idempotently restore the scheduler caller and workflows runtime IAM needed for the Composer-free production path, including job-level `run.invoker` for the ODS ingestion Cloud Run Job.
 - `deploy_scheduler_jobs.sh`: create or update the hourly alert-checker Scheduler job and the daily ODS production Scheduler job, both through the Workflows Executions API.
-- `cutover_scheduler_jobs.sh`: bootstrap IAM, enable the Scheduler jobs, and keep the Composer business DAGs paused during real cutover.
+- `cutover_scheduler_jobs.sh`: bootstrap IAM, create Scheduler jobs in `PAUSED` state, pause the Composer business DAGs, and only resume the Scheduler jobs after an explicit validation step.
 
 Also included in this PR:
 - `ashare-pipeline-control` alert-check endpoint that reuses `scripts/alerting/check_alerts.py`
@@ -44,9 +44,9 @@ Deploy order:
 3. Deploy the three production-ready workflows
 4. Leave `ashare_warehouse_full_rebuild` undeployed by default; deploy it with `DEPLOY_FULL_REBUILD=true` when you want the manual workflow available in the target project
 5. Run `bootstrap_scheduler_iam.sh` so the dedicated Scheduler caller service account has `roles/workflows.invoker`, and the workflows runtime bindings are restored idempotently
-6. Deploy the Scheduler jobs for `ashare_pipeline_alert_checker` and `ashare_ods_ingestion_daily`
-7. Keep the Composer business DAGs paused while the Scheduler jobs are enabled, so the production write path has exactly one active scheduler entrypoint
-8. Verify manual workflow execution plus one real Scheduler fire after cutover
+6. Deploy the Scheduler jobs for `ashare_pipeline_alert_checker` and `ashare_ods_ingestion_daily` in `PAUSED` state
+7. Pause the Composer business DAGs before any Scheduler job is resumed
+8. Verify one real fire for the paused Scheduler path, then resume the Scheduler jobs so the production write path has exactly one active scheduler entrypoint
 
 Example:
 ```bash
@@ -56,7 +56,9 @@ PIPELINE_CONTROL_URL="https://ashare-pipeline-control-xxxxx-uc.a.run.app" ./depl
 # Optional only after full rebuild is production-ready:
 # DEPLOY_FULL_REBUILD=true PIPELINE_CONTROL_URL="https://ashare-pipeline-control-xxxxx-uc.a.run.app" ./deploy_workflows.sh
 ./bootstrap_scheduler_iam.sh
-./deploy_scheduler_jobs.sh
-# Real cutover helper:
+ENABLE_JOBS=false ./deploy_scheduler_jobs.sh
+# Real cutover helper stages jobs as paused by default:
 # ./cutover_scheduler_jobs.sh
+# After a successful manual fire:
+# RESUME_SCHEDULER_JOBS=true ./cutover_scheduler_jobs.sh
 ```

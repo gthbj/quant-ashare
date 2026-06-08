@@ -1,4 +1,8 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #121 review follow-up 已收紧两处生产边界：`ashare-workflows-runtime` 不再依赖项目级 `roles/run.developer`，而改为 `ashare-ingest-current-scope` job 级 `roles/run.invoker`；`cutover_scheduler_jobs.sh` 也改成默认先创建 paused Scheduler jobs、再 pause Composer，只有显式 `RESUME_SCHEDULER_JOBS=true` 才启用。
+> - 这轮没有再重跑生产 scheduler；只会把最小权限变更打到 live IAM，避免为了验证 comment 再额外触发一次真实生产链。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - OQ-005 已按 owner 决策跳过 shadow run，直接完成真实 cutover：Scheduler jobs `ashare-pipeline-alert-checker` 和 `ashare-ods-ingestion-daily` 已 `ENABLED`，caller SA 已统一切到 `ashare-scheduler-invoker@data-aquarium.iam.gserviceaccount.com`。
 > - 真实触发证据：alert-checker execution `978c920c-3810-4299-b904-3c954e8d221d` succeeded；ODS parent execution `31ac0d61-d40c-4a88-9865-b13f61d369c1` succeeded，并带起 child warehouse execution `919f2aba-b9d4-4181-9915-fa848487bb90` succeeded。
 > - 现在 OQ-005 剩余项不再是“要不要 shadow run”，而是是否保留短期观测窗口，以及何时删除 Composer 环境来停止固定底座费用。
@@ -4134,5 +4138,40 @@ Model: GPT-5 Codex
 
 - 若不再需要额外观察窗口，下一步就是删除 Composer 环境，停止固定 `Cloud Composer 3 standard milli DCU-hours` 成本。
 - 若仍想保守一点，可先观察下一次自然 scheduled ODS run，再删环境。
+
+Model: GPT-5 Codex
+
+## 2026-06-08 GPT-5 Codex - PR #121 review follow-up
+
+### 本轮完成
+
+- `bootstrap_scheduler_iam.sh` 不再给 `ashare-workflows-runtime` 授项目级 `roles/run.developer`；改为对 `ashare-ingest-current-scope` 单授 job-level `roles/run.invoker`，并在脚本里显式移除旧的项目级 `run.developer` 绑定。
+- `cutover_scheduler_jobs.sh` 改为更安全的 staged 顺序：先用 `ENABLE_JOBS=false` 创建/更新 paused Scheduler jobs，再 pause Composer 业务 DAG；只有显式 `RESUME_SCHEDULER_JOBS=true` 才会 resume。
+- `README.md`、`KNOWN_CONSTRAINTS.md`、`IMPLEMENTATION_STATUS.md`、`OPEN_QUESTIONS.md`、`TODO.md` 已同步更新到新的 least-privilege / staged-cutover 语义。
+
+### 本轮未做
+
+- 没有重新触发 ODS / warehouse scheduler execution。
+- 没有处理 review 提到的 lock bucket 前缀最小化问题；当前仍沿用整桶 `roles/storage.objectAdmin`。
+
+### 原因说明
+
+- 对 lock bucket 的 minor 我认同风险判断，但这已经从“Scheduler cutover 修正”扩展成“锁桶/存储边界重构”。当前 PR 先收敛 runtime SA 的 Cloud Run 过权和 cutover 顺序；桶级最小化建议后续单开处理更稳。
+
+### 影响文件
+
+- `orchestration/workflows/bootstrap_scheduler_iam.sh`
+- `orchestration/workflows/cutover_scheduler_jobs.sh`
+- `orchestration/workflows/README.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 下一步建议
+
+- 运行更新后的 `bootstrap_scheduler_iam.sh`，把 live runtime SA 真的收敛到 job-level `run.invoker`。
+- PR 合并后，再单独决定是否要为 lock 前缀拆专用 bucket / IAM condition，随后删除 Composer 环境。
 
 Model: GPT-5 Codex

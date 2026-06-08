@@ -5,6 +5,7 @@ PROJECT_ID="${PROJECT_ID:-data-aquarium}"
 REGION="${REGION:-asia-east2}"
 COMPOSER_ENVIRONMENT="${COMPOSER_ENVIRONMENT:-ashare-composer}"
 SCHEDULER_LOCATION="${SCHEDULER_LOCATION:-${REGION}}"
+RESUME_SCHEDULER_JOBS="${RESUME_SCHEDULER_JOBS:-false}"
 WORKFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 pause_dag() {
@@ -16,13 +17,20 @@ pause_dag() {
 }
 
 "${WORKFLOW_DIR}/bootstrap_scheduler_iam.sh"
-"${WORKFLOW_DIR}/deploy_scheduler_jobs.sh"
+ENABLE_JOBS=false "${WORKFLOW_DIR}/deploy_scheduler_jobs.sh"
 
 pause_dag "ashare_daily_pipeline_v0"
 pause_dag "ashare_ods_ingestion_daily"
 pause_dag "ashare_warehouse_window_refresh"
 pause_dag "ashare_pipeline_alert_checker"
 pause_dag "ashare_warehouse_full_rebuild"
+
+if [[ "${RESUME_SCHEDULER_JOBS}" == "true" ]]; then
+  ENABLE_JOBS=true "${WORKFLOW_DIR}/deploy_scheduler_jobs.sh"
+else
+  echo "Scheduler jobs remain PAUSED."
+  echo "Run a manual validation fire, then rerun with RESUME_SCHEDULER_JOBS=true to enable production schedules."
+fi
 
 gcloud scheduler jobs describe ashare-ods-ingestion-daily \
   --project="${PROJECT_ID}" \
