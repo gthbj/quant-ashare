@@ -22,7 +22,7 @@
 
 ## P0 — 当前优先
 
-- [~] OQ-005 编排迁出 Composer Phase 0/1：`ashare-pipeline-control`、`ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh` 已真实部署，mock-GCS 锁最小集成测试和真实 `qa_only` / `daily_current` smoke 已通过；`ashare_pipeline_alert_checker` 已完成小时级代码迁移骨架（Composer 过渡态 `0 * * * *` + `Cloud Scheduler -> Cloud Run` deploy script），剩余 `ashare_warehouse_full_rebuild` 可部署方案、Cloud Scheduler / IAM bootstrap / shadow-run / cutover
+- [~] OQ-005 编排迁出 Composer Phase 0/1：`ashare-pipeline-control`、`ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh` 已真实部署，mock-GCS 锁最小集成测试和真实 `qa_only` / `daily_current` smoke 已通过；`ashare_pipeline_alert_checker` 的目标路径已改为 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`，当前先收敛 PRD，剩余实现 PR、`ashare_warehouse_full_rebuild` 可部署方案、把 `orchestration/workflows/deploy_scheduler_jobs.sh` 从直连 Cloud Run 改为 Workflows Executions API、补 Scheduler caller service account 的 `roles/workflows.invoker`、再做 shadow-run / cutover。在实现 PR 落地前，当前 `deploy_scheduler_jobs.sh` 视为 `superseded / do-not-run`
 - [x] OQ-005 编排迁出 Composer Phase 1 补硬要求：统一 `pipeline_task_status` 显式写回层、`ashare_warehouse_window_refresh` 分布式锁，以及同步 child workflow production path 已落地到 Workflows 并通过真实 `qa_only` / `daily_current` smoke
 - [x] OQ-005 PR #111 review follow-up：Workflows 布尔 flag 已统一在 resolve 阶段做 `${text.to_lower(string(input_flag))}`，避免 Cloud Scheduler / 手工 API 用 JSON boolean 触发时静默误入非 dry-run / 非 skip 分支
 - [~] OQ-005 编排迁出 Composer 验收：`qa_only` 与 `daily_current` 手工 smoke 已完成；剩 `backfill` / 非交易日 skip 的 Workflows smoke、切 scheduled 入口后的 2 个自然开市日和 1 个自然非交易日 cutover 观察，以及最终删除 Composer 环境
@@ -121,7 +121,7 @@
 - [x] OQ-007 退市日类型已复核并关闭，PR #9 后依赖链已重建并通过 P0 / 策略 1 QA
 - [x] OQ-005 Composer exit phase 1 foundation 已部署并完成最小验证：`ashare-pipeline-control`、`ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh` 已上线；新增 `tests/pipeline_control/test_state_lock.py` 并本地通过，真实 `qa_only` / `daily_current` smoke 也已通过。当前仍未 cutover，Composer 继续作为生产入口。
 - [~] OQ-005 follow-up：迁移 `ashare_warehouse_full_rebuild` 到 Workflows，并保持显式状态写回、同步终态轮询和锁语义；workflow 草案已补，但 review follow-up 已把它移出标准 `deploy_workflows.sh`，当前只有显式 `DEPLOY_FULL_REBUILD=true` 才会部署。待先解决 `ashare-pipeline-control` 同步 `job.result()` 带来的长 SQL timeout 风险。
-- [~] OQ-005 follow-up：迁移 `ashare_pipeline_alert_checker` 到 `Cloud Scheduler + Cloud Run`；代码路径、`/v1/tasks/alert-check` 和 deploy script 已补齐，并按 owner 要求统一为“最多每小时 1 次”，待真实部署/smoke 并在 cutover 后删除 Composer。启用 Scheduler job 时需同步 pause / delete Composer DAG `ashare_pipeline_alert_checker`。
+- [~] OQ-005 follow-up：迁移 `ashare_pipeline_alert_checker` 到 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`；本次已先把 PRD 和项目记忆收敛到新路径，待下一条实现 PR 补 workflow / deploy script / live smoke，并在 cutover 后删除 Composer。启用 Scheduler job 时需同步停用 Composer DAG `ashare_pipeline_alert_checker`。
 - [ ] OQ-005 follow-up：补 Cloud Scheduler / IAM bootstrap / shadow-run / cutover 脚本，完成 Composer 真正下线前的生产切换路径。
 - [ ] OQ-005 follow-up：`airflow_monitoring` 无法在 Composer 存续期内降到每小时以内；完成 cutover 后删除 Composer 环境，才是停止这类平台托管监控 run 和固定 `standard milli DCU-hours` 成本的唯一路径。
 - [ ] OQ-005 follow-up：若 shadow run 暴露锁过期边界，再给 `ashare-pipeline-control` stale-lock reclaim 补 Workflows execution liveness 检查；当前 phase 1 先以显式 SQL call timeout + 更长 lease headroom 收敛风险。

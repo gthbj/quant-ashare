@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-08，GPT-5 Codex）
+> - PR #115 review follow-up 已把 OQ-005 alert checker 改道写成实现级硬约束：Scheduler caller service account 必须具备目标 workflow 的 `roles/workflows.invoker`，Workflows runtime service account 必须保留 `ashare-pipeline-control` 的 `roles/run.invoker`。
+> - 也已明确：`main` 上现有 `orchestration/workflows/deploy_scheduler_jobs.sh` 仍是被放弃的 `Scheduler -> authenticated Cloud Run` 直连实现，在改写为 Workflows Executions API 之前视为 `superseded / do-not-run`。
+> - 此次还会把分支 rebase 到最新 `main`，把已合入 `main` 的 `v3` PRD 噪音从 PR #115 中清掉；本 PR 继续保持 OQ-005 doc-only 范围。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
 > - PR #114 review follow-up 已加硬 `v3` 切门 PRD：补了 `Sharpe` / `Calmar` / `Excess Calmar` 的除零规则、`max_drawdown` 负号约定、`策略最大回撤同期超额` 的窗口与价格字段定义。
 > - 也补了五指数 `sec_code`、`000001.SH` 主 benchmark 的职责说明，以及“默认 `2024-01-02..2026-04-30` 只是首次 replay / cutover 默认窗口，不是未来月度滚动重训的永久硬编码窗口”。
 > - 本次仍是 doc-only，不改 acceptance 实现；下一步继续是 `model_acceptance_contract_v3.yml -> replay -> QA -> live cutover`。
@@ -13,12 +18,17 @@
 > - 已用 `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml` 跑通 `12` 候选 LightGBM regression smoke，主 benchmark 为 `000001.SH`，`*_vs_primary_benchmark`、Top1 backtest、comparison artifacts 链路已验证。
 > - 最终 smoke `search_id=cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_smoke_20260608_05`，Top1 为 `lgbm_r03_l63_lr002_n600_leaf300_ff09_bf09_l1_01_l2_1`，结果 `rejected`，原因为 `overall_excess_return_vs_primary_benchmark<=0.0;sharpe<0.7;max_drawdown<-0.25`。
 
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - OQ-005 `ashare_pipeline_alert_checker` 的迁移目标已从 `Cloud Scheduler -> authenticated Cloud Run` 改为 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`。
+> - 改道原因是 2026-06-08 live 验证里，`Scheduler -> authenticated Cloud Run` 持续命中 Cloud Run 鉴权层 `403`，而 `Workflows -> ashare-pipeline-control` 已有真实 smoke 成功证据。
+> - 本次按 owner 要求只先收敛 PRD 和项目记忆/TODO，不改实现代码；下一步应单独提实现 PR。
+
 ## 当前交接摘要（2026-06-08）
 - OQ-005 phase 1 foundation 仍保持已部署状态：`ashare-pipeline-control` Cloud Run service、`ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh` 两个 Workflows 已上线，既有 `qa_only` 与 `daily_current` smoke 继续作为当前 live 通过证据。
-- `ashare_pipeline_alert_checker` 已按 owner 要求改为“最多每小时 1 次”：Composer 过渡态 DAG schedule 改为 `0 * * * *`，lookback 统一到 `70` 分钟，heartbeat 缺失告警窗口统一到 `120` 分钟；同时已补 `ashare-pipeline-control` `/v1/tasks/alert-check` 和 `orchestration/workflows/deploy_scheduler_jobs.sh`，为 cutover 后的 `Cloud Scheduler + Cloud Run` 小时级告警检查准备好入口。
+- `ashare_pipeline_alert_checker` 已按 owner 要求改为“最多每小时 1 次”：Composer 过渡态 DAG schedule 改为 `0 * * * *`，lookback 统一到 `70` 分钟，heartbeat 缺失告警窗口统一到 `120` 分钟；当前 PRD 层的 cutover 目标已从 `Cloud Scheduler + Cloud Run` 收敛为 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`。实现前提已钉死为 Scheduler caller service account 拥有 `roles/workflows.invoker`、Workflows runtime service account 保留 `ashare-pipeline-control` 的 `roles/run.invoker`。
 - `airflow_monitoring` 已确认是 Composer 平台托管健康监控 DAG，不能在仓库代码里单独降频；只要 Composer 环境还在，它就会继续按平台频率运行。要真正把这部分 run 和固定底座费用降掉，必须完成 OQ-005 cutover 并删除 Composer 环境。
 - `ashare_warehouse_full_rebuild` 已补出 Workflow 草案，但 review follow-up 已把它从标准 `deploy_workflows.sh` 中移出；现在只有显式 `DEPLOY_FULL_REBUILD=true` 才会部署。当前 `ashare-pipeline-control` 的 BigQuery task 仍同步等待 `job.result()`，full rebuild 长 SQL 有 Cloud Run / Workflows 单步超时风险，因此它仍是代码草案，未部署、未 smoke。
-- `ashare-pipeline-control` 镜像现在会一起打包 `scripts/alerting`，避免 `service.py` 模块级导入 alert checker 时报 `ModuleNotFoundError` 导致整个控制面启动崩溃。后续启用 `Cloud Scheduler` alert checker 时，必须同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
+- `ashare-pipeline-control` 镜像现在会一起打包 `scripts/alerting`，避免 `service.py` 模块级导入 alert checker 时报 `ModuleNotFoundError` 导致整个控制面启动崩溃。后续启用 `Cloud Scheduler` alert checker 时，必须同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑；在实现 PR 把 scheduler deploy 脚本改写为 Workflows Executions API 前，`orchestration/workflows/deploy_scheduler_jobs.sh` 视为 `superseded / do-not-run`。
 
 # Agent 交接（Agent Handoff）
 
@@ -29,14 +39,14 @@
 ## 当前交接摘要
 
 - **2026-06-08 GPT-5 Codex：PR #112 review follow-up 已把不安全路径真正封住。** `Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 `scripts.alerting.check_alerts` 时导致整个 `ashare-pipeline-control` 启动崩溃。`deploy_workflows.sh` 默认只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`；`ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 路径，直到控制层 BigQuery 改成 async submit + poll 为止。README 也已补明：启用 `Cloud Scheduler` alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。
-- **2026-06-08 GPT-5 Codex：OQ-005 告警检查已统一限频到每小时。** `ashare_pipeline_alert_checker` 在 Composer 过渡态中的 schedule 已改为 `0 * * * *`，`check_alerts.py` lookback 调整为 `70` 分钟，heartbeat 缺失告警窗口调整为 `120` 分钟；cutover 后同一小时级口径将由 `Cloud Scheduler -> ashare-pipeline-control /v1/tasks/alert-check` 延续，部署脚本为 `orchestration/workflows/deploy_scheduler_jobs.sh`。
+- **2026-06-08 GPT-5 Codex：OQ-005 告警检查已统一限频到每小时。** `ashare_pipeline_alert_checker` 在 Composer 过渡态中的 schedule 已改为 `0 * * * *`，`check_alerts.py` lookback 调整为 `70` 分钟，heartbeat 缺失告警窗口调整为 `120` 分钟；cutover 后同一小时级口径将由 `Cloud Scheduler -> Workflows -> ashare-pipeline-control` 延续。注意：`main` 上现有 `orchestration/workflows/deploy_scheduler_jobs.sh` 仍是旧的直连 Cloud Run 版本，在实现 PR 改写为 Workflows Executions API 前视为 `superseded / do-not-run`。
 - **2026-06-08 GPT-5 Codex：`airflow_monitoring` 不能在仓库内单独降频。** 已确认它是 Composer 平台托管健康监控 DAG；只要 Composer 环境存在，它就会继续按平台频率运行。停止这类 run 和固定 `standard milli DCU-hours` 费用的路径是完成 OQ-005 cutover 并删除 Composer 环境，而不是继续在 repo 中找调频开关。
 - **2026-06-08 GPT-5 Codex：`ashare_warehouse_full_rebuild` 目前仍是代码草案。** 已新增 `orchestration/workflows/ashare_warehouse_full_rebuild.yaml` 并接入 `deploy_workflows.sh`，但当前 `ashare-pipeline-control` 的 BigQuery 执行仍同步等待 `job.result()`；在改成 submit + poll 或进一步拆步前，full rebuild 长 SQL 存在 Cloud Run / Workflows 单步超时风险，因此现在未部署、未 smoke。
 - **2026-06-08 GPT-5 Codex：OQ-005 Workflows phase 1 foundation 已部署并通过最小 live smoke。** 已新增 `tests/pipeline_control/test_state_lock.py` 覆盖 `acquire -> generation lookup -> heartbeat -> release`，并本地跑通 `unittest`。GCP 侧已启用 `workflows.googleapis.com`、创建并授权 runtime service account、部署 `ashare-pipeline-control` Cloud Run service，以及 `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows。真实 `qa_only` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` 与 `daily_current` 父/子 executions `2085f593-0fe9-483c-8888-6fa48fe7bb2f` / `d305d8a3-99a1-4007-9fb2-94e3698ff55c` 已 success。live 部署同时暴露并修正了 Workflows `http.* timeout <= 1800s`、布尔参数比较、窗口 SQL 必须透传 `warehouse_mode` 等运行期契约问题。当前仍未 cutover，下一步是迁 `ashare_warehouse_full_rebuild` / `ashare_pipeline_alert_checker`、补 `backfill` / 非交易日 skip smoke、接 Cloud Scheduler 并完成 shadow run / 删除 Composer。
 
 - **2026-06-08 GPT-5 Codex：PR #108 comment follow-up 已把迁出 Composer PRD 加硬到实现级。** 已补 4 个 Workflows 易静默退化点：每个业务步骤都要显式写 `pipeline_task_status`，不能只写 start/finalize；`ashare_warehouse_window_refresh` 必须有显式分布式锁，不能假设存在 `max_active_runs=1`；生产 scheduled ingestion -> refresh 固定为同步 child workflow 调用，旧 `warehouse_refresh_missing` watchdog 只保留到迁移期；BigQuery / Cloud Run 调用按“提交 -> 轮询终态 -> 写状态”建模，并要求 Phase 1 先复核 Workflows 限额和 `full_rebuild` 是否要拆分。
 
-- **2026-06-08 GPT-5 Codex：OQ-005 长期目标改为迁出 Composer。** 已新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`，明确当前 Composer 费用主体是常驻 `standard milli DCU-hours` 底座，而现有 DAG 主要只做编排。长期架构改为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，单步 `ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler + Cloud Run`；当前 Composer DAG 拆分、window refresh、alert checker 和 smoke 只视为 cutover 前过渡态，目标是在迁移验收后删除 Composer 环境。
+- **2026-06-08 GPT-5 Codex：OQ-005 长期目标改为迁出 Composer。** 已新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`，明确当前 Composer 费用主体是常驻 `standard milli DCU-hours` 底座，而现有 DAG 主要只做编排。长期架构改为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`，`ashare_pipeline_alert_checker` 也走 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`；当前 Composer DAG 拆分、window refresh、alert checker 和 smoke 只视为 cutover 前过渡态，目标是在迁移验收后删除 Composer 环境。
 
 - **2026-06-08 GPT-5 Codex：策略 1 runner / acceptance 默认 benchmark 切到上证指数并完成独立 replay。** 已把 BigQuery SQL runner `08/09`、Cloud Run Python ledger、OQ-010 调度器默认 `p_benchmark`、v2 acceptance contract、报告渲染和相关 QA/诊断默认 benchmark 从 `000852.SH` 切到 `000001.SH`，并把 v2 诊断 artifact 与 live 搜索 acceptance 路径的主 benchmark 字段名统一为 `*_vs_primary_benchmark`。随后用新 ids `s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01` / `bt_s1_lotaware_ref_pvfq_n30_bw_h5_bm000001_20260608_01` 重跑 fixed-prediction lot-aware reference，不覆盖旧 `000852.SH` 审计结果；`10` 采用 fixed-prediction split override 手工补跑，`10/12/20/22/23` QA 已通过。新的 acceptance artifact `acceptance_gate_v2_lotaware_ref_bm000001_20260608_01` 仍为 `rejected`，原因是 `full_period_excess_return_vs_primary_benchmark<=-0.03` 与 `full_period_information_ratio<0.0`。
 
@@ -3723,3 +3733,58 @@ Run ID: oq005-composer-exit-next-20260608
 - Validation: 文档级变更；未改代码、未跑 Cloud Run、未跑 BigQuery QA。
 - Notes: `v3` 当前仍是 doc + replay gate，不是 production write-back gate。实现前置顺序已经固定为 contract -> replay -> QA -> live cutover。
 - Next Steps: 新增 `configs/strategy1/model_acceptance_contract_v3.yml`，再实现 `v3` replay 和对应 QA。
+
+## 交接条目
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: main-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: pr115-oq005-review-followup-20260608
+相关 issue/PR: PR #115
+
+### 已完成工作
+
+- 将 PR #115 rebase 到最新 `main` 的冲突收敛方案落到文档与记忆层，准备去掉已合入 `main` 的 `v3` PRD 噪音。
+- 在 OQ-005 PRD、`OPEN_QUESTIONS.md`、`IMPLEMENTATION_STATUS.md`、`TODO.md` 中补齐 alert checker 新路径的 IAM 前提：Scheduler caller service account 必须具备目标 workflow 的 `roles/workflows.invoker`，Workflows runtime service account 必须保留 `ashare-pipeline-control` 的 `roles/run.invoker`。
+- 明确 `main` 上现有 `orchestration/workflows/deploy_scheduler_jobs.sh` 仍是被放弃的 `Scheduler -> authenticated Cloud Run` 直连实现；在改写为 Workflows Executions API 之前视为 `superseded / do-not-run`。
+- 在 `DECISION_LOG.md` 追加持久决策 `DECISION-20260608-13`，固定 OQ-005 alert checker cutover 路径与上述 IAM / deploy 约束。
+
+### 重要上下文
+
+- 本次仍是 OQ-005 doc-only follow-up，不改实现代码、不部署 GCP 资源、不跑 smoke。
+- comment 的核心问题不是业务逻辑，而是避免把 `Scheduler -> Cloud Run` 的 live `403` 风险平移到 `Scheduler -> Workflows` 却不写清新的 IAM 前提。
+- 另一个重点是 PR 可评审性：分支必须 rebase 到最新 `main`，避免把已合并的 `docs/prd/PRD_20260608_02_策略1验收门v3切换实施.md` 继续夹带在 PR #115 里。
+
+### 改动文件
+
+- `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行代码测试。
+- 本次只做文档 / 记忆 / rebase 冲突收敛；待 rebase 完成后再推回 PR。
+
+### 阻塞项
+
+- 仍需完成 `git rebase --continue`、推送分支，并确认 PR #115 文件列表已不再包含已合入 `main` 的 `v3` PRD。
+
+### 下一步建议
+
+- 完成 rebase 并 force-push PR #115。
+- 复核 PR #115 的文件列表只剩 OQ-005 相关文档 / 记忆改动。
+- 等 owner 再看 comment；后续实现 PR 再真正改 `deploy_scheduler_jobs.sh` 与 alert checker workflow。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`

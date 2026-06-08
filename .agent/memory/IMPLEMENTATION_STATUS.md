@@ -33,7 +33,7 @@ Last updated: 2026-06-08
 - PR #111 comment follow-up 已继续补强 flag 归一：`pipeline_dry_run`、`scheduled_run`、`force_non_trading_day_gate`、`skip_ingestion`、`skip_downstream_refresh`、`trigger_downstream_refresh` 与 warehouse workflow 的 `pipeline_dry_run` 现在统一在 resolve 阶段做 `text.to_lower(string(...))`，后续 `== "true"` 判断同时兼容字符串和 JSON boolean，避免接入 Cloud Scheduler / 手工 API 触发时静默写库。
 - 真实 `qa_only` smoke 已通过：`ashare_warehouse_window_refresh` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` 在 `business_date=date_to=2026-06-05`、`warehouse_mode=qa_only` 下成功完成。
 - 真实 `daily_current` smoke 已通过：父 workflow `ashare_ods_ingestion_daily` execution `2085f593-0fe9-483c-8888-6fa48fe7bb2f` 成功触发子 workflow `ashare_warehouse_window_refresh` execution `d305d8a3-99a1-4007-9fb2-94e3698ff55c`；ODS ingestion、ODS readiness、index/stock/market-state window refresh、`core/index benchmark/finance/unit contract` QA、task 状态写回和 pipeline finalize 全部 success。
-- 当前仍未 cutover：Composer 仍是生产入口；`ashare_warehouse_full_rebuild`、`ashare_pipeline_alert_checker`、Cloud Scheduler / IAM bootstrap、Workflows `backfill` / 非交易日 skip smoke、shadow run 与最终删除 Composer 环境仍待完成。
+- 当前仍未 cutover：Composer 仍是生产入口；`ashare_warehouse_full_rebuild`、`ashare_pipeline_alert_checker`、Cloud Scheduler / IAM bootstrap、Workflows `backfill` / 非交易日 skip smoke、shadow run 与最终删除 Composer 环境仍待完成。2026-06-08 owner 已接受将 `ashare_pipeline_alert_checker` 的目标路径从 `Cloud Scheduler -> authenticated Cloud Run` 改为 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`；本次先收敛 PRD 和项目记忆，后续另提实现 PR。实现前提已补明：Scheduler caller service account 必须具备目标 workflow 的 `roles/workflows.invoker`，Workflows runtime service account 必须保留 `ashare-pipeline-control` 的 `roles/run.invoker`；`main` 上现有 `orchestration/workflows/deploy_scheduler_jobs.sh` 在改写为 Workflows Executions API 前视为 `superseded / do-not-run`。
 
 ### 最新补充（2026-06-08）：PR #108 comment follow-up 加硬 Composer 迁出 PRD
 
@@ -46,7 +46,7 @@ Last updated: 2026-06-08
 ### 最新补充（2026-06-08）：OQ-005 长期编排目标改为迁出 Composer
 
 - 已新增 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md`。该 PRD 明确当前 Composer 3 成本主体是常驻 `standard milli DCU-hours` 底座，而现有 DAG 主要只做编排，不做核心计算。
-- OQ-005 的长期目标已从“Cloud Composer 负责全流程编排”调整为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`；`ashare_pipeline_alert_checker` 迁到无 Composer 的定时入口，cutover 验收后删除 Composer 环境。
+- OQ-005 的长期目标已从“Cloud Composer 负责全流程编排”调整为 `Cloud Scheduler + Cloud Workflows + Cloud Run Jobs + BigQuery SQL/Dataform`；`ashare_pipeline_alert_checker` 迁到 `Cloud Scheduler -> Workflows -> ashare-pipeline-control` 这条无 Composer 定时入口，cutover 验收后删除 Composer 环境。
 - 当前已上线的 Composer DAG 拆分、window refresh、market-state、000001.SH 指数链路和 alert checker 仍保留为过渡态实现，不再视为长期目标架构。
 
 ### 最新补充（2026-06-08）：策略 1默认 benchmark 切到上证指数并完成独立 replay
