@@ -87,6 +87,10 @@ ashare_transform_backend=bq_sql
 
 同步 DAG 文件：
 
+> 历史说明（2026-06-08）：
+> `ashare-composer` 环境已删除，OQ-005 的生产编排已切到 `Cloud Scheduler + Cloud Workflows`。
+> 下列 Composer 同步命令仅为历史审计 / 回滚参考，不应作为当前生产部署路径执行。
+
 ```bash
 gcloud composer environments storage dags import \
   --project=data-aquarium \
