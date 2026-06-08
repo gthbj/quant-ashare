@@ -253,7 +253,7 @@ main:
                   resource_name: null
             - decide_gate_enabled:
                 switch:
-                  - condition: ${scheduled_run == "true" or scheduled_run == true or force_non_trading_day_gate == "true" or force_non_trading_day_gate == true}
+                  - condition: ${scheduled_run == "true" or force_non_trading_day_gate == "true"}
                     next: set_task_non_trading_day_gate
                 next: set_task_branch_ingestion
             - set_task_non_trading_day_gate:
@@ -345,9 +345,9 @@ main:
                   resource_name: null
             - branch_ingestion:
                 switch:
-                  - condition: ${skip_ingestion == "true" or skip_ingestion == true}
+                  - condition: ${skip_ingestion == "true"}
                     next: set_task_ods_readiness
-                  - condition: ${pipeline_dry_run == "true" or pipeline_dry_run == true}
+                  - condition: ${pipeline_dry_run == "true"}
                     next: set_task_ingestion_dry_run
                 next: set_task_ingestion_write
             - set_task_ingestion_dry_run:
@@ -544,11 +544,11 @@ main:
                   resource_name: null
             - branch_downstream_refresh:
                 switch:
-                  - condition: ${skip_downstream_refresh == "true" or skip_downstream_refresh == true}
+                  - condition: ${skip_downstream_refresh == "true"}
                     next: set_task_skip_downstream_refresh
-                  - condition: ${pipeline_dry_run == "true" or pipeline_dry_run == true}
+                  - condition: ${pipeline_dry_run == "true"}
                     next: set_task_skip_downstream_refresh
-                  - condition: ${(skip_ingestion == "true" or skip_ingestion == true) and not (trigger_downstream_refresh == "true" or trigger_downstream_refresh == true)}
+                  - condition: ${skip_ingestion == "true" and not (trigger_downstream_refresh == "true")}
                     next: set_task_skip_downstream_refresh
                 next: set_task_trigger_warehouse_window_refresh
             - set_task_skip_downstream_refresh:
@@ -738,9 +738,19 @@ main:
                   error_payload: ${current_error_payload}
             - maybe_write_failed_task_status:
                 switch:
+                  - condition: ${current_task_id != null and text.match_regex(current_task_id, "^ingestion\\.")}
+                    next: set_failed_task_endpoint_current_scope
                   - condition: ${current_task_id != null}
-                    next: write_failed_task_status
+                    next: set_failed_task_endpoint_empty
                 next: rethrow_error
+            - set_failed_task_endpoint_current_scope:
+                assign:
+                  - failed_task_endpoint: "current_scope"
+                next: write_failed_task_status
+            - set_failed_task_endpoint_empty:
+                assign:
+                  - failed_task_endpoint: ""
+                next: write_failed_task_status
             - write_failed_task_status:
                 call: write_task_status
                 args:
@@ -757,7 +767,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
-                  endpoint: ${"current_scope" if text.match_regex(current_task_id, "^ingestion\\.") else ""}
+                  endpoint: ${failed_task_endpoint}
                   status: "failed"
                   error_summary: ${current_error_summary}
                   error_payload: ${current_error_payload}
@@ -859,7 +869,7 @@ run_bigquery_task:
         call: http.post
         args:
           url: ${control_service_url + "/v1/tasks/bigquery"}
-          timeout: 3300
+          timeout: 1800
           auth:
             type: OIDC
           body:

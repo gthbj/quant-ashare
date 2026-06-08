@@ -22,9 +22,9 @@
 
 ## P0 — 当前优先
 
-- [ ] OQ-005 编排迁出 Composer Phase 0/1：按 `docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md` 落 `Cloud Scheduler + Cloud Workflows` 基础设施，保持现有 Cloud Run Jobs、BigQuery SQL/Dataform、metadata、QA 和 window refresh 语义不变
-- [ ] OQ-005 编排迁出 Composer Phase 1 补硬要求：实现统一 `pipeline_task_status` 显式写回层、`ashare_warehouse_window_refresh` 分布式锁，以及同步 child workflow 的 production path
-- [ ] OQ-005 编排迁出 Composer 验收：完成 `qa_only` / `daily_current` / `backfill` / 非交易日 skip 手工 smoke，切 scheduled 入口后完成 2 个自然开市日和 1 个自然非交易日 cutover 观察，再删除 Composer 环境
+- [~] OQ-005 编排迁出 Composer Phase 0/1：`ashare-pipeline-control`、`ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh` 已真实部署，mock-GCS 锁最小集成测试和真实 `qa_only` / `daily_current` smoke 已通过；剩余 `ashare_warehouse_full_rebuild`、`ashare_pipeline_alert_checker`、Cloud Scheduler / IAM bootstrap / shadow-run / cutover
+- [x] OQ-005 编排迁出 Composer Phase 1 补硬要求：统一 `pipeline_task_status` 显式写回层、`ashare_warehouse_window_refresh` 分布式锁，以及同步 child workflow production path 已落地到 Workflows 并通过真实 `qa_only` / `daily_current` smoke
+- [~] OQ-005 编排迁出 Composer 验收：`qa_only` 与 `daily_current` 手工 smoke 已完成；剩 `backfill` / 非交易日 skip 的 Workflows smoke、切 scheduled 入口后的 2 个自然开市日和 1 个自然非交易日 cutover 观察，以及最终删除 Composer 环境
 - [x] 补 P0 通用 DWS 扩展表：`dws_stock_feature_fin_daily` 已落地；`dws_market_state_daily` 已进入 BigQuery 生产链路并按 2026-06-07/08 口径补上证指数 `000001.SH` / `SSE_COMPOSITE` 市场状态字段，修改前快照保存在 `ashare_backup.dws_market_state_daily_v0`，生产表保留 `market_state_v0_20260606` 兼容行并新增 `market_state_v1_20260607`，且日更 / 补跑使用窗口 MERGE。后续若要把 v1 纳入训练或修改 risk-off 触发逻辑，应另开策略/feature-set 变更。
 - [~] 收口 OQ-012 ODS 外部表 Parquet schema mismatch：PR #43 已实现 schema contract YAML × 10 endpoint、修复/验证脚本、QA SQL 和执行 README，并按 review 补齐 QA 参数格式、INT->FLOAT64 fail-closed、null count 阻断、BQ staging 行数/列可读验证和 staging 清理；2026-06-05 `sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围只读复核均通过，`ods_tushare_stk_limit` 2019+ 可读行数 10,662,140，当前 BigQuery 读层未再暴露 mismatch；下一步由 owner 决定关闭/归档 OQ-012，或保留 schema contract 与 ingestion 显式 cast 防复发任务
 - [ ] 策略 1 runner v0 模型质量与参数迭代（OQ-010）：基础 A/B/C 与 3*2*2*2 全因子 24 组合已跑完并全部通过 `12_qa_model_diagnosis_outputs`；历史最优 BQML 组合为 `pv_fin_quality + 30/5% + biweekly + 5d`，run `s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` / backtest `bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01` 覆盖 2024-01-02 至 2025-12-31（total_return 41.10%、excess_return 12.09% vs `000852.SH`、Sharpe 1.043、max_drawdown -14.48%，报告和诊断均已上传 GCS）。因子贡献度 P0 已实现并通过 `14_qa_factor_attribution_outputs.sql`；Ledger v1 P0/P1/P2 已完成验证。2026-06-05 owner 已决定后续不再使用 BQML 或 `sql/ml/strategy1` SQL runner 作为策略执行层默认 / fallback / 新增开发路线；PRD04 Cloud Run Python LightGBM binary wave 2 与 regression wave 3 均已跑完，Top5 全部 rejected，当前不建立 `cloud_run_python_baseline_v1`；尾部风险 P1 full-period A/B 已完成，`individual_risk_guard_v0` 相比 `diagnostic_only` 提升 total_return 1.97pct、max_drawdown 收窄 0.84pct，但仍跑输 `000852.SH` 2.16pct；P2 market risk-off A/B 已跑完，`market_risk_off_v0` 和 `individual_and_market_risk_guard_v0` 均降低收益且未改善最大回撤，当前不采纳为默认策略；Cloud Run Python `ledger_exec_v1_lot100` fixed-prediction reference 已完成，total_return 35.17%、excess_return -7.20pct vs `000852.SH`、Sharpe 0.872、max_drawdown -13.59%，`22`/`23` QA 通过但 v2 acceptance 仍为 rejected；下一步可继续下一模型族 / 风险特征训练。
@@ -118,7 +118,7 @@
 - [x] 策略 1 BigQuery ML runner 已于 PR #12 在 BigQuery 端到端实跑并通过 `10_qa_runner_outputs.sql`（16 断言）
 - [x] OQ-004 基准指数代码可用性已实现并关闭（`dim_index` + 映射驱动 `dwd_index_eod` + OQ-004 QA + runner benchmark 窗口校验）
 - [x] OQ-007 退市日类型已复核并关闭，PR #9 后依赖链已重建并通过 P0 / 策略 1 QA
-- [x] OQ-005 Composer exit phase 1 foundation已落地到实现分支：新增 `ashare-pipeline-control` 薄控制面服务、`ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` Workflows YAML、部署脚本和 README；本轮未部署、未验证。
+- [x] OQ-005 Composer exit phase 1 foundation 已部署并完成最小验证：`ashare-pipeline-control`、`ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh` 已上线；新增 `tests/pipeline_control/test_state_lock.py` 并本地通过，真实 `qa_only` / `daily_current` smoke 也已通过。当前仍未 cutover，Composer 继续作为生产入口。
 - [ ] OQ-005 follow-up：迁移 `ashare_warehouse_full_rebuild` 到 Workflows，并保持显式状态写回、同步终态轮询和锁语义。
 - [ ] OQ-005 follow-up：迁移 `ashare_pipeline_alert_checker` 到 `Cloud Scheduler + Cloud Run`，摆脱 Composer 常驻环境依赖。
 - [ ] OQ-005 follow-up：补 Cloud Scheduler / IAM bootstrap / shadow-run / cutover 脚本，完成 Composer 真正下线前的生产切换路径。

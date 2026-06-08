@@ -1,7 +1,7 @@
 ## 当前交接摘要（2026-06-08）
-- OQ-005 Composer exit 进入实现阶段 1：已在 `codex/implement-composer-exit` 落地 `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows YAML，以及 `ashare-pipeline-control` 薄控制面服务、部署脚本和 README。
-- 本轮范围只覆盖主编排链路：ODS ingestion、ODS readiness、window DWD/DWS/market-state、QA 链、状态写回、GCS 锁和同步 child workflow；`ashare_warehouse_full_rebuild`、`ashare_pipeline_alert_checker`、Cloud Scheduler / IAM bootstrap / cutover 仍未迁移。
-- 本轮未做部署或运行验证；下一步应在实现 PR review 后补 Workflows YAML 细节审阅、补齐 full rebuild / alert checker / Scheduler，再进入 shadow run 与 cutover。
+- OQ-005 Composer exit phase 1 foundation 已真实部署：`ashare-pipeline-control` Cloud Run service 已上线，`ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows 已部署；本轮同时补了 mock-GCS 锁最小集成测试。
+- 真实 smoke 已通过：`qa_only` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` success，`daily_current` 父/子 executions `2085f593-0fe9-483c-8888-6fa48fe7bb2f` / `d305d8a3-99a1-4007-9fb2-94e3698ff55c` success；主链路 ODS ingestion、readiness、window DWD/DWS/market-state、QA、状态写回、GCS 锁和同步 child workflow 已在 GCP 实跑通过。
+- Composer 仍是生产入口；`ashare_warehouse_full_rebuild`、`ashare_pipeline_alert_checker`、Cloud Scheduler / IAM bootstrap、Workflows `backfill` / 非交易日 skip smoke、shadow run 与 cutover 仍待完成。
 
 # Agent 交接（Agent Handoff）
 
@@ -10,6 +10,8 @@
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；下方此前的英文历史条目保留原样作为记录，不回译。
 
 ## 当前交接摘要
+
+- **2026-06-08 GPT-5 Codex：OQ-005 Workflows phase 1 foundation 已部署并通过最小 live smoke。** 已新增 `tests/pipeline_control/test_state_lock.py` 覆盖 `acquire -> generation lookup -> heartbeat -> release`，并本地跑通 `unittest`。GCP 侧已启用 `workflows.googleapis.com`、创建并授权 runtime service account、部署 `ashare-pipeline-control` Cloud Run service，以及 `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows。真实 `qa_only` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` 与 `daily_current` 父/子 executions `2085f593-0fe9-483c-8888-6fa48fe7bb2f` / `d305d8a3-99a1-4007-9fb2-94e3698ff55c` 已 success。live 部署同时暴露并修正了 Workflows `http.* timeout <= 1800s`、布尔参数比较、窗口 SQL 必须透传 `warehouse_mode` 等运行期契约问题。当前仍未 cutover，下一步是迁 `ashare_warehouse_full_rebuild` / `ashare_pipeline_alert_checker`、补 `backfill` / 非交易日 skip smoke、接 Cloud Scheduler 并完成 shadow run / 删除 Composer。
 
 - **2026-06-08 GPT-5 Codex：PR #108 comment follow-up 已把迁出 Composer PRD 加硬到实现级。** 已补 4 个 Workflows 易静默退化点：每个业务步骤都要显式写 `pipeline_task_status`，不能只写 start/finalize；`ashare_warehouse_window_refresh` 必须有显式分布式锁，不能假设存在 `max_active_runs=1`；生产 scheduled ingestion -> refresh 固定为同步 child workflow 调用，旧 `warehouse_refresh_missing` watchdog 只保留到迁移期；BigQuery / Cloud Run 调用按“提交 -> 轮询终态 -> 写状态”建模，并要求 Phase 1 先复核 Workflows 限额和 `full_rebuild` 是否要拆分。
 
@@ -113,6 +115,66 @@ Run ID: strategy1-benchmark-default-switch-20260608
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
+
+日期: 2026-06-08
+Agent ID: Codex
+Agent 实例 ID: workflows-smoke-worktree
+模型: GPT-5 Codex
+运行环境: Codex desktop / zsh / macOS
+Run ID: oq005-workflows-smoke-20260608
+相关 issue/PR: 待创建 PR
+
+### 已完成工作
+
+- 新增 `tests/pipeline_control/test_state_lock.py`，用 mock GCS 覆盖 `acquire -> lock_generation_for_owner -> heartbeat -> release` 的最小锁契约，并本地跑通 `unittest`。
+- 已启用 `workflows.googleapis.com`，创建/授权 `ashare-workflows-runtime@data-aquarium.iam.gserviceaccount.com`，并部署 `ashare-pipeline-control` Cloud Run service 与 `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` 两个 Workflows。
+- 为通过真实部署补了 3 处关键 Workflow 修正：BigQuery control call `timeout` 从 `3300` 收敛到 Workflows 上限 `1800`；所有布尔条件改为按布尔值判断，不再和 `"true"` 字符串比较；`index_dwd_window`、`stock_dwd_dws_window`、`market_state_dws` 与 `windowed_stock_refresh_checks` 统一透传 `warehouse_mode`。
+- 真实 `qa_only` smoke 已成功：`ashare_warehouse_window_refresh` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3`，`business_date=date_to=2026-06-05`、`warehouse_mode=qa_only`。
+- 真实 `daily_current` smoke 已成功：父 workflow execution `2085f593-0fe9-483c-8888-6fa48fe7bb2f`，子 workflow execution `d305d8a3-99a1-4007-9fb2-94e3698ff55c`；child 内 `index_dwd_window`、`stock_dwd_dws_window`、`market_state_dws`、`core_smoke_checks`、`index_benchmark_checks`、`finance_caliber_checks`、`unit_contract_checks`、`pipeline_finalize_status`、`finish` 全部 success。
+
+### 重要上下文
+
+- 本轮验证的是 OQ-005 phase 1 foundation，不是生产 cutover。Composer 仍是生产调度入口；Workflows 现在只是并行存在且已证明主链路可跑通。
+- 这次暴露的错误几乎都属于运行期接线/类型问题：`http timeout`、bool 判断、参数透传、锁兼容路径。`py_compile` 抓不到，后续做 `full_rebuild` / Scheduler / cutover 前仍应继续坚持“本地最小集成测试 + 真实 smoke”这套门。
+- `ashare_warehouse_full_rebuild`、`ashare_pipeline_alert_checker`、Cloud Scheduler / IAM bootstrap 还没迁完；`backfill` 和非交易日 skip 的 Workflows smoke 也还没补。
+
+### 改动文件
+
+- `tests/pipeline_control/test_state_lock.py`
+- `orchestration/workflows/ashare_ods_ingestion_daily.yaml`
+- `orchestration/workflows/ashare_warehouse_window_refresh.yaml`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m unittest discover -s tests/pipeline_control -p 'test_state_lock.py'`
+- `ashare_warehouse_window_refresh` `qa_only` execution `aaad21db-7c1a-4cb2-92fb-55158edfa3a3` succeeded
+- `ashare_ods_ingestion_daily` `daily_current` execution `2085f593-0fe9-483c-8888-6fa48fe7bb2f` succeeded
+- child `ashare_warehouse_window_refresh` execution `d305d8a3-99a1-4007-9fb2-94e3698ff55c` succeeded
+
+### 阻塞项
+
+- 无硬阻塞。
+
+### 下一步建议
+
+- 迁移 `ashare_warehouse_full_rebuild` 到 Workflows，并保持显式状态写回、同步终态轮询和锁语义。
+- 迁移 `ashare_pipeline_alert_checker` 到 `Cloud Scheduler + Cloud Run`。
+- 补 `backfill` 与非交易日 skip 的 Workflows smoke，再接入 Cloud Scheduler / IAM bootstrap，进入 shadow run 与最终 cutover。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 
 **OQ-005 Composer DAG 拆分生产切换（2026-06-06）**：PR #86 已合并并完成 Composer 部署 / smoke。已应用 meta DDL 与观测视图，部署 `ashare_common.py`、`ashare_ods_ingestion_daily.py`、`ashare_warehouse_window_refresh.py`、`ashare_warehouse_full_rebuild.py` 和仓库 `sql/` 到 Composer bucket。旧 `ashare_daily_pipeline_v0` 已暂停，新 scheduled DAG `ashare_ods_ingestion_daily` 已 unpause；`ashare_warehouse_window_refresh` 与 `ashare_warehouse_full_rebuild` 无 schedule。`setup_alerts.py` 已补真实 GCP apply 兼容修复，`ashare_pipeline_warehouse_refresh_missing` metric 与 `Ashare Pipeline: Warehouse Refresh Missing` policy 已创建 / 对齐。Smoke：`manual_split_skip_gate_20260606_01` 非交易日 gate 成功且 Cloud Run 未触发；`manual_split_qa_only_20260605_01` 5 个 QA success；`manual_split_backfill_20260605_01` 1 日窗口刷新和全部 QA success；refresh-missing synthetic transaction smoke 通过；`check_alerts.py --lookback-minutes 20` 返回空。后续只剩新 DAG 至少两个开市日 scheduled run 和一个真实非交易日 scheduled skip 自然观察，以及 Dataform 生产接入 / shadow 验证、完整 ODS→ADS 运维观测闭环和后续自然 scheduled 观察。
