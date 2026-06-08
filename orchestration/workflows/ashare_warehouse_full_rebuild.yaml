@@ -1492,65 +1492,103 @@ run_bigquery_task:
   params: [control_service_url, dag_id, pipeline_run_id, task_id, task_type, sql_path, query_parameters, location, business_date, date_from, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url]
   steps:
     - submit_bigquery_task:
-        call: http.post
-        args:
-          url: ${control_service_url + "/v1/tasks/bigquery/submit"}
-          timeout: 300
-          auth:
-            type: OIDC
-          body:
-            task_id: ${task_id}
-            task_type: ${task_type}
-            sql_path: ${sql_path}
-            query_parameters: ${query_parameters}
-            endpoint: "/v1/tasks/bigquery/submit"
-            context:
-              dag_id: ${dag_id}
-              pipeline_run_id: ${pipeline_run_id}
-              business_date: ${business_date}
-              date_from: ${date_from}
-              date_to: ${date_to}
-              run_label: ${run_label}
-              warehouse_mode: ${warehouse_mode}
-              transform_backend: ${transform_backend}
-              workflow_id: ${workflow_id}
-              workflow_execution_id: ${workflow_execution_id}
-              orchestration_log_url: ${orchestration_log_url}
-        result: submit_bigquery_task_response
+        try:
+          call: http.post
+          args:
+            url: ${control_service_url + "/v1/tasks/bigquery/submit"}
+            timeout: 300
+            auth:
+              type: OIDC
+            body:
+              task_id: ${task_id}
+              task_type: ${task_type}
+              sql_path: ${sql_path}
+              query_parameters: ${query_parameters}
+              location: ${location}
+              endpoint: "/v1/tasks/bigquery/submit"
+              context:
+                dag_id: ${dag_id}
+                pipeline_run_id: ${pipeline_run_id}
+                business_date: ${business_date}
+                date_from: ${date_from}
+                date_to: ${date_to}
+                run_label: ${run_label}
+                warehouse_mode: ${warehouse_mode}
+                transform_backend: ${transform_backend}
+                workflow_id: ${workflow_id}
+                workflow_execution_id: ${workflow_execution_id}
+                orchestration_log_url: ${orchestration_log_url}
+          result: submit_bigquery_task_response
+        retry:
+          predicate: ${http.default_retry_predicate}
+          max_retries: 5
+          backoff:
+            initial_delay: 2
+            max_delay: 30
+            multiplier: 2
     - set_bigquery_poll_state:
         assign:
           - bigquery_job_id: ${submit_bigquery_task_response.body.result.job_id}
           - bigquery_poll_interval_seconds: 60
+          - bigquery_poll_count: 0
+          - bigquery_max_polls: 1440
     - poll_bigquery_task:
-        call: http.post
-        args:
-          url: ${control_service_url + "/v1/tasks/bigquery/poll"}
-          timeout: 300
-          auth:
-            type: OIDC
-          body:
-            task_id: ${task_id}
-            task_type: ${task_type}
-            job_id: ${bigquery_job_id}
-            endpoint: "/v1/tasks/bigquery/poll"
-            context:
-              dag_id: ${dag_id}
-              pipeline_run_id: ${pipeline_run_id}
-              business_date: ${business_date}
-              date_from: ${date_from}
-              date_to: ${date_to}
-              run_label: ${run_label}
-              warehouse_mode: ${warehouse_mode}
-              transform_backend: ${transform_backend}
-              workflow_id: ${workflow_id}
-              workflow_execution_id: ${workflow_execution_id}
-              orchestration_log_url: ${orchestration_log_url}
-        result: poll_bigquery_task_response
+        try:
+          call: http.post
+          args:
+            url: ${control_service_url + "/v1/tasks/bigquery/poll"}
+            timeout: 300
+            auth:
+              type: OIDC
+            body:
+              task_id: ${task_id}
+              task_type: ${task_type}
+              job_id: ${bigquery_job_id}
+              location: ${location}
+              endpoint: "/v1/tasks/bigquery/poll"
+              context:
+                dag_id: ${dag_id}
+                pipeline_run_id: ${pipeline_run_id}
+                business_date: ${business_date}
+                date_from: ${date_from}
+                date_to: ${date_to}
+                run_label: ${run_label}
+                warehouse_mode: ${warehouse_mode}
+                transform_backend: ${transform_backend}
+                workflow_id: ${workflow_id}
+                workflow_execution_id: ${workflow_execution_id}
+                orchestration_log_url: ${orchestration_log_url}
+          result: poll_bigquery_task_response
+        retry:
+          predicate: ${http.default_retry_predicate}
+          max_retries: 5
+          backoff:
+            initial_delay: 2
+            max_delay: 30
+            multiplier: 2
     - check_bigquery_task_done:
         switch:
           - condition: ${poll_bigquery_task_response.body.result.done}
             next: return_bigquery_task
-        next: sleep_before_next_bigquery_poll
+        next: increment_bigquery_poll_count
+    - increment_bigquery_poll_count:
+        assign:
+          - bigquery_poll_count: ${bigquery_poll_count + 1}
+        next: check_bigquery_poll_limit
+    - check_bigquery_poll_limit:
+        switch:
+          - condition: ${bigquery_poll_count > bigquery_max_polls}
+            next: raise_bigquery_poll_limit_exceeded
+        next: heartbeat_lock_while_bigquery_polling
+    - raise_bigquery_poll_limit_exceeded:
+        raise: ${"bigquery poll exceeded max attempts for task " + task_id + " job " + bigquery_job_id}
+    - heartbeat_lock_while_bigquery_polling:
+        call: heartbeat_lock
+        args:
+          control_service_url: ${control_service_url}
+          lock_name: "ashare_warehouse_window_refresh"
+          owner: ${workflow_execution_id}
+          lease_seconds: 21600
     - sleep_before_next_bigquery_poll:
         call: sys.sleep
         args:

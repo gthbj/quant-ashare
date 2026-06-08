@@ -92,5 +92,6 @@
 - `airflow_monitoring` 是 Cloud Composer 托管的环境健康 DAG，不由仓库 DAG 代码控制；在 Composer 仍存在时不能靠改 repo 把它降频到每小时以内。要消除这部分 run/底座费用，必须 cutover 后删除 Composer 环境。
 - `ashare_pipeline_alert_checker` 在迁移期与迁移后统一按“最多每小时 1 次”设计：schedule `0 * * * *`，lookback `70` 分钟，heartbeat 缺失告警窗口 `120` 分钟，避免 1 小时 cadence 下出现空窗误报。
 - `ashare_warehouse_full_rebuild` 的 Workflows 路径现已改为 `ashare-pipeline-control` 服务端 async `submit + poll`，不能再退回同步 `job.result()`；否则会重新暴露 Cloud Run request timeout / Workflows `http.*` step timeout 风险。共享 warehouse-write lock 仍为同一把 `ashare_warehouse_window_refresh` 锁，full rebuild lease 现为 `21600s`。
+- `ashare_warehouse_full_rebuild` 的 async poll 循环本身也必须续租共享写锁，不能只在每个 BigQuery step 结束后 heartbeat；否则单个 step 时长超过 lease 时，会被 stale-lock reclaim 打开并发写窗口。对 `get_job(...)` 的瞬时错误，也不得直接把 task status 写成 `failed`；必须先在控制面重试，只有 `job.error_result` 真实存在时才落失败终态。
 - 标准 `deploy_workflows.sh` 仍默认不部署 `ashare_warehouse_full_rebuild`；必须显式 `DEPLOY_FULL_REBUILD=true` 才会下发该 workflow。即使已部署，它也只允许手工触发，且必须显式传入 `confirm_full_rebuild=true` 与 `date_from/date_to`；本轮只验证了 direct async control-plane smoke 和 workflow `pipeline_dry_run=true`，未执行真实全量写入。
 - 启用 `Cloud Scheduler -> ashare-pipeline-control /v1/tasks/alert-check` 时，必须同步 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑、重复 heartbeat 和重复 alert 日志。

@@ -120,7 +120,7 @@
 - [x] OQ-004 基准指数代码可用性已实现并关闭（`dim_index` + 映射驱动 `dwd_index_eod` + OQ-004 QA + runner benchmark 窗口校验）
 - [x] OQ-007 退市日类型已复核并关闭，PR #9 后依赖链已重建并通过 P0 / 策略 1 QA
 - [x] OQ-005 Composer exit phase 1 foundation 已部署并完成最小验证：`ashare-pipeline-control`、`ashare_ods_ingestion_daily`、`ashare_warehouse_window_refresh` 已上线；新增 `tests/pipeline_control/test_state_lock.py` 并本地通过，真实 `qa_only` / `daily_current` smoke 也已通过。当前仍未 cutover，Composer 继续作为生产入口。
-- [~] OQ-005 follow-up：`ashare_warehouse_full_rebuild` 已迁到 Workflows 并改成 `ashare-pipeline-control` 服务端 async `submit + poll`，保留显式状态写回、共享写锁和 `DEPLOY_FULL_REBUILD=true` 的 manual opt-in 部署语义；direct async control-plane smoke、workflow deploy 和 manual dry-run 已完成。当前仍未执行一次真实全量写入 full rebuild，因为那会重建整套 warehouse。
+- [~] OQ-005 follow-up：`ashare_warehouse_full_rebuild` 已迁到 Workflows 并改成 `ashare-pipeline-control` 服务端 async `submit + poll`，保留显式状态写回、共享写锁和 `DEPLOY_FULL_REBUILD=true` 的 manual opt-in 部署语义；PR #120 review follow-up 已补 poll 循环内续租锁、`get_job` 瞬时失败内部重试、max-poll 上限和 `location` 透传。direct async control-plane smoke、workflow deploy 和 manual dry-run 已完成。当前仍未执行一次真实全量写入 full rebuild，因为那会重建整套 warehouse。
 - [x] OQ-005 follow-up：迁移 `ashare_pipeline_alert_checker` 到 `Cloud Scheduler -> Workflows -> ashare-pipeline-control`；workflow / deploy script / live smoke 已完成，manual execution `a2743da9-2654-4521-9222-4fbf2b5dc113` 和 Scheduler execution `ca8b6bdd-f137-4727-9311-29b5b8fb9d20` 均成功。当前为避免 cutover 前双跑，scheduler job 保持 `PAUSED`；正式启用时仍需同步停用 Composer 侧入口。
 - [ ] OQ-005 follow-up：补 Cloud Scheduler / IAM bootstrap / shadow-run / cutover 脚本，完成 Composer 真正下线前的生产切换路径。
 - [ ] OQ-005 follow-up：`airflow_monitoring` 无法在 Composer 存续期内降到每小时以内；完成 cutover 后删除 Composer 环境，才是停止这类平台托管监控 run 和固定 `standard milli DCU-hours` 成本的唯一路径。

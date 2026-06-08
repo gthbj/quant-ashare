@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -448,6 +449,7 @@ WHEN NOT MATCHED THEN INSERT (
         query_parameters: list[dict[str, Any]] | None = None,
         task_type: str | None = None,
         endpoint: str = "",
+        location: str | None = None,
     ) -> dict[str, Any]:
         started_at = utc_now().isoformat()
         self.upsert_task_status(
@@ -461,11 +463,12 @@ WHEN NOT MATCHED THEN INSERT (
             }
         )
         try:
+            query_location = location or self.config.bq_location
             query = read_bundled_sql(sql_path)
             job_config = bigquery.QueryJobConfig(
                 query_parameters=[_scalar_query_parameter(spec) for spec in (query_parameters or [])]
             )
-            job = self._bq().query(query, job_config=job_config)
+            job = self._bq().query(query, job_config=job_config, location=query_location)
             job.result()
             finished_at = utc_now().isoformat()
             self.upsert_task_status(
@@ -482,7 +485,7 @@ WHEN NOT MATCHED THEN INSERT (
             )
             return {
                 "job_id": job.job_id,
-                "job_url": bigquery_job_url(self.config.project_id, self.config.bq_location, job.job_id),
+                "job_url": bigquery_job_url(self.config.project_id, query_location, job.job_id),
                 "started_at": started_at,
                 "finished_at": finished_at,
             }
@@ -510,6 +513,7 @@ WHEN NOT MATCHED THEN INSERT (
         query_parameters: list[dict[str, Any]] | None = None,
         task_type: str | None = None,
         endpoint: str = "",
+        location: str | None = None,
     ) -> dict[str, Any]:
         started_at = utc_now().isoformat()
         self.upsert_task_status(
@@ -523,11 +527,12 @@ WHEN NOT MATCHED THEN INSERT (
             }
         )
         try:
+            query_location = location or self.config.bq_location
             query = read_bundled_sql(sql_path)
             job_config = bigquery.QueryJobConfig(
                 query_parameters=[_scalar_query_parameter(spec) for spec in (query_parameters or [])]
             )
-            job = self._bq().query(query, job_config=job_config)
+            job = self._bq().query(query, job_config=job_config, location=query_location)
             self.upsert_task_status(
                 {
                     **context,
@@ -541,7 +546,7 @@ WHEN NOT MATCHED THEN INSERT (
             )
             return {
                 "job_id": job.job_id,
-                "job_url": bigquery_job_url(self.config.project_id, self.config.bq_location, job.job_id),
+                "job_url": bigquery_job_url(self.config.project_id, query_location, job.job_id),
                 "started_at": started_at,
                 "done": False,
                 "status": "running",
@@ -569,22 +574,12 @@ WHEN NOT MATCHED THEN INSERT (
         job_id: str,
         task_type: str | None = None,
         endpoint: str = "",
+        location: str | None = None,
     ) -> dict[str, Any]:
         try:
-            job = self._bq().get_job(job_id, location=self.config.bq_location)
-        except Exception as exc:
-            self.upsert_task_status(
-                {
-                    **context,
-                    "task_id": task_id,
-                    "task_type": task_type,
-                    "endpoint": endpoint,
-                    "status": "failed",
-                    "finished_at": utc_now().isoformat(),
-                    "bigquery_job_id": job_id,
-                    "error_summary": f"{type(exc).__name__}: {safe_text(exc, 900)}",
-                }
-            )
+            query_location = location or self.config.bq_location
+            job = self._get_job_with_retries(job_id=job_id, location=query_location)
+        except Exception:
             raise
 
         if job.state != "DONE":
@@ -600,7 +595,7 @@ WHEN NOT MATCHED THEN INSERT (
             )
             return {
                 "job_id": job_id,
-                "job_url": bigquery_job_url(self.config.project_id, self.config.bq_location, job_id),
+                "job_url": bigquery_job_url(self.config.project_id, query_location, job_id),
                 "state": job.state,
                 "done": False,
                 "status": "running",
@@ -643,12 +638,29 @@ WHEN NOT MATCHED THEN INSERT (
         )
         return {
             "job_id": job_id,
-            "job_url": bigquery_job_url(self.config.project_id, self.config.bq_location, job_id),
+            "job_url": bigquery_job_url(self.config.project_id, query_location, job_id),
             "state": job.state,
             "done": True,
             "status": "success",
             "finished_at": finished_at,
         }
+
+    def _get_job_with_retries(self, *, job_id: str, location: str, max_attempts: int = 5) -> bigquery.job.QueryJob:
+        last_error: Exception | None = None
+        delay_seconds = 1.0
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return self._bq().get_job(job_id, location=location)
+            except Exception as exc:
+                last_error = exc
+                if attempt == max_attempts:
+                    break
+                time.sleep(delay_seconds)
+                delay_seconds = min(delay_seconds * 2.0, 8.0)
+        assert last_error is not None
+        raise RuntimeError(
+            f"transient get_job failed after {max_attempts} attempts for {job_id}: {safe_text(last_error, 900)}"
+        ) from last_error
 
     def acquire_lock(
         self,

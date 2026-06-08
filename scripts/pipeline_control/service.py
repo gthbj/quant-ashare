@@ -158,6 +158,7 @@ def task_bigquery():
         query_parameters=list(payload.get("query_parameters", [])),
         task_type=payload.get("task_type"),
         endpoint=str(payload.get("endpoint", "")),
+        location=payload.get("location"),
     )
     return jsonify({"ok": True, "result": result})
 
@@ -175,6 +176,7 @@ def task_bigquery_submit():
         query_parameters=list(payload.get("query_parameters", [])),
         task_type=payload.get("task_type"),
         endpoint=str(payload.get("endpoint", "")),
+        location=payload.get("location"),
     )
     return jsonify({"ok": True, "result": result})
 
@@ -191,6 +193,7 @@ def task_bigquery_poll():
         job_id=job_id,
         task_type=payload.get("task_type"),
         endpoint=str(payload.get("endpoint", "")),
+        location=payload.get("location"),
     )
     return jsonify({"ok": True, "result": result})
 
