@@ -125,3 +125,7 @@
 - [ ] OQ-005 follow-up：补 Cloud Scheduler / IAM bootstrap / shadow-run / cutover 脚本，完成 Composer 真正下线前的生产切换路径。
 - [ ] OQ-005 follow-up：`airflow_monitoring` 无法在 Composer 存续期内降到每小时以内；完成 cutover 后删除 Composer 环境，才是停止这类平台托管监控 run 和固定 `standard milli DCU-hours` 成本的唯一路径。
 - [ ] OQ-005 follow-up：若 shadow run 暴露锁过期边界，再给 `ashare-pipeline-control` stale-lock reclaim 补 Workflows execution liveness 检查；当前 phase 1 先以显式 SQL call timeout + 更长 lease headroom 收敛风险。
+
+## 2026-06-08 完成
+- [x] 修复 Strategy1 Cloud Run `prepare_matrix` 对 `has_fin_*` JSON 布尔特征的解包错误，并在 `000001.SH` 下跑通 `12` 候选 LightGBM regression smoke（`cloudrun_python_lgbm_reg_pvfq_n30_bw_h5_smoke_20260608_05`）。
+- [x] 处理 PR #113 review follow-up：将 Strategy1 Cloud Run `BOOLEAN_FEATURE_COLUMNS` 收窄回仅 4 个真实 JSON 布尔字段 `has_fin_*`，避免把 10 个数值型 `risk_*` / `is_*` 特征静默解包为 `NULL`。

@@ -1835,3 +1835,60 @@ PR #112 初版把 `ashare_warehouse_full_rebuild.yaml` 接进了标准 `deploy_w
 ### 相关文件
 
 `orchestration/workflows/Dockerfile.pipeline_control`, `orchestration/workflows/deploy_workflows.sh`, `orchestration/workflows/README.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260608-06: Strategy1 Cloud Run JSON 布尔特征解包必须使用 `BOOL -> INT64`
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+Cloud Run `prepare_matrix` 先前把训练面板 JSON 中的所有特征统一按 `SAFE_CAST(... AS FLOAT64)` 解包。四个财务可用性特征 `has_fin_indicator`、`has_fin_income`、`has_fin_balancesheet`、`has_fin_cashflow` 实际存储为 JSON 布尔值，因此在 BigQuery 解包后全部变成 `NULL`，导致 `train` split 触发 `all-null expected feature columns` 并使 live search smoke 失败。
+
+### Decision
+
+Strategy1 Cloud Run 训练矩阵构建必须显式区分布尔特征与数值特征：
+
+- 已知 JSON 布尔特征统一按 `SAFE_CAST(JSON_VALUE(...) AS BOOL)` 读取，再 `CAST(... AS INT64)` 进入矩阵；
+- 数值特征继续按 `SAFE_CAST(... AS FLOAT64)` 解包；
+- 新增布尔特征时，必须同步更新 `scripts/strategy1_cloudrun/feature_sets.py` 中的布尔特征清单。
+
+### Rationale
+
+下游训练矩阵仍需要数值型列，但布尔特征在 JSON 层已经有稳定类型信息，先按 `BOOL` 读取再映射到 `INT64` 可以保留语义且避免 BigQuery 在类型不匹配时静默产出 `NULL`。
+
+### Impact
+
+该规则恢复了 Strategy1 Cloud Run live search 在 `000001.SH` 主 benchmark 下的小规模 smoke，可持续产出 `*_vs_primary_benchmark`、Top1 backtest 和 comparison artifacts。后续若新增 JSON 布尔特征而未登记，会再次触发同类故障。
+
+## DECISION-20260608-10: Strategy1 Cloud Run 布尔解包白名单仅限真实 JSON 布尔字段
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+PR #113 首版修复把 `BOOLEAN_FEATURE_COLUMNS` 扩到了 14 列，其中包含 `risk_*` 六列和 `is_*` 四列。review 复核 `sql/cloudrun/strategy1/01_build_training_panel.sql` 后确认：`risk_*` 由 `CASE ... THEN 1.0 ELSE 0.0 END` 生成，`is_*` 由 `CAST(... AS INT64)` 生成，它们在 `feature_values_json` 中都是 JSON 数字而非 JSON 布尔。若继续按 `SAFE_CAST(JSON_VALUE(...) AS BOOL)` 解包，这 10 列会被静默吞成 `NULL`。
+
+### Decision
+
+Strategy1 Cloud Run 的 `BOOLEAN_FEATURE_COLUMNS` 白名单只允许收录真实 JSON 布尔字段；截至当前，仅四个 `has_fin_*` 字段满足该条件：
+
+- `has_fin_indicator`
+- `has_fin_income`
+- `has_fin_balancesheet`
+- `has_fin_cashflow`
+
+其余 `risk_*` / `is_*` / 未来任何 0/1 数值型字段，继续按数值列走 `SAFE_CAST(... AS FLOAT64)` 解包，不得因为语义上像 flag 就并入 BOOL 路径。
+
+### Rationale
+
+Cloud Run 训练矩阵最终需要数值型特征，但 JSON 层类型必须和解包类型一致。布尔语义不等于 JSON 布尔；只有源字段在 `TO_JSON_STRING(STRUCT(...))` 后实际产出 `true/false`，才可以走 `BOOL -> INT64` 路径。
+
+### Impact
+
+该约束修正了 PR #113 首版“修好 4 列、弄坏 10 列”的回归风险，并明确后续新增布尔白名单时必须先追溯 training panel SQL 中的原生类型，而不能只看特征名或业务语义。
