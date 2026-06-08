@@ -2198,3 +2198,43 @@ OQ-005 Workflows phase 1 已经证明 `qa_only`、`daily_current` 和 alert chec
 ### Related Files
 
 `scripts/strategy1/replay_acceptance_gate_v3.py`, `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`, `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`, `scripts/strategy1_cloudrun/train_predict.py`
+
+## DECISION-20260608-19: OQ-005 跳过 shadow run，直接切到 Scheduler + Workflows 生产入口
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+OQ-005 原 PRD 默认建议先做 shadow run，再切掉 Composer 业务调度。但 owner 已明确要求“做 ODS / warehouse 的 Cloud Scheduler + IAM bootstrap，不用 shadow run，真正 cutover”。此时条件已经满足：
+
+1. `ashare_ods_ingestion_daily` / `ashare_warehouse_window_refresh` workflow 已真实 smoke 通过；
+2. `ashare_pipeline_alert_checker` 的 Scheduler -> Workflows 路径已真实 smoke 通过；
+3. `ashare_warehouse_full_rebuild` 的 async submit+poll 已部署并过 dry-run；
+4. Composer 业务 DAG 当前已处于 paused 状态，不存在双写生产窗口的主动障碍。
+
+### Decision
+
+1. 不再等待 shadow run；
+2. 直接启用 Cloud Scheduler jobs `ashare-pipeline-alert-checker` 和 `ashare-ods-ingestion-daily` 作为新的生产定时入口；
+3. `ashare_warehouse_window_refresh` 不建立独立 daily scheduler，继续只作为 `ashare_ods_ingestion_daily` 的同步 child workflow；
+4. Scheduler caller 固定为 `ashare-scheduler-invoker@data-aquarium.iam.gserviceaccount.com`，并在 bootstrap 脚本中显式授予 `roles/workflows.invoker`；
+5. Composer 业务 DAG 继续保持 paused，直到后续删除 Composer 环境。
+
+### Rationale
+
+1. 当前最大的成本来自 Composer 常驻底座，而不是业务 DAG 次数；继续等待 shadow run 只会延长固定费用。
+2. 生产主链已经有足够多的手工 smoke 证据，直接 cutover 的风险低于继续双系统并存的复杂度。
+3. 保持 ODS 作为唯一生产 scheduler 入口，并让 warehouse 继续走 child workflow，可以避免日常写路径出现双入口。
+
+### Impact
+
+1. 2026-06-08 起，生产 daily 调度事实来源从 Composer DAG 切到 Cloud Scheduler + Workflows。
+2. 所有后续关于 OQ-005 的部署与回滚脚本，都应以 `ashare-scheduler-invoker`、`ashare-ods-ingestion-daily`、`ashare-pipeline-alert-checker` 作为当前生产入口。
+3. OQ-005 的剩余工作收敛为删除 Composer 环境，而不是继续讨论是否先做 shadow run。
+
+### Related Files
+
+`orchestration/workflows/bootstrap_scheduler_iam.sh`, `orchestration/workflows/deploy_scheduler_jobs.sh`, `orchestration/workflows/cutover_scheduler_jobs.sh`, `orchestration/workflows/README.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `TODO.md`
