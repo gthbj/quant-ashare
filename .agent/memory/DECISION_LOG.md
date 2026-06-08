@@ -1963,3 +1963,79 @@ PR #114 review 指出：`v3` 切门 PRD 若不显式写死 `max_drawdown` 的符
 1. 后续 `model_acceptance_contract_v3.yml` 必须把这些技术约定体现在字段、公式或注释中。
 2. replay 和 QA 不仅要校验阈值，还要校验窗口、符号和价格字段一致性。
 3. 未来若要改变 `000001.SH` 在 pass/fail 中的角色，应作为新的 `v3.x` 规则变更单独讨论，而不是在当前实现阶段临时变更。
+
+## DECISION-20260608-13: Strategy1 v3 切门先以独立 contract 固化规则，不提前改 replay 或 live gate
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+PR #114 已把 `v3` 的 benchmark、复利、Sharpe / Calmar、五指数相对门、`策略最大回撤同期超额` 和除零规则冻结到切门 PRD 中，但仓库里仍缺少真正可被实现读取的 `configs/strategy1/model_acceptance_contract_v3.yml`。如果先写 replay 或 acceptance 代码，再反向补 contract，`v3` 的字段名、阈值和公式口径仍会分散在脚本与 QA 中。
+
+### Decision
+
+策略 1 `v3` 切门实现固定按以下顺序推进：
+
+1. 先新增 `configs/strategy1/model_acceptance_contract_v3.yml`
+2. 把当前 owner 已确认的 `v3` 规则全部写入 contract，而不是继续只放在 PRD
+3. 在 contract 落地前，不实现 `v3` replay、不新增 `v3` QA、也不改 live search 默认 gate
+
+`model_acceptance_contract_v3.yml` 作为后续 `v3` replay、QA 和 live cutover 的唯一事实来源，至少要覆盖：
+
+- `000001.SH` 主 benchmark 与五指数 `sec_code`
+- 复利年化约定
+- 信号质量门
+- `Sharpe >= 0.70`
+- `Calmar > 1`
+- `Final holdout 交易日数 >= 40`
+- 五指数相对门
+- `max_drawdown` / `Sharpe` / `Calmar` / `Excess Calmar` 的公式、窗口和除零行为
+
+### Rationale
+
+先固化 contract，后续 replay / QA / live cutover 才能共享同一套字段和阈值，避免再次出现“PRD 一套说法、实现另一套默认”的分叉。
+
+### Impact
+
+1. 后续 `v3` replay 与 QA 必须直接读取 `model_acceptance_contract_v3.yml`。
+2. 当前 live write-back 继续停在 `v1`，直到 `v3` replay + QA 都补齐。
+3. 任何新的 `v3` 规则调整，都应优先改 contract 与 PRD，再改实现代码。
+
+## DECISION-20260608-14: Strategy1 v3 replay 必须作为独立只读 artifact 路径存在，不能覆盖历史 v1 结论
+
+- Date: 2026-06-08
+- Status: active
+- Owner: owner
+- Model: GPT-5 Codex
+
+### Context
+
+owner 已明确：`v3` replay 的目标是回答“如果把历史五次正式搜索按 `v3` 来看会怎么判”，而不是追溯改写当时的 `v1` report、comparison artifact 或 `accepted/rejected` 状态。与此同时，`v3` replay 还需要为未来 live cutover 提供一套可重复的只读证据链。
+
+### Decision
+
+策略 1 `v3` replay 固定为独立只读 artifact 路径：
+
+1. 新增 `scripts/strategy1/replay_acceptance_gate_v3.py`
+2. artifact 路径固定落在 `acceptance_gate_v3_replay/`
+3. 读取对象只包括既有 `ads_model_registry`、`ads_backtest_*` 和 `dwd_index_eod`
+4. 不重训模型、不改 historical report、不回写 ADS `accepted/rejected`
+5. `v3` QA 只校验 replay 依赖的源数据和公式不变量，不把历史 `v1` 结论视作需要被回填的状态
+
+### Rationale
+
+这样可以同时保留两套审计口径：
+
+- 历史事实口径：当时实际使用的 `v1`
+- 当前重评口径：只读 `v3 replay`
+
+避免在同一份历史 artifact 上混入新的 gate 语义。
+
+### Impact
+
+1. 未来 `v3` replay / QA / report 都应挂在独立目录和独立命名下。
+2. 任何 `v3` cutover 前的历史对比都应读取 replay artifact，而不是回填旧 summary/registry。
+3. live gate 切到 `v3` 之后，历史 `v1` 记录仍保留作审计 reference。

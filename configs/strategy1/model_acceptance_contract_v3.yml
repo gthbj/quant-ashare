@@ -1,0 +1,182 @@
+# Strategy 1 acceptance gate v3 contract.
+# 文档维护：GPT-5 Codex（最近更新 2026-06-08）
+
+contract_name: model_acceptance_contract_v3
+contract_version: model_acceptance_contract_v3
+
+gate:
+  acceptance_gate_version: strategy1_acceptance_gate_v3
+  applies_to:
+    - acceptance_gate_v3_replay
+    - future_cloud_run_python_search
+    - future_monthly_retrain
+  historical_contracts:
+    - model_acceptance_contract_v1
+  cutover_path:
+    current_live_gate: model_acceptance_contract_v1
+    next_live_gate: model_acceptance_contract_v3
+    excluded_gate_versions:
+      - model_acceptance_contract_v2
+
+windows:
+  default_replay_and_initial_cutover_full_period:
+    start_date: 2024-01-02
+    end_date: 2026-04-30
+    window_role: default_replay_and_initial_cutover_only
+  valid:
+    start_date: 2024-01-02
+    end_date: 2024-12-31
+  test:
+    start_date: 2025-01-02
+    end_date: 2025-12-31
+  final_holdout:
+    start_date: 2026-01-05
+    end_date: 2026-04-30
+
+benchmarks:
+  primary_benchmark_sec_code: 000001.SH
+  primary_benchmark_name_zh: 上证指数
+  primary_benchmark_role:
+    - registry_report_comparison_default_label
+    - replay_and_qa_default_completeness_anchor
+  comparison_benchmarks:
+    - sec_code: 000016.SH
+      benchmark_name_zh: 上证50
+    - sec_code: 000300.SH
+      benchmark_name_zh: 沪深300
+    - sec_code: 000852.SH
+      benchmark_name_zh: 中证1000
+    - sec_code: 000001.SH
+      benchmark_name_zh: 上证指数
+    - sec_code: 399001.SZ
+      benchmark_name_zh: 深证成指
+  relative_gate_pass_rule: any_one_benchmark_must_pass_same_index_conditions
+
+annualization:
+  method: compound
+  target_period_count_year: 252
+  target_period_count_month_trading_day_basis: 21
+  target_period_count_day: 1
+  notes:
+    - target_period_count values are normalization factors, not fixed real trading day counts
+    - return_period_count must use actual effective return periods inside the evaluated window
+
+required:
+  valid_signal_status: stable
+  cv_confirmation_status: passed
+  allowed_score_orientation:
+    - identity
+    - reverse_probability
+
+signal_quality_gate:
+  thresholds:
+    valid_rank_ic:
+      operator: ">"
+      value: 0.0
+    valid_top_minus_bottom_fwd_ret:
+      operator: ">"
+      value: 0.0
+    test_rank_ic:
+      operator: ">"
+      value: 0.0
+    test_top_minus_bottom_fwd_ret:
+      operator: ">"
+      value: 0.0
+
+absolute_performance_gate:
+  sharpe_ratio:
+    operator: ">="
+    value: 0.70
+  calmar_ratio:
+    operator: ">"
+    value: 1.0
+
+final_holdout_gate:
+  trading_day_count:
+    operator: ">="
+    value: 40
+
+relative_gate:
+  benchmark_scope: comparison_benchmarks
+  pass_rule: any_one_benchmark_same_index_pass
+  required_same_index_conditions:
+    strategy_excess_compound_annualized_return:
+      operator: ">"
+      value: 0.0
+    pass_branches:
+      - branch_name: excess_calmar_ratio
+        metric: excess_calmar_ratio
+        operator: ">"
+        value: 1.0
+      - branch_name: strategy_max_drawdown_same_window_excess
+        metric: strategy_max_drawdown_same_window_excess
+        operator: ">"
+        value: 0.0
+
+metric_definitions:
+  max_drawdown:
+    sign_convention: negative
+    formula: trough_value / peak_value - 1
+  compound_annualized_return:
+    formula: (ending_value / starting_value) ^ (252 / return_period_count) - 1
+  annualized_volatility:
+    formula: stddev_samp(daily_return) * sqrt(252)
+  sharpe_ratio:
+    formula: compound_annualized_return / annualized_volatility
+    risk_free_rate: 0.0
+    zero_denominator_behavior:
+      positive_numerator: inf
+      zero_numerator: 0.0
+      negative_numerator: -inf
+  calmar_ratio:
+    formula: compound_annualized_return / abs(max_drawdown)
+    zero_denominator_behavior:
+      positive_numerator: inf
+      zero_numerator: 0.0
+      negative_numerator: -inf
+  strategy_excess_compound_annualized_return:
+    formula: strategy_compound_annualized_return - benchmark_compound_annualized_return
+    same_window_required: true
+    same_effective_return_period_count_required: true
+    same_effective_trade_date_set_required: true
+  benchmark_same_window_return:
+    formula: benchmark_close(trough_date) / benchmark_close(peak_date) - 1
+    price_field: ashare_dwd.dwd_index_eod.close
+    window_definition: strategy_nav_max_drawdown_peak_date_to_trough_date
+    window_endpoints_inclusive: true
+  strategy_max_drawdown_same_window_excess:
+    formula: strategy_max_drawdown - benchmark_same_window_return
+  excess_calmar_ratio:
+    positive_same_window_excess_behavior: direct_pass_do_not_compute_ratio
+    zero_same_window_excess_behavior: undefined_cannot_pass_ratio_branch
+    negative_same_window_excess_formula: strategy_excess_compound_annualized_return / abs(strategy_max_drawdown_same_window_excess)
+
+diagnosis:
+  hard_reject_primary_diagnosis:
+    - signal_inverted
+    - unusable_signal
+  hard_reject_confidence_by_diagnosis:
+    sample_filter_risk:
+      - high
+
+required_outputs:
+  summary_level_fields:
+    - contract_version
+    - primary_benchmark_sec_code
+    - compound_annualized_return
+    - sharpe_ratio
+    - calmar_ratio
+    - final_holdout_trading_day_count
+  per_benchmark_fields:
+    - benchmark_sec_code
+    - strategy_excess_compound_annualized_return
+    - benchmark_same_window_return
+    - strategy_max_drawdown_same_window_excess
+    - excess_calmar_ratio
+    - relative_gate_pass
+    - relative_gate_pass_branch
+
+replay_and_qa_requirements:
+  comparison_benchmark_full_window_coverage_required: true
+  initial_cutover_block_on_missing_comparison_benchmark_window: true
+  historical_acceptance_state_mutation_allowed: false

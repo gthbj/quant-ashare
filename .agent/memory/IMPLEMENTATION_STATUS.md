@@ -6,6 +6,19 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：策略 1 `v3` 只读 replay 与 `v3` QA 已落地代码骨架
+
+- 已新增 `scripts/strategy1/replay_acceptance_gate_v3.py`，按 `model_acceptance_contract_v3.yml` 对五次正式搜索 Top-K 做只读 replay：重算 `Sharpe`、`Calmar`、五指数相对门和 `Final holdout 交易日数`，输出独立 `acceptance_gate_v3_replay/` artifact，不重训模型、不覆盖 historical `accepted/rejected`。
+- 已新增 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`，把 `v3` replay 需要的源数据不变量写成 BigQuery QA：contract identity、五次正式搜索 Top-K 覆盖、五指数窗口覆盖、绝对指标可计算性，以及 “direct-pass 不能绕过正超额复合年化收益 / 零同期超额不能产出 ratio” 的公式锁定。
+- `sql/ml/strategy1/README.md` 已补 `24` 的执行入口和口径说明。
+- 本轮仍未运行新的 BigQuery QA、Cloud Run 或 replay；当前只完成 Phase B/C 的代码与 SQL 落地，live write-back gate 仍是 `v1`。
+
+### 最新补充（2026-06-08）：策略 1 `model_acceptance_contract_v3` 已落地为唯一事实来源
+
+- 已新增 `configs/strategy1/model_acceptance_contract_v3.yml`，把 PR #114 已冻结的 `v3` 规则正式写成可执行 contract 草案，而不再只停留在 PRD 文案。
+- `v3` contract 当前已固化：`000001.SH` 主 benchmark 角色、五指数 `sec_code`、复合年化口径、`Sharpe >= 0.70`、`Calmar > 1`、`Final holdout 交易日数 >= 40`、五指数同指数相对门，以及 `max_drawdown` / `Sharpe` / `Calmar` / `Excess Calmar` 的符号与除零约定。
+- 本轮只完成 Phase A；尚未实现 `v3` replay、`v3` QA 或 live search cutover，当前 live write-back gate 仍然是 `model_acceptance_contract_v1.yml`。
+
 ### 最新补充（2026-06-08）：PR #114 review follow-up 已加硬 v3 切门 PRD
 
 - 已按 PR #114 review 补齐 `docs/prd/PRD_20260608_02_策略1验收门v3切换实施.md` 的实现歧义约束，但不改变门松紧。

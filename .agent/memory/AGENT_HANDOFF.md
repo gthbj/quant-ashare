@@ -3723,3 +3723,33 @@ Run ID: oq005-composer-exit-next-20260608
 - Validation: 文档级变更；未改代码、未跑 Cloud Run、未跑 BigQuery QA。
 - Notes: `v3` 当前仍是 doc + replay gate，不是 production write-back gate。实现前置顺序已经固定为 contract -> replay -> QA -> live cutover。
 - Next Steps: 新增 `configs/strategy1/model_acceptance_contract_v3.yml`，再实现 `v3` replay 和对应 QA。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - 已在独立 worktree `/Users/fisher/Desktop/git/quant-ashare-v3-contract`、分支 `codex/implement-v3-contract` 落下 `configs/strategy1/model_acceptance_contract_v3.yml`。
+> - 本轮只完成 Phase A：把 `v3` 的 benchmark、复利、Sharpe / Calmar、五指数相对门和除零规则写成 contract；没有实现 replay、QA 或 live cutover。
+> - 当前 live write-back gate 仍是 `v1`；下一步应该直接读取该 contract 去实现只读 replay。
+
+> 当前交接补充（2026-06-08，GPT-5 Codex）
+> - 已继续在同一独立 worktree 上实现 Phase B/C：新增 `scripts/strategy1/replay_acceptance_gate_v3.py` 与 `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`。
+> - `v3 replay` 当前是独立只读 artifact 路径，不会覆盖历史 `v1` report、comparison artifact 或 `accepted/rejected`。
+> - 本轮仍未执行 replay 或 `24` QA；下一步若要继续，应先做一次只读 replay / QA 实跑，再决定 live cutover。
+
+## 2026-06-08 - GPT-5 Codex
+- Date: 2026-06-08
+- Model: GPT-5 Codex
+- Branch: `codex/implement-v3-contract`
+- Summary: 新增 `configs/strategy1/model_acceptance_contract_v3.yml`，把 PR #114 已冻结的策略 1 `v3` 规则正式落成唯一事实来源，不提前实现 replay、QA 或 live gate 切换。
+- Files: `configs/strategy1/model_acceptance_contract_v3.yml`
+- Validation: 未运行新的 Cloud Run、BigQuery QA 或 replay；本轮仅完成 contract 与记忆/TODO 同步。
+- Notes: `v3` contract 已包含 `000001.SH` 主 benchmark、五指数 `sec_code`、复利年化、`Sharpe >= 0.70`、`Calmar > 1`、`Final holdout 交易日数 >= 40`、五指数同指数相对门，以及 `max_drawdown` / `Sharpe` / `Calmar` / `Excess Calmar` 的符号与除零约定。
+- Next Steps: 基于该 contract 实现只读 `v3` replay，并新增 `v3` QA；在 replay + QA 完成前，不切 live search 默认 gate。
+
+## 2026-06-08 - GPT-5 Codex
+- Date: 2026-06-08
+- Model: GPT-5 Codex
+- Branch: `codex/implement-v3-contract`
+- Summary: 新增 `v3` 只读 replay 脚本和 `24` 号 BigQuery QA，把五次正式搜索的 `v3` 重评路径落成独立 artifact / SQL 骨架，但仍不改 live gate。
+- Files: `scripts/strategy1/replay_acceptance_gate_v3.py`, `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql`, `sql/ml/strategy1/README.md`
+- Validation: 未运行 replay、未执行 `24` QA、未跑 Cloud Run；本轮只完成代码/SQL/文档与记忆同步。
+- Notes: `v3 replay` 保持只读，不覆盖历史 `v1` 结论；`24` QA 只校验源数据和公式不变量，不回填 ADS 状态。
+- Next Steps: 先按 `model_acceptance_contract_v3.yml` 真实跑一遍 replay 和 `24` QA，再决定是否开始 live cutover。
