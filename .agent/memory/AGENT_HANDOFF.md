@@ -2,6 +2,9 @@
 > - PR #120 第二轮 review follow-up 已继续收口 full rebuild poll 终态：`get_job(...)` 用尽内部重试后，现在会显式把 task 写成 `failed`，不再让 `pipeline_task_status` 卡在 `running`。
 > - `ashare_warehouse_full_rebuild` 还补了 `bigquery_max_polls` workflow 输入化，默认仍是 `1440`；以后若全量窗口继续变大，可以只调 workflow 参数，不必改 YAML 常量。
 > - 另外已把 control service 当前 poll 重试的同步 `time.sleep` 约束写进 README 和 `KNOWN_CONSTRAINTS.md`：单次 `/v1/tasks/bigquery/poll` 最坏会多占一个 worker 约 `15s`，这是 cutover 前需要接受的显式容量边界。
+> - PR #119 review follow-up 已继续收口 `v3` replay fallback：`effective_test_metric` 两个 test 字段现在都按“有限 raw 值优先，否则 fallback”处理，避免 spread 字段的 `inf`/非有限 raw 值吞掉 fallback。
+> - replay candidate artifact 已新增 `cv_confirmation_status_from_fallback`、`test_rank_ic_from_fallback`、`test_top_minus_bottom_fwd_ret_from_fallback`，便于审计值是来自历史 `metrics_json` 还是 source-fallback。
+> - `24` QA 里的 `qa_v3_selected_rows` 已把 backtest summary 连接改回 `LEFT JOIN`，继续显式暴露“selected row 缺 summary”而不是在 CTE 前置静默过滤。
 
 > 当前交接补充（2026-06-08，GPT-5 Codex）
 > - Strategy1 `v3` replay / `24` QA 已补历史 search 字段缺口兼容：不再要求旧 `metrics_json` 必须原生带齐 `cv_confirmation_status` / `test_*`，而是按 source-of-truth fallback 读取。
@@ -65,6 +68,7 @@
 
 ## 当前交接摘要
 
+- **2026-06-08 GPT-5 Codex：PR #119 review follow-up 已把 `v3` replay fallback 再收口一轮。** `effective_test_metric` 现在对 `test_rank_ic_mean` 和 `test_top_minus_bottom_fwd_ret_mean` 统一走“有限 raw 值优先，否则 fallback”，避免 spread 字段遇到 `inf`/非有限 raw 值时把 fallback 吞掉。candidate artifact 也新增了 `cv_confirmation_status_from_fallback`、`test_rank_ic_from_fallback`、`test_top_minus_bottom_fwd_ret_from_fallback`，便于审计值来源；`24` QA 则把 `selected_registry -> backtest_summary` 改回 `LEFT JOIN`，继续显式暴露缺 summary 的 selected row。当前仍未重跑 replay / `24` QA。
 - **2026-06-08 GPT-5 Codex：Strategy1 `v3` replay / `24` QA 已改为兼容历史 search 的信号字段缺口。** `replay_acceptance_gate_v3.py` 不再把历史 `cv_confirmation_status` / `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 缺失当硬阻断，而是按 source-of-truth fallback 读取：`cv_confirmation_status` 用已有 `cv_rank_ic_mean` + `cv_top_minus_bottom_fwd_ret_mean`（以及存在时的 `cv_fold_count`）回推，`test_*` 则从 `ads_model_prediction_daily` + `ads_ml_training_panel_daily` 的 `test` 窗口按原 orchestrator 公式现算。`24_qa_acceptance_gate_v3_replay_outputs.sql` 已同步改成校验“字段存在或可由 source 推导”。本轮尚未重跑 replay / `24` QA，下一步先执行这两步。
 - **2026-06-08 GPT-5 Codex：OQ-005 alert checker 新路径已 smoke 成功，但 scheduler 暂时保持 paused。** `ashare-pipeline-control` 已升到 revision `00003-sfd`，`ashare_pipeline_alert_checker` workflow 已部署到 revision `000002-31c`，manual execution `a2743da9-2654-4521-9222-4fbf2b5dc113` 和 Scheduler execution `ca8b6bdd-f137-4727-9311-29b5b8fb9d20` 均 succeeded。live 验证顺手修了两类真实问题：`deploy_scheduler_jobs.sh` 对当前 `gcloud` 必须区分 `create http --headers` 与 `update http --update-headers`；Workflow resolve 阶段的原生 `int/bool` 参数不能再直接和空字符串比较，相关修复已覆盖 alert-check、ODS、window-refresh 和 full-rebuild 四个 workflow 文件。为避免 cutover 前双跑，scheduler job 现已重新 `PAUSED`。
 - **2026-06-08 GPT-5 Codex：PR #112 review follow-up 已把不安全路径真正封住。** `Dockerfile.pipeline_control` 已补 `scripts/alerting` 到镜像，避免 `service.py` 模块级导入 `scripts.alerting.check_alerts` 时导致整个 `ashare-pipeline-control` 启动崩溃。`deploy_workflows.sh` 默认只部署 `ashare_ods_ingestion_daily` 和 `ashare_warehouse_window_refresh`；`ashare_warehouse_full_rebuild` 改为显式 `DEPLOY_FULL_REBUILD=true` 的 opt-in 路径，直到控制层 BigQuery 改成 async submit + poll 为止。README 也已补明：启用 `Cloud Scheduler` alert checker 时需同时 pause / delete Composer DAG `ashare_pipeline_alert_checker`，避免双跑。

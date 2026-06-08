@@ -514,6 +514,13 @@ def evaluate_candidate(
     if not passed_benchmarks:
         reasons.append("no_comparison_benchmark_passed_v3_relative_gate")
     status = "accepted" if not reasons else "rejected"
+    cv_confirmation_status, cv_confirmation_status_from_fallback = effective_cv_confirmation_status(record, metrics)
+    test_rank_ic, test_rank_ic_from_fallback = effective_test_metric(record, metrics, "test_rank_ic_mean")
+    test_top_minus_bottom, test_top_minus_bottom_from_fallback = effective_test_metric(
+        record,
+        metrics,
+        "test_top_minus_bottom_fwd_ret_mean",
+    )
 
     candidate_summary = {
         "search_id": record.get("search_id"),
@@ -524,15 +531,18 @@ def evaluate_candidate(
         "model_family": record.get("model_family"),
         "model_backend": record.get("model_backend"),
         "search_rank_valid_only": safe_int(record.get("shortlist_rank_valid_only")),
-        "cv_confirmation_status": effective_cv_confirmation_status(record, metrics),
+        "cv_confirmation_status": cv_confirmation_status,
+        "cv_confirmation_status_from_fallback": cv_confirmation_status_from_fallback,
         "valid_signal_status": coalesce_text(record.get("valid_signal_status"), metrics.get("valid_signal_status")),
         "score_orientation": coalesce_text(record.get("score_orientation"), metrics.get("score_orientation")),
         "primary_diagnosis": coalesce_text(record.get("primary_diagnosis"), metrics.get("primary_diagnosis")),
         "sample_filter_risk": coalesce_text(record.get("sample_filter_risk"), metrics.get("sample_filter_risk")),
-        "valid_rank_ic": first_finite(record.get("effective_valid_rank_ic_mean"), record.get("oriented_valid_rank_ic_mean"), record.get("valid_rank_ic_mean"), metrics.get("oriented_valid_rank_ic_mean"), metrics.get("valid_rank_ic_mean")),
+        "valid_rank_ic": first_finite(record.get("effective_valid_rank_ic_mean"), metrics.get("oriented_valid_rank_ic_mean"), metrics.get("valid_rank_ic_mean")),
         "valid_top_minus_bottom_fwd_ret": safe_float(coalesce_value(record.get("valid_top_minus_bottom_fwd_ret_mean"), metrics.get("valid_top_minus_bottom_fwd_ret_mean"))),
-        "test_rank_ic": effective_test_metric(record, metrics, "test_rank_ic_mean"),
-        "test_top_minus_bottom_fwd_ret": effective_test_metric(record, metrics, "test_top_minus_bottom_fwd_ret_mean"),
+        "test_rank_ic": test_rank_ic,
+        "test_rank_ic_from_fallback": test_rank_ic_from_fallback,
+        "test_top_minus_bottom_fwd_ret": test_top_minus_bottom,
+        "test_top_minus_bottom_fwd_ret_from_fallback": test_top_minus_bottom_from_fallback,
         "strategy_total_return": strategy_total_return,
         "strategy_compound_annualized_return": strategy_compound_annualized_return,
         "annualized_volatility": annualized_volatility,
@@ -619,7 +629,7 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
     thresholds = signal_gate.get("thresholds") or {}
     diagnosis = contract.get("diagnosis") or {}
 
-    cv_status = effective_cv_confirmation_status(record, metrics)
+    cv_status, _ = effective_cv_confirmation_status(record, metrics)
     if cv_status != required.get("cv_confirmation_status", "passed"):
         failures.append(f"cv_confirmation_status!={required.get('cv_confirmation_status', 'passed')}")
 
@@ -632,7 +642,7 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
     if score_orientation not in allowed_orientations:
         failures.append("score_orientation_not_allowed")
 
-    valid_rank_ic = first_finite(record.get("effective_valid_rank_ic_mean"), record.get("oriented_valid_rank_ic_mean"), record.get("valid_rank_ic_mean"), metrics.get("oriented_valid_rank_ic_mean"), metrics.get("valid_rank_ic_mean"))
+    valid_rank_ic = first_finite(record.get("effective_valid_rank_ic_mean"), metrics.get("oriented_valid_rank_ic_mean"), metrics.get("valid_rank_ic_mean"))
     if not compare_metric(valid_rank_ic, threshold_operator(thresholds, "valid_rank_ic"), threshold_value(thresholds, "valid_rank_ic")):
         failures.append("valid_rank_ic<=0")
 
@@ -640,11 +650,11 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
     if not compare_metric(valid_tb, threshold_operator(thresholds, "valid_top_minus_bottom_fwd_ret"), threshold_value(thresholds, "valid_top_minus_bottom_fwd_ret")):
         failures.append("valid_top_minus_bottom<=0")
 
-    test_rank_ic = effective_test_metric(record, metrics, "test_rank_ic_mean")
+    test_rank_ic, _ = effective_test_metric(record, metrics, "test_rank_ic_mean")
     if not compare_metric(test_rank_ic, threshold_operator(thresholds, "test_rank_ic"), threshold_value(thresholds, "test_rank_ic")):
         failures.append("test_rank_ic<=0")
 
-    test_tb = effective_test_metric(record, metrics, "test_top_minus_bottom_fwd_ret_mean")
+    test_tb, _ = effective_test_metric(record, metrics, "test_top_minus_bottom_fwd_ret_mean")
     if not compare_metric(test_tb, threshold_operator(thresholds, "test_top_minus_bottom_fwd_ret"), threshold_value(thresholds, "test_top_minus_bottom_fwd_ret")):
         failures.append("test_top_minus_bottom<=0")
 
@@ -660,35 +670,29 @@ def signal_quality_failures(record: dict[str, Any], metrics: dict[str, Any], con
     return failures
 
 
-def effective_cv_confirmation_status(record: dict[str, Any], metrics: dict[str, Any]) -> str | None:
+def effective_cv_confirmation_status(record: dict[str, Any], metrics: dict[str, Any]) -> tuple[str | None, bool]:
     raw_status = coalesce_text(record.get("cv_confirmation_status"), metrics.get("cv_confirmation_status"))
     if raw_status is not None:
-        return raw_status
+        return raw_status, False
     cv_rank_ic = first_finite(record.get("cv_rank_ic_mean"), metrics.get("cv_rank_ic_mean"))
     cv_top_minus_bottom = safe_float(coalesce_value(record.get("cv_top_minus_bottom_fwd_ret_mean"), metrics.get("cv_top_minus_bottom_fwd_ret_mean")))
     cv_fold_count = safe_int(coalesce_value(record.get("cv_fold_count"), metrics.get("cv_fold_count")))
     if cv_rank_ic is None or cv_top_minus_bottom is None:
-        return None
+        return None, False
     if cv_fold_count is not None and cv_fold_count < 3:
-        return "failed"
-    return "passed" if cv_rank_ic > 0 and cv_top_minus_bottom > 0 else "failed"
+        return "failed", True
+    return ("passed" if cv_rank_ic > 0 and cv_top_minus_bottom > 0 else "failed"), True
 
 
-def effective_test_metric(record: dict[str, Any], metrics: dict[str, Any], field_name: str) -> float | None:
+def effective_test_metric(record: dict[str, Any], metrics: dict[str, Any], field_name: str) -> tuple[float | None, bool]:
     fallback_field_name = f"{field_name}_fallback"
-    if field_name == "test_rank_ic_mean":
-        return first_finite(
-            record.get(field_name),
-            record.get(fallback_field_name),
-            metrics.get(field_name),
-        )
-    return safe_float(
-        coalesce_value(
-            record.get(field_name),
-            record.get(fallback_field_name),
-            metrics.get(field_name),
-        )
-    )
+    raw_value = first_finite(record.get(field_name), metrics.get(field_name))
+    if raw_value is not None:
+        return raw_value, False
+    fallback_value = first_finite(record.get(fallback_field_name))
+    if fallback_value is not None:
+        return fallback_value, True
+    return None, False
 
 
 def absolute_gate_failures(

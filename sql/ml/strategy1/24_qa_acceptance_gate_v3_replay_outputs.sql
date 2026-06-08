@@ -74,7 +74,7 @@ WITH selected_registry AS (
     SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) AS test_rank_ic_mean_raw,
     SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) AS test_top_minus_bottom_raw
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
-  JOIN `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  LEFT JOIN `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
     ON bs.model_id = reg.model_id
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'

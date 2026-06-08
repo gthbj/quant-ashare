@@ -6,6 +6,14 @@ Last updated: 2026-06-08
 
 ## 当前状态
 
+### 最新补充（2026-06-08）：PR #119 review follow-up 已修 v3 replay fallback 对称性与可追溯性
+
+- `scripts/strategy1/replay_acceptance_gate_v3.py` 已修 `effective_test_metric` 对两个 test 指标的不对称处理：`test_rank_ic_mean` 与 `test_top_minus_bottom_fwd_ret_mean` 现在都先取有限 raw 值，再回退到 source-fallback，避免 `inf` / 非有限 raw 值把 fallback 短路。
+- replay candidate artifact 已新增 `cv_confirmation_status_from_fallback`、`test_rank_ic_from_fallback`、`test_top_minus_bottom_fwd_ret_from_fallback`，用于区分输出值来自历史 `metrics_json` 还是只读 fallback。
+- `valid_rank_ic` 相关 dead record 分支已清理，当前优先使用 `effective_valid_rank_ic_mean`，再回退到 `metrics_json` 中的 legacy valid 字段，不再引用 SQL 已不再 select 的列。
+- `sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql` 已把 `selected_registry -> ads_backtest_performance_summary` 改回 `LEFT JOIN`，继续显式保留“selected row 缺 backtest summary”这一类 QA 失败模式，而不是在前置 CTE 中静默过滤。
+- 本轮仍未执行 `py_compile`、BigQuery dry-run、replay 或 `24` QA；这是按 PR review 直接做的代码修复与记忆更新。
+
 ### 最新补充（2026-06-08）：Strategy1 `v3` replay / `24` QA 已兼容历史 search 缺失的 signal-quality 字段
 
 - 已修 `scripts/strategy1/replay_acceptance_gate_v3.py`：不再把历史 `ads_model_registry.metrics_json` 里缺失的 `cv_confirmation_status` / `test_rank_ic_mean` / `test_top_minus_bottom_fwd_ret_mean` 当作硬阻断，而是使用可追溯 fallback。
