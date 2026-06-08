@@ -28,7 +28,7 @@ main:
           - current_error_payload: null
           - lock_name: "ashare_warehouse_window_refresh"
           - lock_owner: ${workflow_execution_id}
-          - lock_lease_seconds: 7200
+          - lock_lease_seconds: 21600
           - lock_acquired: "false"
           - input_business_date: ${map.get(args, "business_date")}
           - input_date_from: ${map.get(args, "date_from")}
@@ -37,6 +37,8 @@ main:
           - input_warehouse_mode: ${map.get(args, "warehouse_mode")}
           - input_pipeline_dry_run: ${map.get(args, "pipeline_dry_run")}
           - input_confirm_full_rebuild: ${map.get(args, "confirm_full_rebuild")}
+          - input_bigquery_max_polls: ${map.get(args, "bigquery_max_polls")}
+          - full_rebuild_bigquery_max_polls: null
     - resolve_date_from:
         switch:
           - condition: ${input_date_from == null}
@@ -123,10 +125,23 @@ main:
     - set_confirm_full_rebuild_default:
         assign:
           - confirm_full_rebuild: "false"
-        next: orchestrate
+        next: resolve_bigquery_max_polls
     - set_confirm_full_rebuild_input:
         assign:
           - confirm_full_rebuild: ${text.to_lower(string(input_confirm_full_rebuild))}
+        next: resolve_bigquery_max_polls
+    - resolve_bigquery_max_polls:
+        switch:
+          - condition: ${input_bigquery_max_polls == null or string(input_bigquery_max_polls) == ""}
+            next: set_bigquery_max_polls_default
+        next: set_bigquery_max_polls_input
+    - set_bigquery_max_polls_default:
+        assign:
+          - full_rebuild_bigquery_max_polls: 1440
+        next: orchestrate
+    - set_bigquery_max_polls_input:
+        assign:
+          - full_rebuild_bigquery_max_polls: ${int(input_bigquery_max_polls)}
         next: orchestrate
     - orchestrate:
         try:
@@ -137,7 +152,7 @@ main:
                   - current_task_type: "orchestration"
             - mark_start_success:
                 call: write_task_status
-                args: &common_status_args
+                args:
                   control_service_url: ${control_service_url}
                   dag_id: ${dag_id}
                   pipeline_run_id: ${pipeline_run_id}
@@ -163,14 +178,33 @@ main:
                   - current_task_type: "orchestration"
             - mark_setup_success:
                 call: write_task_status
-                args: *common_status_args
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
             - set_task_pipeline_start_status:
                 assign:
                   - current_task_id: "pipeline_start_status"
                   - current_task_type: "metadata"
             - write_pipeline_run_running:
                 call: write_pipeline_run_status
-                args: &common_run_args
+                args:
                   control_service_url: ${control_service_url}
                   dag_id: ${dag_id}
                   pipeline_run_id: ${pipeline_run_id}
@@ -190,7 +224,26 @@ main:
                   error_payload: null
             - mark_pipeline_start_status_success:
                 call: write_task_status
-                args: *common_status_args
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
             - set_task_confirm_full_rebuild:
                 assign:
                   - current_task_id: "confirm_full_rebuild"
@@ -212,7 +265,26 @@ main:
                 raise: "date_from and date_to are required for ashare_warehouse_full_rebuild"
             - mark_confirm_full_rebuild_success:
                 call: write_task_status
-                args: *common_status_args
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
             - branch_full_rebuild:
                 switch:
                   - condition: ${pipeline_dry_run == "true"}
@@ -224,7 +296,26 @@ main:
                   - current_task_type: "orchestration"
             - mark_skip_full_rebuild_write:
                 call: write_task_status
-                args: *common_status_args
+                args:
+                  control_service_url: ${control_service_url}
+                  dag_id: ${dag_id}
+                  pipeline_run_id: ${pipeline_run_id}
+                  task_id: ${current_task_id}
+                  task_type: ${current_task_type}
+                  business_date: ${business_date}
+                  date_from: ${date_from}
+                  date_to: ${date_to}
+                  run_label: ${run_label}
+                  warehouse_mode: ${warehouse_mode}
+                  transform_backend: ${transform_backend}
+                  workflow_id: ${workflow_id}
+                  workflow_execution_id: ${workflow_execution_id}
+                  orchestration_log_url: ${orchestration_log_url}
+                  endpoint: ""
+                  status: "success"
+                  error_summary: null
+                  error_payload: null
+                  resource_name: null
                 next: finalize_pipeline_success
             - acquire_full_rebuild_lock:
                 assign:
@@ -267,6 +358,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_ods_parquet_schema_p0:
                 call: heartbeat_lock
                 args:
@@ -298,6 +390,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dim_dim_trade_calendar:
                 call: heartbeat_lock
                 args:
@@ -329,6 +422,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dim_dim_stock:
                 call: heartbeat_lock
                 args:
@@ -360,6 +454,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dim_dim_stock_name_hist:
                 call: heartbeat_lock
                 args:
@@ -391,6 +486,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dim_dim_index:
                 call: heartbeat_lock
                 args:
@@ -422,6 +518,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_stock_eod_price:
                 call: heartbeat_lock
                 args:
@@ -453,6 +550,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_stock_eod_valuation:
                 call: heartbeat_lock
                 args:
@@ -484,6 +582,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_index_eod:
                 call: heartbeat_lock
                 args:
@@ -515,6 +614,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_indicator:
                 call: heartbeat_lock
                 args:
@@ -546,6 +646,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_indicator_latest:
                 call: heartbeat_lock
                 args:
@@ -577,6 +678,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_income:
                 call: heartbeat_lock
                 args:
@@ -608,6 +710,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_income_latest:
                 call: heartbeat_lock
                 args:
@@ -639,6 +742,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_balancesheet:
                 call: heartbeat_lock
                 args:
@@ -670,6 +774,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_balancesheet_latest:
                 call: heartbeat_lock
                 args:
@@ -701,6 +806,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_cashflow:
                 call: heartbeat_lock
                 args:
@@ -732,6 +838,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dwd_dwd_fin_cashflow_latest:
                 call: heartbeat_lock
                 args:
@@ -763,6 +870,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_universe_daily:
                 call: heartbeat_lock
                 args:
@@ -794,6 +902,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_feature_price_daily:
                 call: heartbeat_lock
                 args:
@@ -825,6 +934,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_feature_valuation_daily:
                 call: heartbeat_lock
                 args:
@@ -856,6 +966,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_label_daily:
                 call: heartbeat_lock
                 args:
@@ -887,6 +998,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_feature_fin_daily:
                 call: heartbeat_lock
                 args:
@@ -918,6 +1030,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_feature_daily_v0:
                 call: heartbeat_lock
                 args:
@@ -949,6 +1062,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_dws_dws_stock_sample_daily:
                 call: heartbeat_lock
                 args:
@@ -980,6 +1094,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_metadata_core_column_descriptions:
                 call: heartbeat_lock
                 args:
@@ -1011,6 +1126,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_metadata_finance_column_descriptions:
                 call: heartbeat_lock
                 args:
@@ -1042,6 +1158,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_core_smoke_checks:
                 call: heartbeat_lock
                 args:
@@ -1073,6 +1190,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_strategy1_dws_ads_checks:
                 call: heartbeat_lock
                 args:
@@ -1104,6 +1222,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_index_benchmark_checks:
                 call: heartbeat_lock
                 args:
@@ -1135,6 +1254,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_finance_caliber_checks:
                 call: heartbeat_lock
                 args:
@@ -1166,6 +1286,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
+                  max_polls: ${full_rebuild_bigquery_max_polls}
             - heartbeat_after_qa_unit_contract_checks:
                 call: heartbeat_lock
                 args:
@@ -1413,35 +1534,113 @@ write_task_status:
         return: ${task_status_response.body}
 
 run_bigquery_task:
-  params: [control_service_url, dag_id, pipeline_run_id, task_id, task_type, sql_path, query_parameters, location, business_date, date_from, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url]
+  params: [control_service_url, dag_id, pipeline_run_id, task_id, task_type, sql_path, query_parameters, location, business_date, date_from, date_to, run_label, warehouse_mode, transform_backend, workflow_id, workflow_execution_id, orchestration_log_url, max_polls]
   steps:
-    - post_bigquery_task:
-        call: http.post
+    - submit_bigquery_task:
+        try:
+          call: http.post
+          args:
+            url: ${control_service_url + "/v1/tasks/bigquery/submit"}
+            timeout: 300
+            auth:
+              type: OIDC
+            body:
+              task_id: ${task_id}
+              task_type: ${task_type}
+              sql_path: ${sql_path}
+              query_parameters: ${query_parameters}
+              location: ${location}
+              endpoint: "/v1/tasks/bigquery/submit"
+              context:
+                dag_id: ${dag_id}
+                pipeline_run_id: ${pipeline_run_id}
+                business_date: ${business_date}
+                date_from: ${date_from}
+                date_to: ${date_to}
+                run_label: ${run_label}
+                warehouse_mode: ${warehouse_mode}
+                transform_backend: ${transform_backend}
+                workflow_id: ${workflow_id}
+                workflow_execution_id: ${workflow_execution_id}
+                orchestration_log_url: ${orchestration_log_url}
+          result: submit_bigquery_task_response
+        retry:
+          predicate: ${http.default_retry_predicate}
+          max_retries: 5
+          backoff:
+            initial_delay: 2
+            max_delay: 30
+            multiplier: 2
+    - set_bigquery_poll_state:
+        assign:
+          - bigquery_job_id: ${submit_bigquery_task_response.body.result.job_id}
+          - bigquery_poll_interval_seconds: 60
+          - bigquery_poll_count: 0
+          - bigquery_max_polls: ${max_polls}
+    - poll_bigquery_task:
+        try:
+          call: http.post
+          args:
+            url: ${control_service_url + "/v1/tasks/bigquery/poll"}
+            timeout: 300
+            auth:
+              type: OIDC
+            body:
+              task_id: ${task_id}
+              task_type: ${task_type}
+              job_id: ${bigquery_job_id}
+              location: ${location}
+              endpoint: "/v1/tasks/bigquery/poll"
+              context:
+                dag_id: ${dag_id}
+                pipeline_run_id: ${pipeline_run_id}
+                business_date: ${business_date}
+                date_from: ${date_from}
+                date_to: ${date_to}
+                run_label: ${run_label}
+                warehouse_mode: ${warehouse_mode}
+                transform_backend: ${transform_backend}
+                workflow_id: ${workflow_id}
+                workflow_execution_id: ${workflow_execution_id}
+                orchestration_log_url: ${orchestration_log_url}
+          result: poll_bigquery_task_response
+        retry:
+          predicate: ${http.default_retry_predicate}
+          max_retries: 5
+          backoff:
+            initial_delay: 2
+            max_delay: 30
+            multiplier: 2
+    - check_bigquery_task_done:
+        switch:
+          - condition: ${poll_bigquery_task_response.body.result.done}
+            next: return_bigquery_task
+        next: increment_bigquery_poll_count
+    - increment_bigquery_poll_count:
+        assign:
+          - bigquery_poll_count: ${bigquery_poll_count + 1}
+        next: check_bigquery_poll_limit
+    - check_bigquery_poll_limit:
+        switch:
+          - condition: ${bigquery_poll_count > bigquery_max_polls}
+            next: raise_bigquery_poll_limit_exceeded
+        next: heartbeat_lock_while_bigquery_polling
+    - raise_bigquery_poll_limit_exceeded:
+        raise: ${"bigquery poll exceeded max attempts for task " + task_id + " job " + bigquery_job_id}
+    - heartbeat_lock_while_bigquery_polling:
+        call: heartbeat_lock
         args:
-          url: ${control_service_url + "/v1/tasks/bigquery"}
-          timeout: 1800
-          auth:
-            type: OIDC
-          body:
-            dag_id: ${dag_id}
-            pipeline_run_id: ${pipeline_run_id}
-            task_id: ${task_id}
-            task_type: ${task_type}
-            sql_path: ${sql_path}
-            query_parameters: ${query_parameters}
-            location: ${location}
-            business_date: ${business_date}
-            date_from: ${date_from}
-            date_to: ${date_to}
-            run_label: ${run_label}
-            warehouse_mode: ${warehouse_mode}
-            transform_backend: ${transform_backend}
-            workflow_id: ${workflow_id}
-            workflow_execution_id: ${workflow_execution_id}
-            orchestration_log_url: ${orchestration_log_url}
-        result: bigquery_task_response
+          control_service_url: ${control_service_url}
+          lock_name: "ashare_warehouse_window_refresh"
+          owner: ${workflow_execution_id}
+          lease_seconds: 21600
+    - sleep_before_next_bigquery_poll:
+        call: sys.sleep
+        args:
+          seconds: ${bigquery_poll_interval_seconds}
+        next: poll_bigquery_task
     - return_bigquery_task:
-        return: ${bigquery_task_response.body}
+        return: ${poll_bigquery_task_response.body.result}
 
 acquire_lock:
   params: [control_service_url, lock_name, owner, lease_seconds]

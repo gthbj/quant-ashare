@@ -42,5 +42,5 @@ if [[ "${DEPLOY_FULL_REBUILD}" == "true" ]]; then
   deploy_workflow "ashare_warehouse_full_rebuild" "${WORKFLOW_DIR}/ashare_warehouse_full_rebuild.yaml"
 else
   echo "Skipping ashare_warehouse_full_rebuild deployment."
-  echo "Set DEPLOY_FULL_REBUILD=true only after the control-plane BigQuery path is made async/polled and the workflow is ready for production deployment."
+  echo "Set DEPLOY_FULL_REBUILD=true to deploy the manual full rebuild workflow."
 fi
