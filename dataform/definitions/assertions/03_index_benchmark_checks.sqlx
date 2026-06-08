@@ -14,12 +14,35 @@ config {
 -- 本脚本校验示例 benchmark/window；真实 runner 参数窗口由 08_run_backtest.sql
 -- 的前置 ASSERT 使用 p_benchmark / p_predict_start / p_predict_end 再校验。
 -- A 股沪深两市交易日历实际一致，窗口覆盖断言统一使用 SSE 日历代表全市场开市日。
+-- dwd_end_date 默认对齐 dwd_index_eod 中 000001.SH 已有完整 price + dailybasic
+-- 的最新开市日，避免日内 scheduled/backfill 在当天 ODS/DWD 未到数时被
+-- CURRENT_DATE 误判为全史覆盖失败。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
-DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
+DECLARE dwd_end_date DATE DEFAULT (
+  SELECT MAX(idx.trade_date)
+  FROM `data-aquarium.ashare_dwd.dwd_index_eod` AS idx
+  JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS cal
+    ON cal.exchange = 'SSE'
+   AND cal.is_open = 1
+   AND cal.cal_date = idx.trade_date
+  WHERE idx.sec_code = '000001.SH'
+    AND idx.trade_date >= DATE '2019-01-01'
+    AND idx.close IS NOT NULL
+    AND idx.pre_close IS NOT NULL
+    AND idx.pct_chg IS NOT NULL
+    AND idx.total_mv_cny IS NOT NULL
+    AND idx.pb IS NOT NULL
+);
 DECLARE p_benchmark STRING DEFAULT '000852.SH';
 DECLARE p_window_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_window_end DATE DEFAULT DATE '2025-12-31';
+
+ASSERT dwd_end_date IS NOT NULL
+  AS 'dwd_end_date must resolve to the latest available SSE Composite DWD date';
+
+ASSERT dwd_end_date >= dwd_start_date
+  AS 'dwd_end_date must be >= dwd_start_date';
 
 ASSERT (
   SELECT COUNT(*) = 0
