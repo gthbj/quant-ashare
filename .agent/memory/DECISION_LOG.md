@@ -1726,3 +1726,40 @@ Workflows 仍然是编排真相源；BigQuery 仍然执行 SQL；`ashare-ingest-
 ### Related files
 
 `scripts/pipeline_control/state.py`, `scripts/pipeline_control/service.py`, `orchestration/workflows/ashare_ods_ingestion_daily.yaml`, `orchestration/workflows/ashare_warehouse_window_refresh.yaml`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260608-07: OQ-005 Workflows cutover 前必须先过最小锁测试与真实 qa_only/daily_current smoke
+
+Date: 2026-06-08
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5 Codex
+
+### Context
+
+OQ-005 phase 1 Workflows 基础设施在代码 review 阶段已经过三轮 lock / timeout / payload contract 修正，但 live 部署后仍继续暴露运行期问题：`http.*` timeout 上限并不是之前写入 YAML 的 `3300s`，布尔条件不能继续按 `"true"` 字符串比较，窗口 SQL 也会因漏传 `warehouse_mode` 到真实执行时才失败。这类问题 `py_compile` 或静态 diff 很难兜住。
+
+### Decision
+
+1. Workflows 路径在进入部署 / cutover 前，必须先补一个本地 mock-GCS 最小锁集成测试，覆盖 `acquire -> lock_generation_for_owner -> heartbeat -> release`。
+2. Workflows 路径在进入 cutover 前，必须至少完成两条真实 GCP smoke：`qa_only` 和 `daily_current`。
+3. Google Cloud Workflows `http.*` step timeout `1800s` 视为硬平台上限；长耗时 BigQuery / Cloud Run 调用一律通过控制服务轮询终态，锁租约要留出大于 step timeout 的 headroom。
+4. 在 `ashare_warehouse_full_rebuild`、`ashare_pipeline_alert_checker`、Cloud Scheduler / IAM bootstrap、`backfill` / 非交易日 skip smoke 完成前，phase 1 只能视为“已部署并完成最小验证”，不能视为 cutover 完成。
+
+### Rationale
+
+这次真实部署已经证明，OQ-005 的主要风险不在大块业务逻辑，而在 Workflows 与控制层之间的细小契约错位。把“本地最小锁测试 + 真实 `qa_only` / `daily_current` smoke”升为硬门，可以在 cutover 前更早拦截这类只能在运行期暴露的问题。
+
+### Impact
+
+- 后续 `full_rebuild`、alert checker 和 Scheduler 接入都必须重复这套最小验证门。
+- PR review 通过不等于可 cutover；还需要真实 smoke 通过记录。
+- 后续若 shadow run 暴露 stale-lock 边界，再考虑补 Workflows execution liveness probe，而不是先把复杂度提前加进 phase 1。
+
+### Alternatives
+
+只依赖 `py_compile`、YAML review 和手工代码检查；放弃，因为这轮问题已经证明静态检查不够。等所有迁移面都实现后再统一验证；放弃，因为这样会把接线错误堆到 cutover 前最后一刻才暴露。
+
+### Related files
+
+`tests/pipeline_control/test_state_lock.py`, `orchestration/workflows/ashare_ods_ingestion_daily.yaml`, `orchestration/workflows/ashare_warehouse_window_refresh.yaml`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`

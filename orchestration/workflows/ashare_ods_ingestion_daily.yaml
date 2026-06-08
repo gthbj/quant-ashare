@@ -87,7 +87,7 @@ main:
         next: resolve_scheduled_run
     - set_pipeline_dry_run_input:
         assign:
-          - pipeline_dry_run: ${input_pipeline_dry_run}
+          - pipeline_dry_run: ${text.to_lower(string(input_pipeline_dry_run))}
         next: resolve_scheduled_run
     - resolve_scheduled_run:
         switch:
@@ -100,7 +100,7 @@ main:
         next: resolve_force_non_trading_day_gate
     - set_scheduled_run_input:
         assign:
-          - scheduled_run: ${input_scheduled_run}
+          - scheduled_run: ${text.to_lower(string(input_scheduled_run))}
         next: resolve_force_non_trading_day_gate
     - resolve_force_non_trading_day_gate:
         switch:
@@ -113,7 +113,7 @@ main:
         next: resolve_skip_ingestion
     - set_force_non_trading_day_gate_input:
         assign:
-          - force_non_trading_day_gate: ${input_force_non_trading_day_gate}
+          - force_non_trading_day_gate: ${text.to_lower(string(input_force_non_trading_day_gate))}
         next: resolve_skip_ingestion
     - resolve_skip_ingestion:
         switch:
@@ -126,7 +126,7 @@ main:
         next: resolve_skip_downstream_refresh
     - set_skip_ingestion_input:
         assign:
-          - skip_ingestion: ${input_skip_ingestion}
+          - skip_ingestion: ${text.to_lower(string(input_skip_ingestion))}
         next: resolve_skip_downstream_refresh
     - resolve_skip_downstream_refresh:
         switch:
@@ -139,7 +139,7 @@ main:
         next: resolve_trigger_downstream_refresh
     - set_skip_downstream_refresh_input:
         assign:
-          - skip_downstream_refresh: ${input_skip_downstream_refresh}
+          - skip_downstream_refresh: ${text.to_lower(string(input_skip_downstream_refresh))}
         next: resolve_trigger_downstream_refresh
     - resolve_trigger_downstream_refresh:
         switch:
@@ -152,7 +152,7 @@ main:
         next: orchestrate
     - set_trigger_downstream_refresh_input:
         assign:
-          - trigger_downstream_refresh: ${input_trigger_downstream_refresh}
+          - trigger_downstream_refresh: ${text.to_lower(string(input_trigger_downstream_refresh))}
         next: orchestrate
     - orchestrate:
         try:
@@ -253,7 +253,7 @@ main:
                   resource_name: null
             - decide_gate_enabled:
                 switch:
-                  - condition: ${scheduled_run == "true" or scheduled_run == true or force_non_trading_day_gate == "true" or force_non_trading_day_gate == true}
+                  - condition: ${scheduled_run == "true" or force_non_trading_day_gate == "true"}
                     next: set_task_non_trading_day_gate
                 next: set_task_branch_ingestion
             - set_task_non_trading_day_gate:
@@ -345,9 +345,9 @@ main:
                   resource_name: null
             - branch_ingestion:
                 switch:
-                  - condition: ${skip_ingestion == "true" or skip_ingestion == true}
+                  - condition: ${skip_ingestion == "true"}
                     next: set_task_ods_readiness
-                  - condition: ${pipeline_dry_run == "true" or pipeline_dry_run == true}
+                  - condition: ${pipeline_dry_run == "true"}
                     next: set_task_ingestion_dry_run
                 next: set_task_ingestion_write
             - set_task_ingestion_dry_run:
@@ -544,11 +544,11 @@ main:
                   resource_name: null
             - branch_downstream_refresh:
                 switch:
-                  - condition: ${skip_downstream_refresh == "true" or skip_downstream_refresh == true}
+                  - condition: ${skip_downstream_refresh == "true"}
                     next: set_task_skip_downstream_refresh
-                  - condition: ${pipeline_dry_run == "true" or pipeline_dry_run == true}
+                  - condition: ${pipeline_dry_run == "true"}
                     next: set_task_skip_downstream_refresh
-                  - condition: ${(skip_ingestion == "true" or skip_ingestion == true) and not (trigger_downstream_refresh == "true" or trigger_downstream_refresh == true)}
+                  - condition: ${skip_ingestion == "true" and not (trigger_downstream_refresh == "true")}
                     next: set_task_skip_downstream_refresh
                 next: set_task_trigger_warehouse_window_refresh
             - set_task_skip_downstream_refresh:
@@ -738,9 +738,19 @@ main:
                   error_payload: ${current_error_payload}
             - maybe_write_failed_task_status:
                 switch:
+                  - condition: ${current_task_id != null and text.match_regex(current_task_id, "^ingestion\\.")}
+                    next: set_failed_task_endpoint_current_scope
                   - condition: ${current_task_id != null}
-                    next: write_failed_task_status
+                    next: set_failed_task_endpoint_empty
                 next: rethrow_error
+            - set_failed_task_endpoint_current_scope:
+                assign:
+                  - failed_task_endpoint: "current_scope"
+                next: write_failed_task_status
+            - set_failed_task_endpoint_empty:
+                assign:
+                  - failed_task_endpoint: ""
+                next: write_failed_task_status
             - write_failed_task_status:
                 call: write_task_status
                 args:
@@ -757,7 +767,7 @@ main:
                   workflow_id: ${workflow_id}
                   workflow_execution_id: ${workflow_execution_id}
                   orchestration_log_url: ${orchestration_log_url}
-                  endpoint: ${"current_scope" if text.match_regex(current_task_id, "^ingestion\\.") else ""}
+                  endpoint: ${failed_task_endpoint}
                   status: "failed"
                   error_summary: ${current_error_summary}
                   error_payload: ${current_error_payload}
@@ -859,7 +869,7 @@ run_bigquery_task:
         call: http.post
         args:
           url: ${control_service_url + "/v1/tasks/bigquery"}
-          timeout: 3300
+          timeout: 1800
           auth:
             type: OIDC
           body:
