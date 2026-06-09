@@ -2479,3 +2479,17 @@ Decision: 保留 `daily_current` 和全量 CTAS 的 `2019-01-01` 默认生产下
 Rationale: 日常调度仍应避免误写旧历史；但研究训练补数是 owner 明确要求的手工维护动作，不能被日常生产下限拦截。
 Impact: 窗口刷新与窗口 QA 需要按 `warehouse_mode` 区分下限；历史补数必须显式传入窗口并保留 BigQuery 分区过滤。后续若执行 full rebuild，仍需单独决定是否扩大 CTAS 默认写入范围。
 Related files: sql/incremental/01_refresh_stock_dwd_dws_window.sql; sql/incremental/02_refresh_index_dwd_window.sql; sql/incremental/03_refresh_market_state_window.sql; sql/qa/10_windowed_stock_refresh_checks.sql; sql/qa/12_windowed_index_refresh_checks.sql
+
+## DECISION-20260610-01: dim_stock 历史生命周期用 ODS daily 首交易日兜底
+
+Date: 2026-06-10
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5 Codex
+
+Context: 2015 年 warehouse backfill 在股票窗口 QA 失败，原因是 ODS daily 中存在 2015 交易行，但 `dim_stock` 要么缺少对应代码，要么 `stock_basic.list_date` 晚于这些历史交易日，导致 DWD 价格骨架排除了已有成交股票。
+Decision: `dim_stock` 缺 `stock_basic` 的代码从全量 ODS daily 派生，不再只从 2019+ daily 派生；对于已有 `stock_basic` 的代码，如果首个日线交易日早于 `stock_basic.list_date`，则用首个日线交易日作为历史生命周期下限。
+Rationale: 历史训练窗口需要避免幸存者偏差和生命周期截断。`stock_basic.list_date` 在 BSE 转板或历史缺主数据场景下可能晚于实际日线交易记录；DWD 价格骨架应覆盖 ODS daily 已有成交行。
+Impact: 2015-2018 显式 backfill 可把已有历史成交股票纳入 DWD 骨架；日常 2019+ 路径仍不改变调度范围。若后续新增更严格的市场范围过滤，应在 DWS universe 层处理，而不是让 DWD 价格表丢历史成交行。
+Related files: sql/dim/02_dim_stock.sql; sql/metadata/01_core_table_column_descriptions.sql; sql/qa/10_windowed_stock_refresh_checks.sql
