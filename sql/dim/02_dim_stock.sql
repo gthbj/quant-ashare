@@ -1,6 +1,6 @@
 -- 文档维护：GPT-5（最近更新 2026-06-01）
 -- BigQuery Standard SQL
--- 股票主维表：取 stock_basic 最新快照，补充少量缺主数据代码的生命周期边界。
+-- 股票主维表：取 stock_basic 最新快照，补充缺主数据代码和历史交易早于 stock_basic list_date 的生命周期边界。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE derived_delist_grace_days INT64 DEFAULT 30;
@@ -8,7 +8,7 @@ DECLARE derived_delist_grace_days INT64 DEFAULT 30;
 CREATE OR REPLACE TABLE `data-aquarium.ashare_dim.dim_stock`
 CLUSTER BY sec_code
 OPTIONS (
-  description = 'Stock security master dimension with lifecycle boundaries for 2019+ DWD universe'
+  description = 'Stock security master dimension with lifecycle boundaries for DWD universe; daily trade history is used to preserve pre-2019 historical lifecycles'
 ) AS
 WITH stock_basic_latest AS (
   SELECT
@@ -85,7 +85,10 @@ stock_basic_enriched AS (
     END AS board,
     s.curr_type,
     s.list_status,
-    s.list_date,
+    CASE
+      WHEN s.list_date IS NOT NULL AND d.first_trade_date IS NOT NULL THEN LEAST(s.list_date, d.first_trade_date)
+      ELSE COALESCE(s.list_date, d.first_trade_date)
+    END AS list_date,
     IF(
       s.list_status = 'D',
       COALESCE(s.source_delist_date, DATE_ADD(d.last_trade_date, INTERVAL 1 DAY)),
@@ -114,14 +117,14 @@ stock_basic_enriched AS (
       s.ingested_at DESC
   ) = 1
 ),
-daily_codes_2019 AS (
+daily_codes AS (
   SELECT
     d.ts_code,
     MIN(SAFE.PARSE_DATE('%Y%m%d', d.trade_date)) AS first_trade_date,
     MAX(SAFE.PARSE_DATE('%Y%m%d', d.trade_date)) AS last_trade_date
   FROM `data-aquarium.ashare_ods.ods_tushare_daily` AS d
   WHERE d.endpoint = 'daily'
-    AND d.partition_date >= FORMAT_DATE('%Y%m%d', dwd_start_date)
+    AND d.partition_date BETWEEN '00000000' AND '99999999'
     AND d.trade_date IS NOT NULL
   GROUP BY d.ts_code
 ),
@@ -167,7 +170,7 @@ missing_from_stock_basic AS (
     ) AS delist_date_source,
     CAST(NULL AS STRING) AS source_partition_date,
     CAST(NULL AS TIMESTAMP) AS ingested_at
-  FROM daily_codes_2019 AS d
+  FROM daily_codes AS d
   CROSS JOIN latest_market_trade AS m
   LEFT JOIN stock_basic_enriched AS s
     ON d.ts_code = s.sec_code
@@ -179,7 +182,7 @@ SELECT * FROM missing_from_stock_basic;
 
 ALTER TABLE `data-aquarium.ashare_dim.dim_stock`
 ALTER COLUMN sec_code SET OPTIONS (description = '证券代码，Tushare ts_code 格式，如 600000.SH'),
-ALTER COLUMN list_date SET OPTIONS (description = '上市日期'),
+ALTER COLUMN list_date SET OPTIONS (description = '上市日期；当 stock_basic list_date 晚于已存在日线交易记录时，用首个日线交易日作为历史生命周期兜底'),
 ALTER COLUMN delist_date SET OPTIONS (description = '退市后第一天，用于生命周期半开区间 trade_date < delist_date'),
 ALTER COLUMN stock_master_source SET OPTIONS (description = '股票主数据来源：stock_basic 或 derived_from_daily'),
 ALTER COLUMN delist_date_source SET OPTIONS (description = '退市边界来源：stock_basic_delist_date、last_trade_date_plus_1_fallback、last_trade_date_plus_1_after_market_grace、missing_delist_date（QA 阻断态）或 NULL');

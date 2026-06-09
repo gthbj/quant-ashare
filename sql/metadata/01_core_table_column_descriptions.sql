@@ -31,7 +31,7 @@ ALTER COLUMN exchange SET OPTIONS (description = '交易所代码，按 sec_code
 ALTER COLUMN board SET OPTIONS (description = '板块归类，如 SSE_MAIN、SZSE_MAIN、CHINEXT、STAR、BSE'),
 ALTER COLUMN curr_type SET OPTIONS (description = '交易币种，通常为 CNY'),
 ALTER COLUMN list_status SET OPTIONS (description = '上市状态，L=上市、D=退市、P=暂停上市、UNKNOWN=由日线兜底派生'),
-ALTER COLUMN list_date SET OPTIONS (description = '上市日期；缺主数据时使用首个日线交易日兜底'),
+ALTER COLUMN list_date SET OPTIONS (description = '上市日期；缺主数据或 stock_basic list_date 晚于已存在日线交易记录时，使用首个日线交易日兜底'),
 ALTER COLUMN delist_date SET OPTIONS (description = '退市后第一天，用于生命周期半开区间 trade_date < delist_date'),
 ALTER COLUMN first_trade_date SET OPTIONS (description = 'ODS daily 中可见的首个交易日'),
 ALTER COLUMN last_trade_date SET OPTIONS (description = 'ODS daily 中可见的最后交易日'),
