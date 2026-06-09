@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-09，GPT-5 Codex）
+> - 新增 `docs/prd/PRD_20260609_01_策略1R14长训练回测.md`。
+> - PRD 固定当前 R14 LightGBM regression 方法，不重新搜索参数，名义训练窗口为 `2015-04-01 ~ 2019-12-31`，先跑 `2020-01-02 ~ 2022-12-30` diagnostic backtest；`2023-01 ~ 2026-06-09` 追加回测视 P0 结果和 owner 决策而定。
+> - 关键边界：训练必须做 5d label embargo，避免 2019 年末训练样本使用 2020 回测期收益；追加段不能和 `2020-2022` fresh segment 拼接成正式连续回测。
+
+> 当前交接补充（2026-06-09，GPT-5 Codex）
 > - Strategy1 Cloud Run Python live acceptance gate 已在分支 `codex/implement-v3-live-gate` 从 v1 切到 v3。
 > - live orchestrator 现在会在 ADS 写回前按实际 backtest span / manifest final_holdout window 重算五指数相对门、复合年化、Sharpe / Calmar 和 final_holdout 诊断字段，并写入 registry、backtest summary 与 comparison artifact。
 > - PR #125 分支已完成 2 候选 live v3 smoke：prepare、candidate fanout、select/register/predict、backtest/report、19 QA 和 artifact 上传均 succeeded；smoke 中发现并修复了 `v3_relative_gate_by_benchmark.csv` 的 `search_id` 透传缺口。
@@ -34,6 +39,50 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-09 GPT-5 Codex - Strategy1 R14 长训练窗口回测 PRD
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260609_01_策略1R14长训练回测.md`。
+- 文档定义固定 R14 方法的长训练窗口实验：名义训练窗口 `2015-04-01 ~ 2019-12-31`，先跑 `2020-01-02 ~ 2022-12-30` diagnostic backtest；`2023-01 ~ 2026-06-09` 追加回测视 P0 结果和 owner 决策而定。
+- P0 主组合设为 `target_holdings=20`、`max_single_weight=7.5%`、`rebalance_frequency=biweekly`。
+- 文档明确 5d 标签 embargo、2015-2018 DWD/DWS 前置补建、2020-2022 diagnostic 不写 production accepted registry，以及追加段不能和 P0 fresh segment 拼接成正式连续回测。
+
+### 重要上下文
+
+- 当前 raw ODS 股票行情层已有 2015 起数据，但策略实际 DWD/DWS 输入层当前从 2019 起；该实验前必须先审计并补齐 2015-2018 策略输入层。
+- R14 是 `lightgbm_regression`，训练目标为 `target_return=fwd_xs_ret_5d`；若不做 embargo，2019 年末训练样本会读取 2020 回测期收益形成标签。
+- 本轮只写 PRD，未执行 BigQuery / Cloud Run。
+
+### 改动文件
+
+- `docs/prd/PRD_20260609_01_策略1R14长训练回测.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未执行。此次为 PRD 与项目记忆更新。
+
+### 阻塞项
+
+- 无代码阻塞。
+- 实验执行前需要先做 2015-2018 DWD/DWS、risk feature、market-state 和 5d label embargo 覆盖审计。
+
+### 下一步建议
+
+- 执行 PRD P0-A 只读覆盖审计。
+- 若缺 2015-2018 DWD/DWS，制定最小 backfill / rebuild 计划。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-09 GPT-5 Codex - Strategy1 live acceptance gate v3 cutover
 
