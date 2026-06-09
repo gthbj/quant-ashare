@@ -4,6 +4,12 @@
 > - 关键边界：训练必须做 5d label embargo，避免 2019 年末训练样本使用 2020 回测期收益；追加段不能和 `2020-2022` fresh segment 拼接成正式连续回测，除非 Cloud Run Python ledger resume 已实现并通过 resume consistency QA。
 
 > 当前交接补充（2026-06-09，GPT-5 Codex）
+> - 旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
+> - 该脚本仍通过 `gcloud composer environments run` 触发已退役的 `ashare-composer`，与当前 `Cloud Scheduler + Cloud Workflows` 生产入口冲突。
+> - 后续窗口补跑 / QA-only / full rebuild 恢复路径继续以 `docs/Pipeline-补跑与故障恢复-Runbook.md` 和 `orchestration/workflows/**` 为准。
+> - PR #129 review follow-up 已同步清理 `.agent/memory/OPEN_QUESTIONS.md` 中对旧 helper 的现行工具描述。
+
+> 当前交接补充（2026-06-09，GPT-5 Codex）
 > - Strategy1 Cloud Run Python live acceptance gate 已在分支 `codex/implement-v3-live-gate` 从 v1 切到 v3。
 > - live orchestrator 现在会在 ADS 写回前按实际 backtest span / manifest final_holdout window 重算五指数相对门、复合年化、Sharpe / Calmar 和 final_holdout 诊断字段，并写入 registry、backtest summary 与 comparison artifact。
 > - PR #125 分支已完成 2 候选 live v3 smoke：prepare、candidate fanout、select/register/predict、backtest/report、19 QA 和 artifact 上传均 succeeded；smoke 中发现并修复了 `v3_relative_gate_by_benchmark.csv` 的 `search_id` 透传缺口。
@@ -30,7 +36,7 @@
 
 ## 当前交接摘要（2026-06-09）
 - OQ-005 当前状态：`ashare-ods-ingestion-daily`（`0 20 * * *`）与 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 Scheduler job 已是唯一生产调度入口，ODS parent -> warehouse child、alert checker、manual full rebuild dry-run 都已有 live smoke 证据。
-- OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更。
+- OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更；旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
 - Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；live Cloud Run Python write-back gate 已在分支切到 v3，待小规模 smoke；当前没有 accepted Python baseline，OQ-010 仍然 open。
 - OQ-012 当前状态：schema contract / repair tooling / QA 都已具备，当前 BigQuery 读层无 mismatch 报警；剩余是 owner 是否把该问题正式关闭或保留防复发工程项。
 
@@ -58,9 +64,6 @@
 ### 改动文件
 
 - `docs/prd/PRD_20260609_01_策略1R14长训练回测.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `TODO.md`
 
 ### 测试 / 验证
 
@@ -78,6 +81,47 @@
 
 ### 已更新记忆文件
 
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
+
+## 2026-06-09 GPT-5 Codex - 清理旧 Composer warehouse refresh helper
+
+### 已完成工作
+
+- 删除 `scripts/pipeline/run_warehouse_refresh.py`，避免后续误用 `gcloud composer environments run` 触发已退役的 Composer 环境。
+- 更新 OQ-005 约束与交接，明确后续补跑 / QA-only / full rebuild 以 Workflows runbook 和 `orchestration/workflows/**` 为准。
+
+### 重要上下文
+
+- 当前生产调度入口已经是 `Cloud Scheduler + Cloud Workflows`，`ashare-composer` 已删除。
+- `orchestration/composer/**` 仍只保留为 retired / audit-only 历史快照；本轮没有改该目录。
+
+### 改动文件
+
+- `scripts/pipeline/run_warehouse_refresh.py`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未执行。此次为删除旧运维 helper 和记忆同步，不跑生产任务。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 等 PR review；若通过，合并后可继续 OQ-005 cutover 后短观察窗记录。
+
+### 已更新记忆文件
+
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
