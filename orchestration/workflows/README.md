@@ -10,7 +10,7 @@ Included in this PR:
 - `Dockerfile.pipeline_control`: thin Cloud Run control-plane adapter image that executes bundled SQL, writes `pipeline_run` / `pipeline_task_status`, and manages orchestration leases.
 - `deploy_pipeline_control_service.sh`: build and deploy the control-plane Cloud Run service.
 - `deploy_workflows.sh`: deploy the three production-ready workflows after substituting the control-service URL; `ashare_warehouse_full_rebuild` is opt-in only via `DEPLOY_FULL_REBUILD=true`.
-- `bootstrap_scheduler_iam.sh`: idempotently restore the scheduler caller and workflows runtime IAM needed for the Composer-free production path, including job-level `run.invoker` for the ODS ingestion Cloud Run Job.
+- `bootstrap_scheduler_iam.sh`: idempotently restore the scheduler caller and workflows runtime IAM needed for the Composer-free production path, including job-level `run.jobsExecutorWithOverrides` for the ODS ingestion Cloud Run Job and project-level Cloud Run viewer access for operation polling.
 - `deploy_scheduler_jobs.sh`: create or update the hourly alert-checker Scheduler job and the daily ODS production Scheduler job, both through the Workflows Executions API.
 - `cutover_scheduler_jobs.sh`: bootstrap IAM, create Scheduler jobs in `PAUSED` state, pause the Composer business DAGs, and only resume the Scheduler jobs after an explicit validation step.
 
@@ -37,7 +37,8 @@ Deploy order:
 1. Deploy `ashare-pipeline-control`
 2. Grant the workflow runtime service account access to:
    - invoke the control service
-   - run `ashare-ingest-current-scope`
+   - run `ashare-ingest-current-scope` with overrides
+   - read Cloud Run operation status while polling the ingestion execution
    - execute child workflows
    - query BigQuery and write `ashare_meta`
    - read/write the orchestration lock bucket
