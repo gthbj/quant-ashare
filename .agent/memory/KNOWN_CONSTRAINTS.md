@@ -13,7 +13,7 @@
 - `dwd_fin_*_latest` / `dwd_fin_indicator_latest` 是便捷最新表，不用于 PIT 回测 join；其版本排序按 `update_flag DESC, ann_date_eff DESC, ingested_at DESC, source_partition_date DESC`，优先保留修正版。
 - `stock_basic` 用 `endpoint` 分 `listed`/`delisted`：**必须 UNION 两者**，否则丢失退市股 → 幸存者偏差。
 - 行情历史自 **1990-12-19**；行情表单分区内 `(ts_code, trade_date)` 已唯一、无需去重。
-- 2019 年前数据范围分三类，不能混作“默认全历史写入”：财务/事件按分区前移到 `20170101`；日常 `daily_current` 与全量 CTAS 默认仍以行情 DWD/DWS `trade_date >= 2019-01-01` 为生产下限，构建时按最大滚动窗口读取 2018 lookback buffer；维度/日历取最新快照或全量历史事件。例外：owner 明确要求的历史训练窗口补数可通过 `warehouse_mode=backfill` 显式写入 2019 年以前窗口，且必须保留 `date_from/date_to` 分区过滤与窗口 QA。
+- 2019 年前数据范围分三类，不能混作“默认全历史写入”：财务/事件按分区前移到 `20170101`；日常 `daily_current` 与全量 CTAS 默认仍以行情 DWD/DWS `trade_date >= 2019-01-01` 为生产下限，构建时按最大滚动窗口读取 2018 lookback buffer；维度/日历取最新快照或全量历史事件。例外：owner 明确要求的历史训练窗口补数可通过 `warehouse_mode=backfill` 显式写入 2019 年以前窗口，且必须保留 `date_from/date_to` 分区过滤与窗口 QA。历史 backfill 行一旦进入 DWD/DWS，core smoke / qa_only 不得再用“全表无 2019 前行”作为不变量；`daily_current` 的 2019+ 写入下限必须由窗口 SQL 与窗口 QA 负责。
 - 行情 lookback buffer 不落最终 DWD/DWS；`ret_1d` 至少读到 2018 年最后一个交易日，120/250 日滚动特征按窗口多读。
 - 当前已物化的策略 1 价格 DWS 只读取最终 DWD/DIM，不直接打 ODS；最终 DWD 价格表不落 2018 buffer 行，因此 2019 年初 60 日窗口以 `has_full_history_60d=FALSE` 显式标记，默认样本掩码剔除这些不完整窗口。若需要 2019-01 起完整 60 日特征，需补专用 lookback-capable 构建输入或调整 DWD/DWS 构建方式。
 - **`fina_indicator` 无 `f_ann_date`**（实测）：其可见日只能用 `ann_date`；可见日规则**按表定义**，不可用统一 `COALESCE(f_ann_date,ann_date)` 公式覆盖所有财务表（见 docs §4.3）。
@@ -64,7 +64,7 @@
 - `v_pipeline_refresh_missing` / `warehouse_refresh_missing` 只监控“应该触发下游刷新但完全没有 linked warehouse run”的异常。非交易日 scheduled skip（`pipeline_task_status.task_id='skip_non_trading_day' AND status='skipped'`）和显式 ODS-only 跳过下游刷新（`task_id='skip_downstream_refresh' AND status IN ('success','skipped')`）必须作为豁免，不得报警为缺失下游刷新。`skip_downstream_refresh` 必须用实体 `PythonOperator` 显式写 task-status 行，不能依赖 `EmptyOperator` 的 success callback 作为唯一证据。
 - OQ-005 live ingestion 成功/失败/空返回必须写入 `ashare_meta.ingestion_run` 和 `ashare_meta.ingestion_partition_status`；dry-run 与 `--skip-gcs-write` API 只读 smoke 不写生产 meta 表。`ingestion_partition_status.endpoint` 存 `partition_endpoint`，避免指数 variant 等同一 API + 同一日期互相覆盖状态。GCS ingestion publish 使用 staging 校验后覆盖正式 `data.parquet`，不做 write-once backup；该 overwrite 是采集重跑口径，若未来历史回填需要可回滚，应另加 backup 开关或独立回填流程。
 - Composer DAG SQL 文件同步到 Composer bucket 的 `data/sql/`；不得把项目 SQL 树同步到 `dags/sql/`，避免 DAG 解析器把 SQL 文件树当作 DAG bundle 处理并造成 worker/DagBag 状态异常。
-- 大范围回填建议分批（按年/季）跑并记录批次状态；P0 行情最终写 2019+，财务/事件从 2017 起。
+- 大范围回填建议分批（按年/季）跑并记录批次状态；P0 行情日常/全量默认仍写 2019+，但 owner 显式 `warehouse_mode=backfill` 可按历史训练窗口写入 2019 年以前 DWD/DWS 行，财务/事件从 2017 起。
 - `dim_stock` 若遇到 latest `stock_basic` 缺失但 ODS daily 有历史记录的代码，应作为 `derived_from_daily` 兜底；若 `stock_basic.list_date` 晚于已存在的首个日线交易日，生命周期下限用首个日线交易日兜底，避免 2015-2018 等历史 backfill 漏掉已有成交股票。派生退市边界用 ODS 最新交易日减宽限期判断，不能用系统当前日期直接判退市。
 - PR 合并后，若 owner 未要求保留工作分支，应删除已合并且不再使用的 `codex/*` 本地分支、对应远端分支，并移除为该分支创建的独立 `git worktree`，保持分支和工作树列表干净；若对应 worktree 仍有未提交或未合并改动，先暂停并请 owner 决策，不得强删。
 - 提交（commit/push）仅在用户明确要求时进行。

@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - PR #132 已合并，`ashare-pipeline-control` 已重新部署到 revision `ashare-pipeline-control-00007-tst`。
+> - 重新触发 2015 年 backfill execution `209bd2bf-86f4-455c-85c7-b6b1f4ec8025`，已越过 `dim_stock` 生命周期缺口。
+> - 新失败点在 `sql/qa/01_core_smoke_checks.sql`：旧 core smoke 仍把 `2019-01-01` 当成 DWD 价格表全表存在下限；分支 `codex/fix-historical-backfill-core-smoke` 已改为只拒绝早于 `1990-12-19` 的异常行，`daily_current` 2019+ 下限继续由窗口 SQL/QA 约束。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #130 合并并部署 `ashare-pipeline-control` 后，重跑 2015 年 backfill execution `be12a12f-1e65-4cef-b60d-3945ef8da13a`，已越过指数窗口旧失败点。
 > - 新失败点在股票窗口 QA `QA-WIN-13`：2015 ODS daily 有 `5,486` 行、`76` 个代码未写入 `dwd_stock_eod_price`。
 > - 分支 `codex/fix-historical-dim-stock-lifecycle` 已修复 `dim_stock` 历史生命周期：缺主数据代码从全量 ODS daily 派生，`stock_basic.list_date` 晚于首个日线交易日时用 `first_trade_date` 兜底；PR #132 review follow-up 已改为直接复用 `daily_lifecycle`，避免重复全量扫描 ODS daily。
@@ -44,10 +49,10 @@
 > - `orchestration/composer/` 已收口为 retired / audit-only 历史目录，只保留审计、迁移对照和受控回滚参考价值。
 > - Strategy1 `v3` replay 与 helper 驱动的 `24` QA 已按最新 contract 真执行通过；当前真正开放的主线只剩 OQ-010 可接受 Python baseline 和 OQ-012 是否正式归档。
 
-## 当前交接摘要（2026-06-09）
+## 当前交接摘要（2026-06-10）
 - OQ-005 当前状态：`ashare-ods-ingestion-daily`（`0 20 * * *`）与 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 Scheduler job 已是唯一生产调度入口，ODS parent -> warehouse child、alert checker、manual full rebuild dry-run 都已有 live smoke 证据。
 - OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更；旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
-- Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；当前没有 accepted Python baseline，OQ-010 仍然 open；R14 长训练补数已越过历史 backfill 日期下限问题，但仍需合并 `codex/fix-historical-dim-stock-lifecycle` 后重跑 2015 年窗口。
+- Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；当前没有 accepted Python baseline，OQ-010 仍然 open；R14 长训练补数已越过历史 backfill 日期下限和 `dim_stock` 生命周期问题，但 2015 年重跑又暴露 core smoke 2019 全表下限误杀，需合并部署 `codex/fix-historical-backfill-core-smoke` 后再重跑 2015 年窗口。
 - OQ-012 当前状态：schema contract / repair tooling / QA 都已具备，当前 BigQuery 读层无 mismatch 报警；剩余是 owner 是否把该问题正式关闭或保留防复发工程项。
 
 # Agent 交接（Agent Handoff）
@@ -55,6 +60,59 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-10 GPT-5 Codex - historical backfill core smoke 修复
+
+### 已完成工作
+
+- 合并 PR #132 并删除远端分支。
+- 从最新 `main` 重新部署 `ashare-pipeline-control`，新 revision 为 `ashare-pipeline-control-00007-tst`。
+- 重新触发 2015 年 warehouse backfill execution `209bd2bf-86f4-455c-85c7-b6b1f4ec8025`。
+- 诊断新失败点：流程已越过 `dim_stock` 生命周期缺口，失败于 core smoke 的旧全表下限断言。
+- 新建分支 `codex/fix-historical-backfill-core-smoke`，将 core smoke 从“不得有 2019 前行”改为“不得早于 A 股日线支持历史下限 `1990-12-19`”。
+- 同步更新 DWD price / valuation metadata 描述，明确默认全量/日常路径仍是 2019+，owner 显式 backfill 可写指定历史训练窗口。
+
+### 重要上下文
+
+- 失败 execution：`209bd2bf-86f4-455c-85c7-b6b1f4ec8025`。
+- 失败 BigQuery job：`4a6b55a4-4cbc-4bad-9c22-8ed8265f8072`。
+- 失败文案：`dwd_stock_eod_price must not write rows before dwd_start_date`。
+- 该失败不是缺 ODS 数据，也不是 #132 未生效；它是 core smoke 旧全局不变量和 explicit historical backfill 新语义冲突。
+
+### 改动文件
+
+- `sql/qa/01_core_smoke_checks.sql`
+- `sql/metadata/01_core_table_column_descriptions.sql`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 已执行生产 backfill 重跑并定位失败点。
+- 未执行 SQL dry-run 或重新触发 backfill；需合并部署后再跑。
+
+### 阻塞项
+
+- 合并部署前，2015 年 backfill 仍会命中旧线上 core smoke。
+
+### 下一步建议
+
+- 提交并合并本分支。
+- 部署新的 `ashare-pipeline-control` SQL bundle。
+- 重新触发 `2015-01-01 ~ 2015-12-31` backfill；若通过，再按年触发 2016-2018。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - dim_stock 历史生命周期修复
 
