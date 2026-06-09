@@ -8,6 +8,7 @@ DECLARE p_expected_feature_set_id STRING DEFAULT 'strategy1_pv_fin_risk_v0_20260
 DECLARE p_expected_model_search_wave_no INT64 DEFAULT 4;
 DECLARE p_top_k INT64 DEFAULT 5;
 DECLARE p_test_reuse_wave_no INT64 DEFAULT 4;
+DECLARE p_acceptance_contract_version STRING DEFAULT 'model_acceptance_contract_v3';
 DECLARE p_test_reuse_approval_ref STRING DEFAULT 'docs/prd/PRD_20260606_03_策略1风险特征入模与候选增强.md';
 DECLARE p_market_state_version STRING DEFAULT 'market_state_v0_20260606';
 DECLARE p_train_start_date DATE DEFAULT DATE '2019-04-03';
@@ -141,8 +142,10 @@ ASSERT (
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
 ) AS 'QA-RISK-5: risk feature search must record wave 4 test reuse approval';
 
--- QA-RISK-6: accepted 风险特征候选必须满足 -18% 最大回撤目标和 final_holdout passed。
+-- QA-RISK-6: legacy accepted 风险特征候选必须满足 -18% 最大回撤目标和 final_holdout passed。
 ASSERT (
+  p_acceptance_contract_version = 'model_acceptance_contract_v3'
+  OR (
   SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   JOIN `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
@@ -160,10 +163,13 @@ ASSERT (
         FALSE
       )
     )
+) 
 ) AS 'QA-RISK-6: accepted risk-feature candidates must pass final_holdout and -18% max-drawdown target';
 
--- QA-RISK-7: 未达 -18% 风险目标的候选不得 accepted，且原因应显式记录。
+-- QA-RISK-7: legacy 未达 -18% 风险目标的候选不得 accepted，且原因应显式记录。
 ASSERT (
+  p_acceptance_contract_version = 'model_acceptance_contract_v3'
+  OR (
   SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   JOIN `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
@@ -173,6 +179,7 @@ ASSERT (
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
     AND bs.max_drawdown < p_risk_feature_max_drawdown_target
     AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') = 'accepted'
+) 
 ) AS 'QA-RISK-7: candidates below risk max-drawdown target must not be accepted';
 
 -- QA-RISK-8: 风险特征搜索必须输出特征重要性聚合，支持判断新增风险特征是否被模型使用。

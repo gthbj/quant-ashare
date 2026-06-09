@@ -11,7 +11,7 @@ from scripts.strategy1_cloudrun.bq_io import json_dumps_strict
 from scripts.strategy1_cloudrun.config import read_mapping
 
 
-DEFAULT_CONTRACT_PATH = "configs/strategy1/model_acceptance_contract_v1.yml"
+DEFAULT_CONTRACT_PATH = "configs/strategy1/model_acceptance_contract_v3.yml"
 
 
 def load_acceptance_contract(path: str | Path | None = None) -> dict[str, Any]:
@@ -79,19 +79,46 @@ def contract_sql_params(contract: dict[str, Any]) -> dict[str, Any]:
     required = contract.get("required") or {}
     test_reuse = contract.get("test_reuse") or {}
     implementation = contract.get("implementation_gate") or {}
+    signal_thresholds = ((contract.get("signal_quality_gate") or {}).get("thresholds") or {})
+    absolute_gate = contract.get("absolute_performance_gate") or {}
+    final_holdout_gate = contract.get("final_holdout_gate") or {}
+    benchmarks = contract.get("benchmarks") or {}
+    gate = contract.get("gate") or {}
+    min_valid_rank_ic = _threshold_node_value(signal_thresholds, "valid_rank_ic", thresholds.get("min_valid_rank_ic", 0.0))
+    min_valid_top_minus_bottom = _threshold_node_value(
+        signal_thresholds,
+        "valid_top_minus_bottom_fwd_ret",
+        thresholds.get("min_valid_top_minus_bottom_fwd_ret", 0.0),
+    )
+    min_test_rank_ic = _threshold_node_value(signal_thresholds, "test_rank_ic", thresholds.get("min_test_rank_ic", 0.0))
+    min_test_top_minus_bottom = _threshold_node_value(
+        signal_thresholds,
+        "test_top_minus_bottom_fwd_ret",
+        thresholds.get("min_test_top_minus_bottom_fwd_ret", 0.0),
+    )
+    min_sharpe = _threshold_node_value(absolute_gate, "sharpe_ratio", thresholds.get("min_sharpe", 0.70))
+    min_calmar = _threshold_node_value(absolute_gate, "calmar_ratio", thresholds.get("min_calmar_ratio", 1.0))
+    min_final_holdout_days = _threshold_node_value(
+        final_holdout_gate,
+        "trading_day_count",
+        thresholds.get("min_final_holdout_trading_days", 40),
+    )
     return {
+        "p_acceptance_gate_version": gate.get("acceptance_gate_version"),
         "p_acceptance_contract_version": contract_version(contract),
         "p_acceptance_contract_sha256": contract_hash(contract),
-        "p_min_valid_rank_ic": thresholds.get("min_valid_rank_ic", 0.0),
+        "p_primary_benchmark_sec_code": benchmarks.get("primary_benchmark_sec_code"),
+        "p_min_valid_rank_ic": min_valid_rank_ic,
         "p_min_valid_rank_ic_t_stat": thresholds.get("min_valid_rank_ic_t_stat", 1.0),
-        "p_min_valid_top_minus_bottom_fwd_ret": thresholds.get("min_valid_top_minus_bottom_fwd_ret", 0.0),
-        "p_min_test_rank_ic": thresholds.get("min_test_rank_ic", 0.0),
+        "p_min_valid_top_minus_bottom_fwd_ret": min_valid_top_minus_bottom,
+        "p_min_test_rank_ic": min_test_rank_ic,
         "p_min_test_rank_ic_t_stat": thresholds.get("min_test_rank_ic_t_stat", 1.0),
-        "p_min_test_top_minus_bottom_fwd_ret": thresholds.get("min_test_top_minus_bottom_fwd_ret", 0.0),
+        "p_min_test_top_minus_bottom_fwd_ret": min_test_top_minus_bottom,
         "p_min_test_year_excess_return_vs_000852": thresholds.get("min_test_year_excess_return_vs_000852", 0.0),
         "p_min_overall_excess_return_vs_000852": thresholds.get("min_overall_excess_return_vs_000852", 0.0),
         "p_min_total_return": thresholds.get("min_total_return", 0.0),
-        "p_min_sharpe": thresholds.get("min_sharpe", 0.70),
+        "p_min_sharpe": min_sharpe,
+        "p_min_calmar_ratio": min_calmar,
         "p_min_max_drawdown": thresholds.get("min_max_drawdown", -0.25),
         "p_min_full_period_excess_return_vs_000852": thresholds.get(
             "min_full_period_excess_return_vs_000852",
@@ -126,7 +153,7 @@ def contract_sql_params(contract: dict[str, Any]) -> dict[str, Any]:
         ),
         "p_min_final_holdout_total_return": thresholds.get("min_final_holdout_total_return", -0.08),
         "p_weak_valid_rank_ic_threshold": thresholds.get("weak_valid_rank_ic_threshold", 0.01),
-        "p_min_final_holdout_trading_days": thresholds.get("min_final_holdout_trading_days", 40),
+        "p_min_final_holdout_trading_days": min_final_holdout_days,
         "p_actual_holdings_ratio_min": implementation.get("actual_holdings_ratio_min", 0.80),
         "p_actual_holdings_ratio_hard_fail": implementation.get("actual_holdings_ratio_hard_fail", 0.60),
         "p_avg_cash_weight_max": implementation.get("avg_cash_weight_max", 0.10),
@@ -165,6 +192,9 @@ def decide_acceptance(row: dict[str, Any], contract: dict[str, Any]) -> tuple[st
     failed_reasons = _failed_reasons(row)
     if failed_reasons:
         return "failed", ";".join(failed_reasons), derived
+
+    if contract_version(contract) == "model_acceptance_contract_v3":
+        return decide_acceptance_v3(row, contract, derived)
 
     unmatched_reasons = _unmatched_input_state_reasons(row, contract)
     if unmatched_reasons:
@@ -228,6 +258,46 @@ def decide_acceptance(row: dict[str, Any], contract: dict[str, Any]) -> tuple[st
     if wave_no > required_after and row.get("final_holdout_status") != passed_status:
         return "needs_more_evidence", "test_reuse_wave_no_gt_final_holdout_threshold_without_passed_holdout", derived
     return "accepted", "all_acceptance_contract_gates_passed", derived
+
+
+def decide_acceptance_v3(
+    row: dict[str, Any],
+    contract: dict[str, Any],
+    derived: dict[str, Any] | None = None,
+) -> tuple[str, str, dict[str, Any]]:
+    derived = dict(derived or {})
+    gate = contract.get("gate") or {}
+    benchmarks = contract.get("benchmarks") or {}
+    reasons = _coerce_reason_list(row.get("v3_acceptance_reasons"))
+    status = row.get("v3_acceptance_status")
+    if status not in {"accepted", "rejected"}:
+        status = "rejected"
+        reasons = reasons or ["v3_acceptance_metrics=missing"]
+    if status == "accepted" and not reasons:
+        reason = "all_acceptance_contract_gates_passed"
+    else:
+        reason = ";".join(reasons or ["v3_acceptance_metrics=missing"])
+    derived.update({
+        "acceptance_gate_version": gate.get("acceptance_gate_version"),
+        "acceptance_contract_sha256": contract_hash(contract),
+        "primary_benchmark_sec_code": benchmarks.get("primary_benchmark_sec_code"),
+        "v3_acceptance_status": status,
+        "v3_acceptance_reasons": ";".join(reasons),
+        "v3_strategy_compound_annualized_return": row.get("v3_strategy_compound_annualized_return"),
+        "v3_annualized_volatility": row.get("v3_annualized_volatility"),
+        "v3_sharpe_ratio": row.get("v3_sharpe_ratio"),
+        "v3_calmar_ratio": row.get("v3_calmar_ratio"),
+        "v3_strategy_max_drawdown": row.get("v3_strategy_max_drawdown"),
+        "v3_max_drawdown_peak_date": row.get("v3_max_drawdown_peak_date"),
+        "v3_max_drawdown_trough_date": row.get("v3_max_drawdown_trough_date"),
+        "v3_final_holdout_trading_day_count": row.get("v3_final_holdout_trading_day_count"),
+        "v3_final_holdout_gate_status": row.get("v3_final_holdout_gate_status"),
+        "v3_passed_benchmark_sec_codes": row.get("v3_passed_benchmark_sec_codes"),
+        "v3_passed_benchmark_count": row.get("v3_passed_benchmark_count"),
+        "v3_relative_gate_evaluated_benchmark_count": row.get("v3_relative_gate_evaluated_benchmark_count"),
+        "holdout_watch_flag": row.get("v3_final_holdout_gate_status") == "diagnostic_warn",
+    })
+    return str(status), reason, derived
 
 
 def derive_final_holdout_status(row: dict[str, Any], contract: dict[str, Any]) -> str | None:
@@ -353,6 +423,21 @@ def _unmatched_input_state_reasons(row: dict[str, Any], contract: dict[str, Any]
     if cv_status is not None and cv_status not in {"passed", "failed", "missing"}:
         reasons.append(f"cv_confirmation_status={cv_status}")
     return reasons
+
+
+def _threshold_node_value(nodes: dict[str, Any], key: str, default: Any) -> Any:
+    value = nodes.get(key)
+    if isinstance(value, dict) and "value" in value:
+        return value["value"]
+    return default
+
+
+def _coerce_reason_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    return [item for item in str(value).split(";") if item]
 
 
 def safe_float(value: Any) -> float:

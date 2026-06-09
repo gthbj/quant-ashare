@@ -170,7 +170,7 @@ python -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search \
 
 该入口会复用 Cloud Run task fan-out：一次 `prepare_matrix` 后并发训练 manifest 中的 36 个候选，下载轻量 candidate artifact 做 valid-only 排名，再把 Top5 转成独立 `candidate_run_id` / `candidate_backtest_id` 跑 `select_register_predict` 和 `backtest_report`。Top5 候选会在 ADS training panel 中复制一份同 run_id 的训练面板别名，保证报告诊断和 `10/12` QA 仍按独立 run_id 校验。单个 Top5 候选失败时，其余候选继续执行，但最终 `18` QA 仍要求完整 Top5 产物。搜索报告写到 `reports/strategy1_cloudrun/sklearn_native_search/search_id=<search_id>/`，uploaded 模式同步到 `gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/search_id=<search_id>/`。最终验收使用 `18_qa_sklearn_native_search_outputs.sql`，accepted 候选还必须满足 valid/test `top_minus_bottom_fwd_ret_mean` 不能同时为负；valid/test 的 `top_minus_bottom` 均按 5 分桶计算。
 
-Cloud Run Python baseline search（PRD-20260605-04）：sklearn native 首轮 Top5 rejected 后，下一轮用 LightGBM 在 Cloud Run task fan-out 上寻找新的 Python baseline。P0 manifest 固定为 `configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml`：40 个 `lightgbm_gbdt` 候选、默认 20 task 并发、数据截止 `2026-04-30`、固定 `pv_fin_quality + 30/5% + biweekly + 5d`，并使用 `configs/strategy1/model_acceptance_contract_v1.yml` 作为共享验收契约。
+Cloud Run Python baseline search（PRD-20260605-04）：sklearn native 首轮 Top5 rejected 后，下一轮用 LightGBM 在 Cloud Run task fan-out 上寻找新的 Python baseline。P0 manifest 固定为 `configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml`：40 个 `lightgbm_gbdt` 候选、默认 20 task 并发、数据截止 `2026-04-30`、固定 `pv_fin_quality + 30/5% + biweekly + 5d`，并使用 `configs/strategy1/model_acceptance_contract_v3.yml` 作为当前 live 写回共享验收契约。历史 v1 只保留为已完成搜索的审计契约。
 
 ```bash
 python -m scripts.strategy1_cloudrun.orchestrate_cloudrun_python_baseline_search \

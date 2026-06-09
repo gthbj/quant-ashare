@@ -1,5 +1,5 @@
 # Strategy 1 acceptance gate v3 contract.
-# 文档维护：GPT-5 Codex（最近更新 2026-06-08）
+# 文档维护：GPT-5 Codex（最近更新 2026-06-09）
 
 contract_name: model_acceptance_contract_v3
 contract_version: model_acceptance_contract_v3
@@ -13,8 +13,8 @@ gate:
   historical_contracts:
     - model_acceptance_contract_v1
   cutover_path:
-    current_live_gate: model_acceptance_contract_v1
-    next_live_gate: model_acceptance_contract_v3
+    previous_live_gate: model_acceptance_contract_v1
+    current_live_gate: model_acceptance_contract_v3
     excluded_gate_versions:
       - model_acceptance_contract_v2
 
