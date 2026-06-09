@@ -1,4 +1,9 @@
-"""Shared helpers for quant-ashare Cloud Composer DAGs."""
+"""Retired shared helpers for the last quant-ashare Cloud Composer DAGs.
+
+Cloud Composer production orchestration was removed on 2026-06-08 after the
+OQ-005 cutover to Cloud Scheduler + Cloud Workflows. Keep this file only for
+audit, diff, and rollback reference. Do not add new production logic here.
+"""
 
 from __future__ import annotations
 

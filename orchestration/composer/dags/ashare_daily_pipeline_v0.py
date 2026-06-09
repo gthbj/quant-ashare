@@ -1,4 +1,11 @@
-"""Ashare daily data pipeline.
+"""Retired historical Ashare daily data pipeline.
+
+Cloud Composer production orchestration was removed on 2026-06-08 after the
+OQ-005 cutover to Cloud Scheduler + Cloud Workflows. This file is retained only
+as the last single-DAG Composer snapshot; do not treat it as an active
+deployment path.
+
+Ashare daily data pipeline.
 
 Cloud Composer orchestrates Cloud Run ingestion jobs and daily ODS readiness
 checks for the current ODS scope. Full warehouse refresh is behind an explicit

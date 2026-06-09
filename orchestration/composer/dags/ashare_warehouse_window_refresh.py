@@ -1,4 +1,10 @@
-"""Windowed warehouse refresh DAG for quant-ashare.
+"""Retired historical Composer windowed warehouse refresh DAG for quant-ashare.
+
+Cloud Composer production orchestration was removed on 2026-06-08 after the
+OQ-005 cutover to Cloud Scheduler + Cloud Workflows. This file is retained only
+as audit/reference code and is not an active deployment target.
+
+Windowed warehouse refresh DAG for quant-ashare.
 
 This DAG owns daily_current and backfill DIM/DWD/DWS refreshes. It can be
 triggered by the ODS ingestion DAG or manually for a controlled backfill.
