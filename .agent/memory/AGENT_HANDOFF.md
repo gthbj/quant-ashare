@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`，作为 `quant-ashare` 项目结构重构总 PRD。
+> - PRD 建议按 active path catalog、防误用护栏、`sql/strategy1/**` 稳定命名空间、`src/quant_ashare/strategy1/**` Python 包拆分、阶段性命名 cleanup、测试/发布护栏分阶段推进。
+> - 本轮只写方案和同步 `.agent/memory/IMPLEMENTATION_STATUS.md`、`.agent/memory/AGENT_HANDOFF.md`、`TODO.md`；未改代码、SQL、BigQuery、Cloud Run 或 Dataform。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #134 已从 PRD-only 扩展为实现分支：新增 Strategy1 回测 `compound_annual_return`、`return_period_count`、`annualization_target_period_count`、`annualization_method` 字段与 ADS additive migration。
 > - `09` summary、`10` runner QA、`24` v3 replay QA、`render_report.py` 与 `replay_acceptance_gate_v3.py` 已切到 NAV 首尾值 + NAV 有效交易日数减一的复合年化口径；legacy `annual_return` / `sharpe` 保留旧算术口径并显式标注。
 > - PR #134 review follow-up 已修复 `total_return = -100%` 边界：SQL、report 和 v3 replay 统一允许 `gross == 0` 返回复合年化 `-100%`，仅拒绝 `gross < 0`。
@@ -66,6 +71,7 @@
 
 ## 当前交接摘要
 
+- 2026-06-10：新增项目结构重构总 PRD `docs/prd/PRD_20260610_02_项目结构重构方案.md`；方案建议先做 active path catalog 和防误用护栏，再迁移 Strategy1 active shared SQL 到 `sql/strategy1/**`，随后拆 `src/quant_ashare/strategy1/**` Python 包并收敛阶段性命名。本轮只写 PRD，不改代码/SQL。
 - 2026-06-10：新增 Strategy1 回测复合年化收益 PRD，范围为 summary / report / v3 gate 的复利年化字段口径；本 PR 不改代码、不跑 BigQuery / Cloud Run。
 - OQ-005 当前状态：`ashare-ods-ingestion-daily`（`0 20 * * *`）与 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 Scheduler job 已是唯一生产调度入口，ODS parent -> warehouse child、alert checker、manual full rebuild dry-run 都已有 live smoke 证据。
 - OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更；旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
@@ -78,6 +84,49 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-10 GPT-5 Codex - 项目结构重构总 PRD
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`。
+- PRD 将项目结构重构拆为五个阶段：active path catalog 与防误用护栏、Strategy1 shared SQL 稳定命名空间、Python runner 包拆分、阶段性命名收敛、测试与发布护栏。
+- PRD 明确旧 BQML-only SQL / SQL ledger runner 已按前置 PRD 退役；当前剩余 Strategy1 SQL 多数是 Cloud Run Python path 仍使用的 active shared SQL，应迁移到 `sql/strategy1/**` 并由 catalog 管理，而不是直接删除。
+- 同步更新 `.agent/memory/IMPLEMENTATION_STATUS.md`、`.agent/memory/AGENT_HANDOFF.md` 和 `TODO.md`。
+
+### 重要上下文
+
+- 本轮是 PRD-only，不改代码、不改 SQL、不运行 BigQuery / Cloud Run / Dataform。
+- 本 PRD 仍待 owner review，不写入 `DECISION_LOG.md`，也不新增 `KNOWN_CONSTRAINTS.md` 约束。
+- 推荐后续第一步是 Phase A：建立 active step catalog、retired reference linter 和 README/runbook 口径护栏。
+
+### 改动文件
+
+- `docs/prd/PRD_20260610_02_项目结构重构方案.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 文档改动；未运行 BigQuery、Cloud Run、pytest 或 Dataform。
+- 建议提交前至少运行 `git diff --check`。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- owner review PRD 的目标目录选择：`sql/strategy1/**`、`src/quant_ashare/**`、是否短期保留 `scripts/strategy1_cloudrun/**` wrapper、是否创建 `docs/retired/`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - Strategy1 旧 BQML / SQL ledger runner P0 退役实现
 

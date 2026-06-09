@@ -34,6 +34,9 @@
 
 ## P1 — 后续优化
 
+- [ ] OQ-010 / 工程治理：按项目结构重构 PRD 分阶段收敛 Strategy1 runner 和共享 SQL 边界
+  说明：新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`；建议顺序为 active path catalog、防误用护栏、`sql/strategy1/**` 稳定命名空间、`src/quant_ashare/strategy1/**` Python 包拆分、阶段性命名 cleanup 和测试/发布护栏。本 PRD 只定义方案，未改代码。
+
 - [ ] OQ-005：如真实运行暴露 stale-lock 边界，再为 `ashare-pipeline-control` 的 stale-lock reclaim 增加 Workflows execution liveness 检查
 
 - [ ] 若继续推进数据扩展，补 `lookback-capable` 价格构建输入
