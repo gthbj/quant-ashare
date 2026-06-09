@@ -72,7 +72,7 @@ from scripts.strategy1_cloudrun.select_register_predict import (
     load_candidates,
     rank_candidates,
 )
-from scripts.strategy1_cloudrun.sql_runner import run_sql_script
+from scripts.strategy1_cloudrun.sql_runner import run_sql_step
 from scripts.strategy1_cloudrun.state import (
     LockConfig,
     OrchestratorStatusTable,
@@ -171,9 +171,9 @@ def main() -> int:
 
     client = make_client(config.project, config.region)
     if args.build_training_panel:
-        run_sql_script(
+        run_sql_step(
             client,
-            config.training_panel_sql,
+            config.training_panel_step,
             build_training_panel_params(search_exp, force_replace=args.force_replace),
         )
 
@@ -323,10 +323,10 @@ def main() -> int:
         comparison_uri(config, search_id),
     )
     if not args.skip_qa:
-        qa_script = (
-            "sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql"
+        qa_step = (
+            "qa_sklearn_native_search_outputs"
             if search_id.startswith("sklearn_native_")
-            else "sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql"
+            else "qa_cloudrun_python_baseline_search_outputs"
         )
         qa_params = {
             "p_search_id": search_id,
@@ -352,7 +352,7 @@ def main() -> int:
             "p_data_end_date": search_exp.final_holdout_end or search_exp.predict_end,
         }
         qa_params.update(contract_sql_params(contract))
-        run_sql_script(client, qa_script, qa_params)
+        run_sql_step(client, qa_step, qa_params)
         if search_exp.feature_set_id == PV_FIN_RISK_FEATURE_SET_ID:
             risk_qa_params = contract_sql_params(contract)
             risk_qa_params = {
@@ -370,7 +370,7 @@ def main() -> int:
                 "p_final_holdout_start_date": search_exp.final_holdout_start,
                 "p_final_holdout_end_date": search_exp.final_holdout_end,
             }
-            run_sql_script(client, "sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql", risk_qa_params)
+            run_sql_step(client, "qa_risk_feature_search_outputs", risk_qa_params)
     next_wave = maybe_run_next_wave(
         args=args,
         raw_manifest=raw_manifest,
@@ -490,6 +490,8 @@ def build_training_panel_params(exp: Experiment, *, force_replace: bool) -> dict
         "p_feature_set_id": exp.feature_set_id,
         "p_fin_feature_version": exp.fin_feature_version,
         "p_market_state_version": exp.market_state_version,
+        "p_market_state_ffill_max_trade_days": 5,
+        "p_label_version": "open_to_close_h1_5_10_20_v20260601",
         "p_label_horizon": exp.label_horizon,
         "p_rebalance_frequency": exp.rebalance_frequency,
         "p_target_holdings": exp.target_holdings,

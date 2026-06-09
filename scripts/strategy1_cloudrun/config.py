@@ -8,6 +8,7 @@ import dataclasses
 import hashlib
 import json
 from pathlib import Path
+import sys
 from typing import Any, Iterable
 
 try:
@@ -16,6 +17,14 @@ except ImportError:  # pragma: no cover - yaml is optional for JSON-only callers
     yaml = None
 
 from scripts.strategy1_cloudrun.bq_io import json_dumps_strict
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = REPO_ROOT / "src"
+if SRC_ROOT.exists() and str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from quant_ashare.strategy1.catalog import step_name_for_path
 
 
 DEFAULT_CONFIG_PATH = "configs/strategy1/cloudrun_runner_default.yml"
@@ -46,7 +55,8 @@ class RunnerConfig:
     train_candidate_fanout_job: str = "strategy1-train-candidate-fanout-job"
     select_register_predict_job: str = "strategy1-select-register-predict-job"
     backtest_report_job: str = "strategy1-backtest-report-job"
-    training_panel_sql: str = "sql/ml/strategy1/01_build_training_panel.sql"
+    training_panel_step: str = "build_training_panel_base"
+    training_panel_sql: str | None = None
     lock_bucket: str = DEFAULT_LOCK_BUCKET
     lock_prefix: str = DEFAULT_LOCK_PREFIX
     lock_ttl_minutes: int = 30
@@ -193,7 +203,13 @@ def load_runner_config(path: str | Path | None = None) -> RunnerConfig:
     grid = tuple(raw.pop("candidate_grid", RunnerConfig().candidate_grid))
     valid_fields = {field.name for field in dataclasses.fields(RunnerConfig)}
     kwargs = {k: v for k, v in raw.items() if k in valid_fields}
-    return RunnerConfig(candidate_grid=grid, **kwargs)
+    config = RunnerConfig(candidate_grid=grid, **kwargs)
+    if config.training_panel_sql:
+        mapped_step = step_name_for_path(config.training_panel_sql)
+        if not mapped_step:
+            raise ValueError(f"unknown legacy training_panel_sql path: {config.training_panel_sql}")
+        config = dataclasses.replace(config, training_panel_step=mapped_step)
+    return config
 
 
 def load_manifest(path: str | Path) -> tuple[dict[str, Any], list[Experiment]]:

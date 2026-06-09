@@ -1049,6 +1049,30 @@ def safe_divide(numerator: Any, denominator: Any) -> float:
 def validate_ledger_params(params: LedgerParams) -> None:
     if params.ledger_version not in {LEDGER_VERSION_FLOAT, LEDGER_VERSION_LOT100}:
         raise ValueError(f"unsupported ledger_version: {params.ledger_version}")
+    if params.initial_state_mode not in {"fresh", "resume_from_backtest"}:
+        raise ValueError(f"Unsupported initial_state_mode={params.initial_state_mode}")
+    if params.resume_policy_id != RESUME_POLICY_CLOUDRUN_LOT100:
+        raise ValueError(
+            f"Unsupported resume_policy_id={params.resume_policy_id}; expected {RESUME_POLICY_CLOUDRUN_LOT100}"
+        )
+    if params.rebalance_anchor_start and params.rebalance_anchor_start > params.predict_start:
+        raise ValueError("rebalance_anchor_start must be <= predict_start")
+    if params.initial_state_mode == "fresh":
+        if params.parent_backtest_id or params.state_as_of_date:
+            raise ValueError("fresh ledger run must not set parent_backtest_id or state_as_of_date")
+    else:
+        if params.ledger_version != LEDGER_VERSION_LOT100:
+            raise ValueError("resume_from_backtest requires ledger_exec_v1_lot100")
+        if not params.parent_backtest_id:
+            raise ValueError("resume_from_backtest requires parent_backtest_id")
+        if not params.state_as_of_date:
+            raise ValueError("resume_from_backtest requires state_as_of_date")
+        if not params.rebalance_anchor_start:
+            raise ValueError("resume_from_backtest requires explicit rebalance_anchor_start")
+        if params.parent_backtest_id == params.backtest_id:
+            raise ValueError("parent_backtest_id must differ from backtest_id")
+        if params.state_as_of_date >= params.predict_start:
+            raise ValueError("state_as_of_date must be before predict_start")
     if is_lot_aware(params):
         if params.lot_size <= 0:
             raise ValueError("lot_size must be positive")

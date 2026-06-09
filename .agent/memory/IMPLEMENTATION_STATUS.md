@@ -6,6 +6,16 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：项目结构重构 Phase A-C 已实现
+
+- 分支 `codex/strategy1-structure-refactor` 已按 `docs/prd/PRD_20260610_02_项目结构重构方案.md` 实现 Phase A/B/C。
+- 新增 `configs/strategy1/active_step_catalog.yml`，覆盖当前 Strategy1 shared SQL、旧路径、目标路径、调用方、参数契约、table role、当前 ADS dataset role 和未来 research dataset role。
+- 新增 `src/quant_ashare/strategy1/{catalog,sql_render,table_roles,retired_lint}.py` 与 `pyproject.toml`；Cloud Run image 在 `Dockerfile.strategy1-cloudrun` 中执行 `pip install --no-deps -e .`，旧 `scripts.strategy1_cloudrun.*` wrapper 保留。
+- 当前 active/shared Strategy1 SQL 已迁移到 `sql/strategy1/**`；`sql/ml/strategy1/README.md` 与 `sql/cloudrun/strategy1/README.md` 只保留 historical/audit note。
+- `backtest_report.py`、search orchestrator、risk-feature manifests 和 v3 replay QA helper 已改为通过 catalog step / 新路径解析；当前 resolver 仍把所有 table role 解析到 `data-aquarium.ashare_ads.*`，未创建或写入 `ashare_research`。
+- 本轮补测：`pytest tests/strategy1 tests/strategy1_cloudrun tests/pipeline_control` 22 passed；catalog validate、retired linter、active step render smoke、compileall、CLI dry-run/help 和 `git diff --check` 均通过。
+- `scripts/dataform/generate_sqlx_from_sql.py --check` 仍失败，但本分支相对 `origin/main` 没有 `dataform/` diff；失败项是现有 generated SQLX stale/missing 文件，不由本次 Strategy1 SQL 迁移引入。
+
 ### 最新补充（2026-06-10）：项目结构重构总 PRD 已新增
 
 - 新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`，定义 `quant-ashare` 后续工程结构重构方案。

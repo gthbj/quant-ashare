@@ -428,7 +428,7 @@ def build_diagnosis(
         "notes": [
             "This diagnostic is read-only and uses existing ADS/GCS artifacts.",
             "BQML historical reference is not retrained or rerun.",
-            "sql/ml/strategy1 SQL runner is not executed.",
+            "retired BQML/SQL runner is not executed.",
         ],
     }
 
@@ -502,7 +502,7 @@ def render_markdown(diagnosis: dict[str, Any], candidates: pd.DataFrame) -> str:
         "## 约束",
         "",
         "- 本诊断只读 ADS / 已有 artifact，不训练模型。",
-        "- 不重跑 BQML，不执行 `sql/ml/strategy1` SQL runner。",
+        "- 不重跑 BQML，不执行已退役 Strategy1 SQL runner。",
         "- BigQuery 读取 `ads_backtest_nav_daily` 时显式使用 `trade_date BETWEEN ...` 分区过滤。",
     ])
     return "\n".join(lines) + "\n"

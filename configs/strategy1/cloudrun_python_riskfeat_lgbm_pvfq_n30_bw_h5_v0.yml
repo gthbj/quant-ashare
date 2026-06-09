@@ -14,7 +14,7 @@ prepare_matrix_job: strategy1-prepare-matrix-job
 train_candidate_fanout_job: strategy1-train-candidate-fanout-job
 select_register_predict_job: strategy1-select-register-predict-job
 backtest_report_job: strategy1-backtest-report-job
-training_panel_sql: sql/cloudrun/strategy1/01_build_training_panel.sql
+training_panel_step: build_training_panel_risk_feature
 lock_bucket: ashare-artifacts
 lock_prefix: locks/strategy1/cloudrun
 lock_ttl_minutes: 30

@@ -3,7 +3,8 @@
 
 This entrypoint is designed for Cloud Run Jobs but also supports local smoke
 and dry-run. It consumes the existing BigQuery ADS training panel built by
-`sql/ml/strategy1/01_build_training_panel.sql`; it does not rebuild DWS/PIT
+the cataloged `build_training_panel_*` SQL under `sql/strategy1/panel/`;
+it does not rebuild DWS/PIT
 features itself.
 """
 
