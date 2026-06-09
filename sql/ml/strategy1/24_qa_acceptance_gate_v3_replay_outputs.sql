@@ -64,7 +64,7 @@ CREATE TEMP FUNCTION qa_required(condition BOOL) AS (IFNULL(condition, FALSE));
 CREATE TEMP FUNCTION qa_gross_from_returns(log_sum FLOAT64) AS (EXP(log_sum));
 CREATE TEMP FUNCTION qa_compound_annualized_return(gross_return FLOAT64, period_count INT64) AS (
   CASE
-    WHEN gross_return IS NULL OR period_count IS NULL OR period_count <= 0 OR gross_return <= 0 THEN NULL
+    WHEN gross_return IS NULL OR period_count IS NULL OR period_count <= 0 OR gross_return < 0 THEN NULL
     ELSE POW(gross_return, 252.0 / period_count) - 1.0
   END
 );
@@ -385,8 +385,11 @@ ASSERT (
       sr.valid_top_minus_bottom,
       sr.test_rank_ic,
       sr.test_top_minus_bottom,
-      COUNTIF(nav.daily_return IS NOT NULL AND 1.0 + nav.daily_return > 0) AS return_period_count,
-      qa_gross_from_returns(SUM(IF(nav.daily_return IS NULL OR 1.0 + nav.daily_return <= 0, 0.0, LN(1.0 + nav.daily_return)))) AS strategy_gross_return,
+      GREATEST(COUNT(nav.trade_date) - 1, 0) AS return_period_count,
+      SAFE_DIVIDE(
+        (ARRAY_AGG(nav.nav ORDER BY nav.trade_date DESC LIMIT 1))[OFFSET(0)],
+        NULLIF((ARRAY_AGG(nav.nav ORDER BY nav.trade_date ASC LIMIT 1))[OFFSET(0)], 0.0)
+      ) AS strategy_gross_return,
       STDDEV_SAMP(nav.daily_return) * SQRT(252.0) AS annualized_volatility,
       t.max_drawdown,
       p.peak_date,
@@ -481,8 +484,11 @@ ASSERT (
       sr.model_id,
       sr.backtest_id,
       sr.search_id,
-      COUNTIF(nav.daily_return IS NOT NULL AND 1.0 + nav.daily_return > 0) AS return_period_count,
-      qa_gross_from_returns(SUM(IF(nav.daily_return IS NULL OR 1.0 + nav.daily_return <= 0, 0.0, LN(1.0 + nav.daily_return)))) AS strategy_gross_return,
+      GREATEST(COUNT(nav.trade_date) - 1, 0) AS return_period_count,
+      SAFE_DIVIDE(
+        (ARRAY_AGG(nav.nav ORDER BY nav.trade_date DESC LIMIT 1))[OFFSET(0)],
+        NULLIF((ARRAY_AGG(nav.nav ORDER BY nav.trade_date ASC LIMIT 1))[OFFSET(0)], 0.0)
+      ) AS strategy_gross_return,
       t.max_drawdown,
       p.peak_date,
       t.trough_date,
@@ -501,7 +507,7 @@ ASSERT (
     SELECT
       nav.backtest_id,
       bench_code AS benchmark_sec_code,
-      COUNTIF(nav.daily_return IS NOT NULL AND 1.0 + nav.daily_return > 0) AS benchmark_effective_return_period_count,
+      GREATEST(COUNT(nav.trade_date) - 1, 0) AS benchmark_effective_return_period_count,
       qa_gross_from_returns(SUM(
         CASE
           WHEN nav.daily_return IS NULL OR 1.0 + nav.daily_return <= 0 THEN 0.0

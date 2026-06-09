@@ -832,6 +832,46 @@ ASSERT (
   WHERE bs.backtest_id = p_backtest_id
 ) AS 'backtest summary must exist with metrics_json';
 
+-- ── 复合年化收益口径：return_period_count = NAV 有效交易日数 - 1，旧 annual_return/sharpe 保留 legacy ──
+ASSERT (
+  WITH nav_count AS (
+    SELECT COUNT(*) AS nav_day_count
+    FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+    WHERE nav.backtest_id = p_backtest_id
+      AND nav.trade_date BETWEEN p_predict_start AND p_predict_end
+  ),
+  summary AS (
+    SELECT
+      bs.compound_annual_return,
+      bs.return_period_count,
+      bs.annualization_target_period_count,
+      bs.annualization_method,
+      bs.total_return,
+      bs.metrics_json,
+      GREATEST(nav_count.nav_day_count - 1, 0) AS expected_return_period_count
+    FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+    CROSS JOIN nav_count
+    WHERE bs.backtest_id = p_backtest_id
+  )
+  SELECT
+    COUNT(*) = 1
+    AND LOGICAL_AND(compound_annual_return IS NOT NULL)
+    AND LOGICAL_AND(return_period_count = expected_return_period_count)
+    AND LOGICAL_AND(return_period_count > 0)
+    AND LOGICAL_AND(annualization_target_period_count = 252)
+    AND LOGICAL_AND(annualization_method = 'compound')
+    AND LOGICAL_AND(JSON_VALUE(metrics_json, '$.annualization.method') = 'compound')
+    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(metrics_json, '$.annualization.target_period_count') AS INT64) = 252)
+    AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(metrics_json, '$.annualization.return_period_count') AS INT64) = return_period_count)
+    AND LOGICAL_AND(ABS(
+      (CASE
+        WHEN total_return IS NULL OR total_return < -1.0 OR return_period_count <= 0 THEN NULL
+        ELSE POW(1.0 + total_return, 252.0 / return_period_count) - 1.0
+      END) - compound_annual_return
+    ) <= 1e-9)
+  FROM summary
+) AS 'QA-ANNUALIZATION-1: compound_annual_return must match total_return annualized by NAV day count minus one';
+
 -- ── 报告已产出（render_report.py 必须在本 QA 之前运行），且 report_uri 口径真实可信 ──
 -- 见 README：执行顺序为 01-09 → render_report.py → 10。
 -- 模式感知：render 必须写 report_upload_status 与 local_report_path；

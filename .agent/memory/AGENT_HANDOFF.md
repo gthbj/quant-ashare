@@ -1,4 +1,10 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - PR #134 已从 PRD-only 扩展为实现分支：新增 Strategy1 回测 `compound_annual_return`、`return_period_count`、`annualization_target_period_count`、`annualization_method` 字段与 ADS additive migration。
+> - `09` summary、`10` runner QA、`24` v3 replay QA、`render_report.py` 与 `replay_acceptance_gate_v3.py` 已切到 NAV 首尾值 + NAV 有效交易日数减一的复合年化口径；legacy `annual_return` / `sharpe` 保留旧算术口径并显式标注。
+> - PR #134 review follow-up 已修复 `total_return = -100%` 边界：SQL、report 和 v3 replay 统一允许 `gross == 0` 返回复合年化 `-100%`，仅拒绝 `gross < 0`。
+> - 未运行 BigQuery / Cloud Run / pytest；后续需要 owner 决定是否部署 schema migration、是否重跑 2020-2022 R14 hold=10/20 报告或生成 sidecar，以及是否调整 compound Sharpe / Calmar 阈值。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #131 分支已完成 Strategy1 旧 BQML / SQL ledger runner P0 退役实现。
 > - 已删除 BQML-only `sql/ml/strategy1/02-04`、SQL ledger fallback `08_run_backtest.sql` 和旧 `scripts/strategy1/run_oq010_experiments.py`；Cloud Run Python runner 已移除 `--use-bq-ledger` 参数和透传。
 > - 当前 active path 收口为 Cloud Run Python training / prediction / ledger + 共享 SQL `01`、`05-07`、`09-10`、`12`、`16-24`；未运行 BigQuery / Cloud Run / pytest。
@@ -58,11 +64,14 @@
 > - `orchestration/composer/` 已收口为 retired / audit-only 历史目录，只保留审计、迁移对照和受控回滚参考价值。
 > - Strategy1 `v3` replay 与 helper 驱动的 `24` QA 已按最新 contract 真执行通过；当前真正开放的主线只剩 OQ-010 可接受 Python baseline 和 OQ-012 是否正式归档。
 
-## 当前交接摘要（2026-06-10）
+## 当前交接摘要
+
+- 2026-06-10：新增 Strategy1 回测复合年化收益 PRD，范围为 summary / report / v3 gate 的复利年化字段口径；本 PR 不改代码、不跑 BigQuery / Cloud Run。
 - OQ-005 当前状态：`ashare-ods-ingestion-daily`（`0 20 * * *`）与 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 Scheduler job 已是唯一生产调度入口，ODS parent -> warehouse child、alert checker、manual full rebuild dry-run 都已有 live smoke 证据。
 - OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更；旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
 - Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；旧 BQML-only `02-04`、SQL ledger fallback `08` / `--use-bq-ledger` 和旧 `run_oq010_experiments.py` 已在 PR #131 分支退役删除；当前没有 accepted Python baseline，OQ-010 仍然 open；R14 长训练补数已越过历史 backfill 日期下限和 `dim_stock` 生命周期问题，但 2015 年重跑又暴露 core smoke 2019 全表下限误杀，需合并部署 `codex/fix-historical-backfill-core-smoke` 后再重跑 2015 年窗口。
 - OQ-012 当前状态：schema contract / repair tooling / QA 都已具备，当前 BigQuery 读层无 mismatch 报警；剩余是 owner 是否把该问题正式关闭或保留防复发工程项。
+- 下一步：owner review 复合年化 PRD 后，单独实现 summary schema、`09_build_metrics_and_report_inputs.sql`、report/evidence pack、v3 acceptance 和 QA。
 
 # Agent 交接（Agent Handoff）
 
@@ -708,3 +717,53 @@ Model: GPT-5 Codex
 - Changed: fixed missing imports/constants/dataclass fields, wired resume manifest/CLI/SQL params into `LedgerParams`, replaced fresh-only fail-fast with lot100 parent-state restore, added ledger state writes/deletes, corrected resume policy and rebalance anchor QA, and fixed `25_qa_cloudrun_ledger_resume_outputs.sql` to use `ashare_ads` plus current ADS trade/nav columns.
 - Validation: not run per owner workflow unless explicitly requested.
 - Next: review PR #127 comments/CI after push; run targeted unit tests and a small full-vs-resume smoke only if owner asks.
+
+## 2026-06-10 - Strategy1 回测复合年化收益 PRD
+
+日期: 2026-06-10
+Agent ID: Codex
+Agent 实例 ID: 当前 Codex desktop session
+模型: GPT-5 Codex
+运行环境: `/Users/fisher/Desktop/git/quant-ashare-compound-annual-prd`
+Run ID: doc-only
+相关 issue/PR: 待创建 PR
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260610_01_策略1回测复合年化收益.md`。
+- PRD 定义新增 `compound_annual_return`、`return_period_count`、`annualization_target_period_count`、`annualization_method`，并要求旧 `annual_return` 保留为 legacy。
+- PRD 明确后续 report、diagnosis、v3 acceptance gate、replay QA 默认读复合年化口径；v3 缺复合字段不得 fallback 到 legacy 年化后通过。
+- 根据 PR #134 review 补充：`return_period_count` 固定为 NAV 有效交易日数减 1；compound Sharpe 会系统性影响阈值，启用前需 replay 差异表和 owner 阈值确认；`select_register_predict.py` 纳入 registry 指标传播影响面。
+- 更新 `TODO.md` 和 `IMPLEMENTATION_STATUS.md`。
+
+### 重要上下文
+
+- owner 已确认项目中年化 / 月化 / 日化默认按复利口径。
+- 近期 R14 长训练回测暴露 `ads_backtest_performance_summary.annual_return` 与按 NAV 交易日数补算的复合年化不同，需避免后续混用。
+- 本次 PRD 是后续代码实现前置说明，不改变任何历史 backtest artifact。
+
+### 改动文件
+
+- `docs/prd/PRD_20260610_01_策略1回测复合年化收益.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- 未运行测试；文档-only 变更。
+
+### 阻塞项
+
+- 无。后续是否批量回填历史 run 的复合年化字段需要 owner 决策。
+
+### 下一步建议
+
+1. review PRD。
+2. 另开实现 PR，扩展 summary schema / SQL / report / v3 acceptance / QA。
+3. 用一个小规模 backtest smoke 验证 `compound_annual_return` 可从 NAV 重算。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`

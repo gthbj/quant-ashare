@@ -59,7 +59,7 @@ annualization:
   target_period_count_day: 1
   notes:
     - target_period_count values are normalization factors, not fixed real trading day counts
-    - return_period_count must use actual effective return periods inside the evaluated window
+    - return_period_count must use actual NAV return intervals inside the evaluated window, i.e. effective NAV trading-day count minus one
 
 required:
   valid_signal_status: stable

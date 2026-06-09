@@ -480,7 +480,7 @@ def evaluate_candidate(
     args: argparse.Namespace,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     metrics = parse_json(record.get("metrics_json"))
-    strategy_total_return, return_period_count = total_return_from_daily_returns(nav_df["daily_return"])
+    strategy_total_return, return_period_count = total_return_from_nav(nav_df)
     strategy_compound_annualized_return = compound_annualized_return(strategy_total_return, return_period_count)
     annualized_volatility = annualized_volatility_from_daily_returns(nav_df["daily_return"])
     sharpe_ratio = signed_zero_safe_ratio(strategy_compound_annualized_return, annualized_volatility)
@@ -956,25 +956,30 @@ def compare_metric(actual: float | None, operator: Any, threshold: Any) -> bool:
     raise ValueError(f"unsupported operator: {operator}")
 
 
-def total_return_from_daily_returns(series: pd.Series) -> tuple[float | None, int]:
-    valid = [float(value) for value in series.dropna().tolist() if 1.0 + float(value) > 0]
-    if not valid:
+def total_return_from_nav(nav_df: pd.DataFrame) -> tuple[float | None, int]:
+    nav_col = "nav" if "nav" in nav_df.columns else "nav_value"
+    nav_values = pd.to_numeric(nav_df[nav_col], errors="coerce").dropna()
+    if nav_values.empty:
         return None, 0
-    gross = math.exp(sum(math.log1p(value) for value in valid))
-    return gross - 1.0, len(valid)
+    return_period_count = max(int(len(nav_values) - 1), 0)
+    start_nav = safe_float(nav_values.iloc[0])
+    end_nav = safe_float(nav_values.iloc[-1])
+    if start_nav is None or end_nav is None or start_nav <= 0 or end_nav < 0:
+        return None, return_period_count
+    return end_nav / start_nav - 1.0, return_period_count
 
 
 def compound_annualized_return(total_return: float | None, return_period_count: int, annual_factor: int = 252) -> float | None:
     if total_return is None or return_period_count <= 0:
         return None
     gross = 1.0 + total_return
-    if gross <= 0:
+    if gross < 0:
         return None
     return gross ** (annual_factor / return_period_count) - 1.0
 
 
 def compound_annualized_return_from_gross(gross: float | None, return_period_count: int, annual_factor: int = 252) -> float | None:
-    if gross is None or return_period_count <= 0 or gross <= 0:
+    if gross is None or return_period_count <= 0 or gross < 0:
         return None
     return gross ** (annual_factor / return_period_count) - 1.0
 
@@ -990,28 +995,18 @@ def annualized_volatility_from_daily_returns(series: pd.Series, annual_factor: i
 
 
 def benchmark_total_return_from_strategy_dates(nav_df: pd.DataFrame, benchmark_prices: pd.Series) -> tuple[float | None, int]:
+    trade_dates = [row for row in nav_df["trade_date"].dropna().tolist()]
+    periods = max(len(trade_dates) - 1, 0)
+    if periods <= 0:
+        return None, 0
     gross = 1.0
-    periods = 0
-    previous_trade_date: date | None = None
-    for row in nav_df.itertuples(index=False):
-        current_trade_date = row.trade_date
-        strategy_daily_return = safe_float(row.daily_return)
-        if strategy_daily_return is None or 1.0 + strategy_daily_return <= 0:
-            previous_trade_date = current_trade_date
-            continue
-        if previous_trade_date is None:
-            gross *= 1.0
-            periods += 1
-            previous_trade_date = current_trade_date
-            continue
+    for previous_trade_date, current_trade_date in zip(trade_dates, trade_dates[1:]):
         previous_close = benchmark_prices.get(previous_trade_date)
         current_close = benchmark_prices.get(current_trade_date)
         gross_factor = safe_divide(current_close, previous_close)
         if gross_factor is None or gross_factor <= 0:
             return None, periods
         gross *= gross_factor
-        periods += 1
-        previous_trade_date = current_trade_date
     return gross - 1.0, periods
 
 
