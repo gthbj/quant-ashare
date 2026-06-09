@@ -69,6 +69,16 @@ ensure_run_job_role() {
     --role="${role}" >/dev/null
 }
 
+remove_run_job_role_if_present() {
+  local member="$1"
+  local role="$2"
+  gcloud run jobs remove-iam-policy-binding "${INGESTION_JOB_NAME}" \
+    --project="${PROJECT_ID}" \
+    --region="${REGION}" \
+    --member="${member}" \
+    --role="${role}" >/dev/null 2>&1 || true
+}
+
 ensure_service_account "${SCHEDULER_CALLER_SERVICE_ACCOUNT}" "Ashare Scheduler Invoker"
 
 ensure_project_role "serviceAccount:${SCHEDULER_CALLER_SERVICE_ACCOUNT}" "roles/workflows.invoker"
@@ -76,12 +86,14 @@ ensure_project_role "serviceAccount:${SCHEDULER_CALLER_SERVICE_ACCOUNT}" "roles/
 ensure_project_role "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/bigquery.dataEditor"
 ensure_project_role "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/bigquery.jobUser"
 ensure_project_role "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/logging.logWriter"
+ensure_project_role "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/run.viewer"
 ensure_project_role "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/workflows.invoker"
 remove_project_role_if_present "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/run.developer"
 
 ensure_bucket_role "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/storage.objectAdmin"
 ensure_run_service_role "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/run.invoker"
-ensure_run_job_role "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/run.invoker"
+remove_run_job_role_if_present "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/run.invoker"
+ensure_run_job_role "serviceAccount:${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}" "roles/run.jobsExecutorWithOverrides"
 
 printf 'scheduler_caller=%s\n' "${SCHEDULER_CALLER_SERVICE_ACCOUNT}"
 printf 'workflow_runtime=%s\n' "${WORKFLOW_RUNTIME_SERVICE_ACCOUNT}"

@@ -4,6 +4,9 @@
 
 ## P0 — 当前优先
 
+- [ ] OQ-005：合并 2026-06-09 scheduled ODS run 暴露的 Cloud Run Job IAM bootstrap 修正
+  说明：runtime SA 需要 job-level `roles/run.jobsExecutorWithOverrides` 才能带 overrides 启动 `ashare-ingest-current-scope`，同时需要 project-level `roles/run.viewer` 读取 Cloud Run operation 状态；live IAM 已补，repo bootstrap 已同步修正，待 PR 合并。
+
 - [x] PR #124 review follow-up：active on-call runbook 已改写为 `Cloud Scheduler + Cloud Workflows` 恢复路径，告警链路文档不再指向已删除的 Composer 环境
 
 - [ ] OQ-005：补一条 cutover 后短观察窗记录

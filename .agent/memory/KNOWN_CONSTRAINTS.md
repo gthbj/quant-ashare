@@ -97,7 +97,8 @@
 - 2026-06-08 真实 cutover 后，生产定时入口已改为 Cloud Scheduler jobs `ashare-pipeline-alert-checker` 与 `ashare-ods-ingestion-daily`，两者统一由 `ashare-scheduler-invoker@data-aquarium.iam.gserviceaccount.com` 调 Workflows Executions API。ODS daily 固定 `0 20 * * *` / `Asia/Shanghai`，payload 固定 `pipeline_dry_run=false`、`scheduled_run=true`、`run_label=scheduled_daily_ingestion`；`ashare_warehouse_window_refresh` 不建立独立 daily scheduler，继续只作为 `ashare_ods_ingestion_daily` 的同步 child workflow，避免双入口写生产窗口。
 - OQ-005 scheduler least-privilege 约束：`ashare-workflows-runtime@data-aquarium.iam.gserviceaccount.com` 不应再持有项目级 `roles/run.developer`。它在 Cloud Run 侧的最小集合是：
   - `ashare-pipeline-control` service 上的 `roles/run.invoker`
-  - `ashare-ingest-current-scope` Cloud Run Job 上的 `roles/run.invoker`
+  - `ashare-ingest-current-scope` Cloud Run Job 上的 `roles/run.jobsExecutorWithOverrides`，因为 workflow 会用 overrides 传入生产参数
+  - 项目级 `roles/run.viewer`，用于读取 Cloud Run operation / execution 状态；没有 `run.operations.get` 时，job 启动后会在 operation polling 阶段 403
   任何后续 cutover / bootstrap 脚本都应显式移除项目级 `run.developer`，避免该 runtime SA 获得任意 Cloud Run service/job 的创建、修改或删除能力。
 - OQ-005 cutover 顺序约束：cutover helper 不得先 enable Scheduler jobs、后 pause Composer。安全顺序必须是：先创建/更新 Scheduler jobs 为 `PAUSED`，再 pause Composer 业务 DAG，完成至少一次真实 fire 验证后，才显式 `resume` Scheduler jobs。
 - `ashare_warehouse_full_rebuild` 的 Workflows 路径现已改为 `ashare-pipeline-control` 服务端 async `submit + poll`，不能再退回同步 `job.result()`；否则会重新暴露 Cloud Run request timeout / Workflows `http.*` step timeout 风险。共享 warehouse-write lock 仍为同一把 `ashare_warehouse_window_refresh` 锁，full rebuild lease 现为 `21600s`。

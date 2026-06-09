@@ -13,6 +13,11 @@
 > - `docs/Pipeline-补跑与故障恢复-Runbook.md` 已改写为 Scheduler + Workflows 版恢复手册，当前恢复命令使用 Workflows executions、Scheduler jobs、Cloud Run Jobs 和 BigQuery 状态表。
 > - `scripts/alerting/README.md` 与 `scripts/alerting/setup_alerts.py` 也已同步，不再把 alert checker 部署/故障描述指向 Composer。
 
+> 当前交接补充（2026-06-09，GPT-5 Codex）
+> - 2026-06-09 20:00 scheduled ODS workflow 已触发，但先后暴露 Cloud Run Job 权限缺口：缺 `run.jobs.runWithOverrides` 和 `run.operations.get`。
+> - live IAM 已补：`ashare-ingest-current-scope` job-level `roles/run.jobsExecutorWithOverrides`，以及 workflows runtime SA 的 project-level `roles/run.viewer`。
+> - `bootstrap_scheduler_iam.sh` 已同步改成该真实权限口径，避免后续 bootstrap 回到错误的 job-level `run.invoker`。
+
 > 当前交接补充（2026-06-08，GPT-5 Codex）
 > - OQ-005 已完成 production cutover：生产调度入口固定为 `Cloud Scheduler + Cloud Workflows`，`ashare-composer` 环境已删除，Composer 业务 DAG 不再是现行生产路径。
 > - `orchestration/composer/` 已收口为 retired / audit-only 历史目录，只保留审计、迁移对照和受控回滚参考价值。
@@ -84,6 +89,51 @@
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
+
+## 2026-06-09 GPT-5 Codex - Workflows Cloud Run Job IAM follow-up
+
+### 已完成工作
+
+- 给 `ashare-workflows-runtime@data-aquarium.iam.gserviceaccount.com` 在 `ashare-ingest-current-scope` Cloud Run Job 上补 `roles/run.jobsExecutorWithOverrides`。
+- 给同一 runtime SA 补项目级 `roles/run.viewer`，用于读取 Cloud Run operation / execution 状态。
+- 更新 `orchestration/workflows/bootstrap_scheduler_iam.sh`，将 ODS ingestion job 权限从 job-level `roles/run.invoker` 改为 `roles/run.jobsExecutorWithOverrides`，并移除旧 job-level `run.invoker`。
+- 更新 `orchestration/workflows/README.md` 与项目记忆，记录真实运行暴露的权限口径。
+
+### 重要上下文
+
+- `roles/run.invoker` 只包含 `run.jobs.run`，不足以支持 workflow 传 overrides 启动 Cloud Run Job。
+- `roles/run.jobsExecutorWithOverrides` 允许启动带 overrides 的 Job，但不包含 `run.operations.get`；Workflows 轮询 Cloud Run operation 还需要 `roles/run.viewer`。
+
+### 改动文件
+
+- `orchestration/workflows/bootstrap_scheduler_iam.sh`
+- `orchestration/workflows/README.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 正在用 `ashare_ods_ingestion_daily` manual recovery execution `39e42cbf-c140-4e04-9207-27bfff637ee8` 验证。
+
+### 阻塞项
+
+- 无代码阻塞；等待重跑 execution terminal 状态。
+
+### 下一步建议
+
+- 若重跑成功，继续看 child `ashare_warehouse_window_refresh` 是否完成。
+- 合并 IAM bootstrap 修正 PR，避免未来重新 bootstrap 后复现 20:00 权限失败。
+
+### 已更新记忆文件
+
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 
