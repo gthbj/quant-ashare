@@ -2,7 +2,7 @@
 > - 新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`，作为 `quant-ashare` 项目结构重构总 PRD。
 > - Owner 已确认关键决策：采用 `ashare_research` dataset、`research_*` 表名前缀、`accepted != promoted`、先 table-role abstraction 后 research-first、`sql/strategy1/**` 目标 SQL 命名空间、`src/quant_ashare/**` Python 包根、短期保留 `scripts/strategy1_cloudrun/**` wrapper，且 P0 不强制创建 `docs/retired/`。
 > - PRD 已改为已确认口径；新实验、候选、诊断和 acceptance replay 目标态默认写 research，`ashare_ads` 只承载 owner promotion 后的正式产物。
-> - Review 指出的 `sql/cloudrun/strategy1/01_build_training_panel.sql`、ADS 硬编码耦合、retired linter allowlist、SQL `DECLARE p_*` 参数默认值漂移、`bqml_reference_run_id` exception registry 和 Python package 交付方式均已补进 PRD。
+> - Review 指出的 `sql/cloudrun/strategy1/01_build_training_panel.sql`、ADS 硬编码耦合、retired linter allowlist、SQL `DECLARE p_*` 参数默认值漂移、`optional_params` schema 语义、`16-25` 逐个分类、`bqml_reference_run_id` exception registry 和 Python package 交付方式均已补进 PRD。
 > - 本轮只写方案和同步 `.agent/memory/IMPLEMENTATION_STATUS.md`、`.agent/memory/AGENT_HANDOFF.md`、`.agent/memory/DECISION_LOG.md`、`TODO.md`；未改代码、SQL、BigQuery、Cloud Run 或 Dataform。
 
 > 当前交接补充（2026-06-10，GPT-5 Codex）
@@ -102,7 +102,7 @@
 
 - 本轮是 PRD-only，不改代码、不改 SQL、不运行 BigQuery / Cloud Run / Dataform。
 - 已追加 `DECISION-20260610-05` 记录 owner 确认的结构重构决策；不新增 `KNOWN_CONSTRAINTS.md` 约束，因为本 PRD 尚未实现代码或物理 BigQuery 资源。
-- 后续第一步是 PR-A：建立 active step catalog、retired reference linter 和 README/runbook 口径护栏；第二步 PR-A2 做 table role / dataset role resolver 且仍解析到 `ashare_ads`。`ashare_research` dataset / table contract 应后置为单独 PR，不和目录搬迁或默认写入切换混做。
+- 结构重构事项仍在 `TODO.md` P1；当 owner 决定启动 P1 工程治理或在 OQ-010/R14 空档穿插推进时，第一步是 PR-A：建立 active step catalog、retired reference linter 和 README/runbook 口径护栏；第二步 PR-A2 做 table role / dataset role resolver 且仍解析到 `ashare_ads`。`ashare_research` dataset / table contract 应后置为单独 PR，不和目录搬迁或默认写入切换混做。
 
 ### 改动文件
 
@@ -123,7 +123,7 @@
 
 ### 下一步建议
 
-- 开始 PR-A：建立 active step catalog、retired reference linter 和 README/runbook 口径护栏；不移动文件、不改运行行为。
+- 结构重构仍按 `TODO.md` 的 P1 工程治理项处理；当 owner 决定启动或在 OQ-010/R14 空档穿插推进时，从 PR-A 开始：建立 active step catalog、retired reference linter 和 README/runbook 口径护栏；不移动文件、不改运行行为。
 
 ### 已更新记忆文件
 
