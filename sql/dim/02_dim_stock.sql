@@ -117,17 +117,6 @@ stock_basic_enriched AS (
       s.ingested_at DESC
   ) = 1
 ),
-daily_codes AS (
-  SELECT
-    d.ts_code,
-    MIN(SAFE.PARSE_DATE('%Y%m%d', d.trade_date)) AS first_trade_date,
-    MAX(SAFE.PARSE_DATE('%Y%m%d', d.trade_date)) AS last_trade_date
-  FROM `data-aquarium.ashare_ods.ods_tushare_daily` AS d
-  WHERE d.endpoint = 'daily'
-    AND d.partition_date BETWEEN '00000000' AND '99999999'
-    AND d.trade_date IS NOT NULL
-  GROUP BY d.ts_code
-),
 missing_from_stock_basic AS (
   SELECT
     d.ts_code AS sec_code,
@@ -170,7 +159,7 @@ missing_from_stock_basic AS (
     ) AS delist_date_source,
     CAST(NULL AS STRING) AS source_partition_date,
     CAST(NULL AS TIMESTAMP) AS ingested_at
-  FROM daily_codes AS d
+  FROM daily_lifecycle AS d
   CROSS JOIN latest_market_trade AS m
   LEFT JOIN stock_basic_enriched AS s
     ON d.ts_code = s.sec_code

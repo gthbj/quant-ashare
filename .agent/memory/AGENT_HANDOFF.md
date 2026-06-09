@@ -1,7 +1,7 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #130 合并并部署 `ashare-pipeline-control` 后，重跑 2015 年 backfill execution `be12a12f-1e65-4cef-b60d-3945ef8da13a`，已越过指数窗口旧失败点。
 > - 新失败点在股票窗口 QA `QA-WIN-13`：2015 ODS daily 有 `5,486` 行、`76` 个代码未写入 `dwd_stock_eod_price`。
-> - 分支 `codex/fix-historical-dim-stock-lifecycle` 已修复 `dim_stock` 历史生命周期：缺主数据代码从全量 ODS daily 派生，`stock_basic.list_date` 晚于首个日线交易日时用 `first_trade_date` 兜底。
+> - 分支 `codex/fix-historical-dim-stock-lifecycle` 已修复 `dim_stock` 历史生命周期：缺主数据代码从全量 ODS daily 派生，`stock_basic.list_date` 晚于首个日线交易日时用 `first_trade_date` 兜底；PR #132 review follow-up 已改为直接复用 `daily_lifecycle`，避免重复全量扫描 ODS daily。
 
 > 当前交接补充（2026-06-09，GPT-5 Codex）
 > - 手工触发 2015 年 `ashare_warehouse_window_refresh` backfill 时失败，根因是窗口刷新 SQL 固定以 `2019-01-01` 作为写入下限，导致 `2015-01-01 ~ 2015-12-31` 被推成 `write_start=2019-01-01`。
@@ -65,6 +65,7 @@
 - 新建分支 `codex/fix-historical-dim-stock-lifecycle`，修复 `dim_stock` 历史生命周期：
   - `missing_from_stock_basic` 从全量 ODS daily 派生，不再只看 2019+ daily。
   - `stock_basic_enriched.list_date` 在 `stock_basic.list_date` 晚于首个日线交易日时，用 `first_trade_date` 作为历史生命周期下限。
+- PR #132 review follow-up：删除重复的 `daily_codes` CTE，让 `missing_from_stock_basic` 直接复用 `daily_lifecycle`，避免同一全量 ODS daily 外表被扫描两次。
 
 ### 重要上下文
 
