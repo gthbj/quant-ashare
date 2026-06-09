@@ -35,7 +35,7 @@
 ## P1 — 后续优化
 
 - [ ] OQ-010 / 工程治理：按项目结构重构 PRD 分阶段收敛 Strategy1 runner 和共享 SQL 边界
-  说明：新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`；review follow-up 后建议顺序为 active path catalog、防误用护栏、table role / dataset role resolver、`sql/strategy1/**` 稳定命名空间、`src/quant_ashare/strategy1/**` package foundation、`ashare_research` / `ashare_ads` 生命周期隔离、深层包拆分和命名 cleanup。本 PRD 只定义方案，未改代码。
+  说明：新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`；owner 已确认采用 `ashare_research`、`research_*` 表名前缀、`accepted != promoted`、先 table-role abstraction 后 research-first、`sql/strategy1/**`、`src/quant_ashare/**`、短期保留 `scripts/strategy1_cloudrun/**` wrapper，且 P0 不强制创建 `docs/retired/`。后续按 active path catalog、防误用护栏、table role / dataset role resolver、SQL 命名空间、Python package foundation、research/ADS 生命周期隔离、深层包拆分和命名 cleanup 分阶段实现。
 
 - [ ] OQ-005：如真实运行暴露 stale-lock 边界，再为 `ashare-pipeline-control` 的 stale-lock reclaim 增加 Workflows execution liveness 检查
 
