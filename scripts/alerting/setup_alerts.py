@@ -149,7 +149,7 @@ ALERT_POLICIES = [
             "ODS ingestion 已成功，但 60 分钟内没有对应 "
             "`ashare_warehouse_window_refresh` run 记录。\n\n"
             "检查 `ashare_meta.v_pipeline_refresh_missing`，确认是否为 child workflow 触发失败、"
-            "child workflow 触发失败、Scheduler / Workflows 调度异常或状态回写失败。\n\n"
+            "Scheduler / Workflows 调度异常或状态回写失败。\n\n"
             "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "warehouse_refresh_missing",
