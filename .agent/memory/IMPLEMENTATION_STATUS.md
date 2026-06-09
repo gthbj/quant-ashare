@@ -118,3 +118,12 @@ Last updated: 2026-06-10
 | Strategy1 历史 BQML runner | 已完成 | 只保留为历史 reference / audit |
 | Strategy1 Cloud Run Python 路线 | 部分完成 | 执行链路已可运行；live acceptance gate 已在分支切到 v3 并通过 2 候选 smoke，但仍无 accepted baseline |
 | ODS schema repair | 部分完成 | contract / tooling / QA 已具备，待 owner 决定最终收口 |
+
+## 2026-06-10 - Strategy1 回测复合年化收益 PRD
+
+- 状态：已新增 PRD，待 owner review / 后续实现。
+- 新增 `docs/prd/PRD_20260610_01_策略1回测复合年化收益.md`，定义 `compound_annual_return`、`return_period_count`、`annualization_target_period_count` 和 `annualization_method` 的 P0 字段方案。
+- 明确保留旧 `ads_backtest_performance_summary.annual_return` 为 legacy 字段，P0 不静默改义、不追溯覆盖历史回测。
+- 明确 report、diagnosis、v3 acceptance gate 和 replay QA 后续默认读取复合年化口径；v3 path 缺复合字段时不得 fallback 到 legacy `annual_return` 后 accepted。
+- 本次只改文档和项目记忆，未修改 SQL / Python，未执行 BigQuery / Cloud Run。
+
