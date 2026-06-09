@@ -15,6 +15,9 @@
 - [ ] OQ-010：继续寻找 accepted 的 Cloud Run Python baseline
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
 
+- [ ] OQ-010：按 R14 长训练窗口 PRD 做覆盖审计
+  说明：`docs/prd/PRD_20260609_01_策略1R14长训练回测.md` 已定义固定 R14 方法、`2015-04-01 ~ 2019-12-31` 名义训练窗口和 `2020-2022` 的 `10` 只 / `20` 只双组合 diagnostic backtest；`2023-01 ~ 2026-06-09` 追加回测视 P0 结果和 owner 决策而定，若追加也跑两个组合。下一步先审计 2015-2018 DWD/DWS、risk feature 和 5d label embargo 覆盖。
+
 - [ ] OQ-012：决定是否正式关闭 schema mismatch 问题
   说明：schema contract、repair/validate 脚本和 `sql/qa/06_ods_parquet_schema_checks.sql` 都已具备，当前 BigQuery 读层没有 mismatch 暴露；剩余是 owner 决定归档关闭，还是保留防复发工程项。
 
