@@ -1,6 +1,6 @@
 # Ashare Pipeline 告警与观测
 
-> 文档维护：GPT-5 Codex（最近更新 2026-06-05）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-09）
 
 ## 概述
 
@@ -9,7 +9,13 @@
 ## 告警链路
 
 ```
-ashare_pipeline_alert_checker (current scheduler, 0 * * * *)
+Cloud Scheduler job: ashare-pipeline-alert-checker (0 * * * *)
+    |
+    v
+Workflow: ashare_pipeline_alert_checker
+    |
+    v
+ashare-pipeline-control /v1/tasks/alert-check
     |
     v
 check_alerts.py --write-log --write-heartbeat --lookback-minutes 70
@@ -45,8 +51,8 @@ scripts/alerting/
 ├── check_alerts.py      # 告警查询脚本（定期检查 + 写入 Cloud Logging）
 └── README.md            # 本文件
 
-orchestration/composer/dags/
-└── ashare_pipeline_alert_checker.py  # 生产定时 checker DAG
+orchestration/workflows/
+└── ashare_pipeline_alert_checker.yaml  # 生产定时 checker workflow
 
 sql/observability/
 └── 01_pipeline_status_views.sql  # 观测视图定义
@@ -79,19 +85,14 @@ python scripts/alerting/setup_alerts.py --notification-channels "projects/xxx/no
 ### 3. 部署定期检查
 
 ```bash
-# 生产路径：同步 checker 脚本与 DAG 到 Composer bucket
-gcloud storage cp scripts/alerting/check_alerts.py \
-  gs://asia-east2-ashare-composer-b2629133-bucket/data/scripts/alerting/check_alerts.py
-
-gcloud storage cp orchestration/composer/dags/ashare_pipeline_alert_checker.py \
-  gs://asia-east2-ashare-composer-b2629133-bucket/dags/ashare_pipeline_alert_checker.py
-
-# 验证 DAG 已被 Airflow 识别
-gcloud composer environments run ashare-composer \
-  --location=asia-east2 dags list -- --output json
+cd orchestration/workflows
+./bootstrap_scheduler_iam.sh
+ENABLE_JOBS=true ./deploy_scheduler_jobs.sh
 ```
 
-OQ-005 迁出 Composer 后，推荐生产入口切到 `Cloud Scheduler -> Workflows -> ashare-pipeline-control /v1/tasks/alert-check`；当前 README 同时保留现有定时入口与迁移目标口径。
+当前生产入口是 `Cloud Scheduler -> Workflows -> ashare-pipeline-control /v1/tasks/alert-check`。
+`ashare-composer` 已于 2026-06-08 删除；不要再按已退役的 Composer 路径部署 alert checker。
+
 新 workflow 故意不写 `ashare_meta.pipeline_run` / `pipeline_task_status`，避免 checker 失败被下一轮 checker 自己读回并再次作为 pipeline failure 告警发出，同时也避免把 `v_pipeline_recent_runs` 等观测视图刷满。
 
 ### 4. 查询异常
@@ -119,7 +120,7 @@ python scripts/alerting/check_alerts.py --json
 | Ingestion Failed | `ingestion_run.status = 'failed'`（不含 empty_return） | WARNING |
 | Alert Checker Heartbeat Missing | `ashare_pipeline_alert_checker_heartbeat` 120 分钟无数据 | ERROR |
 
-`Alert Checker Heartbeat Missing` 是告警链路自身的 liveness 监控。当前定时入口每小时调用 `check_alerts.py --write-heartbeat` 写入一次 heartbeat；若 DAG / Scheduler 被 pause、Composer/Cloud Scheduler 调度异常、脚本启动失败或日志写入失败，heartbeat 会停止，Cloud Monitoring 的 absence condition 会触发通知。
+`Alert Checker Heartbeat Missing` 是告警链路自身的 liveness 监控。当前定时入口每小时调用 `check_alerts.py --write-heartbeat` 写入一次 heartbeat；若 Scheduler job 被 pause、Workflows execution 失败、脚本启动失败或日志写入失败，heartbeat 会停止，Cloud Monitoring 的 absence condition 会触发通知。
 
 `setup_alerts.py` 使用 `user_labels.ashare_pipeline_policy` 作为告警策略幂等键；旧版 display name 会被迁移到当前命名，避免重复创建新旧两份策略。
 
@@ -127,8 +128,8 @@ python scripts/alerting/check_alerts.py --json
 
 | 视图名称 | 用途 |
 |---|---|
-| `v_pipeline_recent_runs` | 最近 DAG run 状态概览 |
-| `v_pipeline_failed_tasks` | 失败 task 明细（含 BQ job id、Airflow log URL） |
+| `v_pipeline_recent_runs` | 最近 pipeline run 状态概览 |
+| `v_pipeline_failed_tasks` | 失败 task 明细（含 BigQuery job id、workflow / execution log URL） |
 | `v_pipeline_qa_failures` | QA 失败明细（QA-WIN-* 断言） |
 | `v_ingestion_failures` | Cloud Run ingestion 失败明细（仅 failed） |
 | `v_ingestion_empty_returns` | empty_return 明细（需按 endpoint/date 判断） |
@@ -142,5 +143,5 @@ python scripts/alerting/check_alerts.py --json
 2. 已配置 ADC：`gcloud auth application-default login`
 3. 已启用 Cloud Monitoring API + Cloud Logging API
 4. 已配置通知渠道（Email/Slack/PagerDuty）
-5. 当前定时入口 `ashare_pipeline_alert_checker` 已部署并处于启用状态
+5. 当前定时入口 `ashare-pipeline-alert-checker` Scheduler job 已部署并处于启用状态
 6. 已配置 `ashare_pipeline_alert_checker_heartbeat` log-based metric 与 absence alert policy

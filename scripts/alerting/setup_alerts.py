@@ -2,11 +2,12 @@
 """Ashare Pipeline 告警规则配置脚本。
 
 告警链路：
-  1. check_alerts.py 由 Composer DAG ashare_pipeline_alert_checker 定时调用
-  2. 查询 v_alert_summary 视图
-  3. 将异常与 checker heartbeat 写入 Cloud Logging（JSON payload）
-  4. Cloud Logging 日志指标匹配这些条目
-  5. Cloud Monitoring 告警策略订阅日志指标，按阈值或 heartbeat 缺失触发通知
+  1. Cloud Scheduler 触发 Workflows `ashare_pipeline_alert_checker`
+  2. Workflow 调用 ashare-pipeline-control /v1/tasks/alert-check
+  3. check_alerts.py 查询 v_alert_summary 视图
+  4. 将异常与 checker heartbeat 写入 Cloud Logging（JSON payload）
+  5. Cloud Logging 日志指标匹配这些条目
+  6. Cloud Monitoring 告警策略订阅日志指标，按阈值或 heartbeat 缺失触发通知
 
 使用方式：
     # dry-run 查看配置
@@ -21,7 +22,7 @@
 前置条件：
     1. 已执行 sql/observability/01_pipeline_status_views.sql 创建视图
     2. 已启用 Cloud Logging API + Cloud Monitoring API
-    3. ashare_pipeline_alert_checker 当前定时入口已部署（最多每小时 1 次）
+    3. ashare-pipeline-alert-checker Scheduler job 已部署（最多每小时 1 次）
     4. 已配置通知渠道（Email/Slack/PagerDuty）
 """
 
@@ -57,7 +58,7 @@ POLICY_LABEL_KEY = "ashare_pipeline_policy"
 LOG_METRICS = [
     {
         "name": "ashare_pipeline_failure",
-        "description": "Pipeline DAG run failed",
+        "description": "Pipeline workflow run failed",
         "filter": 'jsonPayload.alert_type="pipeline_failure"',
     },
     {
@@ -93,8 +94,8 @@ ALERT_POLICIES = [
         "policy_key": "pipeline_failure",
         "display_name": "Ashare Pipeline: Pipeline Run Failed",
         "description": (
-            "Composer DAG run 失败。\n\n"
-            "覆盖：ods_daily_partition_readiness、窗口刷新、QA-WIN 等所有 task。\n\n"
+            "Pipeline workflow run 失败。\n\n"
+            "覆盖：ODS readiness、窗口刷新、QA-WIN 等 task。\n\n"
             "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "pipeline_failure",
@@ -147,8 +148,8 @@ ALERT_POLICIES = [
         "description": (
             "ODS ingestion 已成功，但 60 分钟内没有对应 "
             "`ashare_warehouse_window_refresh` run 记录。\n\n"
-            "检查 `ashare_meta.v_pipeline_refresh_missing`，确认是否为跨 DAG 触发失败、"
-            "warehouse DAG pause、Composer 调度异常或状态回写失败。\n\n"
+            "检查 `ashare_meta.v_pipeline_refresh_missing`，确认是否为 child workflow 触发失败、"
+            "child workflow 触发失败、Scheduler / Workflows 调度异常或状态回写失败。\n\n"
             "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "warehouse_refresh_missing",
@@ -164,8 +165,8 @@ ALERT_POLICIES = [
         "description": (
             "告警 checker 自身心跳缺失。\n\n"
             "`ashare_pipeline_alert_checker` 每小时运行并写入 heartbeat；"
-            "若 120 分钟内没有 heartbeat，说明 checker 定时入口可能失败、被 pause、"
-            "Composer 调度异常或日志写入异常。\n\n"
+            "若 120 分钟内没有 heartbeat，说明 checker Scheduler / Workflow 可能失败、被 pause、"
+            "control service 调用异常或日志写入异常。\n\n"
             "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
         ),
         "condition_display_name": "alert_checker_heartbeat_absent",

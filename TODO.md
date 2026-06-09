@@ -4,6 +4,8 @@
 
 ## P0 — 当前优先
 
+- [x] PR #124 review follow-up：active on-call runbook 已改写为 `Cloud Scheduler + Cloud Workflows` 恢复路径，告警链路文档不再指向已删除的 Composer 环境
+
 - [ ] OQ-005：补一条 cutover 后短观察窗记录
   说明：当前生产入口已经是 `Cloud Scheduler + Cloud Workflows`，`ashare-composer` 也已删除；剩余只差一个简短的 post-cutover 观察记录，用于彻底收口 OQ-005。
 
