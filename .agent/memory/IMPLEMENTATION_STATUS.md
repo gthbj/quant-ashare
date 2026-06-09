@@ -9,7 +9,8 @@ Last updated: 2026-06-10
 ### 最新补充（2026-06-10）：项目结构重构总 PRD 已新增
 
 - 新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`，定义 `quant-ashare` 后续工程结构重构方案。
-- PRD 将重构拆成 active path catalog、Strategy1 shared SQL 稳定命名空间、Python runner 包拆分、阶段性命名收敛、测试与发布护栏五个阶段。
+- PRD 将重构拆成 active path catalog、`ashare_research` / `ashare_ads` 生命周期隔离、Strategy1 shared SQL 稳定命名空间、Python runner 包拆分、阶段性命名收敛、测试与发布护栏六个阶段。
+- PRD 建议新增 BigQuery `ashare_research` dataset，默认承载实验、候选模型、诊断、未投产回测和 acceptance replay；`ashare_ads` 后续只承载 owner promotion 后的正式模型、正式信号、正式回测和生产监控。
 - 方案明确旧 BQML-only SQL / SQL ledger runner 已退役，剩余 `sql/ml/strategy1` 文件多数是当前 Cloud Run Python path 仍使用的 active shared SQL，应迁移到 `sql/strategy1/**` 而不是直接删除。
 - 本轮只写 PRD 和项目记忆/TODO；未改代码、SQL、BigQuery、Cloud Run 或 Dataform。
 
