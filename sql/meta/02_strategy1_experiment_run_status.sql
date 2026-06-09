@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_meta.strategy1_experiment_run_s
   experiment_type STRING OPTIONS(description="实验类型：portfolio_only / retrain"),
 
   -- step 标识
-  step_id STRING NOT NULL OPTIONS(description="runner step，如 01_build_training_panel / 08_run_backtest"),
+  step_id STRING NOT NULL OPTIONS(description="runner step，如 01_build_training_panel / cloudrun_backtest_report"),
   step_display_name STRING OPTIONS(description="step 中文或可读名称"),
 
   -- 状态

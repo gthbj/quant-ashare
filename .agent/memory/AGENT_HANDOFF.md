@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - PR #131 分支已完成 Strategy1 旧 BQML / SQL ledger runner P0 退役实现。
+> - 已删除 BQML-only `sql/ml/strategy1/02-04`、SQL ledger fallback `08_run_backtest.sql` 和旧 `scripts/strategy1/run_oq010_experiments.py`；Cloud Run Python runner 已移除 `--use-bq-ledger` 参数和透传。
+> - 当前 active path 收口为 Cloud Run Python training / prediction / ledger + 共享 SQL `01`、`05-07`、`09-10`、`12`、`16-24`；未运行 BigQuery / Cloud Run / pytest。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #132 已合并，`ashare-pipeline-control` 已重新部署到 revision `ashare-pipeline-control-00007-tst`。
 > - 重新触发 2015 年 backfill execution `209bd2bf-86f4-455c-85c7-b6b1f4ec8025`，已越过 `dim_stock` 生命周期缺口。
 > - 新失败点在 `sql/qa/01_core_smoke_checks.sql`：旧 core smoke 仍把 `2019-01-01` 当成 DWD 价格表全表存在下限；分支 `codex/fix-historical-backfill-core-smoke` 已改为只拒绝早于 `1990-12-19` 的异常行，`daily_current` 2019+ 下限继续由窗口 SQL/QA 约束。
@@ -56,7 +61,7 @@
 ## 当前交接摘要（2026-06-10）
 - OQ-005 当前状态：`ashare-ods-ingestion-daily`（`0 20 * * *`）与 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 Scheduler job 已是唯一生产调度入口，ODS parent -> warehouse child、alert checker、manual full rebuild dry-run 都已有 live smoke 证据。
 - OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更；旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
-- Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；当前没有 accepted Python baseline，OQ-010 仍然 open；R14 长训练补数已越过历史 backfill 日期下限和 `dim_stock` 生命周期问题，但 2015 年重跑又暴露 core smoke 2019 全表下限误杀，需合并部署 `codex/fix-historical-backfill-core-smoke` 后再重跑 2015 年窗口。
+- Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；旧 BQML-only `02-04`、SQL ledger fallback `08` / `--use-bq-ledger` 和旧 `run_oq010_experiments.py` 已在 PR #131 分支退役删除；当前没有 accepted Python baseline，OQ-010 仍然 open；R14 长训练补数已越过历史 backfill 日期下限和 `dim_stock` 生命周期问题，但 2015 年重跑又暴露 core smoke 2019 全表下限误杀，需合并部署 `codex/fix-historical-backfill-core-smoke` 后再重跑 2015 年窗口。
 - OQ-012 当前状态：schema contract / repair tooling / QA 都已具备，当前 BigQuery 读层无 mismatch 报警；剩余是 owner 是否把该问题正式关闭或保留防复发工程项。
 
 # Agent 交接（Agent Handoff）
@@ -64,6 +69,75 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-10 GPT-5 Codex - Strategy1 旧 BQML / SQL ledger runner P0 退役实现
+
+### 已完成工作
+
+- 删除 BQML-only `sql/ml/strategy1/02_train_bqml_logistic_candidates.sql`、`03_select_model_and_register.sql`、`04_predict_daily.sql`。
+- 删除 SQL ledger fallback `sql/ml/strategy1/08_run_backtest.sql`。
+- 删除旧 OQ-010 SQL/BQML 调度器 `scripts/strategy1/run_oq010_experiments.py`，避免保留会调用已删除 `02-04` / `08` 的失效入口。
+- `scripts/strategy1_cloudrun/backtest_report.py` 已移除 `--use-bq-ledger` 参数、`bigquery_sql` backend 分支和对 `08_run_backtest.sql` 的调用；默认固定走 Cloud Run Python ledger。
+- `scripts/strategy1_cloudrun/orchestrate_experiments.py` 与 `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py` 已移除 `--use-bq-ledger` 透传。
+- 文档和项目记忆已同步为当前口径：active path 为 Cloud Run Python training / prediction / ledger + 共享 SQL `01`、`05-07`、`09-10`、`12`、`16-24`。
+
+### 重要上下文
+
+- 本次只删除旧执行入口，不删除历史 ADS / GCS artifact、历史 BQML run/backtest id 或 v3 replay/QA。
+- `sql/ml/strategy1/01_build_training_panel.sql`、`05_build_candidates.sql`、`06_build_portfolio_targets.sql`、`07_build_order_plan.sql`、`09_build_metrics_and_report_inputs.sql`、`10_qa_runner_outputs.sql`、`12_qa_model_diagnosis_outputs.sql` 和 `16-24` 仍是当前 Cloud Run Python path 的共享 SQL / QA 面。
+- legacy FLOAT 股数审计只保留 Python `--use-float-ledger`；`--use-bq-ledger` 不再存在。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/backtest_report.py`
+- `scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1/run_oq010_experiments.py`
+- `sql/ml/strategy1/02_train_bqml_logistic_candidates.sql`
+- `sql/ml/strategy1/03_select_model_and_register.sql`
+- `sql/ml/strategy1/04_predict_daily.sql`
+- `sql/ml/strategy1/08_run_backtest.sql`
+- `sql/ml/strategy1/README.md`
+- `sql/README.md`
+- `docs/prd/PRD_20260609_02_策略1旧BQMLSQLRunner退役.md`
+- `docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`
+- `docs/prd/PRD_20260603_05_策略1实验并发调度与隔离.md`
+- `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md`
+- `docs/prd/PRD_20260604_02_策略1月度滚动重训.md`
+- `docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`
+- `docs/策略1-ml_pv_clf_v0-runner设计.md`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `docs/策略1实验并发调度器运行手册.md`
+- `dataform/definitions/assertions/03_index_benchmark_checks.sqlx`
+- `sql/meta/02_strategy1_experiment_run_status.sql`
+- `sql/qa/03_index_benchmark_checks.sql`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未执行 BigQuery、Cloud Run、pytest 或 replay。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 等 PR review；如果 reviewer 只要求补文档口径或移除残余引用，直接在本分支修。
+
+### 已更新记忆文件
+
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - historical backfill core smoke 修复
 

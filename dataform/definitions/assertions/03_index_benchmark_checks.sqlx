@@ -8,11 +8,11 @@ config {
   dependencies: ["dim_index", "dwd_index_eod"]
 }
 
--- 文档维护：GPT-5 Codex（最近更新 2026-06-07）
+-- 文档维护：GPT-5 Codex（最近更新 2026-06-10）
 -- BigQuery Standard SQL
 -- 指数 canonical 映射、端点可用性与 runner benchmark 窗口断言。
--- 本脚本校验示例 benchmark/window；真实 runner 参数窗口由 08_run_backtest.sql
--- 的前置 ASSERT 使用 p_benchmark / p_predict_start / p_predict_end 再校验。
+-- 本脚本校验示例 benchmark/window；真实 runner 参数窗口由当前 Cloud Run
+-- backtest/report 路径使用 p_benchmark / p_predict_start / p_predict_end 再校验。
 -- A 股沪深两市交易日历实际一致，窗口覆盖断言统一使用 SSE 日历代表全市场开市日。
 -- dwd_end_date 默认对齐 dwd_index_eod 中 000001.SH 已有完整 price + dailybasic
 -- 的最新开市日，避免日内 scheduled/backfill 在当天 ODS/DWD 未到数时被

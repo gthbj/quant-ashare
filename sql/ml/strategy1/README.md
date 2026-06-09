@@ -1,8 +1,10 @@
-> 文档维护：GPT-5 Codex（最近更新 2026-06-06）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-10）
 
-# Strategy 1 BigQuery ML Runner
+# Strategy 1 Cloud Run / Shared SQL Runner Notes
 
-基于 `ml_pv_clf_v0` 的 BigQuery ML + SQL 训练/预测/回测闭环。
+当前 Strategy1 active path 为 Cloud Run Python training / prediction / ledger + 共享 BigQuery SQL candidate / portfolio / order / report / QA + v3 acceptance gate。
+
+历史 BQML-only `02_train_bqml_logistic_candidates.sql`、`03_select_model_and_register.sql`、`04_predict_daily.sql` 与 SQL ledger fallback `08_run_backtest.sql` 已退役并删除，不再作为默认、fallback、诊断或新增开发入口。历史 BQML / SQL runner 结果仅保留为 ADS / GCS / 文档中的 audit reference。
 
 ## 前置条件
 
@@ -14,17 +16,13 @@
 
 ## 执行顺序
 
-所有 BigQuery job 显式指定 `--location=asia-east2`。脚本可按顺序执行，无需手动替换。
+所有 BigQuery job 显式指定 `--location=asia-east2`。当前可直接保留为 active 的 SQL 是共享 SQL；训练、选型、预测和 ledger 回测由 Cloud Run Python path 执行。
 
 ```bash
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/01_build_training_panel.sql
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/02_train_bqml_logistic_candidates.sql
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/03_select_model_and_register.sql
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/04_predict_daily.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/05_build_candidates.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/06_build_portfolio_targets.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/07_build_order_plan.sql
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/08_run_backtest.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/09_build_metrics_and_report_inputs.sql
 
 # render_report 必须在 10 之前：它把报告状态回写 summary.metrics_json（local_report_path +
@@ -135,20 +133,20 @@ python scripts/strategy1/run_acceptance_gate_v3_replay_qa.py \
 
 ## Cloud Run sklearn runner（PRD-20260604-04）
 
-Cloud Run 路径保留 BigQuery DWS/ADS、GCS artifact、报告、诊断和 QA 契约，只替代：
+Cloud Run 路径保留 BigQuery DWS/ADS、GCS artifact、报告、诊断和 QA 契约。BQML-only `02-04` 已由 Python training / selection / prediction 替代；SQL ledger fallback `08` 已删除，`backtest_report` 固定调用 Python ledger。
 
-| 旧路径 | Cloud Run 路径 |
+| 职责 | 当前路径 |
 |---|---|
-| `02_train_bqml_logistic_candidates.sql` | `python -m scripts.strategy1_cloudrun.train_predict` 训练 scikit-learn logistic candidates |
-| `03_select_model_and_register.sql` | `train_predict` 内完成 valid 选型、score orientation 和 registry 写入 |
-| `04_predict_daily.sql` | `train_predict` 内写 `ads_model_prediction_daily` |
-| `08_run_backtest.sql` | `python -m scripts.strategy1_cloudrun.backtest_report` 默认调用 Python `ledger_exec_v1_lot100` fresh-start；`--use-bq-ledger` 可走原 SQL fallback 做历史等价对照 |
+| 训练候选模型 | `python -m scripts.strategy1_cloudrun.train_predict` 或 task fan-out / native search 入口 |
+| valid 选型、score orientation 和 registry 写入 | Cloud Run Python `train_predict` / `select_register_predict` |
+| prediction 写入 | Cloud Run Python 写 `ads_model_prediction_daily` |
+| 回测 ledger | `python -m scripts.strategy1_cloudrun.backtest_report` 默认调用 Python `ledger_exec_v1_lot100` fresh-start |
 
 默认配置见 `configs/strategy1/cloudrun_runner_default.yml`，运行手册见 `docs/策略1CloudRun训练回测运行手册.md`。
 
 并发规则：`orchestrate_experiments.py` 未传 `--max-parallel-experiments` 或传 `0` 时，resolved 并发数等于本次 manifest 可执行实验数；只有 owner 显式传 `N > 0` 时才限流。
 
-模型质量对等门禁：`train_predict` 会记录 sklearn vs BQML parity 证据。`model_quality_parity_status='passed'` 时标记 `model_quality_status='model_quality_equivalent'`；未通过时仍写 selected registry / prediction / artifact，但必须标记 `model_quality_status='model_quality_not_equivalent'`，不能声明 sklearn backend 已等价替代 BQML baseline。`16_qa_cloudrun_runner_outputs.sql` 默认仍硬断言 parity passed；只做 smoke / 证据留存时，可显式设 `p_require_model_quality_parity_passed=FALSE`。默认 Python ledger 路径为 lot-aware `ledger_exec_v1_lot100`，summary 会标记为 `execution_backend='cloud_run_sklearn_ledger_v1_lot100'`、`ledger_executor='cloud_run_python'`，并记录 `lot_size=100` / `min_buy_lot=1`。`--use-bq-ledger` fallback 仅改变回测执行器，summary 会标记为 `execution_backend='cloud_run_sklearn_bq_sql_ledger_v1'`、`ledger_executor='bigquery_sql'`、`ledger_version='ledger_exec_v1'`。
+模型质量对等门禁：`train_predict` 会记录 sklearn vs BQML parity 证据。`model_quality_parity_status='passed'` 时标记 `model_quality_status='model_quality_equivalent'`；未通过时仍写 selected registry / prediction / artifact，但必须标记 `model_quality_status='model_quality_not_equivalent'`，不能声明 sklearn backend 已等价替代 BQML baseline。`16_qa_cloudrun_runner_outputs.sql` 默认仍硬断言 parity passed；只做 smoke / 证据留存时，可显式设 `p_require_model_quality_parity_passed=FALSE`。默认 Python ledger 路径为 lot-aware `ledger_exec_v1_lot100`，summary 会标记为 `execution_backend='cloud_run_sklearn_ledger_v1_lot100'`、`ledger_executor='cloud_run_python'`，并记录 `lot_size=100` / `min_buy_lot=1`。SQL ledger fallback 已退役，`--use-bq-ledger` 不再存在；历史 FLOAT 股数审计只能显式走 Python `--use-float-ledger`。
 
 Cloud Run orchestrator 状态与锁：启动前先执行 `sql/meta/02_strategy1_experiment_run_status.sql`。orchestrator 对每个实验链写 `cloudrun_train_predict` / `cloudrun_backtest_report` 两个状态 step，并用 `gs://ashare-artifacts/locks/strategy1/cloudrun/` 下的 generation-guarded GCS lock 做互斥；启动 Cloud Run execution 后立即记录 execution id 到 lock/status table，再轮询 execution terminal 状态。stale lock 回收前会检查原 execution 是否已结束，当前执行失锁时会 cancel execution。支持 `--resume` 跳过已成功 step，支持 `--resume-from-step cloudrun_backtest_report` 从指定 step 继续。通过 orchestrator 启动的 smoke 需额外跑 `17_qa_cloudrun_orchestrator_status.sql`。
 
@@ -234,7 +232,7 @@ lot-aware ledger QA（PRD-20260606-05）：Cloud Run Python `backtest_report.py`
 | `p_cost_bps` | 兼容字段，旧一揽子成本 30 bps；已由分项成本取代，不再作为默认撮合成本来源 |
 | `p_benchmark` | **评估主基准** canonical 代码，默认 `000001.SH`（上证指数）；执行前必须存在于 `dim_index` 且完整覆盖回测 NAV 窗口 |
 | `p_force_replace` | 是否覆盖同 run_id 结果（默认 FALSE） |
-| `p_initial_state_mode` | `08/09/10` 使用；`fresh` 从现金+空仓开始，`resume_from_backtest` 从父回测恢复状态 |
+| `p_initial_state_mode` | Python ledger / `09/10` 使用；`fresh` 从现金+空仓开始，`resume_from_backtest` 从父回测恢复状态 |
 | `p_parent_backtest_id` | resume 父回测 ID；仅 `p_initial_state_mode='resume_from_backtest'` 时必填 |
 | `p_state_as_of_date` | resume 状态读取日；`p_predict_start` 必须等于该日后的下一开市日 |
 | `p_resume_policy_id` | resume 状态兼容策略版本，当前为 `ledger_exec_v1_resume_v20260604` |
@@ -461,7 +459,7 @@ ELSE score_orientation = 'identity'
 - `orientation_decision_reason`
 - `orientation_decision_split`: 始终为 `valid`（test 不参与方向决策）
 
-`04` 从 registry 读取 `score_orientation`。如果 registry 缺少 `score_orientation`，04 会 RAISE 失败（不会静默 fallback 到 identity）。ML.PREDICT 仍取 label='1' 概率作为 `raw_score`；写入 `ads_model_prediction_daily` 时：
+当前 Cloud Run Python prediction path 从 registry 读取 `score_orientation`。如果 registry 缺少 `score_orientation`，写 prediction 时必须失败（不会静默 fallback 到 identity）。写入 `ads_model_prediction_daily` 时：
 - `score` = oriented score（identity 保留原始，reverse 用 `1.0 - raw_score`）
 - `raw_score` = 原始 label='1' 概率（可追溯）
 - `score_orientation` = 来自 registry
@@ -472,17 +470,17 @@ QA 断言（`10` QA-ORIENT-1..4）验证 registry 有 `score_orientation`、pred
 ## 关键设计
 
 - **run 隔离**：模型对象名嵌入 `p_run_id`，registry 用 `JSON_VALUE(model_params_json, '$.run_id')` 过滤。
-- **04 动态模型引用**：用 `EXECUTE IMMEDIATE FORMAT(...)` 自动引用 03 选出的 selected model URI，无需手动替换。
-- **回测交易与卖出口径（ledger_exec_v1）**：`rebalance_date` 是信号日，08 推导下一开市日为 `execution_date` 并按开盘价交易；卖出先于买入，按实际持仓与目标持仓净差额 netting；买不进不候补，卖不出进入 `pending_sell` 并在后续每个开市日继续尝试卖出；现金不足的买单按比例缩放并记为 `FILLED_SCALED_CASH`。
-- **基准窗口校验**：08 执行前校验 `p_benchmark` 是 `dim_index` 中的可用收益基准，并且 `dwd_index_eod` 对 NAV 窗口每个开市日有且只有一条有效价格记录。
-- **评估主基准**：`08` 和 `09` 的 `p_benchmark` 默认值为 `000001.SH`（上证指数），ADS 主字段写入此基准。展示对比基准（沪深 300）和辅助基准（中证 500）由 `render_report.py` 从 `dwd_index_eod` 读取并固化到 `benchmark_nav.csv`。
+- **历史 BQML 动态模型引用**：旧 `04` 曾用 `EXECUTE IMMEDIATE FORMAT(...)` 自动引用 `03` 选出的 selected model URI；该 BQML-only prediction path 已退役。
+- **回测交易与卖出口径（ledger_exec_v1）**：`rebalance_date` 是信号日，Cloud Run Python ledger 推导下一开市日为 `execution_date` 并按开盘价交易；卖出先于买入，按实际持仓与目标持仓净差额 netting；买不进不候补，卖不出进入 `pending_sell` 并在后续每个开市日继续尝试卖出；现金不足的买单按比例缩放并记为 `FILLED_SCALED_CASH`。
+- **基准窗口校验**：Cloud Run backtest/report 路径执行前校验 `p_benchmark` 是 `dim_index` 中的可用收益基准，并且 `dwd_index_eod` 对 NAV 窗口每个开市日有且只有一条有效价格记录。
+- **评估主基准**：Cloud Run Python ledger 和 `09` 的 `p_benchmark` 默认值为 `000001.SH`（上证指数），ADS 主字段写入此基准。展示对比基准（沪深 300）和辅助基准（中证 500）由 `render_report.py` 从 `dwd_index_eod` 读取并固化到 `benchmark_nav.csv`。
 - **报告渲染**：`render_report.py` 生成中文 Markdown + HTML + PNG + CSV 附件 + 证据包 + AI 诊断。默认上传 GCS 并写回 `metrics_json`；`--skip-gcs-upload` 仅写本地镜像。
 - **AI 诊断**：`auto` 模式在无凭据或 LLM 失败时自动退化为 `evidence_only`，保证报告始终可生成。AI 只能引用证据包中的事实，不得编造外部原因。
 - **OQ-010 参数**使用示例值，非业务定稿。
 
-## 回测口径：ledger_exec_v1 日级账户 ledger
+## 回测口径：ledger_exec_v1_lot100 日级账户 ledger
 
-`08_run_backtest.sql` 实现 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md` 的 P0 交易执行语义：
+当前 Cloud Run Python ledger 实现 `docs/prd/PRD_20260604_01_策略1LedgerV1交易执行语义.md` 的交易执行语义；历史 `08_run_backtest.sql` 已退役并删除：
 `rebalance_date` 继续表示 `signal_date`，成交日为下一开市日 `execution_date`。脚本按开市日逐日循环：
 执行日前最近可用收盘价估算 NAV → 若当天是 execution_date 则更新目标组合 → 按实际持仓和目标持仓净差额 netting → 卖出先于买入 → 买入受可用现金约束（超出按比例缩放）→ 卖不出进入 pending sell 并在后续每个开市日继续尝试 → 每日收盘 mark-to-market 写 NAV。
 `10_qa_runner_outputs.sql` 的 `cash_cny >= -1`、`gross_exposure <= 1.005`、持仓 `(trade_date, sec_code)` 唯一、
@@ -490,7 +488,7 @@ NAV 覆盖全开市日由 ledger 构造保证；同时校验新状态枚举、pe
 
 ### Ledger state resume
 
-`08_run_backtest.sql` 支持两种初始状态：
+历史 SQL ledger 曾支持以下两种初始状态；`08_run_backtest.sql` 已删除，当前正式连续回测是否允许分段 resume，必须以 Cloud Run Python ledger 的实现和 `15_qa_ledger_resume_consistency.sql` 验收结果为准：
 
 | `p_initial_state_mode` | 行为 |
 |---|---|
