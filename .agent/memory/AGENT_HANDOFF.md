@@ -1,7 +1,8 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`，作为 `quant-ashare` 项目结构重构总 PRD。
-> - PRD 建议按 active path catalog、防误用护栏、`ashare_research` / `ashare_ads` 生命周期隔离、`sql/strategy1/**` 稳定命名空间、`src/quant_ashare/strategy1/**` Python 包拆分、阶段性命名 cleanup、测试/发布护栏分阶段推进。
+> - Review follow-up 后，PRD 建议按 active path catalog、防误用护栏、table role / dataset role resolver、`sql/strategy1/**` 稳定命名空间、`src/quant_ashare/strategy1/**` package foundation、`ashare_research` / `ashare_ads` 生命周期隔离、深层包拆分和命名 cleanup 分阶段推进。
 > - PRD 已补充建议新增 BigQuery `ashare_research` dataset：新实验、候选、诊断和 acceptance replay 默认写 research；`ashare_ads` 只承载 owner promotion 后的正式产物。
+> - Review 指出的 `sql/cloudrun/strategy1/01_build_training_panel.sql`、ADS 硬编码耦合、retired linter allowlist、SQL `DECLARE p_*` 参数默认值漂移、`bqml_reference_run_id` exception registry 和 Python package 交付方式均已补进 PRD。
 > - 本轮只写方案和同步 `.agent/memory/IMPLEMENTATION_STATUS.md`、`.agent/memory/AGENT_HANDOFF.md`、`TODO.md`；未改代码、SQL、BigQuery、Cloud Run 或 Dataform。
 
 > 当前交接补充（2026-06-10，GPT-5 Codex）
@@ -72,7 +73,7 @@
 
 ## 当前交接摘要
 
-- 2026-06-10：新增项目结构重构总 PRD `docs/prd/PRD_20260610_02_项目结构重构方案.md`；方案建议先做 active path catalog 和防误用护栏，再单独定义 `ashare_research` / `ashare_ads` 生命周期隔离，随后迁移 Strategy1 active shared SQL 到 `sql/strategy1/**`，拆 `src/quant_ashare/strategy1/**` Python 包并收敛阶段性命名。本轮只写 PRD，不改代码/SQL。
+- 2026-06-10：新增项目结构重构总 PRD `docs/prd/PRD_20260610_02_项目结构重构方案.md`；review follow-up 后，方案建议先做 active path catalog、防误用护栏和 table role / dataset role resolver，再迁移 Strategy1 active shared SQL（同时覆盖 `sql/ml/strategy1/**` 与 `sql/cloudrun/strategy1/**`）到 `sql/strategy1/**`，随后抽 Strategy1 package foundation，最后再分段实现 `ashare_research` / `ashare_ads` 生命周期隔离和 deeper package split。本轮只写 PRD，不改代码/SQL。
 - 2026-06-10：新增 Strategy1 回测复合年化收益 PRD，范围为 summary / report / v3 gate 的复利年化字段口径；本 PR 不改代码、不跑 BigQuery / Cloud Run。
 - OQ-005 当前状态：`ashare-ods-ingestion-daily`（`0 20 * * *`）与 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 Scheduler job 已是唯一生产调度入口，ODS parent -> warehouse child、alert checker、manual full rebuild dry-run 都已有 live smoke 证据。
 - OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更；旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
@@ -91,16 +92,17 @@
 ### 已完成工作
 
 - 新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`。
-- PRD 将项目结构重构拆为六个阶段：active path catalog 与防误用护栏、`ashare_research` / `ashare_ads` 生命周期隔离、Strategy1 shared SQL 稳定命名空间、Python runner 包拆分、阶段性命名收敛、测试与发布护栏。
+- Review follow-up 后，PRD 将项目结构重构拆为：active path catalog 与防误用护栏、table role / dataset role resolver、Strategy1 shared SQL 稳定命名空间、Python package foundation、`ashare_research` / `ashare_ads` 生命周期隔离、深层包拆分与阶段性命名收敛。
 - PRD 建议新增 BigQuery `ashare_research` dataset，作为实验、候选模型、诊断、未投产回测和 acceptance replay 的默认写入层；`ashare_ads` 后续只承载 owner promotion 后的正式模型、正式信号、正式回测和生产监控。
-- PRD 明确旧 BQML-only SQL / SQL ledger runner 已按前置 PRD 退役；当前剩余 Strategy1 SQL 多数是 Cloud Run Python path 仍使用的 active shared SQL，应迁移到 `sql/strategy1/**` 并由 catalog 管理，而不是直接删除。
+- PRD 明确旧 BQML-only SQL / SQL ledger runner 已按前置 PRD 退役；当前剩余 Strategy1 SQL 多数是 Cloud Run Python path 仍使用的 active shared SQL，应从调用方反推并覆盖 `sql/ml/strategy1/**`、`sql/cloudrun/strategy1/**`，再迁移到 `sql/strategy1/**`。
+- PRD 增补 retired linter allowlist、SQL 参数契约校验、`bqml_reference_run_id` legacy exception registry、Python package 交付策略和 research promotion manifest 口径。
 - 同步更新 `.agent/memory/IMPLEMENTATION_STATUS.md`、`.agent/memory/AGENT_HANDOFF.md` 和 `TODO.md`。
 
 ### 重要上下文
 
 - 本轮是 PRD-only，不改代码、不改 SQL、不运行 BigQuery / Cloud Run / Dataform。
 - 本 PRD 仍待 owner review，不写入 `DECISION_LOG.md`，也不新增 `KNOWN_CONSTRAINTS.md` 约束。
-- 推荐后续第一步是 Phase A：建立 active step catalog、output dataset role、retired reference linter 和 README/runbook 口径护栏；`ashare_research` dataset / table contract 应作为单独后续 PR，不和目录搬迁混做。
+- 推荐后续第一步是 PR-A：建立 active step catalog、retired reference linter 和 README/runbook 口径护栏；第二步 PR-A2 做 table role / dataset role resolver 且仍解析到 `ashare_ads`。`ashare_research` dataset / table contract 应后置为单独 PR，不和目录搬迁或默认写入切换混做。
 
 ### 改动文件
 
