@@ -1084,6 +1084,7 @@ def fetch_topk_ads_outputs(
         summary_metrics = parse_json(row.get("summary_metrics_json"))
         run_id = row["run_id"]
         out.append({
+            "search_id": row.get("search_id"),
             "run_id": run_id,
             "backtest_id": row.get("backtest_id"),
             "start_date": row.get("start_date"),
