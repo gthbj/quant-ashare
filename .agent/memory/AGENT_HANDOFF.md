@@ -3,6 +3,10 @@
 > - 新失败点在股票窗口 QA `QA-WIN-13`：2015 ODS daily 有 `5,486` 行、`76` 个代码未写入 `dwd_stock_eod_price`。
 > - 分支 `codex/fix-historical-dim-stock-lifecycle` 已修复 `dim_stock` 历史生命周期：缺主数据代码从全量 ODS daily 派生，`stock_basic.list_date` 晚于首个日线交易日时用 `first_trade_date` 兜底；PR #132 review follow-up 已改为直接复用 `daily_lifecycle`，避免重复全量扫描 ODS daily。
 
+> 当前交接补充（2026-06-10，GPT-5 Codex）
+> - PR #127 review follow-up 已修复 Cloud Run ledger resume 代码断链：`LedgerParams`/manifest/CLI/SQL metadata 贯通，Python ledger 写入并恢复 `ads_backtest_ledger_state_daily`，`25` QA 改为 `ashare_ads` 与当前 ADS 字段。
+> - 未运行测试、BigQuery 或 Cloud Run smoke；后续需要按 owner 指令做最小验证。
+
 > 当前交接补充（2026-06-09，GPT-5 Codex）
 > - 手工触发 2015 年 `ashare_warehouse_window_refresh` backfill 时失败，根因是窗口刷新 SQL 固定以 `2019-01-01` 作为写入下限，导致 `2015-01-01 ~ 2015-12-31` 被推成 `write_start=2019-01-01`。
 > - 分支 `codex/fix-2015-index-backfill` 已将股票、指数、market-state 窗口刷新及股票/指数窗口 QA 改为按 `warehouse_mode` 区分日期下限：`daily_current` 保持 2019+，显式 `backfill` 允许 2019 年以前历史窗口。
@@ -560,3 +564,15 @@ Model: GPT-5 Codex
 - Changed: added resume fields to Strategy1 experiment config/CLI params; added Cloud Run Python ledger state persistence and parent-state restore path; added ADS state table DDL; updated SQL contract defaults/QA for `rebalance_anchor_start` and `cloudrun_lot100_resume_v1`; added full-vs-resume QA SQL.
 - Validation: not run per owner workflow unless explicitly requested.
 - Next: review PR #127 comments/CI after push; then run targeted unit/SQL/Cloud Run smoke only if owner asks.
+
+
+---
+
+## Handoff - 2026-06-10 - PR #127 ledger resume review follow-up
+
+- Model: GPT-5 Codex
+- Branch/worktree: `codex/prd-cloudrun-ledger-resume` / `/Users/fisher/Desktop/git/quant-ashare-ledger-resume-prd`
+- Owner request: 看 PR #127 comment；认可实现 review 中的 6 个问题并直接修复。
+- Changed: fixed missing imports/constants/dataclass fields, wired resume manifest/CLI/SQL params into `LedgerParams`, replaced fresh-only fail-fast with lot100 parent-state restore, added ledger state writes/deletes, corrected resume policy and rebalance anchor QA, and fixed `25_qa_cloudrun_ledger_resume_outputs.sql` to use `ashare_ads` plus current ADS trade/nav columns.
+- Validation: not run per owner workflow unless explicitly requested.
+- Next: review PR #127 comments/CI after push; run targeted unit tests and a small full-vs-resume smoke only if owner asks.

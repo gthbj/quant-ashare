@@ -126,6 +126,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-float-ledger", action="store_true", help="Explicit legacy/audit Python float-share ledger")
     parser.add_argument("--lot-size", type=int, default=100)
     parser.add_argument("--min-buy-lot", type=int, default=1)
+    parser.add_argument("--initial-state-mode", choices=["fresh", "resume_from_backtest"], default=None)
+    parser.add_argument("--parent-backtest-id", default=None)
+    parser.add_argument("--state-as-of-date", default=None)
+    parser.add_argument("--resume-policy-id", default=None)
+    parser.add_argument("--rebalance-anchor-start", default=None)
     return parser.parse_args()
 
 
@@ -141,7 +146,16 @@ def resolve_experiment(args: argparse.Namespace) -> Experiment:
         raise ValueError(f"experiment_id {args.experiment_id} not found")
     exp = matches[0]
     replacements = {}
-    for attr in ("run_id", "prediction_run_id", "backtest_id"):
+    for attr in (
+        "run_id",
+        "prediction_run_id",
+        "backtest_id",
+        "initial_state_mode",
+        "parent_backtest_id",
+        "state_as_of_date",
+        "resume_policy_id",
+        "rebalance_anchor_start",
+    ):
         value = getattr(args, attr)
         if value:
             replacements[attr] = value
@@ -206,6 +220,10 @@ def build_sql_params(
         "p_final_holdout_end": exp.final_holdout_end,
         "p_predict_start": exp.predict_start,
         "p_predict_end": exp.predict_end,
+        "p_initial_state_mode": exp.initial_state_mode,
+        "p_parent_backtest_id": exp.parent_backtest_id,
+        "p_state_as_of_date": exp.state_as_of_date,
+        "p_resume_policy_id": exp.resume_policy_id,
         "p_force_replace": force_replace,
     }
 
@@ -227,6 +245,16 @@ def build_ledger_params(
         lot_size=args.lot_size,
         min_buy_lot=args.min_buy_lot,
         force_replace=force_replace,
+        rebalance_frequency=exp.rebalance_frequency,
+        target_holdings=exp.target_holdings,
+        max_single_weight=exp.max_single_weight,
+        label_horizon=exp.label_horizon,
+        horizon_natural_frequency=exp.horizon_natural_frequency,
+        initial_state_mode=exp.initial_state_mode,
+        parent_backtest_id=exp.parent_backtest_id,
+        state_as_of_date=exp.state_as_of_date,
+        resume_policy_id=exp.resume_policy_id,
+        rebalance_anchor_start=exp.rebalance_anchor_start,
         tail_risk_profile_id=exp.tail_risk_profile_id,
         market_state_version=exp.market_state_version,
     )

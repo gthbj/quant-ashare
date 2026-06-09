@@ -34,4 +34,4 @@
 - [ ] P1+ 资金面 / 事件 / 行业族 DWD 扩展
   说明：包括 `dim_stock_sw_industry_hist`、`dim_stock_ci_industry_hist` 及对应 QA。
 
-- [ ] 实现 Cloud Run Python ledger resume：PR #127 分支已开始实现，尚未跑 Cloud Run/BigQuery 验收。
+- [ ] 实现 Cloud Run Python ledger resume：PR #127 分支已修复 review 指出的 resume 实现断链与 QA 字段问题，尚未跑测试、Cloud Run 或 BigQuery 验收。

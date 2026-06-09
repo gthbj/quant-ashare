@@ -37,6 +37,10 @@ SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
 SET v_rebalance_anchor_explicit = p_rebalance_anchor_start IS NOT NULL;
 SET p_rebalance_anchor_start = COALESCE(p_rebalance_anchor_start, p_predict_start);
 
+IF p_rebalance_anchor_start > p_predict_start THEN
+  RAISE USING MESSAGE = 'p_rebalance_anchor_start must be <= p_predict_start';
+END IF;
+
 IF p_rebalance_frequency NOT IN ('weekly', 'biweekly', 'monthly') THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_rebalance_frequency: ', p_rebalance_frequency);
 END IF;
@@ -59,13 +63,10 @@ IF p_tail_risk_profile_id NOT IN (
 END IF;
 
 IF p_initial_state_mode = 'resume_from_backtest' THEN
-  IF p_parent_backtest_id IS NULL OR p_state_as_of_date IS NULL THEN
-    RAISE USING MESSAGE = 'resume QA requires p_parent_backtest_id and p_state_as_of_date';
+  IF p_parent_backtest_id IS NULL OR p_state_as_of_date IS NULL OR NOT v_rebalance_anchor_explicit THEN
+    RAISE USING MESSAGE = 'resume QA requires p_parent_backtest_id, p_state_as_of_date, and explicit p_rebalance_anchor_start';
   END IF;
-  IF p_rebalance_frequency = 'biweekly' AND NOT v_rebalance_anchor_explicit THEN
-    RAISE USING MESSAGE = 'biweekly resume QA requires explicit p_rebalance_anchor_start equal to the original full-window experiment start';
-  END IF;
-  IF p_resume_policy_id IS NULL OR p_resume_policy_id != 'ledger_exec_v1_resume_v20260604' THEN
+  IF p_resume_policy_id IS NULL OR p_resume_policy_id != 'cloudrun_lot100_resume_v1' THEN
     RAISE USING MESSAGE = CONCAT('unsupported p_resume_policy_id: ', COALESCE(p_resume_policy_id, 'NULL'));
   END IF;
 END IF;
