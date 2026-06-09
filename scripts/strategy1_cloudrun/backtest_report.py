@@ -35,7 +35,7 @@ def main() -> int:
     args = parse_args()
     config = apply_cli_overrides(load_runner_config(args.config), args)
     experiment = resolve_experiment(args)
-    execution_backend, ledger_executor, ledger_version = resolve_backend_tags(args.use_bq_ledger, args.use_float_ledger)
+    execution_backend, ledger_executor, ledger_version = resolve_backend_tags(args.use_float_ledger)
     plan = {
         "entrypoint": "backtest_report",
         "execution_backend": execution_backend,
@@ -47,7 +47,7 @@ def main() -> int:
         "region": config.region,
         "experiment": experiment.to_params(),
         "search_id": args.search_id,
-        "use_python_ledger": not args.use_bq_ledger,
+        "use_python_ledger": True,
         "run_report": not args.skip_report,
         "run_diagnosis": not args.skip_diagnosis,
         "run_tail_risk": not args.skip_tail_risk,
@@ -58,18 +58,12 @@ def main() -> int:
         return 0
 
     client = make_client(config.project, config.region)
-    sql_params = build_sql_params(experiment, args.force_replace, args.use_bq_ledger, args.use_float_ledger, args)
+    sql_params = build_sql_params(experiment, args.force_replace, args.use_float_ledger, args)
     job_ids = []
     for script in SQL_STEPS:
         job_ids.append({"script": script, "job_id": run_sql_script(client, script, sql_params)})
-    if args.use_bq_ledger:
-        job_ids.append({
-            "script": "sql/ml/strategy1/08_run_backtest.sql",
-            "job_id": run_sql_script(client, "sql/ml/strategy1/08_run_backtest.sql", sql_params),
-        })
-    else:
-        ledger_result = run_ledger(client, build_ledger_params(config.project, experiment, args.force_replace, ledger_version, args))
-        job_ids.append({"script": "python_ledger_exec_v1", "result": ledger_result})
+    ledger_result = run_ledger(client, build_ledger_params(config.project, experiment, args.force_replace, ledger_version, args))
+    job_ids.append({"script": "python_ledger_exec_v1", "result": ledger_result})
     job_ids.append({
         "script": "sql/ml/strategy1/09_build_metrics_and_report_inputs.sql",
         "job_id": run_sql_script(client, "sql/ml/strategy1/09_build_metrics_and_report_inputs.sql", sql_params),
@@ -122,7 +116,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-diagnosis", action="store_true")
     parser.add_argument("--skip-tail-risk", action="store_true")
     parser.add_argument("--skip-qa", action="store_true")
-    parser.add_argument("--use-bq-ledger", action="store_true", help="Fallback path for equivalence tests")
     parser.add_argument("--use-float-ledger", action="store_true", help="Explicit legacy/audit Python float-share ledger")
     parser.add_argument("--lot-size", type=int, default=100)
     parser.add_argument("--min-buy-lot", type=int, default=1)
@@ -167,11 +160,7 @@ def resolve_experiment(args: argparse.Namespace) -> Experiment:
     return exp
 
 
-def resolve_backend_tags(use_bq_ledger: bool, use_float_ledger: bool = False) -> tuple[str, str, str]:
-    if use_bq_ledger and use_float_ledger:
-        raise ValueError("--use-bq-ledger and --use-float-ledger are mutually exclusive")
-    if use_bq_ledger:
-        return "cloud_run_sklearn_bq_sql_ledger_v1", "bigquery_sql", LEDGER_VERSION_FLOAT
+def resolve_backend_tags(use_float_ledger: bool = False) -> tuple[str, str, str]:
     if use_float_ledger:
         return "cloud_run_sklearn_ledger_v1_legacy_float", "cloud_run_python", LEDGER_VERSION_FLOAT
     return "cloud_run_sklearn_ledger_v1_lot100", "cloud_run_python", LEDGER_VERSION_LOT100
@@ -180,11 +169,10 @@ def resolve_backend_tags(use_bq_ledger: bool, use_float_ledger: bool = False) ->
 def build_sql_params(
     exp: Experiment,
     force_replace: bool,
-    use_bq_ledger: bool,
     use_float_ledger: bool,
     args: argparse.Namespace,
 ) -> dict[str, object]:
-    execution_backend, ledger_executor, ledger_version = resolve_backend_tags(use_bq_ledger, use_float_ledger)
+    execution_backend, ledger_executor, ledger_version = resolve_backend_tags(use_float_ledger)
     return {
         "p_run_id": exp.run_id,
         "p_prediction_run_id": exp.prediction_run_id,

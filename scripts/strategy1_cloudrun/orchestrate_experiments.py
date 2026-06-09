@@ -185,7 +185,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-gcs-upload", action="store_true")
     parser.add_argument("--skip-diagnosis", action="store_true")
     parser.add_argument("--skip-qa", action="store_true")
-    parser.add_argument("--use-bq-ledger", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true", help="Run remaining queued experiments after a failure")
     parser.add_argument("--resume", action="store_true", help="Skip Cloud Run steps already marked succeeded in status table")
     parser.add_argument("--resume-from-step", default=None)
@@ -236,8 +235,6 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
         backtest_flags.append("--skip-diagnosis")
     if args.skip_qa:
         backtest_flags.append("--skip-qa")
-    if args.use_bq_ledger:
-        backtest_flags.append("--use-bq-ledger")
     steps.append(StepStateSpec(
         step_id="cloudrun_backtest_report",
         display_name="Cloud Run backtest/report",

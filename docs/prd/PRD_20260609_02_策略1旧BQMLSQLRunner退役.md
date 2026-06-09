@@ -1,9 +1,9 @@
-> 文档维护：GPT-5 Codex（最近更新 2026-06-09）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-10）
 
 # PRD: 策略 1 旧 BQML / SQL Runner 退役
 
-> 状态：草案，待 owner review。
-> 范围声明：本文只定义 Strategy1 旧 BigQuery ML / SQL runner 的退役与删除计划，不在本 PR 删除代码、不运行 BigQuery / Cloud Run、不覆盖任何历史实验产物。
+> 状态：已采纳并在本 PR 实现 P0 退役范围。
+> 范围声明：本文定义并实现 Strategy1 旧 BigQuery ML / SQL runner 的 P0 退役；本 PR 删除旧代码入口，但不运行 BigQuery / Cloud Run、不覆盖任何历史实验产物。
 > 关联：`docs/策略1-ml_pv_clf_v0-runner设计.md`、`docs/prd/PRD_20260601_02_策略1BQML回测闭环.md`、`docs/prd/PRD_20260604_04_策略1CloudRun训练回测.md`、`docs/prd/PRD_20260605_04_策略1CloudRunPython模型基线搜索.md`、`configs/strategy1/model_acceptance_contract_v3.yml`、`.agent/memory/OPEN_QUESTIONS.md` OQ-010。
 
 ---
@@ -32,7 +32,7 @@ Strategy1 早期实现路径是 BigQuery ML + SQL runner。历史上 `sql/ml/str
 12_qa_model_diagnosis_outputs.sql
 ```
 
-`08_run_backtest.sql` 已不是默认 Python ledger 路径，但仍通过 `--use-bq-ledger` 作为 SQL ledger 对照 / fallback-style diagnostic 可选入口存在。owner 现决定也退役该可选入口。
+退役前，`08_run_backtest.sql` 已不是默认 Python ledger 路径，但仍可通过 `--use-bq-ledger` 作为 SQL ledger 对照 / fallback-style diagnostic 可选入口存在。owner 现决定也退役该可选入口。
 
 因此，本 PRD 的退役对象收敛为两类：
 
@@ -47,7 +47,7 @@ Strategy1 早期实现路径是 BigQuery ML + SQL runner。历史上 `sql/ml/str
 不再使用旧 BQML 训练 / 选型 / 预测路径作为策略执行层默认、fallback 或新增开发路线；当前仍复用的共享 SQL 另行保留。
 ```
 
-当前实际策略搜索和验收主线已切到 Cloud Run Python training / prediction + 共享 BigQuery SQL backtest/report + v3 acceptance gate。BQML-only 训练 / 选型 / 预测脚本仍留在仓库中，主要价值只剩 historical reference / audit。继续保留可执行 BQML-only 主链会带来三个问题：
+当前实际策略搜索和验收主线已切到 Cloud Run Python training / prediction / ledger + 共享 BigQuery SQL candidate / portfolio / order / report / QA + v3 acceptance gate。BQML-only 训练 / 选型 / 预测脚本仍留在仓库中，主要价值只剩 historical reference / audit。继续保留可执行 BQML-only 主链会带来三个问题：
 
 1. 新 agent 容易误以为 BQML 训练 / 预测仍是可选 fallback。
 2. 旧 BQML `02-04` 与当前 Cloud Run Python 模型路径继续分叉，增加维护成本。
@@ -79,14 +79,14 @@ Strategy1 早期实现路径是 BigQuery ML + SQL runner。历史上 `sql/ml/str
 当前 Strategy1 active path 是混合路径，不是纯 Python：
 
 ```text
-Cloud Run Python training / prediction
-  -> shared BigQuery SQL training panel / candidate / portfolio / order / backtest / report / QA
+Cloud Run Python training / prediction / ledger
+  -> shared BigQuery SQL training panel / candidate / portfolio / order / report / QA
   -> ADS registry / summary / artifacts
   -> v3 acceptance gate
   -> 19/21/24 等 QA / replay
 ```
 
-其中当前默认路径仍在使用的共享 SQL 包括 `01`、`05-07`、`09-10` 和 `12`。`08` 仅在显式传 `--use-bq-ledger` 时使用。本 PRD 要求退役该可选分支。BQML-only 的 `02-04` 和 SQL ledger fallback 的 `08` 不再是：
+其中当前默认路径仍在使用的共享 SQL 包括 `01`、`05-07`、`09-10` 和 `12`。退役前，`08` 仅在显式传 `--use-bq-ledger` 时使用；本 PRD 要求退役该可选分支。BQML-only 的 `02-04` 和 SQL ledger fallback 的 `08` 不再是：
 
 1. 默认执行路径。
 2. fallback 路径。
@@ -108,15 +108,15 @@ Cloud Run Python training / prediction
 
 ### 5.1 P0 删除候选：BQML-only 脚本
 
-以下脚本只服务旧 BQML 训练 / 选型 / 预测，当前 Cloud Run Python 生产路径不直接调用，P0 可作为删除候选：
+以下脚本只服务旧 BQML 训练 / 选型 / 预测，当前 Cloud Run Python 生产路径不直接调用，P0 已删除：
 
 | 文件 | 旧职责 | 处理 |
 |---|---|---|
-| `sql/ml/strategy1/02_train_bqml_logistic_candidates.sql` | `CREATE MODEL` BQML logistic 候选 | 删除候选 |
-| `sql/ml/strategy1/03_select_model_and_register.sql` | BQML valid 选择与 registry 写回 | 删除候选 |
-| `sql/ml/strategy1/04_predict_daily.sql` | `ML.PREDICT` 预测写回 | 删除候选 |
+| `sql/ml/strategy1/02_train_bqml_logistic_candidates.sql` | `CREATE MODEL` BQML logistic 候选 | 删除 |
+| `sql/ml/strategy1/03_select_model_and_register.sql` | BQML valid 选择与 registry 写回 | 删除 |
+| `sql/ml/strategy1/04_predict_daily.sql` | `ML.PREDICT` 预测写回 | 删除 |
 
-删除前必须确认：
+删除同步确认：
 
 1. Cloud Run Python path 不调用 `02-04`。
 2. 当前 QA / replay helper 不调用 `02-04`。
@@ -124,13 +124,13 @@ Cloud Run Python training / prediction
 
 ### 5.2 P0 删除候选：SQL ledger fallback
 
-以下脚本不在默认 Python ledger 路径上，但仍可由 `--use-bq-ledger` 触发。owner 现决定退役该可选 SQL ledger fallback，因此它进入 P0 删除候选：
+退役前，以下脚本不在默认 Python ledger 路径上，但仍可由 `--use-bq-ledger` 触发。owner 现决定退役该可选 SQL ledger fallback，因此 P0 已删除：
 
 | 文件 | 旧职责 | 处理 |
 |---|---|---|
-| `sql/ml/strategy1/08_run_backtest.sql` | BigQuery SQL ledger fallback / historical equivalence diagnostic | 删除候选，但必须同步移除 `--use-bq-ledger` 入口 |
+| `sql/ml/strategy1/08_run_backtest.sql` | BigQuery SQL ledger fallback / historical equivalence diagnostic | 删除，并同步移除 `--use-bq-ledger` 入口 |
 
-删除 `08` 前必须同步完成：
+删除 `08` 同步完成：
 
 1. 删除 `scripts/strategy1_cloudrun/backtest_report.py` 的 `--use-bq-ledger` 参数、`resolve_backend_tags(... use_bq_ledger ...)` 分支和对 `08_run_backtest.sql` 的调用。
 2. 删除 `scripts/strategy1_cloudrun/orchestrate_experiments.py` 与 `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py` 中透传 `--use-bq-ledger` 的逻辑。
@@ -158,7 +158,7 @@ Cloud Run Python training / prediction
 
 | 文件 | 旧职责 | 处理 |
 |---|---|---|
-| `scripts/strategy1/run_oq010_experiments.py` | 调度旧 BQML / SQL runner experiment，也包含 portfolio-only / historical runner 逻辑 | 不能盲删；先审计是否仍有手工复现或历史只读需求。若删除，应确保不会影响当前 Cloud Run Python path，并先迁出仍需的只读查询 helper。 |
+| `scripts/strategy1/run_oq010_experiments.py` | 调度旧 BQML / SQL runner experiment，也包含 portfolio-only / historical runner 逻辑 | 删除。该入口直接调度已删除的 `02-04` / `08`，不是当前 Cloud Run Python path；继续保留会形成失效的重跑入口。 |
 
 ### 5.5 P1 评估后处理
 
@@ -229,9 +229,9 @@ Cloud Run Python training / prediction
 
 ## 8. 执行计划
 
-### 8.1 P0-A: 依赖审计
+### 8.1 P0-A: 依赖审计（已执行）
 
-先做只读依赖审计：
+本 PR 实现前先做只读依赖审计：
 
 1. 搜索 `02_train_bqml_logistic_candidates.sql`、`03_select_model_and_register.sql`、`04_predict_daily.sql` 的引用。
 2. 搜索 `08_run_backtest.sql` 和 `--use-bq-ledger` 的引用。
@@ -240,9 +240,9 @@ Cloud Run Python training / prediction
 5. 确认 Cloud Run Python 仍调用的 `01`、`05-07`、`09-10`、`12` 被列入保留清单。
 6. 输出保留 / 删除清单。
 
-### 8.2 P0-B: 删除旧主链
+### 8.2 P0-B: 删除旧主链（已执行）
 
-在确认无 active dependency 后删除：
+确认当前 Cloud Run Python path 不依赖旧主链后，本 PR 删除：
 
 1. `sql/ml/strategy1/02_train_bqml_logistic_candidates.sql`。
 2. `sql/ml/strategy1/03_select_model_and_register.sql`。
@@ -250,17 +250,17 @@ Cloud Run Python training / prediction
 4. `sql/ml/strategy1/08_run_backtest.sql`。
 5. `--use-bq-ledger` CLI 参数、orchestrator 透传和 README fallback 说明。
 6. README 中旧 BQML active runbook 命令。
-7. `scripts/strategy1/run_oq010_experiments.py` 只进入独立评估项；不能和 `02-04` / `08` 同批盲删。
+7. `scripts/strategy1/run_oq010_experiments.py`。该入口直接调度已删除的 `02-04` / `08`，不是当前 Cloud Run Python path；继续保留会形成失效重跑入口。
 
-### 8.3 P0-C: 文档与记忆收口
+### 8.3 P0-C: 文档与记忆收口（已执行）
 
 1. 给历史 BQML 设计文档加 retired banner。
 2. 更新 `sql/ml/strategy1/README.md`，保留当前 Cloud Run / 共享 SQL / v3 QA 说明，删除旧 BQML `02-04` active 顺序执行命令和 `--use-bq-ledger` fallback 说明。
 3. 更新 `.agent/memory/IMPLEMENTATION_STATUS.md`、`.agent/memory/KNOWN_CONSTRAINTS.md`、`.agent/memory/OPEN_QUESTIONS.md` 和 `TODO.md`。
 
-### 8.4 P0-D: QA / 审计检查
+### 8.4 P0-D: QA / 审计检查（静态审计）
 
-删除代码 PR 至少应做本地静态检查：
+删除代码 PR 至少应做本地静态检查；本 PR 不要求重跑 BigQuery / Cloud Run：
 
 1. `rg` 确认不存在对已删 `02-04` 文件的 active 引用。
 2. `rg` 确认不存在对 `08_run_backtest.sql` 和 `--use-bq-ledger` 的 active 引用。
@@ -287,10 +287,10 @@ Cloud Run Python training / prediction
 | 隐性引用未清理 | 删除后脚本报 file not found | P0-A 先做全仓引用审计 |
 | 过早删除 factor / diagnosis helper | 历史审计能力下降 | `11/14/15` 和相关 Python helper 先 P1 评估；`12` 当前由 Cloud Run Python 直接调用，默认不可删除 |
 
-## 11. Owner 决策点
+## 11. Owner 决策结论
 
-1. 是否确认 BQML-only `sql/ml/strategy1/02-04` 可以删除。
-2. 是否确认 `sql/ml/strategy1/08_run_backtest.sql` 和 `--use-bq-ledger` fallback 入口可以同批删除。
-3. 是否确认 `scripts/strategy1/run_oq010_experiments.py` 可以删除，或需要先拆出只读历史查询 helper。
-4. 是否保留 `11/14/15` 一段时间作为历史审计 SQL；`12` 当前由 Cloud Run Python 直接调用，默认保留。
-5. 是否需要把历史 BQML 文档移动到 archive，还是仅加 retired banner。
+1. owner 已确认 BQML-only `sql/ml/strategy1/02-04` 删除。
+2. owner 已确认 `sql/ml/strategy1/08_run_backtest.sql` 和 `--use-bq-ledger` fallback 入口同批删除。
+3. 本 PR 删除 `scripts/strategy1/run_oq010_experiments.py`，不拆只读 helper；理由是该入口直接依赖已删除的 `02-04` / `08`。
+4. `11/14/15` 暂保留为 P1 评估对象；`12` 当前由 Cloud Run Python 直接调用，默认保留。
+5. 历史 BQML 文档暂不移动 archive，只加 retired / historical 说明并保留审计语义。

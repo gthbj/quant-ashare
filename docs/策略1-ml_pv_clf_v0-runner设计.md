@@ -1,3 +1,5 @@
+> Retired / historical（2026-06-10，GPT-5 Codex）：本文记录历史 BQML / SQL runner 方案；BQML-only `02-04` 与 SQL ledger fallback `08` 已退役删除，不再作为当前 Strategy1 默认、fallback、诊断或新增开发入口。当前 active path 为 Cloud Run Python training / prediction / ledger + 共享 BigQuery SQL candidate / portfolio / order / report / QA + v3 acceptance gate。
+
 # 策略 1 `ml_pv_clf_v0` Runner 设计
 
 > 文档维护：GPT-5（最近更新 2026-06-01）

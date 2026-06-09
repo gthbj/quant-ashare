@@ -353,8 +353,7 @@ python -m scripts.strategy1_cloudrun.backtest_report \
   --force-replace
 ```
 
-若只做 ledger 对照，可在 `backtest_report` 加 `--use-bq-ledger` 走原 `08` SQL fallback。
-该 fallback 会把 summary 标记为 `execution_backend='cloud_run_sklearn_bq_sql_ledger_v1'`、`ledger_executor='bigquery_sql'`；默认 Python ledger 路径为 `execution_backend='cloud_run_sklearn_ledger_v1'`、`ledger_executor='cloud_run_python'`。
+SQL ledger 对照入口已退役，`backtest_report` 不再支持 `--use-bq-ledger`，也不再调用原 `08` SQL fallback。当前默认 Python ledger 路径为 `execution_backend='cloud_run_sklearn_ledger_v1_lot100'`、`ledger_executor='cloud_run_python'`；如需历史 FLOAT 股数审计，只能显式使用 Python `--use-float-ledger`。
 
 `train_predict` 会把 sklearn selected model 与配置中的 BQML reference run 做模型质量对等检查；若 `model_quality_parity_status != 'passed'`，仍会写 selected registry、prediction、model artifact 和 parity 证据，但 `metrics_json.model_quality_status` 必须标记为 `model_quality_not_equivalent`，不得声明 sklearn backend 已等价替代 BQML baseline。
 正式 baseline 验收继续要求 `sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql` 默认通过；只做 smoke / 证据留存时，可以显式把 `p_require_model_quality_parity_passed` 设为 `FALSE`，此时 QA 只要求 parity 证据完整。
