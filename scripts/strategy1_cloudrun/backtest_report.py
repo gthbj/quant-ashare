@@ -182,6 +182,7 @@ def build_sql_params(
         "p_parent_experiment_id": exp.parent_experiment_id,
         "p_parent_run_id": exp.parent_run_id,
         "p_rebalance_frequency": exp.rebalance_frequency,
+        "p_rebalance_anchor_start": exp.rebalance_anchor_start,
         "p_target_holdings": exp.target_holdings,
         "p_max_single_weight": exp.max_single_weight,
         "p_label_horizon": exp.label_horizon,

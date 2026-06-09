@@ -548,3 +548,15 @@ Model: GPT-5 Codex
 - `TODO.md`
 
 Model: GPT-5 Codex
+
+
+---
+
+## Handoff - 2026-06-09 - Cloud Run ledger resume implementation start
+
+- Model: GPT-5 Codex
+- Branch/worktree: `codex/prd-cloudrun-ledger-resume` / `/Users/fisher/Desktop/git/quant-ashare-ledger-resume-prd`
+- Owner request: 在 PR #127 分支上开始实现 Cloud Run Python ledger resume。
+- Changed: added resume fields to Strategy1 experiment config/CLI params; added Cloud Run Python ledger state persistence and parent-state restore path; added ADS state table DDL; updated SQL contract defaults/QA for `rebalance_anchor_start` and `cloudrun_lot100_resume_v1`; added full-vs-resume QA SQL.
+- Validation: not run per owner workflow unless explicitly requested.
+- Next: review PR #127 comments/CI after push; then run targeted unit/SQL/Cloud Run smoke only if owner asks.

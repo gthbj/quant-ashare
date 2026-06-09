@@ -98,6 +98,11 @@ class Experiment:
     max_single_weight: float = 0.20
     label_horizon: int = 5
     horizon_natural_frequency: str = "weekly"
+    initial_state_mode: str = "fresh"
+    parent_backtest_id: str | None = None
+    state_as_of_date: str | None = None
+    resume_policy_id: str = "cloudrun_lot100_resume_v1"
+    rebalance_anchor_start: str | None = None
     feature_set_id: str = "strategy1_pv_v0_20260601"
     feature_version: str = "strategy1_pv_v0_20260601"
     fin_feature_version: str = "fin_default_v0_20260602"
@@ -144,6 +149,11 @@ class Experiment:
             "max_single_weight": self.max_single_weight,
             "label_horizon": self.label_horizon,
             "horizon_natural_frequency": self.horizon_natural_frequency,
+            "initial_state_mode": self.initial_state_mode,
+            "parent_backtest_id": self.parent_backtest_id,
+            "state_as_of_date": self.state_as_of_date,
+            "resume_policy_id": self.resume_policy_id,
+            "rebalance_anchor_start": self.rebalance_anchor_start,
             "feature_set_id": self.feature_set_id,
             "feature_version": self.feature_version,
             "fin_feature_version": self.fin_feature_version,

@@ -604,6 +604,220 @@ def load_calendar(client: bigquery.Client, start: str, end: str) -> pd.DataFrame
     ]), ["trade_date"])
 
 
+def min_iso_date(*values: str | None) -> str:
+    present = [v for v in values if v]
+    if not present:
+        raise ValueError("At least one date is required")
+    return min(present)
+
+
+def effective_rebalance_anchor_start(params: LedgerParams) -> str:
+    return params.rebalance_anchor_start or params.predict_start
+
+
+def normalize_target_weights(target_weights: dict[str, dict[str, float]]) -> dict[str, dict[str, float | int]]:
+    normalized: dict[str, dict[str, float | int]] = {}
+    for sec_code, spec in sorted(target_weights.items()):
+        item: dict[str, float | int] = {"target_weight": float(spec.get("target_weight", 0.0))}
+        if spec.get("rank_raw") is not None:
+            item["rank_raw"] = int(spec["rank_raw"])
+        normalized[str(sec_code)] = item
+    return normalized
+
+
+def ledger_params_hash(params: LedgerParams) -> str:
+    payload = {
+        "benchmark": params.benchmark,
+        "buy_rounding": params.buy_rounding,
+        "cash_redistribution": params.cash_redistribution,
+        "commission_bps": params.commission_bps,
+        "horizon_natural_frequency": params.horizon_natural_frequency,
+        "initial_capital": params.initial_capital,
+        "label_horizon": params.label_horizon,
+        "ledger_version": params.ledger_version,
+        "lot_size": params.lot_size,
+        "market_state_version": params.market_state_version,
+        "max_single_weight": params.max_single_weight,
+        "min_buy_lot": params.min_buy_lot,
+        "min_commission_cny": params.min_commission_cny,
+        "min_notional_cny": params.min_notional_cny,
+        "partial_sell_rounding": params.partial_sell_rounding,
+        "rebalance_anchor_start": effective_rebalance_anchor_start(params),
+        "rebalance_frequency": params.rebalance_frequency,
+        "resume_policy_id": params.resume_policy_id,
+        "sell_odd_lot_policy": params.sell_odd_lot_policy,
+        "slippage_bps": params.slippage_bps,
+        "stamp_tax_bps": params.stamp_tax_bps,
+        "strategy_id": params.strategy_id,
+        "tail_risk_profile_id": params.tail_risk_profile_id,
+        "target_holdings": params.target_holdings,
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def hash_holdings(holdings: dict[str, int]) -> str:
+    payload = {sec_code: int(shares) for sec_code, shares in sorted(holdings.items()) if int(shares) != 0}
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def validate_ledger_params(params: LedgerParams) -> None:
+    if params.initial_state_mode not in {"fresh", "resume_from_backtest"}:
+        raise ValueError(f"Unsupported initial_state_mode={params.initial_state_mode}")
+    if params.resume_policy_id != RESUME_POLICY_CLOUDRUN_LOT100:
+        raise ValueError(
+            f"Unsupported resume_policy_id={params.resume_policy_id}; expected {RESUME_POLICY_CLOUDRUN_LOT100}"
+        )
+    if params.rebalance_anchor_start and params.rebalance_anchor_start > params.predict_start:
+        raise ValueError("rebalance_anchor_start must be <= predict_start")
+    if params.initial_state_mode == "fresh":
+        if params.parent_backtest_id or params.state_as_of_date:
+            raise ValueError("fresh ledger run must not set parent_backtest_id or state_as_of_date")
+        return
+    if params.ledger_version != "ledger_exec_v1_lot100":
+        raise ValueError("resume_from_backtest requires ledger_exec_v1_lot100")
+    if not params.parent_backtest_id:
+        raise ValueError("resume_from_backtest requires parent_backtest_id")
+    if not params.state_as_of_date:
+        raise ValueError("resume_from_backtest requires state_as_of_date")
+    if not params.rebalance_anchor_start:
+        raise ValueError("resume_from_backtest requires explicit rebalance_anchor_start")
+    if params.parent_backtest_id == params.backtest_id:
+        raise ValueError("parent_backtest_id must differ from backtest_id")
+    if params.state_as_of_date >= params.predict_start:
+        raise ValueError("state_as_of_date must be before predict_start")
+
+
+def load_resume_snapshot(
+    client: bigquery.Client,
+    params: LedgerParams,
+    calendar: pd.DataFrame,
+) -> ResumeSnapshot:
+    next_open = next_open_after(calendar, params.state_as_of_date)
+    if next_open is None or str(next_open) != params.predict_start:
+        raise RuntimeError(
+            "resume_from_backtest requires predict_start to be the next open trading day after state_as_of_date"
+        )
+
+    parent_id = params.parent_backtest_id
+    state_date = params.state_as_of_date
+    nav = query_dataframe(
+        client,
+        f"""
+        SELECT trade_date, nav, net_value_cny
+        FROM `{params.project}.{DATASET}.ads_backtest_nav_daily`
+        WHERE backtest_id = @parent_backtest_id
+          AND trade_date = @state_as_of_date
+        """,
+        {
+            "parent_backtest_id": parent_id,
+            "state_as_of_date": state_date,
+        },
+    )
+    if nav.empty:
+        raise RuntimeError("Parent NAV snapshot not found for resume")
+
+    state = query_dataframe(
+        client,
+        f"""
+        SELECT
+          trade_date,
+          cash_cny,
+          net_value_cny,
+          nav,
+          pending_sell_sec_codes_json,
+          active_signal_date,
+          active_target_weights_json,
+          holdings_hash,
+          ledger_version,
+          ledger_params_hash,
+          resume_policy_id,
+          rebalance_anchor_start
+        FROM `{params.project}.{DATASET}.ads_backtest_ledger_state_daily`
+        WHERE backtest_id = @parent_backtest_id
+          AND trade_date = @state_as_of_date
+        """,
+        {
+            "parent_backtest_id": parent_id,
+            "state_as_of_date": state_date,
+        },
+    )
+    if state.empty:
+        raise RuntimeError("Parent ledger state snapshot not found for resume")
+
+    positions = query_dataframe(
+        client,
+        f"""
+        SELECT sec_code, shares, market_value_cny
+        FROM `{params.project}.{DATASET}.ads_backtest_position_daily`
+        WHERE backtest_id = @parent_backtest_id
+          AND trade_date = @state_as_of_date
+        """,
+        {
+            "parent_backtest_id": parent_id,
+            "state_as_of_date": state_date,
+        },
+    )
+    if positions.empty:
+        raise RuntimeError("Parent position snapshot not found for resume")
+
+    state_row = state.iloc[0]
+    expected_hash = ledger_params_hash(params)
+    if str(state_row["ledger_version"]) != params.ledger_version:
+        raise RuntimeError("Parent ledger_version does not match resume child")
+    if str(state_row["resume_policy_id"]) != params.resume_policy_id:
+        raise RuntimeError("Parent resume_policy_id does not match resume child")
+    if str(state_row["rebalance_anchor_start"]) != effective_rebalance_anchor_start(params):
+        raise RuntimeError("Parent rebalance_anchor_start does not match resume child")
+    if str(state_row["ledger_params_hash"]) != expected_hash:
+        raise RuntimeError("Parent ledger_params_hash does not match resume child")
+
+    holdings = {
+        str(row.sec_code): int(row.shares)
+        for row in positions.itertuples(index=False)
+        if int(row.shares) != 0
+    }
+    if hash_holdings(holdings) != str(state_row["holdings_hash"]):
+        raise RuntimeError("Parent holdings_hash does not match position snapshot")
+
+    market_value = float(positions["market_value_cny"].sum())
+    cash_cny = float(state_row["cash_cny"])
+    net_value_cny = float(state_row["net_value_cny"])
+    if abs(cash_cny + market_value - net_value_cny) > 1.0:
+        raise RuntimeError("Parent cash plus positions does not reconcile to net value")
+
+    pending_sell = set(json.loads(state_row["pending_sell_sec_codes_json"] or "[]"))
+    target_weights = json.loads(state_row["active_target_weights_json"] or "{}")
+    nav_value = float(nav.iloc[0]["net_value_cny"])
+    if abs(nav_value - net_value_cny) > 1.0:
+        raise RuntimeError("Parent ledger state net value does not match NAV snapshot")
+
+    active_signal_date = state_row["active_signal_date"]
+    if pd.isna(active_signal_date):
+        active_signal_date = None
+
+    return ResumeSnapshot(
+        cash_cny=cash_cny,
+        previous_nav_value=net_value_cny,
+        holdings=holdings,
+        pending_sell=pending_sell,
+        target_weights=target_weights,
+        active_signal_date=active_signal_date,
+        ledger_params_hash=str(state_row["ledger_params_hash"]),
+        rebalance_anchor_start=state_row["rebalance_anchor_start"],
+    )
+
+
+def next_open_after(calendar: pd.DataFrame, state_as_of_date: str | None) -> object | None:
+    if not state_as_of_date:
+        return None
+    later = calendar[calendar["cal_date"].astype(str) > state_as_of_date]
+    if later.empty:
+        return None
+    return later.iloc[0]["cal_date"]
+
+
 def load_targets(client: bigquery.Client, params: LedgerParams) -> pd.DataFrame:
     sql = f"""
     SELECT

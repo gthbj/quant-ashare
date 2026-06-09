@@ -1,5 +1,7 @@
 > 文档维护：GPT-5 Codex（最近更新 2026-06-09）
 
+> 实现状态：本分支开始实现 Cloud Run Python ledger resume；PRD 仍作为验收口径。
+
 # PRD: 策略 1 Cloud Run Ledger Resume
 
 > 状态：草案，待 review / 合并。

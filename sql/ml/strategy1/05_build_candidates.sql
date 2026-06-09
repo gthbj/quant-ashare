@@ -6,6 +6,7 @@ DECLARE p_prediction_run_id STRING DEFAULT NULL;  -- 组合层实验可复用上
 DECLARE p_strategy_id STRING DEFAULT 'ml_pv_clf_v0';
 DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_rebalance_frequency STRING DEFAULT 'weekly';
+DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
@@ -21,6 +22,11 @@ DECLARE p_force_replace BOOL DEFAULT FALSE;
 
 DECLARE p_selected_model_id STRING;
 SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
+SET p_rebalance_anchor_start = COALESCE(p_rebalance_anchor_start, p_predict_start);
+
+IF p_rebalance_anchor_start > p_predict_start THEN
+  RAISE USING MESSAGE = 'p_rebalance_anchor_start must be <= p_predict_start';
+END IF;
 
 IF p_label_horizon NOT IN (5, 10, 20) THEN
   RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
@@ -73,7 +79,7 @@ WITH cal AS (
   SELECT cal_date
   FROM `data-aquarium.ashare_dim.dim_trade_calendar`
   WHERE exchange = 'SSE' AND is_open = 1
-    AND cal_date BETWEEN p_predict_start AND p_predict_end
+    AND cal_date BETWEEN p_rebalance_anchor_start AND p_predict_end
 ),
 weekly AS (
   SELECT MAX(cal_date) AS rebalance_date
@@ -89,11 +95,18 @@ monthly AS (
   FROM cal
   GROUP BY DATE_TRUNC(cal_date, MONTH)
 )
-SELECT rebalance_date FROM weekly_ranked WHERE p_rebalance_frequency = 'weekly'
+SELECT rebalance_date FROM weekly_ranked
+WHERE p_rebalance_frequency = 'weekly'
+  AND rebalance_date BETWEEN p_predict_start AND p_predict_end
 UNION ALL
-SELECT rebalance_date FROM weekly_ranked WHERE p_rebalance_frequency = 'biweekly' AND MOD(week_idx - 1, 2) = 0
+SELECT rebalance_date FROM weekly_ranked
+WHERE p_rebalance_frequency = 'biweekly'
+  AND MOD(week_idx - 1, 2) = 0
+  AND rebalance_date BETWEEN p_predict_start AND p_predict_end
 UNION ALL
-SELECT rebalance_date FROM monthly WHERE p_rebalance_frequency = 'monthly';
+SELECT rebalance_date FROM monthly
+WHERE p_rebalance_frequency = 'monthly'
+  AND rebalance_date BETWEEN p_predict_start AND p_predict_end;
 
 INSERT INTO `data-aquarium.ashare_ads.ads_stock_candidate_daily`
 (strategy_id, rebalance_date, sec_code, model_id, horizon,

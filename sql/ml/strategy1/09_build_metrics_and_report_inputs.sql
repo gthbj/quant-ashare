@@ -39,7 +39,7 @@ DECLARE p_benchmark STRING DEFAULT '000001.SH';
 DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_backtest
 DECLARE p_parent_backtest_id STRING DEFAULT NULL;
 DECLARE p_state_as_of_date DATE DEFAULT NULL;
-DECLARE p_resume_policy_id STRING DEFAULT 'ledger_exec_v1_resume_v20260604';
+DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
 DECLARE p_calendar_end DATE;
 DECLARE p_selected_model_id STRING;
 DECLARE p_force_replace BOOL DEFAULT FALSE;

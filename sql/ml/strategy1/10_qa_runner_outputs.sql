@@ -29,7 +29,7 @@ DECLARE p_min_buy_lot INT64 DEFAULT NULL;
 DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_backtest
 DECLARE p_parent_backtest_id STRING DEFAULT NULL;
 DECLARE p_state_as_of_date DATE DEFAULT NULL;
-DECLARE p_resume_policy_id STRING DEFAULT 'ledger_exec_v1_resume_v20260604';
+DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
 DECLARE p_calendar_end DATE;
 DECLARE v_rebalance_anchor_explicit BOOL;
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
