@@ -2465,3 +2465,17 @@ v3 的接受标准已经不再是 v1 的 `000852.SH` 单 benchmark 超额与 fin
 ### 相关文件
 
 `configs/strategy1/model_acceptance_contract_v3.yml`, `scripts/strategy1_cloudrun/acceptance.py`, `scripts/strategy1_cloudrun/config.py`, `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`, `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`, `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`, `sql/ml/strategy1/README.md`, `TODO.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260609-02: 显式 backfill 可写入 2019 年以前历史训练窗口
+
+Date: 2026-06-09
+Status: active
+Owner: owner
+Agent ID: Codex
+Model: GPT-5 Codex
+
+Context: Strategy1 R14 长训练实验需要补 `2015-2018` 策略输入层。首次手工触发 `ashare_warehouse_window_refresh` 的 2015 年 backfill 时，指数窗口 SQL 因固定 `2019-01-01` 写入下限把 `write_start` 推到 2019，导致 `write_end < write_start` 失败。
+Decision: 保留 `daily_current` 和全量 CTAS 的 `2019-01-01` 默认生产下限；owner 显式触发的 `warehouse_mode=backfill` 可以按 `date_from/date_to` 写入 2019 年以前历史窗口，用于长训练窗口补数。
+Rationale: 日常调度仍应避免误写旧历史；但研究训练补数是 owner 明确要求的手工维护动作，不能被日常生产下限拦截。
+Impact: 窗口刷新与窗口 QA 需要按 `warehouse_mode` 区分下限；历史补数必须显式传入窗口并保留 BigQuery 分区过滤。后续若执行 full rebuild，仍需单独决定是否扩大 CTAS 默认写入范围。
+Related files: sql/incremental/01_refresh_stock_dwd_dws_window.sql; sql/incremental/02_refresh_index_dwd_window.sql; sql/incremental/03_refresh_market_state_window.sql; sql/qa/10_windowed_stock_refresh_checks.sql; sql/qa/12_windowed_index_refresh_checks.sql

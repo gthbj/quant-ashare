@@ -5,8 +5,8 @@
 -- 口径：
 -- - 目标表必须已由 sql/dws/08_dws_market_state_daily.sql 全量 CTAS 初始化。
 -- - 本脚本只刷新 ashare_dws.dws_market_state_daily 的写入窗口，不写 ADS。
--- - daily_current 模式默认刷新最近 20 个交易日（含 date_to）。
--- - backfill 模式使用显式 date_from/date_to。
+-- - daily_current 模式默认刷新最近 20 个交易日（含 date_to），并保持 2019+ 生产下限。
+-- - backfill 模式使用显式 date_from/date_to；允许 owner 手工补 2019 年以前历史窗口。
 -- - 为覆盖 20/60 日滚动指标，计算读取窗口从写入窗口首日向前扩 80 个 SSE 交易日。
 -- - v0 兼容行保留旧 market-state 语义，sse_composite_* 字段置 NULL；v1 行填充 SSE Composite 字段。
 
@@ -27,7 +27,12 @@ DECLARE p_date_to DATE DEFAULT CASE
   )
   ELSE p_requested_date_to
 END;
-DECLARE p_final_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_daily_current_floor_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_backfill_floor_date DATE DEFAULT DATE '1900-01-01';
+DECLARE p_write_floor_date DATE DEFAULT CASE
+  WHEN p_warehouse_mode = 'backfill' THEN p_backfill_floor_date
+  ELSE p_daily_current_floor_date
+END;
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_market_state_versions ARRAY<STRING> DEFAULT [
   'market_state_v0_20260606',
@@ -59,7 +64,7 @@ DECLARE p_write_start_date DATE DEFAULT GREATEST(
       THEN p_daily_current_start_date
     ELSE COALESCE(p_date_from, p_date_to)
   END,
-  p_final_start_date
+  p_write_floor_date
 );
 DECLARE p_write_end_date DATE DEFAULT p_date_to;
 DECLARE p_anchor_seq INT64 DEFAULT (
@@ -81,7 +86,7 @@ DECLARE p_read_start_date DATE DEFAULT GREATEST(
     ),
     DATE_SUB(p_write_start_date, INTERVAL 120 DAY)
   ),
-  p_final_start_date
+  p_write_floor_date
 );
 
 ASSERT p_warehouse_mode IN ('daily_current', 'backfill')

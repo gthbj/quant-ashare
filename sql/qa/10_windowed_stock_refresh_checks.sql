@@ -30,7 +30,12 @@ DECLARE p_date_to DATE DEFAULT CASE
   )
   ELSE p_requested_date_to
 END;
-DECLARE p_final_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_daily_current_floor_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_backfill_floor_date DATE DEFAULT DATE '1900-01-01';
+DECLARE p_write_floor_date DATE DEFAULT CASE
+  WHEN p_warehouse_mode = 'backfill' THEN p_backfill_floor_date
+  ELSE p_daily_current_floor_date
+END;
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_fin_feature_version STRING DEFAULT 'fin_default_v0_20260602';
 DECLARE p_label_version STRING DEFAULT 'open_to_close_h1_5_10_20_v20260601';
@@ -61,7 +66,7 @@ DECLARE p_dwd_write_start_date DATE DEFAULT GREATEST(
       THEN p_daily_current_start_date
     ELSE COALESCE(p_date_from, p_date_to)
   END,
-  p_final_start_date
+  p_write_floor_date
 );
 DECLARE p_write_end_date DATE DEFAULT p_date_to;
 DECLARE p_anchor_seq INT64 DEFAULT (
@@ -82,7 +87,7 @@ DECLARE p_label_write_start_date DATE DEFAULT GREATEST(
     ),
     DATE_SUB(p_dwd_write_start_date, INTERVAL 35 DAY)
   ),
-  p_final_start_date
+  p_write_floor_date
 );
 DECLARE p_valuation_coverage_start_date DATE DEFAULT GREATEST(
   CASE
@@ -90,7 +95,7 @@ DECLARE p_valuation_coverage_start_date DATE DEFAULT GREATEST(
       THEN p_daily_current_start_date
     ELSE p_dwd_write_start_date
   END,
-  p_final_start_date
+  p_write_floor_date
 );
 
 ASSERT p_warehouse_mode IN ('daily_current', 'backfill')
