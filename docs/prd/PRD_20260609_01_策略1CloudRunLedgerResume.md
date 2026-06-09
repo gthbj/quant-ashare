@@ -71,8 +71,8 @@ previous_nav_value = None
 | `initial_state_mode` | `fresh` | `fresh` / `resume_from_backtest` |
 | `parent_backtest_id` | `NULL` | resume 时必填，父回测 ID |
 | `state_as_of_date` | `NULL` | resume 时必填，父回测状态日期 |
-| `resume_policy_id` | `cloudrun_lot100_resume_v1` | resume 状态兼容策略版本 |
-| `rebalance_anchor_start` | `predict_start` | fresh 可默认等于 `predict_start`；resume 必须继承原实验锚点 |
+| `resume_policy_id` | `cloudrun_lot100_resume_v1` | P0 固定值；仅作为 artifact / summary 的兼容标签，不做运行时分支 |
+| `rebalance_anchor_start` | fresh: `predict_start`; resume: 必填 | fresh 可默认等于 `predict_start`；resume 必须由调用方显式传入 parent / full experiment 的原始锚点 |
 | `resume_strictness` | `fail_fast` | P0 只支持 fail-fast，不支持宽松 fallback |
 
 语义：
@@ -91,6 +91,18 @@ resume_from_backtest:
   previous_nav_value = parent net_value_cny at state_as_of_date
   first child date = next SSE open date after state_as_of_date
 ```
+
+### 5.1 `resume_policy_id` 语义
+
+P0 中 `resume_policy_id` 固定为 `cloudrun_lot100_resume_v1`。它不是独立的交易规则开关，也不允许在 P0 代码里产生多套运行时分支。
+
+用途仅限：
+
+1. 写入 summary / report / ledger state artifact，作为 resume 状态兼容标签。
+2. 与 `ledger_version`、`ledger_params_hash` 一起用于 parent / child 兼容性校验。
+3. 后续如果引入新的 resume 行为，再新增新的 policy id，并在对应 PRD 中定义差异。
+
+P0 实现方不应猜测 `cloudrun_lot100_resume_v1` 以外的语义。
 
 ## 6. Resume snapshot
 
@@ -201,9 +213,11 @@ child 2023-2026: 如果从 2023 重新起算，双周奇偶可能漂移
 5. parent ledger version 必须等于 child ledger version，P0 固定 `ledger_exec_v1_lot100`。
 6. parent 与 child 的成本 profile、lot 参数、初始资金、strategy_id、target_holdings、max_single_weight、rebalance_frequency、label_horizon 和股票池口径必须兼容。
 7. child `predict_start` 必须等于 state date 后下一 SSE 开市日。
-8. child `backtest_id` 必须不同于 parent `backtest_id`。
-9. `force_replace` 只能清理 child 输出范围，禁止删除 parent 产物。
-10. 缺少 pending sell / active target 状态时，P0 不允许静默按空状态继续。
+8. resume 时 `rebalance_anchor_start` 必须由调用方显式传入，并且必须等于 parent / full experiment 的原始锚点；不允许静默使用默认 `predict_start`。如果 `rebalance_anchor_start = child.predict_start` 且 `child.predict_start` 不等于 parent 原始锚点，必须 fail-fast。
+9. resume 模式必须确认候选生成路径已经支持并实际使用 `rebalance_anchor_start`；如果 `05_build_candidates` / wrapper 仍只能按 child `predict_start` 重新编号 week index，必须拒绝 resume。
+10. child `backtest_id` 必须不同于 parent `backtest_id`。
+11. `force_replace` 只能清理 child 输出范围，禁止删除 parent 产物。
+12. 缺少 pending sell / active target 状态时，P0 不允许静默按空状态继续。
 
 ## 9. Ledger 执行语义
 
@@ -315,7 +329,9 @@ P0 完成条件：
 2. `TODO.md` 新增 Cloud Run ledger resume 实现任务。
 3. `.agent/memory/IMPLEMENTATION_STATUS.md` 与 `.agent/memory/AGENT_HANDOFF.md` 同步当前状态。
 
-### Phase B: 参数与状态契约
+### Phase B: 参数、状态契约与调仓锚点
+
+实现必须把 resume 参数、状态恢复和调仓锚点作为同一阶段交付，不能先开放 `resume_from_backtest` 再后补 anchor。
 
 实现：
 
@@ -323,17 +339,11 @@ P0 完成条件：
 2. `backtest_report.py` 和 orchestrator 支持传递 resume 参数。
 3. ledger 输出 resume state artifact。
 4. summary/report 写入 resume context。
-5. fail-fast 校验完整落地。
+5. `05_build_candidates` / Python wrapper 支持 `rebalance_anchor_start`。
+6. resume child 必须继承 parent / full experiment 的原始 anchor。
+7. fail-fast 校验完整落地，包括缺 anchor、anchor 未被候选生成路径消费、或 anchor 回落到 child start 时拒绝 resume。
 
-### Phase C: 调仓锚点修复
-
-实现：
-
-1. `05_build_candidates` / Python wrapper 支持 `rebalance_anchor_start`。
-2. resume child 继承 parent anchor。
-3. QA 验证 full 与 resume child 调仓日一致。
-
-### Phase D: Golden cases 与 QA
+### Phase C: Golden cases 与 QA
 
 实现：
 
@@ -341,7 +351,7 @@ P0 完成条件：
 2. `25_qa_cloudrun_ledger_resume_outputs.sql` 或等价只读 QA。
 3. 真实 smoke：短窗口 parent/child。
 
-### Phase E: 真实窗口验证
+### Phase D: 真实窗口验证
 
 执行：
 
