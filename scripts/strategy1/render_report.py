@@ -689,7 +689,7 @@ def compound_annualized_return(total_return: float | None, return_period_count: 
     if total_return is None or return_period_count is None or return_period_count <= 0:
         return None
     gross = 1.0 + total_return
-    if gross <= 0:
+    if gross < 0:
         return None
     return gross ** (annual_factor / return_period_count) - 1.0
 

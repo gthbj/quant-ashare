@@ -964,7 +964,7 @@ def total_return_from_nav(nav_df: pd.DataFrame) -> tuple[float | None, int]:
     return_period_count = max(int(len(nav_values) - 1), 0)
     start_nav = safe_float(nav_values.iloc[0])
     end_nav = safe_float(nav_values.iloc[-1])
-    if start_nav is None or end_nav is None or start_nav <= 0 or end_nav <= 0:
+    if start_nav is None or end_nav is None or start_nav <= 0 or end_nav < 0:
         return None, return_period_count
     return end_nav / start_nav - 1.0, return_period_count
 
@@ -973,13 +973,13 @@ def compound_annualized_return(total_return: float | None, return_period_count: 
     if total_return is None or return_period_count <= 0:
         return None
     gross = 1.0 + total_return
-    if gross <= 0:
+    if gross < 0:
         return None
     return gross ** (annual_factor / return_period_count) - 1.0
 
 
 def compound_annualized_return_from_gross(gross: float | None, return_period_count: int, annual_factor: int = 252) -> float | None:
-    if gross is None or return_period_count <= 0 or gross <= 0:
+    if gross is None or return_period_count <= 0 or gross < 0:
         return None
     return gross ** (annual_factor / return_period_count) - 1.0
 

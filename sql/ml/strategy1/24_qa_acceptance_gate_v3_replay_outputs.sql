@@ -64,7 +64,7 @@ CREATE TEMP FUNCTION qa_required(condition BOOL) AS (IFNULL(condition, FALSE));
 CREATE TEMP FUNCTION qa_gross_from_returns(log_sum FLOAT64) AS (EXP(log_sum));
 CREATE TEMP FUNCTION qa_compound_annualized_return(gross_return FLOAT64, period_count INT64) AS (
   CASE
-    WHEN gross_return IS NULL OR period_count IS NULL OR period_count <= 0 OR gross_return <= 0 THEN NULL
+    WHEN gross_return IS NULL OR period_count IS NULL OR period_count <= 0 OR gross_return < 0 THEN NULL
     ELSE POW(gross_return, 252.0 / period_count) - 1.0
   END
 );

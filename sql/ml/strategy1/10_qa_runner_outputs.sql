@@ -865,7 +865,7 @@ ASSERT (
     AND LOGICAL_AND(SAFE_CAST(JSON_VALUE(metrics_json, '$.annualization.return_period_count') AS INT64) = return_period_count)
     AND LOGICAL_AND(ABS(
       (CASE
-        WHEN total_return IS NULL OR total_return <= -1.0 OR return_period_count <= 0 THEN NULL
+        WHEN total_return IS NULL OR total_return < -1.0 OR return_period_count <= 0 THEN NULL
         ELSE POW(1.0 + total_return, 252.0 / return_period_count) - 1.0
       END) - compound_annual_return
     ) <= 1e-9)

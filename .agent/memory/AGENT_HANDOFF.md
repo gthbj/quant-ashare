@@ -1,6 +1,7 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #134 已从 PRD-only 扩展为实现分支：新增 Strategy1 回测 `compound_annual_return`、`return_period_count`、`annualization_target_period_count`、`annualization_method` 字段与 ADS additive migration。
 > - `09` summary、`10` runner QA、`24` v3 replay QA、`render_report.py` 与 `replay_acceptance_gate_v3.py` 已切到 NAV 首尾值 + NAV 有效交易日数减一的复合年化口径；legacy `annual_return` / `sharpe` 保留旧算术口径并显式标注。
+> - PR #134 review follow-up 已修复 `total_return = -100%` 边界：SQL、report 和 v3 replay 统一允许 `gross == 0` 返回复合年化 `-100%`，仅拒绝 `gross < 0`。
 > - 未运行 BigQuery / Cloud Run / pytest；后续需要 owner 决定是否部署 schema migration、是否重跑 2020-2022 R14 hold=10/20 报告或生成 sidecar，以及是否调整 compound Sharpe / Calmar 阈值。
 
 > 当前交接补充（2026-06-10，GPT-5 Codex）

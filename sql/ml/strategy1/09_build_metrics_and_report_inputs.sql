@@ -184,7 +184,7 @@ annualized AS (
   SELECT
     a.*,
     CASE
-      WHEN a.final_nav IS NULL OR a.final_nav <= 0 OR a.return_period_count <= 0 THEN NULL
+      WHEN a.final_nav IS NULL OR a.final_nav < 0 OR a.return_period_count <= 0 THEN NULL
       ELSE POW(a.final_nav, 252.0 / a.return_period_count) - 1.0
     END AS compound_annual_return
   FROM agg AS a
