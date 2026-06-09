@@ -9,6 +9,7 @@ DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1_lot100';
 DECLARE p_lot_size INT64 DEFAULT 100;
 DECLARE p_min_buy_lot INT64 DEFAULT 1;
 DECLARE p_min_buy_shares INT64 DEFAULT 100;
+DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
 
 SET p_min_buy_shares = p_lot_size * p_min_buy_lot;
 
@@ -152,3 +153,29 @@ ASSERT (
     HAVING n > 1
   )
 ) AS 'QA-LOT-10: position rows must be unique per trade_date/sec_code';
+
+
+ASSERT (
+  SELECT COUNT(*)
+  FROM `data-aquarium.ashare_ads.ads_backtest_ledger_state_daily` AS state
+  WHERE state.backtest_id = p_backtest_id
+    AND state.trade_date BETWEEN p_predict_start AND p_predict_end
+) = (
+  SELECT COUNT(*)
+  FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+  WHERE nav.backtest_id = p_backtest_id
+    AND nav.trade_date BETWEEN p_predict_start AND p_predict_end
+) AS 'QA-LOT-11: ledger state rows must match nav coverage';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_ledger_state_daily` AS state
+  WHERE state.backtest_id = p_backtest_id
+    AND state.trade_date BETWEEN p_predict_start AND p_predict_end
+    AND (
+      state.ledger_version != p_ledger_version
+      OR state.resume_policy_id != p_resume_policy_id
+      OR state.ledger_params_hash IS NULL
+      OR state.holdings_hash IS NULL
+    )
+) AS 'QA-LOT-12: ledger state metadata must match lot-aware contract';

@@ -4,12 +4,18 @@ import datetime as dt
 import math
 import unittest
 
+import pytest
+
 from scripts.strategy1_cloudrun.ledger import (
     LEDGER_VERSION_LOT100,
+    RESUME_POLICY_CLOUDRUN_LOT100,
     LedgerParams,
     PlanRow,
     build_daily_plan,
     execute_plan,
+    validate_ledger_params,
+    ledger_params_hash,
+    hash_holdings,
     update_holdings,
     update_pending_sell,
 )
@@ -235,3 +241,84 @@ class LotAwareLedgerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+def test_resume_requires_explicit_parent_state_and_anchor() -> None:
+    params = LedgerParams(
+        project="data-aquarium",
+        run_id="child",
+        backtest_id="child_bt",
+        strategy_id="strategy",
+        predict_start="2024-01-08",
+        predict_end="2024-01-31",
+        initial_state_mode="resume_from_backtest",
+        parent_backtest_id="parent_bt",
+        state_as_of_date="2024-01-05",
+    )
+
+    with pytest.raises(ValueError, match="explicit rebalance_anchor_start"):
+        validate_ledger_params(params)
+
+
+def test_resume_policy_id_is_fixed() -> None:
+    params = LedgerParams(
+        project="data-aquarium",
+        run_id="child",
+        backtest_id="child_bt",
+        strategy_id="strategy",
+        predict_start="2024-01-08",
+        predict_end="2024-01-31",
+        initial_state_mode="resume_from_backtest",
+        parent_backtest_id="parent_bt",
+        state_as_of_date="2024-01-05",
+        rebalance_anchor_start="2024-01-02",
+        resume_policy_id=RESUME_POLICY_CLOUDRUN_LOT100,
+    )
+
+    validate_ledger_params(params)
+
+
+def test_ledger_params_hash_ignores_backtest_identity_but_keeps_anchor() -> None:
+    parent = LedgerParams(
+        project="data-aquarium",
+        run_id="parent",
+        backtest_id="parent_bt",
+        strategy_id="strategy",
+        predict_start="2024-01-02",
+        predict_end="2024-12-31",
+        rebalance_anchor_start="2024-01-02",
+    )
+    child = LedgerParams(
+        project="data-aquarium",
+        run_id="child",
+        backtest_id="child_bt",
+        strategy_id="strategy",
+        predict_start="2024-07-01",
+        predict_end="2024-12-31",
+        initial_state_mode="resume_from_backtest",
+        parent_backtest_id="parent_bt",
+        state_as_of_date="2024-06-28",
+        rebalance_anchor_start="2024-01-02",
+    )
+    shifted_anchor = LedgerParams(
+        project="data-aquarium",
+        run_id="child",
+        backtest_id="child_bt",
+        strategy_id="strategy",
+        predict_start="2024-07-01",
+        predict_end="2024-12-31",
+        initial_state_mode="resume_from_backtest",
+        parent_backtest_id="parent_bt",
+        state_as_of_date="2024-06-28",
+        rebalance_anchor_start="2024-07-01",
+    )
+
+    assert ledger_params_hash(parent) == ledger_params_hash(child)
+    assert ledger_params_hash(parent) != ledger_params_hash(shifted_anchor)
+
+
+def test_hash_holdings_is_order_invariant() -> None:
+    assert hash_holdings({"000001.SZ": 200, "000002.SZ": 100}) == hash_holdings(
+        {"000002.SZ": 100, "000001.SZ": 200}
+    )

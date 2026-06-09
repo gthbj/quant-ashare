@@ -2,13 +2,14 @@
 
 The default implementation is the lot-aware `ledger_exec_v1_lot100` path.  The
 legacy float-share `ledger_exec_v1` path is kept only for explicit audit runs.
-Resume support is intentionally fail-fast until the lot-aware fresh-start path
-has its own production reference run.
+Resume support is limited to deterministic lot-aware parent-state restore.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import json
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -30,6 +31,7 @@ MARKET_RISK_PROFILES = frozenset({"market_risk_off_v0", "individual_and_market_r
 DEFAULT_MARKET_STATE_VERSION = "market_state_v0_20260606"
 LEDGER_VERSION_FLOAT = "ledger_exec_v1"
 LEDGER_VERSION_LOT100 = "ledger_exec_v1_lot100"
+RESUME_POLICY_CLOUDRUN_LOT100 = "cloudrun_lot100_resume_v1"
 FILLED_STATUSES = frozenset({"FILLED", "FILLED_SCALED_CASH"})
 LOT_AWARE_ZERO_FILL_STATUSES = frozenset({
     "BUY_SKIPPED_UNTRADABLE",
@@ -71,16 +73,34 @@ class LedgerParams:
     cash_redistribution: str = "none_v1"
     min_notional_cny: float = 0.0
     force_replace: bool = False
+    rebalance_frequency: str = "weekly"
+    target_holdings: int = 5
+    max_single_weight: float = 0.20
+    label_horizon: int = 5
+    horizon_natural_frequency: str = "weekly"
     initial_state_mode: str = "fresh"
     parent_backtest_id: str | None = None
     state_as_of_date: str | None = None
+    resume_policy_id: str = RESUME_POLICY_CLOUDRUN_LOT100
+    rebalance_anchor_start: str | None = None
     tail_risk_profile_id: str = "diagnostic_only"
     market_state_version: str = DEFAULT_MARKET_STATE_VERSION
 
 
+
+@dataclasses.dataclass(frozen=True)
+class ResumeSnapshot:
+    cash_cny: float
+    previous_nav_value: float
+    holdings: dict[str, float]
+    pending_sell: set[str]
+    target_weights: dict[str, dict[str, Any]]
+    active_signal_date: Any | None
+    ledger_params_hash: str
+    rebalance_anchor_start: Any
+
+
 def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
-    if params.initial_state_mode != "fresh":
-        raise NotImplementedError("Cloud Run Python ledger P0 supports fresh-start only; resume is fail-fast")
     validate_ledger_params(params)
     if params.tail_risk_profile_id not in ALLOWED_TAIL_RISK_PROFILES:
         raise ValueError(f"unsupported tail_risk_profile_id: {params.tail_risk_profile_id}")
@@ -88,32 +108,62 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
         clear_ledger_outputs(client, params)
 
     calendar_end = (pd.Timestamp(params.predict_end) + pd.Timedelta(days=90)).date().isoformat()
-    price_start = (pd.Timestamp(params.predict_start) - pd.Timedelta(days=10)).date().isoformat()
+    calendar_start = min_iso_date(params.predict_start, params.state_as_of_date, params.rebalance_anchor_start)
+    price_start = min_iso_date(
+        (pd.Timestamp(params.predict_start) - pd.Timedelta(days=10)).date().isoformat(),
+        params.state_as_of_date,
+        params.rebalance_anchor_start,
+    )
     benchmark_assert(client, params)
 
-    cal = load_calendar(client, params.predict_start, calendar_end)
+    cal = load_calendar(client, calendar_start, calendar_end)
     exec_days = cal[(cal["trade_date"] >= pd.to_datetime(params.predict_start).date()) & (cal["trade_date"] <= pd.to_datetime(params.predict_end).date())].copy()
     exec_days = exec_days.sort_values("trade_date").reset_index(drop=True)
+    resume_snapshot = load_resume_snapshot(client, params, cal) if params.initial_state_mode == "resume_from_backtest" else None
     targets = load_targets(client, params)
-    if targets.empty:
+    if targets.empty and resume_snapshot is None:
         raise RuntimeError(f"no portfolio targets for run_id={params.run_id}")
-    periods = build_periods(targets, cal, params)
-    presence = targets.merge(periods, left_on="rebalance_date", right_on="signal_date", how="inner")
-    prices = load_prices(client, params, presence["sec_code"].dropna().unique().tolist(), price_start, calendar_end)
+    periods = build_periods(targets, cal, params) if not targets.empty else pd.DataFrame(columns=["signal_date", "exec_date"])
+    if periods.empty and resume_snapshot is None:
+        raise RuntimeError(f"no executable rebalance periods for run_id={params.run_id}")
+
+    if targets.empty or periods.empty:
+        presence = pd.DataFrame(columns=["sec_code"])
+    else:
+        presence = targets.merge(periods, left_on="rebalance_date", right_on="signal_date", how="inner")
+    sec_codes = set(str(v) for v in presence["sec_code"].dropna().unique().tolist())
+    if resume_snapshot is not None:
+        sec_codes.update(resume_snapshot.holdings)
+        sec_codes.update(resume_snapshot.pending_sell)
+        sec_codes.update(resume_snapshot.target_weights)
+    prices = load_prices(client, params, sorted(sec_codes), price_start, calendar_end)
     px = PriceBook(prices)
     benchmark = load_benchmark(client, params, params.predict_start, calendar_end)
 
-    cash = float(params.initial_capital)
-    holdings: dict[str, float] = {}
-    target_weights: dict[str, dict[str, Any]] = {}
-    pending_sell: set[str] = set()
+    if resume_snapshot is not None:
+        cash = float(resume_snapshot.cash_cny)
+        holdings = dict(resume_snapshot.holdings)
+        target_weights = dict(resume_snapshot.target_weights)
+        pending_sell = set(resume_snapshot.pending_sell)
+        previous_nav_value: float | None = float(resume_snapshot.previous_nav_value)
+        active_signal_date = resume_snapshot.active_signal_date
+    else:
+        cash = float(params.initial_capital)
+        holdings: dict[str, float] = {}
+        target_weights: dict[str, dict[str, Any]] = {}
+        pending_sell: set[str] = set()
+        previous_nav_value = None
+        active_signal_date = None
+
     trade_rows: list[dict[str, Any]] = []
     position_rows: list[dict[str, Any]] = []
     nav_rows: list[dict[str, Any]] = []
-    previous_nav_value: float | None = None
+    state_rows: list[dict[str, Any]] = []
+    params_hash = ledger_params_hash(params)
+    anchor_start = effective_rebalance_anchor_start(params)
 
     periods_by_exec = {row.exec_date: row for row in periods.itertuples(index=False)}
-    targets_by_signal = build_target_specs_by_signal(targets)
+    targets_by_signal = build_target_specs_by_signal(targets) if not targets.empty else {}
     tail_risk_buy_guards = load_tail_risk_buy_guards(client, params)
     market_risk_off_signal_dates = load_market_risk_off_signal_dates(client, params)
 
@@ -121,6 +171,7 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
         period = periods_by_exec.get(exec_date)
         is_rebalance = period is not None
         if is_rebalance:
+            active_signal_date = period.signal_date
             target_weights = targets_by_signal.get(period.signal_date, {})
 
         nav_before = cash + sum(shares * px.valuation_price(sec, exec_date) for sec, shares in holdings.items())
@@ -166,7 +217,7 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
         bench_ret = benchmark.get(exec_date, 0.0)
         day_turnover = sum(row["turnover_cny"] for row in daily_trade_rows if row["fill_status"] in FILLED_STATUSES)
         day_cost = sum(row["fee_cny"] for row in daily_trade_rows if row["fill_status"] in FILLED_STATUSES)
-        nav_rows.append({
+        nav_row = {
             "backtest_id": params.backtest_id,
             "trade_date": exec_date,
             "nav": nav_value / params.initial_capital,
@@ -181,6 +232,28 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
             "excess_return": (daily_return or 0.0) - (bench_ret or 0.0),
             "run_id": params.run_id,
             "created_at": datetime.now(timezone.utc),
+        }
+        nav_rows.append(nav_row)
+        state_rows.append({
+            "backtest_id": params.backtest_id,
+            "trade_date": exec_date,
+            "cash_cny": cash,
+            "net_value_cny": nav_value,
+            "nav": nav_row["nav"],
+            "pending_sell_sec_codes_json": json.dumps(sorted(pending_sell), separators=(",", ":")),
+            "active_signal_date": active_signal_date,
+            "active_target_weights_json": json.dumps(
+                normalize_target_weights(target_weights),
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            "holdings_hash": hash_holdings(holdings),
+            "ledger_version": params.ledger_version,
+            "ledger_params_hash": params_hash,
+            "resume_policy_id": params.resume_policy_id,
+            "rebalance_anchor_start": anchor_start,
+            "run_id": params.run_id,
+            "created_at": datetime.now(timezone.utc),
         })
 
     nav_by_date = {row["trade_date"]: row["net_value_cny"] for row in nav_rows}
@@ -190,7 +263,8 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
     load_dataframe(client, pd.DataFrame(trade_rows), f"{ADS}.ads_backtest_trade_daily")
     load_dataframe(client, pd.DataFrame(position_rows), f"{ADS}.ads_backtest_position_daily")
     load_dataframe(client, pd.DataFrame(nav_rows), f"{ADS}.ads_backtest_nav_daily")
-    return {"trades": len(trade_rows), "positions": len(position_rows), "nav": len(nav_rows)}
+    load_dataframe(client, pd.DataFrame(state_rows), f"{ADS}.ads_backtest_ledger_state_daily")
+    return {"trades": len(trade_rows), "positions": len(position_rows), "nav": len(nav_rows), "state": len(state_rows)}
 
 
 @dataclasses.dataclass
@@ -575,7 +649,7 @@ def clear_ledger_outputs(client: bigquery.Client, params: LedgerParams) -> None:
         bigquery.ScalarQueryParameter("start_date", "DATE", params.predict_start),
         bigquery.ScalarQueryParameter("end_date", "DATE", calendar_end),
     ]
-    for table in ("ads_backtest_trade_daily", "ads_backtest_position_daily", "ads_backtest_nav_daily"):
+    for table in ("ads_backtest_trade_daily", "ads_backtest_position_daily", "ads_backtest_nav_daily", "ads_backtest_ledger_state_daily"):
         execute_query(client, f"DELETE FROM `{ADS}.{table}` WHERE backtest_id=@backtest_id AND trade_date BETWEEN @start_date AND @end_date", qparams)
     execute_query(client, f"DELETE FROM `{ADS}.ads_backtest_performance_summary` WHERE backtest_id=@backtest_id", [bigquery.ScalarQueryParameter("backtest_id", "STRING", params.backtest_id)])
 
@@ -602,6 +676,218 @@ def load_calendar(client: bigquery.Client, start: str, end: str) -> pd.DataFrame
         bigquery.ScalarQueryParameter("start", "DATE", start),
         bigquery.ScalarQueryParameter("end", "DATE", end),
     ]), ["trade_date"])
+
+
+
+def min_iso_date(*values: str | None) -> str:
+    present = [v for v in values if v]
+    if not present:
+        raise ValueError("At least one date is required")
+    return min(present)
+
+
+def effective_rebalance_anchor_start(params: LedgerParams) -> str:
+    return params.rebalance_anchor_start or params.predict_start
+
+
+def normalize_target_weights(target_weights: dict[str, dict[str, Any]]) -> dict[str, dict[str, float | int]]:
+    normalized: dict[str, dict[str, float | int]] = {}
+    for sec_code, spec in sorted(target_weights.items()):
+        item: dict[str, float | int] = {"target_weight": float(spec.get("target_weight", 0.0) or 0.0)}
+        if spec.get("rank_raw") is not None and pd.notna(spec.get("rank_raw")):
+            item["rank_raw"] = int(spec["rank_raw"])
+        normalized[str(sec_code)] = item
+    return normalized
+
+
+def ledger_params_hash(params: LedgerParams) -> str:
+    payload = {
+        "benchmark": params.benchmark,
+        "buy_rounding": params.buy_rounding,
+        "cash_redistribution": params.cash_redistribution,
+        "commission_bps": params.commission_bps,
+        "horizon_natural_frequency": params.horizon_natural_frequency,
+        "initial_capital": params.initial_capital,
+        "label_horizon": params.label_horizon,
+        "ledger_version": params.ledger_version,
+        "lot_size": params.lot_size,
+        "market_state_version": params.market_state_version,
+        "max_single_weight": params.max_single_weight,
+        "min_buy_lot": params.min_buy_lot,
+        "min_commission_cny": params.min_commission_cny,
+        "min_notional_cny": params.min_notional_cny,
+        "partial_sell_rounding": params.partial_sell_rounding,
+        "rebalance_anchor_start": effective_rebalance_anchor_start(params),
+        "rebalance_frequency": params.rebalance_frequency,
+        "resume_policy_id": params.resume_policy_id,
+        "sell_odd_lot_policy": params.sell_odd_lot_policy,
+        "slippage_buy_bps": params.slippage_buy_bps,
+        "slippage_sell_bps": params.slippage_sell_bps,
+        "stamp_tax_buy_bps": params.stamp_tax_buy_bps,
+        "stamp_tax_sell_bps": params.stamp_tax_sell_bps,
+        "strategy_id": params.strategy_id,
+        "tail_risk_profile_id": params.tail_risk_profile_id,
+        "target_holdings": params.target_holdings,
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def hash_holdings(holdings: dict[str, float]) -> str:
+    payload = {
+        sec_code: round(float(shares), 6)
+        for sec_code, shares in sorted(holdings.items())
+        if abs(float(shares)) > 0.000001
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def validate_ledger_params(params: LedgerParams) -> None:
+    if params.initial_state_mode not in {"fresh", "resume_from_backtest"}:
+        raise ValueError(f"Unsupported initial_state_mode={params.initial_state_mode}")
+    if params.resume_policy_id != RESUME_POLICY_CLOUDRUN_LOT100:
+        raise ValueError(
+            f"Unsupported resume_policy_id={params.resume_policy_id}; expected {RESUME_POLICY_CLOUDRUN_LOT100}"
+        )
+    if params.rebalance_anchor_start and params.rebalance_anchor_start > params.predict_start:
+        raise ValueError("rebalance_anchor_start must be <= predict_start")
+    if params.initial_state_mode == "fresh":
+        if params.parent_backtest_id or params.state_as_of_date:
+            raise ValueError("fresh ledger run must not set parent_backtest_id or state_as_of_date")
+        return
+    if params.ledger_version != LEDGER_VERSION_LOT100:
+        raise ValueError("resume_from_backtest requires ledger_exec_v1_lot100")
+    if not params.parent_backtest_id:
+        raise ValueError("resume_from_backtest requires parent_backtest_id")
+    if not params.state_as_of_date:
+        raise ValueError("resume_from_backtest requires state_as_of_date")
+    if not params.rebalance_anchor_start:
+        raise ValueError("resume_from_backtest requires explicit rebalance_anchor_start")
+    if params.parent_backtest_id == params.backtest_id:
+        raise ValueError("parent_backtest_id must differ from backtest_id")
+    if params.state_as_of_date >= params.predict_start:
+        raise ValueError("state_as_of_date must be before predict_start")
+
+
+def load_resume_snapshot(
+    client: bigquery.Client,
+    params: LedgerParams,
+    calendar: pd.DataFrame,
+) -> ResumeSnapshot:
+    next_open = next_open_after(calendar, params.state_as_of_date)
+    if next_open is None or str(next_open) != params.predict_start:
+        raise RuntimeError(
+            "resume_from_backtest requires predict_start to be the next open trading day after state_as_of_date"
+        )
+
+    qparams = [
+        bigquery.ScalarQueryParameter("parent_backtest_id", "STRING", params.parent_backtest_id),
+        bigquery.ScalarQueryParameter("state_as_of_date", "DATE", params.state_as_of_date),
+    ]
+    nav = query_dataframe(
+        client,
+        f"""
+        SELECT trade_date, nav, net_value_cny
+        FROM `{ADS}.ads_backtest_nav_daily`
+        WHERE backtest_id = @parent_backtest_id
+          AND trade_date = @state_as_of_date
+        """,
+        qparams,
+    )
+    if nav.empty:
+        raise RuntimeError("Parent NAV snapshot not found for resume")
+
+    state = query_dataframe(
+        client,
+        f"""
+        SELECT
+          trade_date,
+          cash_cny,
+          net_value_cny,
+          nav,
+          pending_sell_sec_codes_json,
+          active_signal_date,
+          active_target_weights_json,
+          holdings_hash,
+          ledger_version,
+          ledger_params_hash,
+          resume_policy_id,
+          rebalance_anchor_start
+        FROM `{ADS}.ads_backtest_ledger_state_daily`
+        WHERE backtest_id = @parent_backtest_id
+          AND trade_date = @state_as_of_date
+        """,
+        qparams,
+    )
+    if state.empty:
+        raise RuntimeError("Parent ledger state snapshot not found for resume")
+
+    positions = query_dataframe(
+        client,
+        f"""
+        SELECT sec_code, shares, market_value_cny
+        FROM `{ADS}.ads_backtest_position_daily`
+        WHERE backtest_id = @parent_backtest_id
+          AND trade_date = @state_as_of_date
+        """,
+        qparams,
+    )
+
+    state_row = state.iloc[0]
+    expected_hash = ledger_params_hash(params)
+    if str(state_row["ledger_version"]) != params.ledger_version:
+        raise RuntimeError("Parent ledger_version does not match resume child")
+    if str(state_row["resume_policy_id"]) != params.resume_policy_id:
+        raise RuntimeError("Parent resume_policy_id does not match resume child")
+    if str(state_row["rebalance_anchor_start"]) != effective_rebalance_anchor_start(params):
+        raise RuntimeError("Parent rebalance_anchor_start does not match resume child")
+    if str(state_row["ledger_params_hash"]) != expected_hash:
+        raise RuntimeError("Parent ledger_params_hash does not match resume child")
+
+    holdings = {
+        str(row.sec_code): float(row.shares)
+        for row in positions.itertuples(index=False)
+        if abs(float(row.shares)) > 0.000001
+    }
+    if hash_holdings(holdings) != str(state_row["holdings_hash"]):
+        raise RuntimeError("Parent holdings_hash does not match position snapshot")
+
+    market_value = float(positions["market_value_cny"].sum()) if not positions.empty else 0.0
+    cash_cny = float(state_row["cash_cny"])
+    net_value_cny = float(state_row["net_value_cny"])
+    if abs(cash_cny + market_value - net_value_cny) > 1.0:
+        raise RuntimeError("Parent cash plus positions does not reconcile to net value")
+
+    pending_sell = set(json.loads(state_row["pending_sell_sec_codes_json"] or "[]"))
+    target_weights = json.loads(state_row["active_target_weights_json"] or "{}")
+    nav_value = float(nav.iloc[0]["net_value_cny"])
+    if abs(nav_value - net_value_cny) > 1.0:
+        raise RuntimeError("Parent ledger state net value does not match NAV snapshot")
+
+    active_signal_date = state_row["active_signal_date"]
+    if pd.isna(active_signal_date):
+        active_signal_date = None
+
+    return ResumeSnapshot(
+        cash_cny=cash_cny,
+        previous_nav_value=net_value_cny,
+        holdings=holdings,
+        pending_sell=pending_sell,
+        target_weights=target_weights,
+        active_signal_date=active_signal_date,
+        ledger_params_hash=str(state_row["ledger_params_hash"]),
+        rebalance_anchor_start=state_row["rebalance_anchor_start"],
+    )
+
+
+def next_open_after(calendar: pd.DataFrame, state_as_of_date: str | None) -> object | None:
+    if not state_as_of_date:
+        return None
+    later = calendar[calendar["trade_date"].astype(str) > state_as_of_date]
+    if later.empty:
+        return None
+    return later.iloc[0]["trade_date"]
 
 
 def load_targets(client: bigquery.Client, params: LedgerParams) -> pd.DataFrame:

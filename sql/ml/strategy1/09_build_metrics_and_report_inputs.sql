@@ -11,6 +11,7 @@ DECLARE p_baseline_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n
 DECLARE p_parent_experiment_id STRING DEFAULT 'oq010_base_oriented_weekly_h5_n5_w20_pv';
 DECLARE p_parent_run_id STRING DEFAULT 's1_bqml_livepool_oriented_20260603_01';
 DECLARE p_rebalance_frequency STRING DEFAULT 'weekly';
+DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;
 DECLARE p_target_holdings INT64 DEFAULT 5;
 DECLARE p_max_single_weight FLOAT64 DEFAULT 0.20;
 DECLARE p_label_horizon INT64 DEFAULT 5;
@@ -39,12 +40,13 @@ DECLARE p_benchmark STRING DEFAULT '000001.SH';
 DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_backtest
 DECLARE p_parent_backtest_id STRING DEFAULT NULL;
 DECLARE p_state_as_of_date DATE DEFAULT NULL;
-DECLARE p_resume_policy_id STRING DEFAULT 'ledger_exec_v1_resume_v20260604';
+DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
 DECLARE p_calendar_end DATE;
 DECLARE p_selected_model_id STRING;
 DECLARE p_force_replace BOOL DEFAULT FALSE;
 
 SET p_prediction_run_id = COALESCE(p_prediction_run_id, p_run_id);
+SET p_rebalance_anchor_start = COALESCE(p_rebalance_anchor_start, p_predict_start);
 
 IF p_rebalance_frequency NOT IN ('weekly', 'biweekly', 'monthly') THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_rebalance_frequency: ', p_rebalance_frequency);
@@ -198,6 +200,7 @@ SELECT
     p_parent_run_id AS parent_run_id,
     p_prediction_run_id AS prediction_run_id,
     p_rebalance_frequency AS rebalance_frequency,
+    p_rebalance_anchor_start AS rebalance_anchor_start,
     p_target_holdings AS target_holdings,
     p_max_single_weight AS max_single_weight,
     p_label_horizon AS label_horizon,
