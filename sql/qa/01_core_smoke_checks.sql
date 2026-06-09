@@ -1,9 +1,12 @@
 -- 文档维护：GPT-5 Codex（最近更新 2026-06-07）
 -- BigQuery Standard SQL
 -- P0 DIM/DWD 物化后的基础断言。全部通过才进入 DWS 特征构建。
+-- daily_current / full rebuild 的 2019+ 生产写入下限由窗口 SQL 与窗口 QA
+-- 约束；本脚本只校验已存在 DWD 行不早于 A 股日线支持历史下限。
 
 DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
+DECLARE dwd_supported_history_floor_date DATE DEFAULT DATE '1990-12-19';
 
 ASSERT (
   SELECT COUNT(*) = 0
@@ -88,8 +91,8 @@ ASSERT (
 ASSERT (
   SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price`
-  WHERE trade_date < dwd_start_date
-) AS 'dwd_stock_eod_price must not write rows before dwd_start_date';
+  WHERE trade_date < dwd_supported_history_floor_date
+) AS 'dwd_stock_eod_price must not write rows before supported A-share daily history floor';
 
 ASSERT (
   SELECT COUNT(*) = 0
