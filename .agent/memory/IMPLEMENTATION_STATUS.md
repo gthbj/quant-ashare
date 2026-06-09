@@ -121,9 +121,10 @@ Last updated: 2026-06-10
 
 ## 2026-06-10 - Strategy1 回测复合年化收益 PRD
 
-- 状态：已新增 PRD，待 owner review / 后续实现。
+- 状态：已在 PR #134 实现，待 owner review / 部署。
 - 新增 `docs/prd/PRD_20260610_01_策略1回测复合年化收益.md`，定义 `compound_annual_return`、`return_period_count`、`annualization_target_period_count` 和 `annualization_method` 的 P0 字段方案。
-- 明确保留旧 `ads_backtest_performance_summary.annual_return` 为 legacy 字段，P0 不静默改义、不追溯覆盖历史回测。
-- 明确 report、diagnosis、v3 acceptance gate 和 replay QA 后续默认读取复合年化口径；v3 path 缺复合字段时不得 fallback 到 legacy `annual_return` 后 accepted。
-- 本次只改文档和项目记忆，未修改 SQL / Python，未执行 BigQuery / Cloud Run。
-
+- PR #134 扩展 `ads_backtest_performance_summary` 契约，新增 `compound_annual_return`、`return_period_count`、`annualization_target_period_count`、`annualization_method`；`09_build_metrics_and_report_inputs.sql` 对新 run 写出复合年化字段和 `metrics_json.annualization`。
+- `return_period_count` 固定为 `NAV 有效交易日数 - 1`；`10_qa_runner_outputs.sql` 和 `24_qa_acceptance_gate_v3_replay_outputs.sql` 均按该口径重算校验。
+- 明确保留旧 `ads_backtest_performance_summary.annual_return` / `sharpe` 为 legacy 字段，P0 不静默改义、不追溯覆盖历史回测。
+- `render_report.py` 默认展示复合年化收益，并把旧 `annual_return` 标为 `Legacy annual_return`。
+- 本次未执行 BigQuery / Cloud Run；部署后只对新 run 生效，历史 run 如需复合年化需 owner 单独批准回填。

@@ -140,7 +140,9 @@ WHERE t.backtest_id = p_backtest_id
 -- 汇总绩效
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_performance_summary`
 (backtest_id, strategy_id, model_id, start_date, end_date,
- total_return, annual_return, annual_vol, sharpe, max_drawdown,
+ total_return, annual_return, compound_annual_return, return_period_count,
+ annualization_target_period_count, annualization_method,
+ annual_vol, sharpe, max_drawdown,
  turnover_annual, benchmark_sec_code, excess_return, information_ratio,
  cost_bps, metrics_json, created_at)
 WITH nav_data AS (
@@ -168,6 +170,7 @@ agg AS (
     MIN(nd.trade_date) AS start_date,
     MAX(nd.trade_date) AS end_date,
     COUNT(*) AS n_days,
+    GREATEST(COUNT(*) - 1, 0) AS return_period_count,
     (ARRAY_AGG(nd.nav ORDER BY nd.trade_date DESC LIMIT 1))[OFFSET(0)] AS final_nav,
     AVG(nd.daily_return) * 252 AS annual_return,
     STDDEV_SAMP(nd.daily_return) * SQRT(252.0) AS annual_vol,
@@ -176,12 +179,26 @@ agg AS (
     SUM(nd.turnover_cny) AS total_turnover,
     SUM(nd.cost_cny) AS total_cost
   FROM nav_data AS nd
+),
+annualized AS (
+  SELECT
+    a.*,
+    CASE
+      WHEN a.final_nav IS NULL OR a.final_nav <= 0 OR a.return_period_count <= 0 THEN NULL
+      ELSE POW(a.final_nav, 252.0 / a.return_period_count) - 1.0
+    END AS compound_annual_return
+  FROM agg AS a
 )
 SELECT
   p_backtest_id, p_strategy_id, p_selected_model_id,
   a.start_date, a.end_date,
   a.final_nav - 1.0,
-  a.annual_return, a.annual_vol,
+  a.annual_return,
+  a.compound_annual_return,
+  a.return_period_count,
+  252,
+  'compound',
+  a.annual_vol,
   SAFE_DIVIDE(a.annual_return, a.annual_vol),
   dd.max_dd,
   SAFE_DIVIDE(a.total_turnover, (a.n_days / 252.0) * p_initial_capital),
@@ -210,7 +227,23 @@ SELECT
     p_market_state_version AS market_state_version,
     'skip_new_buys' AS market_risk_action,
     p_execution_backend AS execution_backend,
-    a.n_days, a.annual_return, a.annual_vol,
+    a.n_days,
+    a.return_period_count,
+    252 AS annualization_target_period_count,
+    'compound' AS annualization_method,
+    a.annual_return,
+    a.annual_return AS legacy_annual_return,
+    a.compound_annual_return,
+    SAFE_DIVIDE(a.compound_annual_return, a.annual_vol) AS compound_sharpe,
+    'legacy_arithmetic_daily_return' AS sharpe_annualization_method,
+    STRUCT(
+      'compound' AS method,
+      252 AS target_period_count,
+      a.return_period_count AS return_period_count,
+      a.compound_annual_return AS compound_annual_return,
+      a.annual_return AS legacy_annual_return
+    ) AS annualization,
+    a.annual_vol,
     SAFE_DIVIDE(a.annual_return, a.annual_vol) AS sharpe,
     dd.max_dd AS max_drawdown,
     a.excess_annual AS excess_annual_return,
@@ -270,7 +303,7 @@ SELECT
     cs.total_commission_cny, cs.total_tax_cny, cs.total_slippage_cny, cs.total_economic_cost_cny
   )),
   CURRENT_TIMESTAMP()
-FROM agg AS a, drawdown AS dd, sell_stats AS ss, cost_stats AS cs;
+FROM annualized AS a, drawdown AS dd, sell_stats AS ss, cost_stats AS cs;
 
 -- 信号监控（t+1 可买性）
 INSERT INTO `data-aquarium.ashare_ads.ads_signal_monitor_daily`

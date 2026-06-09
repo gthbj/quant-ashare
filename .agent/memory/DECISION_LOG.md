@@ -2553,3 +2553,37 @@ Strategy1 当前执行主线已经收敛到 Cloud Run Python training / predicti
 ### 相关文件
 
 `scripts/strategy1_cloudrun/backtest_report.py`, `scripts/strategy1_cloudrun/orchestrate_experiments.py`, `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`, `scripts/strategy1/run_oq010_experiments.py`, `sql/ml/strategy1/02_train_bqml_logistic_candidates.sql`, `sql/ml/strategy1/03_select_model_and_register.sql`, `sql/ml/strategy1/04_predict_daily.sql`, `sql/ml/strategy1/08_run_backtest.sql`, `sql/ml/strategy1/README.md`, `sql/README.md`, `docs/prd/PRD_20260609_02_策略1旧BQMLSQLRunner退役.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+
+## DECISION-20260610-04: Strategy1 回测新增复合年化字段且保留 legacy 年化语义
+
+日期: 2026-06-10
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+owner 已明确本项目后续谈及年化、月化、日化时默认按复利口径理解。Strategy1 现有 ADS summary 的 `annual_return` 是 legacy 算术年化收益，`sharpe` 也沿用 `annual_return / annual_vol`。若直接重定义原字段，会让历史报告、旧 QA 和接受门阈值不可比。
+
+### 决策
+
+1. 在 `ads_backtest_performance_summary` 新增显式字段 `compound_annual_return`、`return_period_count`、`annualization_target_period_count`、`annualization_method`。
+2. `return_period_count` 固定定义为评估窗口内 NAV 有效交易日数减一，即 NAV return intervals。
+3. `compound_annual_return = (1 + total_return) ^ (252 / return_period_count) - 1`，其中 `total_return` 由 NAV 首尾值计算。
+4. 保留 `annual_return` 和 `sharpe` 的 legacy 算术口径；报告和 metrics_json 显式标注 legacy 字段，默认展示复合年化收益。
+5. v3 replay / QA 的全周期收益与年化输入使用 NAV 首尾值和 `return_period_count`，避免用日收益条数作为年化分母。
+6. 不默认回填历史 ADS 行；历史 run 若要新口径报告，应由 owner 决定重跑 report 或生成 sidecar。
+
+### 理由
+
+新增字段能满足 owner 的复利默认口径，同时避免静默改变历史 `annual_return` / `sharpe` 语义。用 NAV 有效交易日数减一作为 period count，可以让年化分母与真实收益区间一致，避免首日 NAV 点被误当作一段收益。
+
+### 影响
+
+1. 新 runner / report 可直接输出复合年化收益；旧报告仍可读取 legacy 字段。
+2. 若 compound Sharpe 或 compound Calmar 要接管生产阈值，必须先重放历史候选并确认阈值，不应沿用旧算术 Sharpe 阈值而不分析影响。
+3. 部署时需先执行 ADS additive migration 或等价 schema update，再运行写入新增字段的 `09` summary SQL。
+
+Related files: sql/ads/01_ads_strategy1_tables.sql; sql/ads/02_alter_strategy1_backtest_compound_annual_return.sql; sql/ml/strategy1/09_build_metrics_and_report_inputs.sql; sql/ml/strategy1/10_qa_runner_outputs.sql; sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql; scripts/strategy1/render_report.py; scripts/strategy1/replay_acceptance_gate_v3.py; configs/strategy1/model_acceptance_contract_v3.yml; docs/prd/PRD_20260610_01_策略1回测复合年化收益.md

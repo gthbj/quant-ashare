@@ -673,6 +673,27 @@ def determine_diagnosis_triggers(summary: dict, nav_df: pd.DataFrame,
     return len(triggers) > 0, triggers
 
 
+def numeric_or_none(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    if out != out:
+        return None
+    return out
+
+
+def compound_annualized_return(total_return: float | None, return_period_count: int | None, annual_factor: int = 252) -> float | None:
+    if total_return is None or return_period_count is None or return_period_count <= 0:
+        return None
+    gross = 1.0 + total_return
+    if gross <= 0:
+        return None
+    return gross ** (annual_factor / return_period_count) - 1.0
+
+
 def build_evidence_pack(summary: dict, nav_df: pd.DataFrame,
                         assessment_bench: pd.DataFrame,
                         display_bench: pd.DataFrame,
@@ -695,9 +716,20 @@ def build_evidence_pack(summary: dict, nav_df: pd.DataFrame,
             return {"total_return": None, "note": "数据不可用"}
         pct = bench_df["pct_chg"].fillna(0) / 100.0
         cum = (1 + pct).cumprod()
+        total_return = float(cum.iloc[-1] - 1)
+        return_period_count = max(int(len(pct) - 1), 0)
+        compound_return = compound_annualized_return(total_return, return_period_count)
+        legacy_annual_return = float(pct.mean() * 252)
         return {
-            "total_return": round(float(cum.iloc[-1] - 1), 6),
-            "annual_return": round(float(pct.mean() * 252), 6),
+            "total_return": round(total_return, 6),
+            "annual_return": round(float(compound_return if compound_return is not None else legacy_annual_return), 6),
+            "compound_annual_return": None if compound_return is None else round(float(compound_return), 6),
+            "legacy_annual_return": round(legacy_annual_return, 6),
+            "annualization": {
+                "method": "compound",
+                "target_period_count": 252,
+                "return_period_count": return_period_count,
+            },
             "max_drawdown": round(float((cum / cum.cummax() - 1).min()), 6),
         }
 
@@ -741,7 +773,20 @@ def build_evidence_pack(summary: dict, nav_df: pd.DataFrame,
         "performance_summary": {
             "strategy": {
                 "total_return": round(float(summary.get("total_return", 0) or 0), 6),
-                "annual_return": round(float(summary.get("annual_return", 0) or 0), 6),
+                "annual_return": round(float(
+                    numeric_or_none(summary.get("compound_annual_return"))
+                    if numeric_or_none(summary.get("compound_annual_return")) is not None
+                    else (numeric_or_none(summary.get("annual_return")) or 0)
+                ), 6),
+                "compound_annual_return": None
+                    if numeric_or_none(summary.get("compound_annual_return")) is None
+                    else round(float(numeric_or_none(summary.get("compound_annual_return"))), 6),
+                "legacy_annual_return": round(float(numeric_or_none(summary.get("annual_return")) or 0), 6),
+                "annualization": {
+                    "method": summary.get("annualization_method") or m.get("annualization_method") or (m.get("annualization") or {}).get("method"),
+                    "target_period_count": summary.get("annualization_target_period_count") or m.get("annualization_target_period_count") or (m.get("annualization") or {}).get("target_period_count"),
+                    "return_period_count": summary.get("return_period_count") or m.get("return_period_count") or (m.get("annualization") or {}).get("return_period_count"),
+                },
                 "annual_vol": round(float(summary.get("annual_vol", 0) or 0), 6),
                 "sharpe": round(float(summary.get("sharpe", 0) or 0), 4),
                 "max_drawdown": round(float(m.get("max_drawdown", 0) or 0), 6),
@@ -1237,7 +1282,8 @@ def render_markdown(summary: dict, model_info: dict, evidence: dict,
     sections.append("| 指标 | 策略 | 基准 |")
     sections.append("|---|---|---|")
     sections.append(f"| 累计收益 | {_pct(strat.get('total_return'))} | {_pct(bench_ret)} |")
-    sections.append(f"| 年化收益 | {_pct(strat.get('annual_return'))} | {_pct(ab.get('annual_return'))} |")
+    sections.append(f"| 复合年化收益 | {_pct(strat.get('compound_annual_return'))} | {_pct(ab.get('compound_annual_return'))} |")
+    sections.append(f"| Legacy annual_return | {_pct(strat.get('legacy_annual_return'))} | {_pct(ab.get('legacy_annual_return'))} |")
     sections.append(f"| 年化波动 | {_pct(strat.get('annual_vol'))} | — |")
     sections.append(f"| Sharpe | {_fmt(strat.get('sharpe'))} | — |")
     sections.append(f"| 最大回撤 | {_pct(strat.get('max_drawdown'))} | {_pct(ab.get('max_drawdown'))} |")
@@ -1484,7 +1530,8 @@ def render_html(summary: dict, model_info: dict, evidence: dict,
     perf_rows = "".join([
         row("回测窗口", f"{summary.get('start_date', '')} 至 {summary.get('end_date', '')}"),
         row("累计收益", _pct(strat.get("total_return"))),
-        row("年化收益", _pct(strat.get("annual_return"))),
+        row("复合年化收益", _pct(strat.get("compound_annual_return"))),
+        row("Legacy annual_return", _pct(strat.get("legacy_annual_return"))),
         row("年化波动", _pct(strat.get("annual_vol"))),
         row("Sharpe", _fmt(strat.get("sharpe"))),
         row("最大回撤", _pct(strat.get("max_drawdown"))),
