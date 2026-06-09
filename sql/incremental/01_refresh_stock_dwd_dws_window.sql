@@ -6,8 +6,8 @@
 -- - 目标表必须已由全量 CTAS 路径初始化。
 -- - 本脚本只刷新股票日频 DWD 与策略 1 DWS，不写 ADS run/backtest 产物。
 -- - DWD 写入窗口由 date_from/date_to 或 business_date 控制。
--- - daily_current 模式：默认刷新最近 20 个交易日（含当天），确保估值缺口自动修复。
--- - backfill 模式：显式 date_from/date_to，不做自动扩展。
+-- - daily_current 模式：默认刷新最近 20 个交易日（含当天），确保估值缺口自动修复，并保持 2019+ 生产下限。
+-- - backfill 模式：显式 date_from/date_to，不做自动扩展；允许 owner 手工补 2019 年以前历史窗口。
 -- - 价格特征读取窗口按 SSE 交易日历往前推 60 个交易日。
 -- - 估值特征读取窗口按每只股票写入窗口首日前的实际 60 条估值观测推导，覆盖 daily_basic 缺口。
 -- - 标签写入窗口按 SSE 交易日历往前推 20 个交易日，避免 t+H forward label 受 late data/生命周期变更影响后未回填。
@@ -29,7 +29,12 @@ DECLARE p_date_to DATE DEFAULT CASE
   )
   ELSE p_requested_date_to
 END;
-DECLARE p_final_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_daily_current_floor_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_backfill_floor_date DATE DEFAULT DATE '1900-01-01';
+DECLARE p_write_floor_date DATE DEFAULT CASE
+  WHEN p_warehouse_mode = 'backfill' THEN p_backfill_floor_date
+  ELSE p_daily_current_floor_date
+END;
 DECLARE p_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
 DECLARE p_fin_feature_version STRING DEFAULT 'fin_default_v0_20260602';
 DECLARE p_label_version STRING DEFAULT 'open_to_close_h1_5_10_20_v20260601';
@@ -69,7 +74,7 @@ DECLARE p_dwd_write_start_date DATE DEFAULT GREATEST(
       THEN p_daily_current_start_date
     ELSE COALESCE(p_date_from, p_date_to)
   END,
-  p_final_start_date
+  p_write_floor_date
 );
 DECLARE p_write_end_date DATE DEFAULT p_date_to;
 DECLARE p_anchor_seq INT64 DEFAULT (
@@ -90,7 +95,7 @@ DECLARE p_feature_read_start_date DATE DEFAULT GREATEST(
     ),
     DATE_SUB(p_dwd_write_start_date, INTERVAL 90 DAY)
   ),
-  p_final_start_date
+  p_write_floor_date
 );
 DECLARE p_valuation_feature_read_start_date DATE DEFAULT p_dwd_write_start_date;
 DECLARE p_label_write_start_date DATE DEFAULT GREATEST(
@@ -104,7 +109,7 @@ DECLARE p_label_write_start_date DATE DEFAULT GREATEST(
     ),
     DATE_SUB(p_dwd_write_start_date, INTERVAL 35 DAY)
   ),
-  p_final_start_date
+  p_write_floor_date
 );
 
 IF p_write_end_date < p_dwd_write_start_date THEN
@@ -471,7 +476,7 @@ SET p_valuation_feature_read_start_date = COALESCE((
     JOIN first_write AS f
       ON v.sec_code = f.sec_code
      AND v.trade_date <= f.first_write_trade_date
-    WHERE v.trade_date BETWEEN p_final_start_date AND p_write_end_date
+    WHERE v.trade_date BETWEEN p_write_floor_date AND p_write_end_date
   ),
   read_bounds AS (
     SELECT

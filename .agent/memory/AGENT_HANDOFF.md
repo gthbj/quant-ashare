@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-09，GPT-5 Codex）
+> - 手工触发 2015 年 `ashare_warehouse_window_refresh` backfill 时失败，根因是窗口刷新 SQL 固定以 `2019-01-01` 作为写入下限，导致 `2015-01-01 ~ 2015-12-31` 被推成 `write_start=2019-01-01`。
+> - 分支 `codex/fix-2015-index-backfill` 已将股票、指数、market-state 窗口刷新及股票/指数窗口 QA 改为按 `warehouse_mode` 区分日期下限：`daily_current` 保持 2019+，显式 `backfill` 允许 2019 年以前历史窗口。
+> - 合并并部署后，下一步重新触发 2015 年窗口补数；2015 成功后再按年触发 2016、2017、2018。
+
+> 当前交接补充（2026-06-09，GPT-5 Codex）
 > - 新增 `docs/prd/PRD_20260609_01_策略1R14长训练回测.md`。
 > - PRD 固定当前 R14 LightGBM regression 方法，不重新搜索参数，名义训练窗口为 `2015-04-01 ~ 2019-12-31`，先跑 `2020-01-02 ~ 2022-12-30` 的 `10` 只 / `20` 只双组合 diagnostic backtest；`2023-01 ~ 2026-06-09` 追加回测视 P0 结果和 owner 决策而定，若追加也跑两个组合。
 > - 关键边界：训练必须做 5d label embargo，避免 2019 年末训练样本使用 2020 回测期收益；追加段不能和 `2020-2022` fresh segment 拼接成正式连续回测，除非 Cloud Run Python ledger resume 已实现并通过 resume consistency QA。
@@ -37,7 +42,7 @@
 ## 当前交接摘要（2026-06-09）
 - OQ-005 当前状态：`ashare-ods-ingestion-daily`（`0 20 * * *`）与 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 Scheduler job 已是唯一生产调度入口，ODS parent -> warehouse child、alert checker、manual full rebuild dry-run 都已有 live smoke 证据。
 - OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更；旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
-- Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；live Cloud Run Python write-back gate 已在分支切到 v3，待小规模 smoke；当前没有 accepted Python baseline，OQ-010 仍然 open。
+- Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；当前没有 accepted Python baseline，OQ-010 仍然 open；R14 长训练补数前置修复已在 `codex/fix-2015-index-backfill`，用于让显式 `backfill` 可写入 2015-2018 历史窗口。
 - OQ-012 当前状态：schema contract / repair tooling / QA 都已具备，当前 BigQuery 读层无 mismatch 报警；剩余是 owner 是否把该问题正式关闭或保留防复发工程项。
 
 # Agent 交接（Agent Handoff）
@@ -45,6 +50,57 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-09 GPT-5 Codex - 2015-2018 历史 backfill 下限修复
+
+### 已完成工作
+
+- 新建 worktree `/Users/fisher/Desktop/git/quant-ashare-fix-2015-index-backfill`，分支 `codex/fix-2015-index-backfill`。
+- 修复 `ashare_warehouse_window_refresh` 历史 backfill 被 `2019-01-01` 下限拦截的问题。
+- 股票 DWD/DWS 窗口、指数 DWD 窗口、market-state 窗口和股票 / 指数窗口 QA 均改为按 `warehouse_mode` 区分日期下限：`daily_current` 保持 2019+，显式 `backfill` 允许 owner 指定 2019 年以前窗口。
+
+### 重要上下文
+
+- 2015 年 backfill execution `2eea35d1-21bc-4c4c-b610-90b57170819a` 失败于指数 DWD 窗口刷新，错误为 `index DWD window refresh requires write_end_date >= write_start_date`。
+- 根因不是 workflow 参数入口或 ODS readiness；ODS readiness 已通过，失败发生在指数窗口 SQL 的固定下限计算。
+- 本 PR 不自动执行补数；合并部署后需要重新从 2015 年窗口开始触发。
+
+### 改动文件
+
+- `sql/incremental/01_refresh_stock_dwd_dws_window.sql`
+- `sql/incremental/02_refresh_index_dwd_window.sql`
+- `sql/incremental/03_refresh_market_state_window.sql`
+- `sql/qa/10_windowed_stock_refresh_checks.sql`
+- `sql/qa/12_windowed_index_refresh_checks.sql`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未执行 SQL dry-run 或生产补数验证；本轮按 owner 要求先修代码并提 PR。
+
+### 阻塞项
+
+- 无代码阻塞。
+- 合并部署前不要继续触发 2016-2018 补数，否则仍会命中旧线上 SQL。
+
+### 下一步建议
+
+- 合并并部署 Workflows SQL bundle 后，重新触发 `2015-01-01 ~ 2015-12-31` backfill。
+- 2015 年成功后，再按年触发 `2016`、`2017`、`2018`。
+
+### 已更新记忆文件
+
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-09 GPT-5 Codex - Strategy1 R14 长训练窗口回测 PRD
 

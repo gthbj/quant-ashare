@@ -5,8 +5,8 @@
 -- 口径：
 -- - 目标表必须已由全量 CTAS 路径初始化。
 -- - 本脚本只刷新 dwd_index_eod，不写 DWS market-state 或 ADS run/backtest 产物。
--- - daily_current 模式默认刷新最近 20 个交易日（含 date_to），覆盖指数 late data。
--- - backfill 模式使用显式 date_from/date_to。
+-- - daily_current 模式默认刷新最近 20 个交易日（含 date_to），覆盖指数 late data，并保持 2019+ 生产下限。
+-- - backfill 模式使用显式 date_from/date_to；允许 owner 手工补 2019 年以前历史窗口。
 
 DECLARE p_business_date DATE DEFAULT COALESCE(SAFE_CAST(NULLIF(@business_date, '') AS DATE), CURRENT_DATE('Asia/Shanghai'));
 DECLARE p_date_from DATE DEFAULT SAFE_CAST(NULLIF(@date_from, '') AS DATE);
@@ -25,7 +25,12 @@ DECLARE p_date_to DATE DEFAULT CASE
   )
   ELSE p_requested_date_to
 END;
-DECLARE p_final_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_daily_current_floor_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_backfill_floor_date DATE DEFAULT DATE '1900-01-01';
+DECLARE p_write_floor_date DATE DEFAULT CASE
+  WHEN p_warehouse_mode = 'backfill' THEN p_backfill_floor_date
+  ELSE p_daily_current_floor_date
+END;
 DECLARE p_daily_current_lookback_td INT64 DEFAULT 20;
 DECLARE p_end_date_seq INT64 DEFAULT (
   SELECT trade_date_seq
@@ -51,7 +56,7 @@ DECLARE p_write_start_date DATE DEFAULT GREATEST(
       THEN p_daily_current_start_date
     ELSE COALESCE(p_date_from, p_date_to)
   END,
-  p_final_start_date
+  p_write_floor_date
 );
 DECLARE p_write_end_date DATE DEFAULT p_date_to;
 
