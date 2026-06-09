@@ -1,3 +1,8 @@
+> 当前交接补充（2026-06-09，GPT-5 Codex）
+> - Strategy1 Cloud Run Python live acceptance gate 已在分支 `codex/implement-v3-live-gate` 从 v1 切到 v3。
+> - live orchestrator 现在会在 ADS 写回前按实际 backtest span / manifest final_holdout window 重算五指数相对门、复合年化、Sharpe / Calmar 和 final_holdout 诊断字段，并写入 registry、backtest summary 与 comparison artifact。
+> - PR #125 分支已完成 2 候选 live v3 smoke：prepare、candidate fanout、select/register/predict、backtest/report、19 QA 和 artifact 上传均 succeeded；smoke 中发现并修复了 `v3_relative_gate_by_benchmark.csv` 的 `search_id` 透传缺口。
+
 > 当前交接补充（2026-06-08，GPT-5 Codex）
 > - `TODO.md` 已从“完成历史 + 进行中事项混排”重写为短版，只保留当前可执行事项。
 > - 当前 TODO 只剩 3 个主动作：OQ-005 补短观察窗记录、OQ-010 继续找 accepted Python baseline、OQ-012 决定是否正式归档关闭。
@@ -13,10 +18,10 @@
 > - `orchestration/composer/` 已收口为 retired / audit-only 历史目录，只保留审计、迁移对照和受控回滚参考价值。
 > - Strategy1 `v3` replay 与 helper 驱动的 `24` QA 已按最新 contract 真执行通过；当前真正开放的主线只剩 OQ-010 可接受 Python baseline 和 OQ-012 是否正式归档。
 
-## 当前交接摘要（2026-06-08）
+## 当前交接摘要（2026-06-09）
 - OQ-005 当前状态：`ashare-ods-ingestion-daily`（`0 20 * * *`）与 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 Scheduler job 已是唯一生产调度入口，ODS parent -> warehouse child、alert checker、manual full rebuild dry-run 都已有 live smoke 证据。
 - OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更。
-- Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；当前没有 accepted Python baseline，OQ-010 仍然 open。
+- Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；live Cloud Run Python write-back gate 已在分支切到 v3，待小规模 smoke；当前没有 accepted Python baseline，OQ-010 仍然 open。
 - OQ-012 当前状态：schema contract / repair tooling / QA 都已具备，当前 BigQuery 读层无 mismatch 报警；剩余是 owner 是否把该问题正式关闭或保留防复发工程项。
 
 # Agent 交接（Agent Handoff）
@@ -24,6 +29,65 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-09 GPT-5 Codex - Strategy1 live acceptance gate v3 cutover
+
+### 已完成工作
+
+- 将 Cloud Run Python search 默认 acceptance contract 从 `model_acceptance_contract_v1.yml` 切到 `model_acceptance_contract_v3.yml`。
+- `orchestrate_sklearn_native_search.py` 在 ADS 写回前接入 v3 replay 已验证的五指数指标计算，按实际 backtest span / manifest final_holdout window 输出候选级 v3 状态和逐指数相对门明细。
+- ADS registry / backtest summary 写回新增 v3 contract hash、gate version、primary benchmark、复合年化、Sharpe / Calmar、final_holdout 诊断和五指数相对门摘要。
+- `19` QA 改为 v3-aware；`21` risk-feature QA 把旧 risk overlay 限定到 legacy contract。
+- 使用 PR #125 分支 smoke 镜像和临时 Cloud Run jobs 跑通 2 候选 live v3 smoke；过程发现 `v3_relative_gate_by_benchmark.csv` 的 `search_id` 列为空，已补 `fetch_topk_ads_outputs` 的 search_id 透传。
+
+### 重要上下文
+
+- owner 已明确后续不再经过 v2；当前切门路径是 v1 -> v3。
+- v3 final_holdout 是 diagnostic-only，不再是 hard veto。
+- 本轮没有重跑历史 replay，也没有启动新的 Cloud Run search。
+
+### 改动文件
+
+- `configs/strategy1/model_acceptance_contract_v3.yml`
+- `configs/strategy1/cloudrun_python_lgbm_pvfq_n30_bw_h5_v0.yml`
+- `configs/strategy1/cloudrun_python_lgbm_regression_pvfq_n30_bw_h5_v0.yml`
+- `configs/strategy1/cloudrun_python_riskfeat_lgbm_pvfq_n30_bw_h5_v0.yml`
+- `configs/strategy1/cloudrun_python_riskfeat_lgbm_regression_pvfq_n30_bw_h5_v0.yml`
+- `scripts/strategy1_cloudrun/acceptance.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`
+- `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`
+- `sql/ml/strategy1/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 已执行 2 候选 Cloud Run live v3 smoke：`search_id=cloudrun_python_lgbm_v3_live_smoke_20260609_01`，`candidate_count=2`，`top_k=1`。
+- 结果：prepare matrix、2 个 candidate fanout、select/register/predict、backtest/report、19 QA 和 artifact upload 均 succeeded；Top-K 1 的 native/v3 status 为 `rejected`，原因 `test_top_minus_bottom<=0;no_comparison_benchmark_passed_v3_relative_gate`。
+- registry 验证：`acceptance_contract_version=model_acceptance_contract_v3`、`acceptance_gate_version=strategy1_acceptance_gate_v3`、`primary_benchmark_sec_code=000001.SH`、`v3_relative_gate_evaluated_benchmark_count=5`。
+- artifact 验证：`gs://ashare-artifacts/reports/strategy1/ml_pv_clf_v0/search_id=cloudrun_python_lgbm_v3_live_smoke_20260609_01/v3_relative_gate_by_benchmark.csv` 已生成 5 个 benchmark 明细；本轮修复后后续运行会写出非空 `search_id`。
+
+### 阻塞项
+
+- 无代码阻塞。
+
+### 下一步建议
+
+- 等 PR #125 review；若 reviewer 接受 smoke 证据，可以合并。
+- 合并后清理临时 `*-pr125-smoke` Cloud Run jobs 和未提交 smoke manifest。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-08 GPT-5 Codex - OQ-005 direct cutover to Scheduler + Workflows
 

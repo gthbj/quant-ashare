@@ -2426,3 +2426,42 @@ Composer 环境已经不存在，继续在 README 中保留可执行命令或在
 ### 相关文件
 
 `orchestration/composer/README.md`, `orchestration/composer/dags/ashare_common.py`, `orchestration/composer/dags/ashare_daily_pipeline_v0.py`, `orchestration/composer/dags/ashare_ods_ingestion_daily.py`, `orchestration/composer/dags/ashare_pipeline_alert_checker.py`, `orchestration/composer/dags/ashare_warehouse_full_rebuild.py`, `orchestration/composer/dags/ashare_warehouse_window_refresh.py`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260609-01: Strategy1 Cloud Run live acceptance gate 切到 v3
+
+日期: 2026-06-09
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+`model_acceptance_contract_v3.yml`、历史五次正式搜索 replay 和 helper 驱动的 `24` QA 已收口完成。owner 已明确后续不再经过 v2，当前需要把 Cloud Run Python live search 的主写回门从 v1 切到 v3。
+
+### 决策
+
+1. Cloud Run Python search 的默认 acceptance contract 改为 `configs/strategy1/model_acceptance_contract_v3.yml`。
+2. v1 继续保留为历史搜索审计契约，不作为新的 live write-back 默认门。
+3. live orchestrator 在 ADS 写回前必须按实际 backtest span / manifest final_holdout window 与 v3 contract 的五指数集合重算候选级指标和相对门，并把 v3 状态、contract hash、primary benchmark、Calmar、复合年化和相对门摘要写入 registry / backtest summary / comparison artifact。
+4. 旧的 risk-feature `-18%` 最大回撤 overlay 只适用于 legacy contract；v3 不再额外叠加这条 v1 风险专项 overlay。
+
+### 理由
+
+v3 的接受标准已经不再是 v1 的 `000852.SH` 单 benchmark 超额与 final_holdout 硬门，而是以 `000001.SH` 为主 benchmark、五指数任一通过、复合年化、Sharpe / Calmar 和策略最大回撤同期超额为核心。如果只切配置而不在 live path 重算五指数相对门，registry 和 report 会继续写出 v1 语义，导致 accepted / rejected 口径漂移。
+
+### 影响
+
+1. 后续新 Cloud Run search 默认写回 `model_acceptance_contract_v3`。
+2. `19` QA 需要按 contract version 分支：v3 accepted 检查 v3 signal / absolute / relative gate；legacy contract 仍保留旧检查。
+3. `21` risk-feature QA 的 feature / market-state 断言保留，但旧 risk overlay 不再阻断 v3 accepted。
+4. 下一步必须跑小规模 Cloud Run search smoke，确认 live row 信号字段驱动复用 v3 gate 后与 #122 replay 基准一致，并验证 registry、19/21 QA 和 `v3_relative_gate_by_benchmark.csv` 一致。
+
+### 备选方案
+
+- 只改 manifest 的 `acceptance_contract_path`：不采用。原因是 live row 缺少五指数相对门指标，无法真正执行 v3。
+- 新增独立 live-v3 orchestrator：暂不采用。原因是现有 live search orchestrator 已覆盖训练、Top-K、回测、QA 和 artifact，直接 contract-version 分流能减少重复路径。
+
+### 相关文件
+
+`configs/strategy1/model_acceptance_contract_v3.yml`, `scripts/strategy1_cloudrun/acceptance.py`, `scripts/strategy1_cloudrun/config.py`, `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`, `sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql`, `sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql`, `sql/ml/strategy1/README.md`, `TODO.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`

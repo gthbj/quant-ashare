@@ -81,6 +81,16 @@ from scripts.strategy1_cloudrun.state import (
     scheduler_instance_id,
 )
 from scripts.strategy1_cloudrun.task_fanout import default_matrix_id, matrix_artifact_uri, read_json
+from scripts.strategy1.replay_acceptance_gate_v3 import (
+    apply_contract_defaults as apply_v3_contract_defaults,
+    comparison_benchmarks as v3_comparison_benchmarks,
+    ensure_benchmark_coverage as ensure_v3_benchmark_coverage,
+    evaluate_candidate as evaluate_v3_candidate,
+    fetch_benchmark_rows as fetch_v3_benchmark_rows,
+    fetch_nav_rows as fetch_v3_nav_rows,
+    split_nav_by_backtest as split_v3_nav_by_backtest,
+    split_prices_by_benchmark as split_v3_prices_by_benchmark,
+)
 
 
 def main() -> int:
@@ -269,9 +279,26 @@ def main() -> int:
     comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results, search_exp) if successful_topk_results else []
     comparison_rows = enrich_tail_risk_rows(client, comparison_rows)
     contract = load_acceptance_contract(config.acceptance_contract_path)
+    v3_benchmark_rows: list[dict[str, Any]] = []
+    if contract_version(contract) == "model_acceptance_contract_v3":
+        comparison_rows, v3_benchmark_rows = enrich_v3_acceptance_rows(
+            client,
+            config,
+            search_exp,
+            comparison_rows,
+            contract,
+        )
     apply_native_acceptance_to_ads(client, comparison_rows, raw_manifest, contract)
     comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results, search_exp) if successful_topk_results else []
     comparison_rows = enrich_tail_risk_rows(client, comparison_rows)
+    if contract_version(contract) == "model_acceptance_contract_v3":
+        comparison_rows, v3_benchmark_rows = enrich_v3_acceptance_rows(
+            client,
+            config,
+            search_exp,
+            comparison_rows,
+            contract,
+        )
     overlap_rows, common_crash_rows = build_search_tail_risk_artifacts(client, search_id, comparison_rows)
     write_final_comparison(
         comparison_dir,
@@ -282,6 +309,7 @@ def main() -> int:
         ranking=ranking,
         top_rows=top_rows,
         comparison_rows=comparison_rows,
+        v3_benchmark_rows=v3_benchmark_rows,
         overlap_rows=overlap_rows,
         common_crash_rows=common_crash_rows,
         topk_execution_results=topk_results,
@@ -700,6 +728,7 @@ def write_final_comparison(
     ranking: list[dict[str, Any]],
     top_rows: list[dict[str, Any]],
     comparison_rows: list[dict[str, Any]],
+    v3_benchmark_rows: list[dict[str, Any]],
     overlap_rows: list[dict[str, Any]],
     common_crash_rows: list[dict[str, Any]],
     topk_execution_results: list[dict[str, Any]],
@@ -709,6 +738,8 @@ def write_final_comparison(
 ) -> None:
     pd.DataFrame(ranking).to_csv(out_dir / "candidate_ranking.csv", index=False)
     pd.DataFrame(comparison_rows).to_csv(out_dir / "top5_backtest_summary.csv", index=False)
+    if v3_benchmark_rows:
+        pd.DataFrame(v3_benchmark_rows).to_csv(out_dir / "v3_relative_gate_by_benchmark.csv", index=False)
     write_feature_search_artifacts(out_dir, matrix_local, comparison_rows)
     tail_cols = [
         "candidate_id", "run_id", "backtest_id", "tail_risk_profile_id",
@@ -762,9 +793,13 @@ def write_final_comparison(
         "test_reuse_wave_no": test_reuse_wave_no,
         "test_reuse_approval_ref": test_reuse_approval_ref,
         "final_holdout_status": final_holdout_status,
+        "acceptance_contract_version": selected.get("acceptance_contract_version") if selected else None,
+        "acceptance_contract_sha256": selected.get("acceptance_contract_sha256") if selected else None,
+        "acceptance_gate_version": selected.get("acceptance_gate_version") if selected else None,
         "ranking": ranking,
         "topk_execution_results": topk_execution_results,
         "top5_backtest_summary": comparison_rows,
+        "v3_relative_gate_by_benchmark": v3_benchmark_rows,
         "selected_sklearn_native_baseline": selected,
     }
     write_json(out_dir / "sklearn_native_candidate_comparison.json", payload)
@@ -834,8 +869,8 @@ def render_comparison_md(payload: dict[str, Any], comparison_rows: list[dict[str
             "",
             "## Top 5 回测",
             "",
-            "| rank | candidate_id | status | total_return | excess_return | sharpe | max_drawdown | risk gain | market gain | max DD window | limit-down weight peak | test RankIC | test excess | final holdout excess |",
-            "|---:|---|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|",
+            "| rank | candidate_id | status | total_return | excess_return | sharpe | v3 Calmar | v3 passed benchmarks | max_drawdown | risk gain | market gain | max DD window | limit-down weight peak | test RankIC | test excess | final holdout excess |",
+            "|---:|---|---|---:|---:|---:|---:|---|---:|---:|---:|---|---:|---:|---:|---:|",
         ])
         for row in comparison_rows:
             dd_window = "NA"
@@ -845,6 +880,8 @@ def render_comparison_md(payload: dict[str, Any], comparison_rows: list[dict[str
                 f"| {row.get('shortlist_rank_valid_only')} | `{row.get('candidate_id')}` | "
                 f"{row.get('native_acceptance_status')} | {fmt(row.get('total_return'))} | "
                 f"{fmt(row.get('excess_return'))} | {fmt(row.get('sharpe'))} | "
+                f"{fmt(row.get('v3_calmar_ratio'))} | "
+                f"{row.get('v3_passed_benchmark_sec_codes') or 'NA'} | "
                 f"{fmt(row.get('max_drawdown'))} | "
                 f"{fmt(row.get('risk_feature_importance_gain_share'))} | "
                 f"{fmt(row.get('market_state_importance_gain_share'))} | "
@@ -859,7 +896,7 @@ def render_comparison_md(payload: dict[str, Any], comparison_rows: list[dict[str
         "## 说明",
         "",
         "- Top 5 排名只使用 2021/2022/2023 CV 与 2024 valid；test / final_holdout 只用于验收和风险复核。",
-        "- `accepted` 要求满足共享验收契约 `model_acceptance_contract_v1`。",
+        f"- `accepted` 要求满足共享验收契约 `{payload.get('acceptance_contract_version') or 'model_acceptance_contract_v3'}`。",
     ])
     return "\n".join(lines) + "\n"
 
@@ -1047,6 +1084,7 @@ def fetch_topk_ads_outputs(
         summary_metrics = parse_json(row.get("summary_metrics_json"))
         run_id = row["run_id"]
         out.append({
+            "search_id": row.get("search_id"),
             "run_id": run_id,
             "backtest_id": row.get("backtest_id"),
             "start_date": row.get("start_date"),
@@ -1058,6 +1096,11 @@ def fetch_topk_ads_outputs(
             "valid_signal_status": reg_metrics.get("valid_signal_status"),
             "score_orientation": reg_metrics.get("score_orientation"),
             "cv_confirmation_status": reg_metrics.get("cv_confirmation_status"),
+            "model_family": reg_metrics.get("model_family"),
+            "model_backend": reg_metrics.get("model_backend"),
+            "primary_diagnosis": reg_metrics.get("primary_diagnosis")
+                or summary_metrics.get("model_diagnosis_primary_diagnosis"),
+            "sample_filter_risk": reg_metrics.get("sample_filter_risk"),
             "cv_rank_ic_mean": reg_metrics.get("cv_rank_ic_mean"),
             "cv_top_minus_bottom_fwd_ret_mean": reg_metrics.get("cv_top_minus_bottom_fwd_ret_mean"),
             "acceptance_contract_version": reg_metrics.get("acceptance_contract_version"),
@@ -1403,6 +1446,221 @@ def compound_return(series: pd.Series) -> float | None:
     return safe_float_or_none(np.prod(1.0 + values) - 1.0)
 
 
+def enrich_v3_acceptance_rows(
+    client: bigquery.Client,
+    config,
+    search_exp: Experiment,
+    rows: list[dict[str, Any]],
+    contract: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not rows:
+        return rows, []
+    args = argparse.Namespace(project=config.project, strategy_id=config.strategy_id)
+    apply_v3_contract_defaults(args, contract)
+    apply_live_v3_windows(args, search_exp, rows)
+    backtest_ids = [str(row.get("backtest_id")) for row in rows if row.get("backtest_id")]
+    if not backtest_ids:
+        return [with_missing_v3_metrics(row, "backtest_id=missing") for row in rows], []
+
+    nav_frame = fetch_v3_nav_rows(client, args, backtest_ids)
+    nav_map = split_v3_nav_by_backtest(nav_frame)
+    benchmark_meta = v3_comparison_benchmarks(contract)
+    benchmark_codes = [row["sec_code"] for row in benchmark_meta]
+    benchmark_frame = fetch_v3_benchmark_rows(client, args, benchmark_codes)
+    benchmark_price_map = split_v3_prices_by_benchmark(benchmark_frame)
+    ensure_v3_benchmark_coverage(contract, nav_map, benchmark_price_map, benchmark_codes)
+
+    enriched_rows: list[dict[str, Any]] = []
+    benchmark_rows: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        backtest_id = item.get("backtest_id")
+        nav_df = nav_map.get(str(backtest_id))
+        if nav_df is None:
+            enriched_rows.append(with_missing_v3_metrics(item, "nav_rows=missing"))
+            continue
+        candidate_summary, per_benchmark = evaluate_v3_candidate(
+            build_v3_candidate_record(item),
+            nav_df,
+            benchmark_price_map,
+            benchmark_meta,
+            contract,
+            args,
+        )
+        apply_v3_candidate_summary(item, candidate_summary, per_benchmark)
+        enriched_rows.append(item)
+        benchmark_rows.extend(sanitize_v3_benchmark_row(row) for row in per_benchmark)
+    return enriched_rows, benchmark_rows
+
+
+def apply_live_v3_windows(
+    args: argparse.Namespace,
+    search_exp: Experiment,
+    rows: list[dict[str, Any]],
+) -> None:
+    backtest_start_dates = [value for value in (parse_optional_date(row.get("start_date")) for row in rows) if value]
+    backtest_end_dates = [value for value in (parse_optional_date(row.get("end_date")) for row in rows) if value]
+    if backtest_start_dates:
+        args.full_start_date = min(backtest_start_dates)
+    else:
+        args.full_start_date = parse_optional_date(search_exp.predict_start) or args.full_start_date
+    if backtest_end_dates:
+        args.full_end_date = max(backtest_end_dates)
+    else:
+        args.full_end_date = parse_optional_date(search_exp.predict_end) or args.full_end_date
+
+    args.final_holdout_start_date = (
+        parse_optional_date(search_exp.final_holdout_start)
+        or args.final_holdout_start_date
+    )
+    args.final_holdout_end_date = (
+        parse_optional_date(search_exp.final_holdout_end)
+        or args.final_holdout_end_date
+    )
+    if args.full_start_date is None or args.full_end_date is None:
+        raise ValueError("v3 live acceptance requires backtest or manifest full-period dates")
+    if args.full_start_date > args.full_end_date:
+        raise ValueError(f"invalid v3 live full-period window: {args.full_start_date} > {args.full_end_date}")
+    if args.final_holdout_start_date and args.final_holdout_end_date and args.final_holdout_start_date > args.final_holdout_end_date:
+        raise ValueError(
+            f"invalid v3 live final-holdout window: {args.final_holdout_start_date} > {args.final_holdout_end_date}"
+        )
+
+
+def build_v3_candidate_record(row: dict[str, Any]) -> dict[str, Any]:
+    record = dict(row)
+    for key in [
+        "cv_confirmation_status",
+        "valid_signal_status",
+        "score_orientation",
+        "cv_rank_ic_mean",
+        "cv_top_minus_bottom_fwd_ret_mean",
+        "cv_fold_count",
+        "valid_top_minus_bottom_fwd_ret_mean",
+        "test_rank_ic_mean",
+        "test_top_minus_bottom_fwd_ret_mean",
+        "source_run_id",
+        "model_family",
+        "model_backend",
+        "search_id",
+        "run_id",
+        "model_id",
+        "backtest_id",
+        "shortlist_rank_valid_only",
+    ]:
+        record[key] = row.get(key)
+    record["effective_valid_rank_ic_mean"] = _first_present(
+        row.get("oriented_valid_rank_ic_mean"),
+        row.get("valid_rank_ic_mean"),
+    )
+    record["primary_diagnosis"] = _first_present(
+        row.get("primary_diagnosis"),
+        row.get("model_diagnosis_primary_diagnosis"),
+    )
+    record["sample_filter_risk"] = row.get("sample_filter_risk")
+    record.setdefault("metrics_json", None)
+    return record
+
+
+def parse_optional_date(value: Any) -> Any:
+    if value in (None, ""):
+        return None
+    try:
+        return pd.to_datetime(value).date()
+    except Exception:
+        return None
+
+
+def apply_v3_candidate_summary(
+    row: dict[str, Any],
+    summary: dict[str, Any],
+    benchmark_rows: list[dict[str, Any]],
+) -> None:
+    reasons = summary.get("v3_acceptance_reasons") or []
+    passed_codes = summary.get("passed_benchmark_sec_codes") or []
+    row.update({
+        "acceptance_contract_version": summary.get("acceptance_contract_version"),
+        "acceptance_contract_sha256": summary.get("acceptance_contract_sha256"),
+        "acceptance_gate_version": "strategy1_acceptance_gate_v3",
+        "v3_acceptance_status": summary.get("v3_acceptance_status"),
+        "v3_acceptance_reasons": ";".join(str(item) for item in reasons),
+        "v3_strategy_total_return": safe_float_or_none(summary.get("strategy_total_return")),
+        "v3_strategy_compound_annualized_return": safe_float_or_none(summary.get("strategy_compound_annualized_return")),
+        "v3_annualized_volatility": safe_float_or_none(summary.get("annualized_volatility")),
+        "v3_sharpe_ratio": safe_float_or_none(summary.get("sharpe_ratio")),
+        "v3_strategy_max_drawdown": safe_float_or_none(summary.get("max_drawdown")),
+        "v3_max_drawdown_peak_date": summary.get("max_drawdown_peak_date"),
+        "v3_max_drawdown_trough_date": summary.get("max_drawdown_trough_date"),
+        "v3_calmar_ratio": safe_float_or_none(summary.get("calmar_ratio")),
+        "v3_final_holdout_trading_day_count": summary.get("final_holdout_trading_day_count"),
+        "v3_final_holdout_gate_status": summary.get("final_holdout_gate_status"),
+        "v3_passed_benchmark_sec_codes": ";".join(str(item) for item in passed_codes),
+        "v3_passed_benchmark_count": len(passed_codes),
+        "v3_relative_gate_evaluated_benchmark_count": len(benchmark_rows),
+    })
+
+
+def with_missing_v3_metrics(row: dict[str, Any], reason: str) -> dict[str, Any]:
+    item = dict(row)
+    item.update({
+        "v3_acceptance_status": "rejected",
+        "v3_acceptance_reasons": reason,
+        "v3_passed_benchmark_count": 0,
+        "v3_relative_gate_evaluated_benchmark_count": 0,
+    })
+    return item
+
+
+def sanitize_v3_benchmark_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: sanitize_json_scalar(value) for key, value in row.items()}
+
+
+def sanitize_json_scalar(value: Any) -> Any:
+    if isinstance(value, (list, tuple)):
+        return ";".join(str(item) for item in value)
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, np.floating):
+        float_value = float(value)
+        return float_value if math.isfinite(float_value) else None
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.bool_):
+        return bool(value)
+    return value
+
+
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is None:
+            continue
+        try:
+            if pd.isna(value):
+                continue
+        except Exception:
+            pass
+        return value
+    return None
+
+
+def safe_int_or_none(value: Any) -> int | None:
+    try:
+        if value is None or pd.isna(value):
+            return None
+    except Exception:
+        if value is None:
+            return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
 def apply_native_acceptance_to_ads(
     client: bigquery.Client,
     rows: list[dict[str, Any]],
@@ -1417,20 +1675,21 @@ def apply_native_acceptance_to_ads(
             derived.get("acceptance_contract_version")
             or row["acceptance_contract_version"]
         )
+        legacy_risk_overlay_enabled = contract_version(contract) != "model_acceptance_contract_v3"
         risk_target = risk_feature_max_drawdown_target(contract)
-        if row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID and status == "accepted":
+        if legacy_risk_overlay_enabled and row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID and status == "accepted":
             max_drawdown = safe_float_or_none(row.get("max_drawdown"))
             if max_drawdown is None or max_drawdown < risk_target:
                 status = "needs_more_evidence"
                 reason = append_reason(reason, "risk_max_drawdown_target_not_met")
         derived["risk_feature_acceptance_overlay"] = (
             "max_drawdown_target_checked"
-            if row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID
+            if legacy_risk_overlay_enabled and row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID
             else None
         )
         derived["risk_feature_max_drawdown_target"] = (
             risk_target
-            if row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID
+            if legacy_risk_overlay_enabled and row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID
             else None
         )
         patch_native_acceptance(client, row, status, reason, derived)
@@ -1460,6 +1719,9 @@ def patch_native_acceptance(
         bigquery.ScalarQueryParameter("status", "STRING", status),
         bigquery.ScalarQueryParameter("reason", "STRING", reason),
         bigquery.ScalarQueryParameter("acceptance_contract_version", "STRING", derived.get("acceptance_contract_version")),
+        bigquery.ScalarQueryParameter("acceptance_gate_version", "STRING", derived.get("acceptance_gate_version")),
+        bigquery.ScalarQueryParameter("acceptance_contract_sha256", "STRING", derived.get("acceptance_contract_sha256")),
+        bigquery.ScalarQueryParameter("primary_benchmark_sec_code", "STRING", derived.get("primary_benchmark_sec_code")),
         bigquery.ScalarQueryParameter("holdout_watch_flag", "BOOL", bool(derived.get("holdout_watch_flag"))),
         bigquery.ScalarQueryParameter("final_holdout_status", "STRING", row.get("final_holdout_status")),
         bigquery.ScalarQueryParameter("risk_feature_acceptance_overlay", "STRING", derived.get("risk_feature_acceptance_overlay")),
@@ -1482,6 +1744,32 @@ def patch_native_acceptance(
         bigquery.ScalarQueryParameter("final_holdout_trading_days", "INT64", row.get("final_holdout_trading_days")),
         bigquery.ScalarQueryParameter("final_holdout_total_return", "FLOAT64", safe_float_or_none(row.get("final_holdout_total_return"))),
         bigquery.ScalarQueryParameter("final_holdout_excess_return", "FLOAT64", safe_float_or_none(row.get("final_holdout_excess_return"))),
+        bigquery.ScalarQueryParameter("v3_acceptance_status", "STRING", derived.get("v3_acceptance_status")),
+        bigquery.ScalarQueryParameter("v3_acceptance_reasons", "STRING", derived.get("v3_acceptance_reasons")),
+        bigquery.ScalarQueryParameter(
+            "v3_strategy_compound_annualized_return",
+            "FLOAT64",
+            safe_float_or_none(derived.get("v3_strategy_compound_annualized_return")),
+        ),
+        bigquery.ScalarQueryParameter("v3_annualized_volatility", "FLOAT64", safe_float_or_none(derived.get("v3_annualized_volatility"))),
+        bigquery.ScalarQueryParameter("v3_sharpe_ratio", "FLOAT64", safe_float_or_none(derived.get("v3_sharpe_ratio"))),
+        bigquery.ScalarQueryParameter("v3_calmar_ratio", "FLOAT64", safe_float_or_none(derived.get("v3_calmar_ratio"))),
+        bigquery.ScalarQueryParameter("v3_strategy_max_drawdown", "FLOAT64", safe_float_or_none(derived.get("v3_strategy_max_drawdown"))),
+        bigquery.ScalarQueryParameter("v3_max_drawdown_peak_date", "STRING", derived.get("v3_max_drawdown_peak_date")),
+        bigquery.ScalarQueryParameter("v3_max_drawdown_trough_date", "STRING", derived.get("v3_max_drawdown_trough_date")),
+        bigquery.ScalarQueryParameter(
+            "v3_final_holdout_trading_day_count",
+            "INT64",
+            safe_int_or_none(derived.get("v3_final_holdout_trading_day_count")),
+        ),
+        bigquery.ScalarQueryParameter("v3_final_holdout_gate_status", "STRING", derived.get("v3_final_holdout_gate_status")),
+        bigquery.ScalarQueryParameter("v3_passed_benchmark_sec_codes", "STRING", derived.get("v3_passed_benchmark_sec_codes")),
+        bigquery.ScalarQueryParameter("v3_passed_benchmark_count", "INT64", safe_int_or_none(derived.get("v3_passed_benchmark_count"))),
+        bigquery.ScalarQueryParameter(
+            "v3_relative_gate_evaluated_benchmark_count",
+            "INT64",
+            safe_int_or_none(derived.get("v3_relative_gate_evaluated_benchmark_count")),
+        ),
     ]
     client.query(
         """
@@ -1491,6 +1779,9 @@ def patch_native_acceptance(
           '$.native_acceptance_status', @status,
           '$.native_acceptance_reason', @reason,
           '$.acceptance_contract_version', @acceptance_contract_version,
+          '$.acceptance_gate_version', @acceptance_gate_version,
+          '$.acceptance_contract_sha256', @acceptance_contract_sha256,
+          '$.primary_benchmark_sec_code', @primary_benchmark_sec_code,
           '$.holdout_watch_flag', @holdout_watch_flag,
           '$.final_holdout_status', @final_holdout_status,
           '$.risk_feature_acceptance_overlay', @risk_feature_acceptance_overlay,
@@ -1502,7 +1793,21 @@ def patch_native_acceptance(
           '$.test_year_excess_return', @test_year_excess_return,
           '$.final_holdout_trading_days', @final_holdout_trading_days,
           '$.final_holdout_total_return', @final_holdout_total_return,
-          '$.final_holdout_excess_return', @final_holdout_excess_return
+          '$.final_holdout_excess_return', @final_holdout_excess_return,
+          '$.v3_acceptance_status', @v3_acceptance_status,
+          '$.v3_acceptance_reasons', @v3_acceptance_reasons,
+          '$.v3_strategy_compound_annualized_return', @v3_strategy_compound_annualized_return,
+          '$.v3_annualized_volatility', @v3_annualized_volatility,
+          '$.v3_sharpe_ratio', @v3_sharpe_ratio,
+          '$.v3_calmar_ratio', @v3_calmar_ratio,
+          '$.v3_strategy_max_drawdown', @v3_strategy_max_drawdown,
+          '$.v3_max_drawdown_peak_date', @v3_max_drawdown_peak_date,
+          '$.v3_max_drawdown_trough_date', @v3_max_drawdown_trough_date,
+          '$.v3_final_holdout_trading_day_count', @v3_final_holdout_trading_day_count,
+          '$.v3_final_holdout_gate_status', @v3_final_holdout_gate_status,
+          '$.v3_passed_benchmark_sec_codes', @v3_passed_benchmark_sec_codes,
+          '$.v3_passed_benchmark_count', @v3_passed_benchmark_count,
+          '$.v3_relative_gate_evaluated_benchmark_count', @v3_relative_gate_evaluated_benchmark_count
         ))
         WHERE reg.model_id = @model_id
           AND reg.status = 'selected'
@@ -1520,6 +1825,9 @@ def patch_native_acceptance(
           '$.native_acceptance_status', @status,
           '$.native_acceptance_reason', @reason,
           '$.acceptance_contract_version', @acceptance_contract_version,
+          '$.acceptance_gate_version', @acceptance_gate_version,
+          '$.acceptance_contract_sha256', @acceptance_contract_sha256,
+          '$.primary_benchmark_sec_code', @primary_benchmark_sec_code,
           '$.holdout_watch_flag', @holdout_watch_flag,
           '$.final_holdout_status', @final_holdout_status,
           '$.risk_feature_acceptance_overlay', @risk_feature_acceptance_overlay,
@@ -1531,7 +1839,21 @@ def patch_native_acceptance(
           '$.test_year_excess_return', @test_year_excess_return,
           '$.final_holdout_trading_days', @final_holdout_trading_days,
           '$.final_holdout_total_return', @final_holdout_total_return,
-          '$.final_holdout_excess_return', @final_holdout_excess_return
+          '$.final_holdout_excess_return', @final_holdout_excess_return,
+          '$.v3_acceptance_status', @v3_acceptance_status,
+          '$.v3_acceptance_reasons', @v3_acceptance_reasons,
+          '$.v3_strategy_compound_annualized_return', @v3_strategy_compound_annualized_return,
+          '$.v3_annualized_volatility', @v3_annualized_volatility,
+          '$.v3_sharpe_ratio', @v3_sharpe_ratio,
+          '$.v3_calmar_ratio', @v3_calmar_ratio,
+          '$.v3_strategy_max_drawdown', @v3_strategy_max_drawdown,
+          '$.v3_max_drawdown_peak_date', @v3_max_drawdown_peak_date,
+          '$.v3_max_drawdown_trough_date', @v3_max_drawdown_trough_date,
+          '$.v3_final_holdout_trading_day_count', @v3_final_holdout_trading_day_count,
+          '$.v3_final_holdout_gate_status', @v3_final_holdout_gate_status,
+          '$.v3_passed_benchmark_sec_codes', @v3_passed_benchmark_sec_codes,
+          '$.v3_passed_benchmark_count', @v3_passed_benchmark_count,
+          '$.v3_relative_gate_evaluated_benchmark_count', @v3_relative_gate_evaluated_benchmark_count
         ))
         WHERE bs.backtest_id = @backtest_id
         """,

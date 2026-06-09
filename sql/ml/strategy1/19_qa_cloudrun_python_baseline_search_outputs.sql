@@ -12,7 +12,10 @@ DECLARE p_expected_model_family STRING DEFAULT 'lightgbm_gbdt';
 DECLARE p_expected_model_search_wave_no INT64 DEFAULT 2;
 DECLARE p_top_k INT64 DEFAULT 5;
 DECLARE p_test_reuse_wave_no INT64 DEFAULT 2;
-DECLARE p_acceptance_contract_version STRING DEFAULT 'model_acceptance_contract_v1';
+DECLARE p_acceptance_gate_version STRING DEFAULT 'strategy1_acceptance_gate_v3';
+DECLARE p_acceptance_contract_version STRING DEFAULT 'model_acceptance_contract_v3';
+DECLARE p_acceptance_contract_sha256 STRING DEFAULT NULL;
+DECLARE p_primary_benchmark_sec_code STRING DEFAULT '000001.SH';
 DECLARE p_valid_start_date DATE DEFAULT DATE '2024-01-02';
 DECLARE p_valid_end_date DATE DEFAULT DATE '2024-12-31';
 DECLARE p_test_start_date DATE DEFAULT DATE '2025-01-02';
@@ -28,6 +31,7 @@ DECLARE p_min_test_year_excess_return_vs_000852 FLOAT64 DEFAULT 0.0;
 DECLARE p_min_overall_excess_return_vs_000852 FLOAT64 DEFAULT 0.0;
 DECLARE p_min_total_return FLOAT64 DEFAULT 0.0;
 DECLARE p_min_sharpe FLOAT64 DEFAULT 0.70;
+DECLARE p_min_calmar_ratio FLOAT64 DEFAULT 1.0;
 DECLARE p_min_max_drawdown FLOAT64 DEFAULT -0.25;
 DECLARE p_min_final_holdout_excess_return_vs_000852 FLOAT64 DEFAULT -0.05;
 DECLARE p_min_final_holdout_total_return FLOAT64 DEFAULT -0.08;
@@ -39,7 +43,7 @@ DECLARE p_final_holdout_passed_status STRING DEFAULT 'passed';
 
 -- The DECLARE defaults are standalone fallbacks, not the source of truth.
 -- Production orchestrators must inject these values from
--- configs/strategy1/model_acceptance_contract_v1.yml.
+-- configs/strategy1/model_acceptance_contract_v3.yml.
 CREATE TEMP FUNCTION qa_required(condition BOOL) AS (IFNULL(condition, FALSE));
 
 -- QA-PY-1: Top-K registry 记录必须完整追溯 search/source/candidate_count。
@@ -127,13 +131,21 @@ ASSERT (
     )))
     AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.native_acceptance_reason') IS NOT NULL))
     AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.acceptance_contract_version') = p_acceptance_contract_version))
+    AND LOGICAL_AND(qa_required(
+      p_acceptance_contract_version != 'model_acceptance_contract_v3'
+      OR (
+        JSON_VALUE(reg.metrics_json, '$.acceptance_gate_version') = p_acceptance_gate_version
+        AND JSON_VALUE(reg.metrics_json, '$.primary_benchmark_sec_code') = p_primary_benchmark_sec_code
+        AND LENGTH(JSON_VALUE(reg.metrics_json, '$.acceptance_contract_sha256')) >= 16
+      )
+    ))
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
 ) AS 'QA-PY-6: acceptance status must be terminal and contract-versioned';
 
--- QA-PY-7: accepted 候选必须满足 PRD04 hard gates。
+-- QA-PY-7: accepted 候选必须满足当前 acceptance contract 的 hard gates。
 ASSERT (
   SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
@@ -144,22 +156,45 @@ ASSERT (
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
     AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') = 'accepted'
     AND (
-      NOT IFNULL(JSON_VALUE(reg.metrics_json, '$.cv_confirmation_status') = p_required_cv_confirmation_status, FALSE)
-      OR NOT IFNULL(JSON_VALUE(reg.metrics_json, '$.valid_signal_status') = p_required_valid_signal_status, FALSE)
-      OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.oriented_valid_rank_ic_mean') AS FLOAT64) > p_min_valid_rank_ic, FALSE)
-      OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) > p_min_valid_top_minus_bottom_fwd_ret, FALSE)
-      OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) > p_min_test_rank_ic, FALSE)
-      OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) > p_min_test_top_minus_bottom_fwd_ret, FALSE)
-      OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_year_excess_return') AS FLOAT64) > p_min_test_year_excess_return_vs_000852, FALSE)
-      OR NOT IFNULL(bs.excess_return > p_min_overall_excess_return_vs_000852, FALSE)
-      OR NOT IFNULL(bs.total_return > p_min_total_return, FALSE)
-      OR NOT IFNULL(bs.sharpe >= p_min_sharpe, FALSE)
-      OR NOT IFNULL(bs.max_drawdown >= p_min_max_drawdown, FALSE)
-      OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.final_holdout_trading_days') AS INT64) >= p_min_final_holdout_trading_days, FALSE)
-      OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.final_holdout_excess_return') AS FLOAT64) > p_min_final_holdout_excess_return_vs_000852, FALSE)
-      OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.final_holdout_total_return') AS FLOAT64) > p_min_final_holdout_total_return, FALSE)
+      (
+        p_acceptance_contract_version = 'model_acceptance_contract_v3'
+        AND (
+          NOT IFNULL(JSON_VALUE(reg.metrics_json, '$.cv_confirmation_status') = p_required_cv_confirmation_status, FALSE)
+          OR NOT IFNULL(JSON_VALUE(reg.metrics_json, '$.valid_signal_status') = p_required_valid_signal_status, FALSE)
+          OR NOT IFNULL(JSON_VALUE(reg.metrics_json, '$.score_orientation') IN ('identity', 'reverse_probability'), FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.oriented_valid_rank_ic_mean') AS FLOAT64) > p_min_valid_rank_ic, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) > p_min_valid_top_minus_bottom_fwd_ret, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) > p_min_test_rank_ic, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) > p_min_test_top_minus_bottom_fwd_ret, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.v3_sharpe_ratio') AS FLOAT64) >= p_min_sharpe, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.v3_calmar_ratio') AS FLOAT64) > p_min_calmar_ratio, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.v3_passed_benchmark_count') AS INT64) >= 1, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.v3_relative_gate_evaluated_benchmark_count') AS INT64) = 5, FALSE)
+          OR NOT IFNULL(JSON_VALUE(reg.metrics_json, '$.v3_acceptance_status') = 'accepted', FALSE)
+          OR JSON_VALUE(reg.metrics_json, '$.v3_final_holdout_gate_status') IS NULL
+        )
+      )
+      OR (
+        p_acceptance_contract_version != 'model_acceptance_contract_v3'
+        AND (
+          NOT IFNULL(JSON_VALUE(reg.metrics_json, '$.cv_confirmation_status') = p_required_cv_confirmation_status, FALSE)
+          OR NOT IFNULL(JSON_VALUE(reg.metrics_json, '$.valid_signal_status') = p_required_valid_signal_status, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.oriented_valid_rank_ic_mean') AS FLOAT64) > p_min_valid_rank_ic, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.valid_top_minus_bottom_fwd_ret_mean') AS FLOAT64) > p_min_valid_top_minus_bottom_fwd_ret, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_rank_ic_mean') AS FLOAT64) > p_min_test_rank_ic, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_top_minus_bottom_fwd_ret_mean') AS FLOAT64) > p_min_test_top_minus_bottom_fwd_ret, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_year_excess_return') AS FLOAT64) > p_min_test_year_excess_return_vs_000852, FALSE)
+          OR NOT IFNULL(bs.excess_return > p_min_overall_excess_return_vs_000852, FALSE)
+          OR NOT IFNULL(bs.total_return > p_min_total_return, FALSE)
+          OR NOT IFNULL(bs.sharpe >= p_min_sharpe, FALSE)
+          OR NOT IFNULL(bs.max_drawdown >= p_min_max_drawdown, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.final_holdout_trading_days') AS INT64) >= p_min_final_holdout_trading_days, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.final_holdout_excess_return') AS FLOAT64) > p_min_final_holdout_excess_return_vs_000852, FALSE)
+          OR NOT IFNULL(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.final_holdout_total_return') AS FLOAT64) > p_min_final_holdout_total_return, FALSE)
+        )
+      )
     )
-) AS 'QA-PY-7: accepted Cloud Run Python candidates must satisfy PRD04 gates';
+) AS 'QA-PY-7: accepted Cloud Run Python candidates must satisfy active acceptance contract gates';
 
 -- QA-PY-8: needs_more_evidence 不得被登记为正式 baseline。
 ASSERT (
@@ -190,6 +225,7 @@ ASSERT (
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
+    AND p_acceptance_contract_version != 'model_acceptance_contract_v3'
     AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') = 'accepted'
     AND (
       SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.final_holdout_excess_return') AS FLOAT64) < 0
@@ -258,7 +294,26 @@ ASSERT (
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
     AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
+    AND p_acceptance_contract_version != 'model_acceptance_contract_v3'
     AND SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.test_reuse_wave_no') AS INT64) > p_final_holdout_required_after_wave
     AND JSON_VALUE(reg.metrics_json, '$.native_acceptance_status') = 'accepted'
     AND IFNULL(JSON_VALUE(reg.metrics_json, '$.final_holdout_status'), '') != p_final_holdout_passed_status
 ) AS 'QA-PY-13: wave above contract threshold cannot be accepted without final holdout passed evidence';
+
+-- QA-PY-14: v3 live gate 必须为所有 Top-K 写出五指数相对门摘要。
+ASSERT (
+  p_acceptance_contract_version != 'model_acceptance_contract_v3'
+  OR (
+    SELECT COUNT(*) = p_top_k
+      AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.v3_acceptance_status') IN ('accepted', 'rejected')))
+      AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.v3_acceptance_reasons') IS NOT NULL))
+      AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.v3_relative_gate_evaluated_benchmark_count') AS INT64) = 5))
+      AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.v3_passed_benchmark_count') AS INT64) >= 0))
+      AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.v3_strategy_compound_annualized_return') AS FLOAT64) IS NOT NULL))
+      AND LOGICAL_AND(qa_required(SAFE_CAST(JSON_VALUE(reg.metrics_json, '$.v3_calmar_ratio') AS FLOAT64) IS NOT NULL))
+    FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
+    WHERE reg.strategy_id = p_strategy_id
+      AND reg.status = 'selected'
+      AND JSON_VALUE(reg.metrics_json, '$.search_id') = p_search_id
+  )
+) AS 'QA-PY-14: v3 live gate must write per-candidate v3 relative gate summary';

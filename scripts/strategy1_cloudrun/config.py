@@ -29,7 +29,7 @@ DEFAULT_LOCAL_MIRROR_ROOT = "reports/strategy1_cloudrun"
 DEFAULT_EXECUTION_BACKEND = "cloud_run_sklearn_ledger_v1_lot100"
 DEFAULT_LOCK_BUCKET = "ashare-artifacts"
 DEFAULT_LOCK_PREFIX = "locks/strategy1/cloudrun"
-DEFAULT_ACCEPTANCE_CONTRACT_PATH = "configs/strategy1/model_acceptance_contract_v1.yml"
+DEFAULT_ACCEPTANCE_CONTRACT_PATH = "configs/strategy1/model_acceptance_contract_v3.yml"
 
 
 @dataclasses.dataclass(frozen=True)
