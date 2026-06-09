@@ -242,7 +242,7 @@ Cloud Run Python training / prediction
 2. `rg` 确认 `CREATE MODEL` / `ML.PREDICT` 不再作为 Strategy1 active path 出现。
 3. `rg` 确认 `sql/ml/strategy1/01`、`05-10`、`12` 仍保留并仍可被 Cloud Run Python 调用。
 4. `rg` 确认 `sql/ml/strategy1/16-24` 仍保留。
-4. 不要求重跑 BigQuery / Cloud Run，除非代码删除影响当前 QA helper。
+5. 不要求重跑 BigQuery / Cloud Run，除非代码删除影响当前 QA helper。
 
 ## 9. 验收标准
 
