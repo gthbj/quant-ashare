@@ -727,6 +727,7 @@ Run ID: doc-only
 - 新增 `docs/prd/PRD_20260610_01_策略1回测复合年化收益.md`。
 - PRD 定义新增 `compound_annual_return`、`return_period_count`、`annualization_target_period_count`、`annualization_method`，并要求旧 `annual_return` 保留为 legacy。
 - PRD 明确后续 report、diagnosis、v3 acceptance gate、replay QA 默认读复合年化口径；v3 缺复合字段不得 fallback 到 legacy 年化后通过。
+- 根据 PR #134 review 补充：`return_period_count` 固定为 NAV 有效交易日数减 1；compound Sharpe 会系统性影响阈值，启用前需 replay 差异表和 owner 阈值确认；`select_register_predict.py` 纳入 registry 指标传播影响面。
 - 更新 `TODO.md` 和 `IMPLEMENTATION_STATUS.md`。
 
 ### 重要上下文
