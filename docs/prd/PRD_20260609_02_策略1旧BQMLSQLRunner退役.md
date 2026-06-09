@@ -285,7 +285,7 @@ Cloud Run Python training / prediction
 | 只删 `08` 不删 `--use-bq-ledger` | CLI / orchestrator 仍可触发已删 SQL，运行期 FileNotFoundError | `08` 删除必须和 `--use-bq-ledger` 参数、orchestrator 透传、README fallback 说明同批处理 |
 | 历史结果不可解释 | 旧 run / report 失去上下文 | 文档保留 retired 说明和历史 run id |
 | 隐性引用未清理 | 删除后脚本报 file not found | P0-A 先做全仓引用审计 |
-| 过早删除 factor / diagnosis helper | 历史审计能力下降 | `11/12/14/15` 和相关 Python helper 先 P1 评估 |
+| 过早删除 factor / diagnosis helper | 历史审计能力下降 | `11/14/15` 和相关 Python helper 先 P1 评估；`12` 当前由 Cloud Run Python 直接调用，默认不可删除 |
 
 ## 11. Owner 决策点
 
