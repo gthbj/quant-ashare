@@ -7,6 +7,7 @@
 > - 旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
 > - 该脚本仍通过 `gcloud composer environments run` 触发已退役的 `ashare-composer`，与当前 `Cloud Scheduler + Cloud Workflows` 生产入口冲突。
 > - 后续窗口补跑 / QA-only / full rebuild 恢复路径继续以 `docs/Pipeline-补跑与故障恢复-Runbook.md` 和 `orchestration/workflows/**` 为准。
+> - PR #129 review follow-up 已同步清理 `.agent/memory/OPEN_QUESTIONS.md` 中对旧 helper 的现行工具描述。
 
 > 当前交接补充（2026-06-09，GPT-5 Codex）
 > - Strategy1 Cloud Run Python live acceptance gate 已在分支 `codex/implement-v3-live-gate` 从 v1 切到 v3。
