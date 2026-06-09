@@ -10,7 +10,7 @@
   说明：当前生产入口已经是 `Cloud Scheduler + Cloud Workflows`，`ashare-composer` 也已删除；剩余只差一个简短的 post-cutover 观察记录，用于彻底收口 OQ-005。
 
 - [ ] OQ-010：继续寻找 accepted 的 Cloud Run Python baseline
-  说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；live acceptance gate 已在分支切到 v3，下一步需要跑小规模 Cloud Run search smoke 验证 registry、19/21 QA 和 comparison artifact 的 v3 字段一致，然后继续围绕可接受模型、特征集和风险控制方案推进。
+  说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；live acceptance gate 已在分支切到 v3，下一步需要跑小规模 Cloud Run search smoke，确认 live row 信号字段驱动复用 v3 gate 后与 #122 replay 基准一致，并验证 registry、19/21 QA 和 `v3_relative_gate_by_benchmark.csv` 字段一致，然后继续围绕可接受模型、特征集和风险控制方案推进。
 
 - [ ] OQ-012：决定是否正式关闭 schema mismatch 问题
   说明：schema contract、repair/validate 脚本和 `sql/qa/06_ods_parquet_schema_checks.sql` 都已具备，当前 BigQuery 读层没有 mismatch 暴露；剩余是 owner 决定归档关闭，还是保留防复发工程项。

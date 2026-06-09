@@ -1452,11 +1452,11 @@ def enrich_v3_acceptance_rows(
     rows: list[dict[str, Any]],
     contract: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    del search_exp
     if not rows:
         return rows, []
     args = argparse.Namespace(project=config.project, strategy_id=config.strategy_id)
     apply_v3_contract_defaults(args, contract)
+    apply_live_v3_windows(args, search_exp, rows)
     backtest_ids = [str(row.get("backtest_id")) for row in rows if row.get("backtest_id")]
     if not backtest_ids:
         return [with_missing_v3_metrics(row, "backtest_id=missing") for row in rows], []
@@ -1492,8 +1492,62 @@ def enrich_v3_acceptance_rows(
     return enriched_rows, benchmark_rows
 
 
+def apply_live_v3_windows(
+    args: argparse.Namespace,
+    search_exp: Experiment,
+    rows: list[dict[str, Any]],
+) -> None:
+    backtest_start_dates = [value for value in (parse_optional_date(row.get("start_date")) for row in rows) if value]
+    backtest_end_dates = [value for value in (parse_optional_date(row.get("end_date")) for row in rows) if value]
+    if backtest_start_dates:
+        args.full_start_date = min(backtest_start_dates)
+    else:
+        args.full_start_date = parse_optional_date(search_exp.predict_start) or args.full_start_date
+    if backtest_end_dates:
+        args.full_end_date = max(backtest_end_dates)
+    else:
+        args.full_end_date = parse_optional_date(search_exp.predict_end) or args.full_end_date
+
+    args.final_holdout_start_date = (
+        parse_optional_date(search_exp.final_holdout_start)
+        or args.final_holdout_start_date
+    )
+    args.final_holdout_end_date = (
+        parse_optional_date(search_exp.final_holdout_end)
+        or args.final_holdout_end_date
+    )
+    if args.full_start_date is None or args.full_end_date is None:
+        raise ValueError("v3 live acceptance requires backtest or manifest full-period dates")
+    if args.full_start_date > args.full_end_date:
+        raise ValueError(f"invalid v3 live full-period window: {args.full_start_date} > {args.full_end_date}")
+    if args.final_holdout_start_date and args.final_holdout_end_date and args.final_holdout_start_date > args.final_holdout_end_date:
+        raise ValueError(
+            f"invalid v3 live final-holdout window: {args.final_holdout_start_date} > {args.final_holdout_end_date}"
+        )
+
+
 def build_v3_candidate_record(row: dict[str, Any]) -> dict[str, Any]:
     record = dict(row)
+    for key in [
+        "cv_confirmation_status",
+        "valid_signal_status",
+        "score_orientation",
+        "cv_rank_ic_mean",
+        "cv_top_minus_bottom_fwd_ret_mean",
+        "cv_fold_count",
+        "valid_top_minus_bottom_fwd_ret_mean",
+        "test_rank_ic_mean",
+        "test_top_minus_bottom_fwd_ret_mean",
+        "source_run_id",
+        "model_family",
+        "model_backend",
+        "search_id",
+        "run_id",
+        "model_id",
+        "backtest_id",
+        "shortlist_rank_valid_only",
+    ]:
+        record[key] = row.get(key)
     record["effective_valid_rank_ic_mean"] = _first_present(
         row.get("oriented_valid_rank_ic_mean"),
         row.get("valid_rank_ic_mean"),
@@ -1505,6 +1559,15 @@ def build_v3_candidate_record(row: dict[str, Any]) -> dict[str, Any]:
     record["sample_filter_risk"] = row.get("sample_filter_risk")
     record.setdefault("metrics_json", None)
     return record
+
+
+def parse_optional_date(value: Any) -> Any:
+    if value in (None, ""):
+        return None
+    try:
+        return pd.to_datetime(value).date()
+    except Exception:
+        return None
 
 
 def apply_v3_candidate_summary(

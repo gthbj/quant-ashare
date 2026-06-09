@@ -1,7 +1,7 @@
 > 当前交接补充（2026-06-09，GPT-5 Codex）
 > - Strategy1 Cloud Run Python live acceptance gate 已在分支 `codex/implement-v3-live-gate` 从 v1 切到 v3。
-> - live orchestrator 现在会在 ADS 写回前按 `model_acceptance_contract_v3.yml` 重算五指数相对门、复合年化、Sharpe / Calmar 和 final_holdout 诊断字段，并写入 registry、backtest summary 与 comparison artifact。
-> - 本轮尚未运行新的 Cloud Run search smoke；下一步应验证 registry、19/21 QA 和 `v3_relative_gate_by_benchmark.csv` 一致后再继续模型搜索。
+> - live orchestrator 现在会在 ADS 写回前按实际 backtest span / manifest final_holdout window 重算五指数相对门、复合年化、Sharpe / Calmar 和 final_holdout 诊断字段，并写入 registry、backtest summary 与 comparison artifact。
+> - 本轮尚未运行新的 Cloud Run search smoke；下一步应确认 live row 信号字段驱动复用 v3 gate 后与 #122 replay 基准一致，并验证 registry、19/21 QA 和 `v3_relative_gate_by_benchmark.csv` 一致后再继续模型搜索。
 
 > 当前交接补充（2026-06-08，GPT-5 Codex）
 > - `TODO.md` 已从“完成历史 + 进行中事项混排”重写为短版，只保留当前可执行事项。
@@ -35,7 +35,7 @@
 ### 已完成工作
 
 - 将 Cloud Run Python search 默认 acceptance contract 从 `model_acceptance_contract_v1.yml` 切到 `model_acceptance_contract_v3.yml`。
-- `orchestrate_sklearn_native_search.py` 在 ADS 写回前接入 v3 replay 已验证的五指数指标计算，输出候选级 v3 状态和逐指数相对门明细。
+- `orchestrate_sklearn_native_search.py` 在 ADS 写回前接入 v3 replay 已验证的五指数指标计算，按实际 backtest span / manifest final_holdout window 输出候选级 v3 状态和逐指数相对门明细。
 - ADS registry / backtest summary 写回新增 v3 contract hash、gate version、primary benchmark、复合年化、Sharpe / Calmar、final_holdout 诊断和五指数相对门摘要。
 - `19` QA 改为 v3-aware；`21` risk-feature QA 把旧 risk overlay 限定到 legacy contract。
 
@@ -65,7 +65,7 @@
 
 ### 测试 / 验证
 
-- 未执行。下一步需要跑小规模 Cloud Run search smoke，验证 registry、19/21 QA 和 comparison artifact 的 v3 字段一致。
+- 未执行。下一步需要跑小规模 Cloud Run search smoke，确认 live row 信号字段驱动复用 v3 gate 后与 #122 replay 基准一致，并验证 registry、19/21 QA 和 `v3_relative_gate_by_benchmark.csv` 一致。
 
 ### 阻塞项
 
