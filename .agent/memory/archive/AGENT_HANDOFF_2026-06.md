@@ -14304,3 +14304,27 @@ Run ID: n/a
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `TODO.md`
+
+## 2026-06-10 - OPEN_QUESTIONS 格式收口
+
+日期: 2026-06-10
+Agent ID: Codex
+Agent 实例 ID: main
+模型: GPT-5 Codex
+运行环境: main worktree `/Users/fisher/Desktop/git/quant-ashare`
+Run ID: n/a
+相关 issue/PR: memory hygiene
+
+### 已完成工作
+- 将 `.agent/memory/OPEN_QUESTIONS.md` 收敛为只包含当前开放问题表格。
+- 删除 OQ-010 与 OQ-011 之间导致 Markdown 表格断开的空行。
+- 从 `OPEN_QUESTIONS.md` 移除冗余历史执行备注；历史细节继续以本 archive、`IMPLEMENTATION_STATUS.md` 和相关 PR / PRD 为追溯来源。
+
+### 重要上下文
+- 当前开放问题表只保留 OQ-010、OQ-011、OQ-012。
+- OQ-005 已归档到 `.agent/memory/archive/CLOSED_QUESTIONS.md`，后续短观察窗属于运维记录，不再作为开放问题放回 `OPEN_QUESTIONS.md`。
+- `OPEN_QUESTIONS.md` 后续不应继续追加流水账式执行备注；开放问题关闭后应移入 `archive/CLOSED_QUESTIONS.md`，执行交接写入本 archive 或 `IMPLEMENTATION_STATUS.md`。
+
+### 测试 / 验证
+- 用脚本检查 `OPEN_QUESTIONS.md` 表格行列数一致。
+- `git diff --check` 通过。
