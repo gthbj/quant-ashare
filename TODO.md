@@ -40,8 +40,11 @@
 - [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase A-C
   说明：分支 `codex/strategy1-structure-refactor` 已新增 Strategy1 active step catalog、retired reference linter、table-role/dataset-role resolver、`src/quant_ashare/**` package foundation，并把当前 active/shared Strategy1 SQL 迁移到 `sql/strategy1/**`；Cloud Run wrapper 仍保留，当前 table role 仍解析到 `ashare_ads`，不创建或写入 `ashare_research`。
 
-- [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D/E
-  说明：下一阶段再做 `ashare_research` 物理表契约、可选 research routing、default research-first、explicit promotion job，以及深层 package split / naming cleanup；不得与本轮 SQL 命名空间迁移混做。
+- [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase D0 research table contract
+  说明：新增 `sql/research/01_research_strategy1_tables.sql`、`sql/research/README.md` 和 `ashare_research` schema contract，覆盖 `research_*` 表族、`research_acceptance_result`、`research_experiment_run_status` 与 `research_promotion_manifest`；PR #140 review follow-up 已补 `experiment_run_status` 当前侧 `ads_dataset: ashare_meta` override、`build_order_plan` 分区列修正和防漂移测试；默认 runner 仍写 `ashare_ads`，research routing / default research-first / promotion job 尚未开启。
+
+- [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D1-D3/E
+  说明：下一阶段再做显式 `output_dataset_role=research` routing、report / diagnosis / QA / acceptance 读取 research output、default research-first、owner-approved promotion job，以及深层 package split / naming cleanup；不得与 D0 contract 或 SQL 命名空间迁移混做。
 
 - [x] 工程治理：修复 Dataform generated SQLX drift
   说明：已在单独 cleanup 分支重新运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件，并新增 pytest 防复发检查；`--check`、Dataform compile、`python3 -m pytest tests` 和 `git diff --check` 已通过。

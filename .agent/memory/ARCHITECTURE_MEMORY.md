@@ -7,8 +7,15 @@ Tushare 等数据源
   -> data-aquarium.ashare_ods   ODS 外部表（Hive 分区，原样）
   -> ashare_dim / ashare_dwd    维度 + 明细（清洗/去重/复权/PIT/单位归一）
   -> ashare_dws                 (sec_code, trade_date) 特征宽表 + 标签
-  -> ashare_ads (可选)          选股池 / 组合 / 回测输入
+  -> ashare_research (D0 contract) 研究实验 / 诊断 / acceptance replay / 未投产回测
+  -> ashare_ads (promotion 后)   正式模型 / 正式信号 / 正式回测 / 生产监控
 ```
+
+## Strategy1 Research Layer
+
+2026-06-10 Phase D0 已新增 `data-aquarium.ashare_research` schema contract 和 `sql/research/01_research_strategy1_tables.sql`。该层用于未投产 Strategy1 研究结果：`research_ml_training_panel_daily`、`research_model_registry`、`research_model_prediction_daily`、`research_stock_candidate_daily`、`research_portfolio_target_daily`、`research_order_plan_daily`、`research_backtest_*`、`research_signal_monitor_daily`、`research_acceptance_result`、`research_experiment_run_status` 与 append-only `research_promotion_manifest`。
+
+当前 D0 只定义契约：不部署 BigQuery 对象、不切 runner 默认写入、不迁移历史 ADS、不实现 promotion job。`configs/strategy1/active_step_catalog.yml` 记录 research contract SQL；resolver 支持 per-role dataset/project override，当前 `experiment_run_status` 的现状表解析到 `data-aquarium.ashare_meta.strategy1_experiment_run_status`，不再误拼到 ADS。`resolve_table_role(..., dataset_role="research")` 默认仍 fail-fast；只有 contract-only 测试可用 `allow_future_research=True` 解析目标表。后续 D1 才允许显式 research routing，D2 才能 default research-first，D3 才实现 owner-approved promotion 到 ADS。
 
 ## GCP 生产流水线目标架构（OQ-005）
 

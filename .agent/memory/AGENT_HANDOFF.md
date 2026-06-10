@@ -1,4 +1,10 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 分支 `codex/add-research-table-contract` 已实现项目结构重构 Phase D0：新增 `ashare_research` schema contract、`sql/research/01_research_strategy1_tables.sql`、research README 和 catalog contract metadata。
+> - D0 只定义 `research_*` 表族、`research_acceptance_result`、`research_experiment_run_status` 与 `research_promotion_manifest`；不部署 BigQuery、不切 runner 默认写入、不迁移历史 ADS、不实现 promotion job。
+> - PR #140 review follow-up 已处理：`experiment_run_status` 当前侧通过 `ads_dataset: ashare_meta` 解析到既有 meta 表；`build_order_plan.partition_columns` 已改为 `rebalance_date`；新增测试防止 step/output 分区和 resolver dataset 漂移。
+> - 验证：`pytest tests` 32 passed、Dataform `--check`、Dataform compile、BigQuery combined dry-run 和 `git diff --check` 均通过。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - OQ-005 Cloud Run Job IAM bootstrap TODO 已收口：PR #126 已合并到 `main`，`bootstrap_scheduler_iam.sh` 已固化 `roles/run.jobsExecutorWithOverrides`、`roles/run.viewer` 并移除旧 job-level `run.invoker`。
 > - 本轮只清理过期状态，勾选 `TODO.md` 对应项并同步 `IMPLEMENTATION_STATUS` / `AGENT_HANDOFF`；未修改 Workflows、IAM bootstrap 脚本、Cloud Run、BigQuery 或生产配置。
 > - 验证：复核 PR #126 merge commit `54fe077bb656f23b5ff9384f348e49b7a5259e94`，并确认 `origin/main` 当前 bootstrap 脚本仍包含正确 IAM 绑定。
@@ -101,6 +107,7 @@
 
 ## 当前交接摘要
 
+- 2026-06-10：项目结构重构 Phase D0 research table contract 已在 `codex/add-research-table-contract` 实现；新增 `sql/research/**`、`ashare_research` schema contract、catalog research contract metadata 和 DDL drift tests。PR #140 review follow-up 已补 `experiment_run_status` 当前侧 `ashare_meta` dataset override 和 `build_order_plan` 分区列一致性测试；当前仍不部署 BigQuery、不写 research、不迁移历史 ADS、不实现 promotion，显式 `dataset_role="research"` 仍 fail-fast，后续 D1-D3/E 需单独 PR。
 - 2026-06-10：OQ-005 Cloud Run Job IAM bootstrap TODO 已收口；PR #126 已合并到 `main`，`orchestration/workflows/bootstrap_scheduler_iam.sh` 已固化 runtime SA 的 job-level `roles/run.jobsExecutorWithOverrides`、project-level `roles/run.viewer` 并移除旧 job-level `roles/run.invoker`；本轮只清理过期 TODO / 记忆状态，不改运行代码。
 - 2026-06-10：Dataform generated SQLX drift 已在 `codex/fix-dataform-generated-drift` 单独 cleanup 分支修复；重新生成 `dataform/definitions/**/*.sqlx` 中 6 个 stale 文件，并新增 `tests/dataform/test_generated_sqlx.py` 直接调用 `generate_sqlx_from_sql.py --check` 防复发；未修改 canonical `sql/` 或 `dataform/action_manifest.json`，`python3 -m pytest tests` 25 passed，`--check`、Dataform compile 和 `git diff --check` 均通过。
 - 2026-06-10：项目结构重构 PRD Phase A/A2/B/C 已在 `codex/strategy1-structure-refactor` 实现并完成 PR #136 review follow-up：新增 Strategy1 active step catalog、retired linter、table-role/dataset-role resolver 与 `src/quant_ashare/**` 包基础，active/shared SQL 已迁到 `sql/strategy1/**`；旧 `sql/ml/strategy1/**`、`sql/cloudrun/strategy1/**` 只保留 historical/audit README。当前默认仍解析/写入 `ashare_ads`，显式 `dataset_role="research"` fail-fast，不创建 `ashare_research`，后续 Phase D/E 需单独 PR。Owner 已确认 PR #136 一次性合并 Phase A/A2/B/C 的豁免，记录为 `DECISION-20260610-07`。
@@ -119,6 +126,69 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-10 GPT-5 Codex - Research table contract D0
+
+### 已完成工作
+
+- 从最新 `origin/main` 新建 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-research-contract` 和分支 `codex/add-research-table-contract`；未触碰主工作树 `/Users/fisher/Desktop/git/quant-ashare`。
+- 在 `sql/00_create_datasets.sql` 中新增 `data-aquarium.ashare_research` schema contract。
+- 新增 `sql/research/01_research_strategy1_tables.sql`，定义 Strategy1 research 表契约：训练面板、模型注册、预测、候选池、组合目标、订单计划、回测成交/持仓/NAV/ledger state/summary、信号监控、acceptance result、experiment run status 和 append-only promotion manifest。
+- 新增 `sql/research/README.md`，说明 D0 只定义 contract，不切 runner 默认写入。
+- 更新 `configs/strategy1/active_step_catalog.yml`，记录 research contract SQL，并校准 `model_prediction_daily` / `order_plan_daily` 的分区列元数据。
+- 新增 `tests/strategy1/test_research_contract.py`，校验 catalog research target 与 DDL 一致、表名使用 `research_*`、分区列一致，且默认 `dataset_role="research"` 仍 fail-fast。
+- PR #140 review follow-up 已处理：`experiment_run_status` 当前侧通过 `ads_dataset: ashare_meta` 解析到既有 `ashare_meta.strategy1_experiment_run_status`；`resolve_table_role` 支持 per-role dataset/project override；`build_order_plan.partition_columns` 与 `order_plan_daily` 的 `rebalance_date` 对齐，并新增 step 输出分区一致性测试。
+- 同步更新 `TODO.md`、`IMPLEMENTATION_STATUS`、`KNOWN_CONSTRAINTS`、`ARCHITECTURE_MEMORY` 和 `AGENT_HANDOFF`。
+
+### 重要上下文
+
+- 本轮是 Phase D0 contract-only；未创建实际 BigQuery dataset / table，未切 `output_dataset_role=research`，未迁移历史 ADS，未实现 promotion job。
+- `resolve_table_role(..., dataset_role="research")` 默认仍必须 fail-fast；`allow_future_research=True` 仅用于 contract-only 解析与测试。
+- 当前策略产出表默认仍指向 `ashare_ads`；meta / orchestration role 可用 per-role dataset override，当前只用于 `experiment_run_status`。
+- 后续 D1 才做显式 research routing，D2 才做 default research-first，D3 才做 owner-approved promotion。
+
+### 改动文件
+
+- `sql/00_create_datasets.sql`
+- `sql/research/01_research_strategy1_tables.sql`
+- `sql/research/README.md`
+- `configs/strategy1/active_step_catalog.yml`
+- `src/quant_ashare/strategy1/table_roles.py`
+- `tests/strategy1/test_research_contract.py`
+- `tests/strategy1/test_strategy1_catalog.py`
+- `sql/README.md`
+- `sql/strategy1/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest tests`：32 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform > /tmp/quant_ashare_dataform_compile_research_contract.json`：通过。
+- `(cat sql/00_create_datasets.sql; cat sql/research/01_research_strategy1_tables.sql) | bq query --dry_run --use_legacy_sql=false --location=asia-east2`：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- Phase D1 单独 PR：新增显式 `output_dataset_role=research` routing，并让 report / diagnosis / QA / acceptance 从同一 table-role resolver 读取 research output。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - OQ-005 IAM bootstrap TODO 收口
 

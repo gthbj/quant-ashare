@@ -14,6 +14,8 @@ dataset_roles:
     project: data-aquarium
     dataset: ashare_research
     lifecycle: future_research_default
+    contract_sql: sql/research/01_research_strategy1_tables.sql
+    enabled_by_default: false
 
 table_roles:
   training_panel:
@@ -27,7 +29,7 @@ table_roles:
   model_prediction_daily:
     ads_table: ads_model_prediction_daily
     research_table: research_model_prediction_daily
-    partition_columns: [trade_date]
+    partition_columns: [predict_date]
   stock_candidate_daily:
     ads_table: ads_stock_candidate_daily
     research_table: research_stock_candidate_daily
@@ -39,7 +41,7 @@ table_roles:
   order_plan_daily:
     ads_table: ads_order_plan_daily
     research_table: research_order_plan_daily
-    partition_columns: [trade_date]
+    partition_columns: [rebalance_date]
   backtest_trade_daily:
     ads_table: ads_backtest_trade_daily
     research_table: research_backtest_trade_daily
@@ -70,6 +72,7 @@ table_roles:
     partition_columns: [created_date]
   experiment_run_status:
     ads_table: strategy1_experiment_run_status
+    ads_dataset: ashare_meta
     research_table: research_experiment_run_status
     partition_columns: [updated_date]
 
@@ -157,7 +160,7 @@ steps:
     optional_params: {}
     inputs: [portfolio_target_daily]
     outputs: [order_plan_daily]
-    partition_columns: [trade_date]
+    partition_columns: [rebalance_date]
 
   build_metrics_and_report_inputs:
     stable_name: build_metrics_and_report_inputs

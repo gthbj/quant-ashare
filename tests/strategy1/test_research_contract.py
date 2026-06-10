@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+from quant_ashare.strategy1.catalog import load_step_catalog
+from quant_ashare.strategy1.table_roles import resolve_table_role
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+RESEARCH_CONTRACT_SQL = REPO_ROOT / "sql/research/01_research_strategy1_tables.sql"
+
+
+CREATE_TABLE_RE = re.compile(
+    r"CREATE TABLE IF NOT EXISTS `data-aquarium\.ashare_research\.(research_[A-Za-z0-9_]+)`"
+)
+PARTITION_RE = re.compile(r"PARTITION BY DATE_TRUNC\(([A-Za-z0-9_]+), MONTH\)")
+
+
+def _research_sql() -> str:
+    return RESEARCH_CONTRACT_SQL.read_text(encoding="utf-8")
+
+
+def _research_tables() -> set[str]:
+    return set(CREATE_TABLE_RE.findall(_research_sql()))
+
+
+def _table_block(table_name: str) -> str:
+    sql = _research_sql()
+    marker = f"`data-aquarium.ashare_research.{table_name}`"
+    start = sql.index(marker)
+    next_match = CREATE_TABLE_RE.search(sql, start + len(marker))
+    return sql[start : next_match.start() if next_match else len(sql)]
+
+
+def test_catalog_research_tables_have_contracts() -> None:
+    catalog = load_step_catalog()
+    expected = {
+        cfg["research_table"]
+        for cfg in catalog["table_roles"].values()
+        if cfg.get("research_table")
+    }
+    actual = _research_tables()
+
+    assert expected <= actual
+    assert all(table.startswith("research_") for table in actual)
+    assert "research_promotion_manifest" in actual
+
+
+def test_research_contract_partitions_match_catalog_roles() -> None:
+    catalog = load_step_catalog()
+
+    for role_name, cfg in catalog["table_roles"].items():
+        research_table = cfg.get("research_table")
+        partition_columns = cfg.get("partition_columns") or []
+        if not research_table or not partition_columns:
+            continue
+
+        block = _table_block(research_table)
+        partition_match = PARTITION_RE.search(block)
+        assert partition_match, f"{role_name}: {research_table} is missing PARTITION BY"
+        assert partition_match.group(1) == partition_columns[0]
+
+
+def test_acceptance_contract_separates_acceptance_from_promotion() -> None:
+    block = _table_block("research_acceptance_result")
+
+    assert "acceptance_status STRING" in block
+    assert "accepted BOOL" in block
+    assert "promotion_status STRING" in block
+    assert "promoted BOOL" in block
+    assert "promotion_manifest_id STRING" in block
+
+
+def test_promotion_manifest_records_target_and_completion_fields() -> None:
+    block = _table_block("research_promotion_manifest")
+
+    assert "target_dataset STRING" in block
+    assert "target_ads_tables ARRAY<STRING>" in block
+    assert "approved_by STRING" in block
+    assert "approved_at TIMESTAMP" in block
+    assert "promoted_at TIMESTAMP" in block
+
+
+def test_research_role_resolver_is_contract_only_in_current_phase() -> None:
+    with pytest.raises(ValueError, match="dataset_role=research is not enabled"):
+        resolve_table_role("model_prediction_daily", dataset_role="research")
+
+    assert (
+        resolve_table_role(
+            "model_prediction_daily",
+            dataset_role="research",
+            allow_future_research=True,
+        )
+        == "data-aquarium.ashare_research.research_model_prediction_daily"
+    )
+    assert (
+        resolve_table_role(
+            "experiment_run_status",
+            dataset_role="research",
+            allow_future_research=True,
+        )
+        == "data-aquarium.ashare_research.research_experiment_run_status"
+    )
+
+
+def test_research_dataset_role_points_to_d0_contract() -> None:
+    catalog = load_step_catalog()
+    research_role = catalog["dataset_roles"]["research"]
+
+    assert research_role["dataset"] == "ashare_research"
+    assert research_role["enabled_by_default"] is False
+    assert research_role["contract_sql"] == "sql/research/01_research_strategy1_tables.sql"
+    assert (REPO_ROOT / research_role["contract_sql"]).exists()

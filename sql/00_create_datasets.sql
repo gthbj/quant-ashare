@@ -26,6 +26,12 @@ OPTIONS (
   description = 'A-share application data service layer for model training, prediction, portfolio and backtest outputs'
 );
 
+CREATE SCHEMA IF NOT EXISTS `data-aquarium.ashare_research`
+OPTIONS (
+  location = 'asia-east2',
+  description = 'A-share research layer for unpromoted model experiments, diagnostics, acceptance replay and promotion provenance'
+);
+
 CREATE SCHEMA IF NOT EXISTS `data-aquarium.ashare_meta`
 OPTIONS (
   location = 'asia-east2',

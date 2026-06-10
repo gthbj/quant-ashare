@@ -31,8 +31,16 @@ def resolve_table_role(
     table_cfg = table_roles[role]
     table_name_key = "research_table" if effective_dataset_role == "research" else "ads_table"
     table_name = table_cfg.get(table_name_key) or table_cfg["ads_table"]
-    project_id = project or dataset_cfg.get("project") or catalog.get("project")
-    return f"{project_id}.{dataset_cfg['dataset']}.{table_name}"
+    project_override_key = f"{effective_dataset_role}_project"
+    dataset_override_key = f"{effective_dataset_role}_dataset"
+    project_id = (
+        project
+        or table_cfg.get(project_override_key)
+        or dataset_cfg.get("project")
+        or catalog.get("project")
+    )
+    dataset_id = table_cfg.get(dataset_override_key) or dataset_cfg["dataset"]
+    return f"{project_id}.{dataset_id}.{table_name}"
 
 
 def table_role_config(role: str, catalog: dict[str, Any] | None = None) -> dict[str, Any]:

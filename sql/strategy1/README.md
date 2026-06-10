@@ -50,6 +50,8 @@ active migration targets for new runner flows.
 ## Current Dataset Role
 
 当前 Phase A-C 只建立 resolver 和 catalog；默认 table role 解析到
-`data-aquarium.ashare_ads.*`，不创建、不写入 `ashare_research`。显式请求
-`dataset_role="research"` 会 fail-fast，直到后续 research contract / routing PR
-单独放开。后续 research-first 和 promotion job 需要单独 PR。
+current dataset role。策略产出表默认仍在 `data-aquarium.ashare_ads.*`；
+meta / orchestration role 可在 catalog 中声明 per-role dataset override，例如
+`experiment_run_status` 当前解析到 `data-aquarium.ashare_meta.*`。显式请求
+`dataset_role="research"` 会 fail-fast，直到后续 research routing PR 单独放开。
+后续 research-first 和 promotion job 需要单独 PR。
