@@ -2649,14 +2649,14 @@ Agent ID: Codex
 ### 决策
 
 1. 新增 `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`，作为年度滚动选参实验方案。
-2. P0 固定特征集、股票池、成本、`20` 只持仓、`7.5%` 单票上限、`biweekly` 和 Cloud Run Python `ledger_exec_v1_lot100`，只搜索预先冻结的 12 个 LightGBM 参数候选。
+2. P0 固定特征集、股票池、成本、`20` 只持仓、`7.5%` 单票上限、`biweekly` 和 Cloud Run Python `ledger_exec_v1_lot100`，只搜索预先冻结的 11 个 LightGBM regression 可选候选；B26 binary 只作为 diagnostic-only reference，不参与 `selected_candidate_id`。
 3. 每个回测年使用上一整年作为 valid 选择参数，再用选中参数在最近 5 年窗口 final refit，随后回测下一年。
-4. valid 选参门不再要求 `valid_total_return > 0`；最大回撤硬线为 `valid_max_drawdown >= -33.33%`；相对收益和 Excess Calmar 使用上证指数、深证成指、上证50、沪深300、中证1000五指数任一通过口径。
+4. valid 选参门不显式要求 `valid_total_return > 0`；该删除只用于避免重复硬门，不表示允许负收益候选通过。最大回撤硬线为 `valid_max_drawdown >= -33.33%`；相对收益和 Excess Calmar 使用上证指数、深证成指、上证50、沪深300、中证1000五指数任一通过口径。
 5. 年度预测可以分年生成，但最终评价必须来自一条连续 ledger；不得拼接每年 fresh-run。
 
 ### 理由
 
-该流程更接近真实生产：在每年初只能使用已经发生的上一年 valid 信息选择参数，且上线模型会用 train+valid final refit。固定候选池和固定组合参数可以限制年度 valid 过拟合；连续 ledger 能避免年度 fresh-run 拼接破坏资金和持仓状态。
+该流程更接近真实生产：在每年初只能使用已经发生的上一年 valid 信息选择参数，且上线模型会用 train+valid final refit。固定 regression 可选候选池、固定组合参数和 B26 diagnostic-only 对照可以限制年度 valid 过拟合与跨目标混排；连续 ledger 能避免年度 fresh-run 拼接破坏资金和持仓状态。
 
 ### 影响
 
@@ -2669,6 +2669,7 @@ Agent ID: Codex
 
 - 继续只跑固定 R14：不采用作为下一轮主方案。原因是无法判断年度重新选参是否改善泛化。
 - 每年大规模网格搜索：不采用。原因是年度 valid 样本只有一年，候选过多会放大 selection bias。
+- 把 B26 binary 与 regression 候选混排选择：P0 不采用。原因是 binary probability score 与 regression return score 语义不同，本版本只把 B26 作为 diagnostic-only reference。
 - 同时搜索持仓数和模型参数：P0 不采用。原因是组合参数会进一步增加过拟合，先固定 20 只 / 7.5%。
 
 ### 相关文件

@@ -1,8 +1,8 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 新增 `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`。
 > - PRD 定义年度 walk-forward 参数选择：上一整年 valid 选择参数，选中参数在最近 5 年 final refit，再回测下一年；2021-2026 结果必须用年度预测合并后的一条连续 ledger 评价。
-> - P0 固定 feature set、20 只、7.5% 单票上限、biweekly 和 `ledger_exec_v1_lot100`，只搜索 12 个冻结 LightGBM 参数候选。
-> - valid 选参门按 owner 确认口径写入：去掉 `valid_total_return > 0`，最大回撤线为 `>= -33.33%`，五指数任一超额收益 `> 0`，五指数任一 Excess Calmar Ratio `> 0.3`。
+> - P0 固定 feature set、20 只、7.5% 单票上限、biweekly 和 `ledger_exec_v1_lot100`，只搜索 11 个冻结 LightGBM regression 可选候选；B26 binary 只作为 diagnostic-only reference。
+> - PR #137 review follow-up 已处理：第 1 点只修理由、不改门；第 2 点修正 label embargo 措辞；第 3 点明确 B26 binary 不参与 `selected_candidate_id`。
 > - 本轮只写方案和同步 `.agent/memory/IMPLEMENTATION_STATUS.md`、`.agent/memory/AGENT_HANDOFF.md`、`.agent/memory/DECISION_LOG.md`、`TODO.md`；未改代码、SQL、BigQuery、Cloud Run 或 Dataform。
 
 > 当前交接补充（2026-06-10，GPT-5 Codex）
@@ -80,7 +80,7 @@
 
 ## 当前交接摘要
 
-- 2026-06-10：新增 Strategy1 年度滚动选参 PRD `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`；P0 固定 12 个 LightGBM 参数候选、20 只持仓、7.5% 单票上限、biweekly 和 `ledger_exec_v1_lot100`，每年用上一整年 valid 选参数，再用最近 5 年 final refit，最终用年度预测合并后的一条连续 ledger 评价 `2021-2026`。
+- 2026-06-10：新增 Strategy1 年度滚动选参 PRD `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`；P0 固定 11 个 LightGBM regression 可选候选、B26 binary diagnostic-only reference、20 只持仓、7.5% 单票上限、biweekly 和 `ledger_exec_v1_lot100`，每年用上一整年 valid 选参数，再用最近 5 年 final refit，最终用年度预测合并后的一条连续 ledger 评价 `2021-2026`。
 - 2026-06-10：新增项目结构重构总 PRD `docs/prd/PRD_20260610_02_项目结构重构方案.md`；owner 已确认采用 `ashare_research` / `research_*` / `accepted != promoted`、`sql/strategy1/**`、`src/quant_ashare/**`、短期保留 `scripts/strategy1_cloudrun/**` wrapper，且 P0 不强制创建 `docs/retired/`。实施顺序为先做 active path catalog、防误用护栏和 table role / dataset role resolver，再迁移 Strategy1 active shared SQL（同时覆盖 `sql/ml/strategy1/**` 与 `sql/cloudrun/strategy1/**`）到 `sql/strategy1/**`，随后抽 Strategy1 package foundation，最后再分段实现 `ashare_research` / `ashare_ads` 生命周期隔离和 deeper package split。
 - 2026-06-10：新增 Strategy1 回测复合年化收益 PRD，范围为 summary / report / v3 gate 的复利年化字段口径；本 PR 不改代码、不跑 BigQuery / Cloud Run。
 - OQ-005 当前状态：`ashare-ods-ingestion-daily`（`0 20 * * *`）与 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 Scheduler job 已是唯一生产调度入口，ODS parent -> warehouse child、alert checker、manual full rebuild dry-run 都已有 live smoke 证据。
@@ -104,15 +104,15 @@
 - 新增 `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`。
 - PRD 定义年度 walk-forward 参数选择方案：用上一整年 valid 选择参数和方向，再用选中参数在最近 5 年 final refit，预测并回测下一年。
 - 年度窗口固定为 `2021` 至 `2026`：从 `2015-2019 train / 2020 valid / 2016-2020 final refit / 2021 backtest` 开始逐年滚动。
-- P0 固定 feature set、股票池、成本、`20` 只持仓、`7.5%` 单票上限、`biweekly` 和 Cloud Run Python `ledger_exec_v1_lot100`，只搜索 12 个预先冻结的 LightGBM 参数候选。
-- valid 选参门按 owner 确认口径写入：`valid_rank_ic > 0`、`valid_top_minus_bottom > 0`、五指数任一 valid 超额收益 `> 0`、valid 最大回撤 `>= -33.33%`、`valid_sharpe >= 0.3`、`valid_calmar >= 0.3`、五指数任一 `valid_excess_calmar_ratio > 0.3`，且不要求 `valid_total_return > 0`。
+- P0 固定 feature set、股票池、成本、`20` 只持仓、`7.5%` 单票上限、`biweekly` 和 Cloud Run Python `ledger_exec_v1_lot100`，只搜索 11 个预先冻结的 LightGBM regression 可选候选；B26 binary 只作为 diagnostic-only reference。
+- valid 选参门按 owner 确认口径写入：`valid_rank_ic > 0`、`valid_top_minus_bottom > 0`、五指数任一 valid 超额收益 `> 0`、valid 最大回撤 `>= -33.33%`、`valid_sharpe >= 0.3`、`valid_calmar >= 0.3`、五指数任一 `valid_excess_calmar_ratio > 0.3`；PR #137 review follow-up 后明确删除 `valid_total_return > 0` 只是避免重复硬门，不表示允许负收益候选通过。
 - PRD 明确年度预测可分年生成，但最终评价必须来自一条连续 ledger，不能拼接每年 fresh-run。
 - 同步更新 `IMPLEMENTATION_STATUS`、`AGENT_HANDOFF`、`DECISION_LOG` 和 `TODO`。
 
 ### 重要上下文
 
 - 本轮是 PRD-only，不改 runner、不改 SQL、不运行 BigQuery / Cloud Run / Dataform。
-- 该方案和刚完成的固定 R14 annual walk-forward 不同：固定 R14 只验证一个参数；本文要求每年从固定候选池中重新选参数。
+- 该方案和刚完成的固定 R14 annual walk-forward 不同：固定 R14 只验证一个参数；本文要求每年从固定 regression 可选候选池中重新选参数。
 - valid 年只用于选择下一年参数，不能作为同年最终样本外成绩。
 - 候选池必须先冻结并生成 hash；如果后续新增候选，必须新开 experiment version。
 

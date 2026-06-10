@@ -16,7 +16,7 @@
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
 
 - [ ] OQ-010：实现年度滚动选参回测实验
-  说明：`docs/prd/PRD_20260610_03_策略1年度滚动选参.md` 已定义年度 walk-forward 参数选择方案：固定 12 个 LightGBM 候选、20 只 / 7.5%、上一整年 valid 选参、最近 5 年 selected final refit、年度预测合并后一条连续 ledger 评价 `2021-2026`；下一步先做 2021 单年度 smoke，再扩展完整链路。
+  说明：`docs/prd/PRD_20260610_03_策略1年度滚动选参.md` 已定义年度 walk-forward 参数选择方案：固定 11 个 LightGBM regression 可选候选、B26 binary diagnostic-only reference、20 只 / 7.5%、上一整年 valid 选参、最近 5 年 selected final refit、年度预测合并后一条连续 ledger 评价 `2021-2026`；下一步先做 2021 单年度 smoke，再扩展完整链路。
 
 
 - [x] OQ-010：实现回测复合年化收益字段
