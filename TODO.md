@@ -16,7 +16,7 @@
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
 
 - [ ] OQ-010：实现年度滚动选参回测实验
-  说明：`docs/prd/PRD_20260610_03_策略1年度滚动选参.md` 已定义年度 walk-forward 参数选择方案；`docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md` 已补执行工程化方案。2021 单年度 Cloud Run smoke 已在正式 jobs 上闭环，CV fold 修复已实证为 11/11 候选 `cv_fold_count=3`，select/register/predict 与 backtest/report 均成功。下一步先实现 ADS additive migration、schema readiness QA 和 annual rolling orchestrator resolved payload 生成，再扩展完整 `2021-2026` 年度滚动，并用连续 ledger 评价，不拼接年度 fresh-run。
+  说明：`docs/prd/PRD_20260610_03_策略1年度滚动选参.md` 已定义年度 walk-forward 参数选择方案；`docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md` 已补执行工程化方案。2021 单年度 Cloud Run smoke 已在正式 jobs 上闭环，CV fold 修复已实证为 11/11 候选 `cv_fold_count=3`，select/register/predict 与 backtest/report 均成功。分支 `codex/annual-rolling-exec-impl` 已实现 ADS additive migration、schema readiness QA、annual rolling 11 候选 config 和 resolved payload dry-run wrapper；下一步先运行 readiness QA 和 dry-run 审核，再扩展完整 `2021-2026` 年度滚动，并用连续 ledger 评价，不拼接年度 fresh-run。
 
 
 - [x] OQ-010：实现回测复合年化收益字段
@@ -50,7 +50,7 @@
   说明：分支 `codex/strategy1-research-routing-d1b` 已新增显式 `output_dataset_role` CLI/config 接线，并让 Cloud Run Python runner、ledger、orchestrator status、report / diagnosis / QA / acceptance / comparison / factor attribution 在显式 `research` 模式下按 resolver 读取或写入 `ashare_research.research_*`；默认 ADS 子命令不下发 `--output-dataset-role=ads`，保持旧 Cloud Run 镜像兼容；research DDL lifecycle 默认值已明确为 `research_status='candidate'`、`promotion_status='not_promoted'`。本阶段未部署 BigQuery / Cloud Run，未切 default research-first，未实现 promotion。
 
 - [ ] OQ-010 / 工程治理：完成项目结构重构 PRD Phase D1 收尾验收
-  说明：进入 D2 前必须部署 `sql/00_create_datasets.sql` + `sql/research/01_research_strategy1_tables.sql`，重建并部署 Strategy1 Cloud Run job 镜像，给 runtime service account 补 `ashare_research` 写权限，跑一次显式 research-mode smoke（search 或 backtest）并覆盖 report / diagnosis / QA / acceptance；验收需确认 research 表有写入、lifecycle 默认值正确、ADS run-scoped 表没有被 research run 污染。
+  说明：进入 D2 前必须部署 `sql/00_create_datasets.sql` + `sql/research/01_research_strategy1_tables.sql`，重建并部署 Strategy1 Cloud Run job 镜像，给 runtime service account 补 `ashare_research` 写权限，跑一次显式 research-mode smoke（search 或 backtest）并覆盖 report / diagnosis / QA / acceptance；验收需确认 research 表有写入、lifecycle 默认值正确、ADS run-scoped 表没有被 research run 污染。现有 `qa_cloudrun_schema_readiness` 是 ADS-only，research smoke 前需补充或运行 research readiness 检查。
 
 - [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D2-D3/E
   说明：D1 收尾验收通过后，再做 default research-first、owner-approved promotion job，以及深层 package split / naming cleanup；Phase E 包化时同步收敛读侧 routing 的模块级全局态（当前 setter 与裸全局两种风格并存）。不得与 D1b 显式 routing 混做。

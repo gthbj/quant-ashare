@@ -434,6 +434,23 @@ steps:
     outputs: []
     partition_columns: []
 
+  qa_cloudrun_schema_readiness:
+    stable_name: qa_cloudrun_schema_readiness
+    status: active
+    execution_mode: manual_schema_readiness_qa
+    current_path: sql/strategy1/qa/qa_cloudrun_schema_readiness.sql
+    target_path: sql/strategy1/qa/qa_cloudrun_schema_readiness.sql
+    sql_path: sql/strategy1/qa/qa_cloudrun_schema_readiness.sql
+    caller: [manual_runbook, scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: []
+    internal_params: []
+    optional_params: {}
+    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, backtest_ledger_state_daily]
+    outputs: []
+    partition_columns: []
+
 retired_reference_lint:
   banned_active_refs:
     - sql/ml/strategy1/02_train_bqml_logistic_candidates.sql

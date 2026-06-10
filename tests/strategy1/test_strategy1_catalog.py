@@ -16,6 +16,13 @@ from quant_ashare.strategy1.table_roles import resolve_table_role
 
 
 ADS_REF_RE = re.compile(r"data-aquarium\.ashare_ads\.[A-Za-z0-9_]+")
+LEDGER_STATE_DDL_RE = re.compile(
+    r"CREATE\s+(?:OR\s+REPLACE\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"`data-aquarium\.ashare_ads\.ads_backtest_ledger_state_daily`\s*"
+    r"\((?P<body>.*?)\)\s*PARTITION BY",
+    re.DOTALL,
+)
+DDL_COLUMN_RE = re.compile(r"^\s+([A-Za-z_][A-Za-z0-9_]*)\s+[A-Z0-9_]+", re.MULTILINE)
 
 
 def test_catalog_validates_paths_and_declared_params() -> None:
@@ -93,3 +100,17 @@ def test_catalog_classifies_sql_16_to_25_individually() -> None:
     assert steps["qa_cloudrun_runner_outputs"]["status"] == "active"
     assert steps["qa_acceptance_gate_v2_outputs"]["status"] == "audit_only"
     assert steps["qa_cloudrun_ledger_resume_outputs"]["execution_mode"] == "manual_resume_qa"
+
+
+def test_ledger_state_additive_migration_matches_canonical_ads_contract() -> None:
+    canonical_columns = _ledger_state_columns("sql/ads/01_ads_strategy1_tables.sql")
+    additive_columns = _ledger_state_columns("sql/ads/03_create_strategy1_backtest_ledger_state_daily.sql")
+
+    assert additive_columns == canonical_columns
+
+
+def _ledger_state_columns(path: str) -> list[str]:
+    sql = repo_path(path).read_text(encoding="utf-8")
+    match = LEDGER_STATE_DDL_RE.search(sql)
+    assert match is not None, path
+    return DDL_COLUMN_RE.findall(match.group("body"))

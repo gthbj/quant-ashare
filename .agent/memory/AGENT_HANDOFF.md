@@ -1,4 +1,61 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 分支 `codex/annual-rolling-exec-impl` 在独立 worktree `/Users/fisher/Desktop/git/quant-ashare-annual-rolling-exec` 实现年度滚动执行 P0 工程骨架。
+> - 已新增 ADS ledger state additive migration、Cloud Run schema readiness QA + catalog step、年度滚动 11 候选 config，以及 `orchestrate_annual_rolling_selection.py` resolved payload/dry-run wrapper。
+> - wrapper 会生成 2021-2026 年度 experiment-json、matrix URI、Cloud Run command plan、B26 diagnostic-only reference 标记和连续 ledger backtest id；当前非 dry-run fail-fast，避免误把年度 fresh-run 拼接当正式结果。
+> - 本地 review follow-up 已处理；`python3 -m pytest tests` 58 passed。未运行 BigQuery、Cloud Run 或 Dataform；后续先执行 schema readiness QA 和 orchestrator dry-run，再决定是否跑 2021 smoke / 2021-2026 live。
+
+Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - Strategy1 年度滚动执行 P0 工程骨架
+
+### 已完成工作
+
+- 新增 `sql/ads/03_create_strategy1_backtest_ledger_state_daily.sql`，用 additive `CREATE TABLE IF NOT EXISTS` 补齐 Cloud Run ledger resume state 表。
+- 新增 `sql/strategy1/qa/qa_cloudrun_schema_readiness.sql`，检查 Cloud Run backtest/report 所需 ADS 表、字段类型、分区和 `backtest_id` clustering。
+- 在 `configs/strategy1/active_step_catalog.yml` 注册 `qa_cloudrun_schema_readiness`，并声明其 ADS role 覆盖。
+- 新增 `configs/strategy1/annual_rolling_lgbm_regression_v0.yml`，固定 PRD_03 的 11 个 LightGBM regression 候选。
+- 新增 `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`，生成年度 resolved experiment payload、matrix URI、Cloud Run command plan、B26 diagnostic-only reference 标记和连续 ledger backtest id。
+- Review follow-up：`subtract_weekdays` 明确限制为 12 月年末 label window，新增 ledger state DDL 漂移测试，并在 D1 TODO 标注 research readiness 缺口。
+
+### 重要上下文
+
+- 本实现只覆盖 PRD_04 的 P0 工程骨架和 dry-run / resolved plan，不启动 Cloud Run。
+- 非 dry-run 现在 fail-fast；完整 live annual rolling 仍需要先跑 readiness QA 和 dry-run，再按 owner 指令执行。
+- continuous ledger 结果仍必须来自单条连续 ledger 或已验收 resume-continuous segment，不能拼接 yearly fresh-run NAV。
+
+### 改动文件
+
+- `sql/ads/03_create_strategy1_backtest_ledger_state_daily.sql`
+- `sql/strategy1/qa/qa_cloudrun_schema_readiness.sql`
+- `configs/strategy1/annual_rolling_lgbm_regression_v0.yml`
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`
+- `configs/strategy1/active_step_catalog.yml`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest tests` 58 passed（4 个 Python / SSL 环境 warning）。
+- 未运行 BigQuery、Cloud Run 或 Dataform。
+
+### 阻塞项
+
+- 无代码阻塞；live 执行前需要 owner 明确允许运行 readiness QA / dry-run / Cloud Run smoke。
+
+### 下一步建议
+
+- 先跑 `qa_cloudrun_schema_readiness`。
+- 再跑 `orchestrate_annual_rolling_selection.py --dry-run` 审核 resolved payload 和 command plan。
+- 若 dry-run 正常，再执行 2021 单年 smoke 或完整 2021-2026 年度链路。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 新增 `docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md`。
 > - PRD 把 2021 smoke 暴露的三个工程问题转成后续实现要求：annual rolling orchestrator 自动生成 resolved experiment payload、ADS additive migration、Cloud Run schema readiness QA。
 > - PRD 明确 P0 不改模型、不扩参数、不调 v3 gate、不切 `ashare_research`；完整 `2021-2026` 正式结果必须来自单一 continuous ledger，或通过 resume-continuous QA 的 segment ledger，禁止拼年度 fresh-run。

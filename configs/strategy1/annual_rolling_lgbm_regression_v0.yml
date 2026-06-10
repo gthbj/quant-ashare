@@ -1,0 +1,62 @@
+# Strategy 1 annual rolling LightGBM regression candidate set.
+# 文档维护：GPT-5 Codex（最近更新 2026-06-10）
+
+project: data-aquarium
+region: asia-east2
+strategy_id: ml_pv_clf_v0
+execution_backend: cloud_run_sklearn_ledger_v1_lot100
+
+artifact_base_uri: gs://ashare-artifacts/reports/strategy1
+model_artifact_base_uri: gs://ashare-artifacts/models/strategy1
+local_mirror_root: reports/strategy1_cloudrun
+output_dataset_role: ads
+
+prepare_matrix_job: strategy1-prepare-matrix-job
+train_candidate_fanout_job: strategy1-train-candidate-fanout-job
+select_register_predict_job: strategy1-select-register-predict-job
+backtest_report_job: strategy1-backtest-report-job
+training_panel_step: build_training_panel_risk_feature
+lock_bucket: ashare-artifacts
+lock_prefix: locks/strategy1/cloudrun
+lock_ttl_minutes: 30
+heartbeat_interval_seconds: 60
+
+acceptance_contract_path: configs/strategy1/model_acceptance_contract_v3.yml
+candidate_set_id: strategy1_annual_rolling_lgbm_regression_11_v0
+candidate_count: 11
+candidate_parallelism: 11
+candidate_task_cpu: 2
+candidate_task_memory: 8Gi
+
+preprocess_version: tree_winsor_missing_passthrough_v1
+winsor_lower: 0.001
+winsor_upper: 0.999
+random_state: 20260610
+bqml_reference_run_id: s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01
+
+default_windows:
+  train_start: "2015-04-01"
+  train_end: "2019-12-24"
+  valid_start: "2020-01-02"
+  valid_end: "2020-12-24"
+  test_start: "2021-01-04"
+  test_end: "2021-12-31"
+  final_holdout_start:
+  final_holdout_end:
+  predict_start: "2021-01-04"
+  predict_end: "2021-12-31"
+
+experiments: []
+
+candidate_grid:
+  - {candidate_id: risk_lgbm_prd_r14_anchor_l63_lr002_n300_leaf800_ff07_bf10_l1_1_l2_01, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.02, n_estimators: 300, min_data_in_leaf: 800, feature_fraction: 0.7, bagging_fraction: 1.0, lambda_l1: 1.0, lambda_l2: 0.1, num_threads: 1, random_state: 20261001}
+  - {candidate_id: risk_lgbm_prd_r20_attack_anchor_l63_lr010_n600_leaf800_ff07_bf09_l1_1_l2_1, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.10, n_estimators: 600, min_data_in_leaf: 800, feature_fraction: 0.7, bagging_fraction: 0.9, lambda_l1: 1.0, lambda_l2: 1.0, num_threads: 1, random_state: 20261002}
+  - {candidate_id: risk_lgbm_prd_stable_lr001_n300_l63_lr001_n300_leaf800_ff07_bf10_l1_1_l2_1, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.01, n_estimators: 300, min_data_in_leaf: 800, feature_fraction: 0.7, bagging_fraction: 1.0, lambda_l1: 1.0, lambda_l2: 1.0, num_threads: 1, random_state: 20261003}
+  - {candidate_id: risk_lgbm_prd_stable_leaf1200_l63_lr002_n300_leaf1200_ff07_bf10_l1_1_l2_1, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.02, n_estimators: 300, min_data_in_leaf: 1200, feature_fraction: 0.7, bagging_fraction: 1.0, lambda_l1: 1.0, lambda_l2: 1.0, num_threads: 1, random_state: 20261004}
+  - {candidate_id: risk_lgbm_prd_medium_lr003_n400_l63_lr003_n400_leaf800_ff07_bf10_l1_1_l2_1, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.03, n_estimators: 400, min_data_in_leaf: 800, feature_fraction: 0.7, bagging_fraction: 1.0, lambda_l1: 1.0, lambda_l2: 1.0, num_threads: 1, random_state: 20261005}
+  - {candidate_id: risk_lgbm_prd_medium_attack_lr005_n400_l63_lr005_n400_leaf800_ff07_bf09_l1_1_l2_1, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.05, n_estimators: 400, min_data_in_leaf: 800, feature_fraction: 0.7, bagging_fraction: 0.9, lambda_l1: 1.0, lambda_l2: 1.0, num_threads: 1, random_state: 20261006}
+  - {candidate_id: risk_lgbm_prd_attack_lr005_n600_l63_lr005_n600_leaf800_ff07_bf09_l1_1_l2_1, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.05, n_estimators: 600, min_data_in_leaf: 800, feature_fraction: 0.7, bagging_fraction: 0.9, lambda_l1: 1.0, lambda_l2: 1.0, num_threads: 1, random_state: 20261007}
+  - {candidate_id: risk_lgbm_prd_randomized_ff05_bf08_l63_lr002_n500_leaf800_ff05_bf08_l1_1_l2_1, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.02, n_estimators: 500, min_data_in_leaf: 800, feature_fraction: 0.5, bagging_fraction: 0.8, lambda_l1: 1.0, lambda_l2: 1.0, num_threads: 1, random_state: 20261008}
+  - {candidate_id: risk_lgbm_prd_wide_feature_ff09_l63_lr002_n300_leaf800_ff09_bf10_l1_1_l2_01, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.02, n_estimators: 300, min_data_in_leaf: 800, feature_fraction: 0.9, bagging_fraction: 1.0, lambda_l1: 1.0, lambda_l2: 0.1, num_threads: 1, random_state: 20261009}
+  - {candidate_id: risk_lgbm_prd_small_leaf400_l63_lr002_n300_leaf400_ff07_bf10_l1_1_l2_01, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.02, n_estimators: 300, min_data_in_leaf: 400, feature_fraction: 0.7, bagging_fraction: 1.0, lambda_l1: 1.0, lambda_l2: 0.1, num_threads: 1, random_state: 20261010}
+  - {candidate_id: risk_lgbm_prd_strong_regularized_l5_l63_lr002_n300_leaf800_ff07_bf10, model_family: lightgbm_regression, num_leaves: 63, learning_rate: 0.02, n_estimators: 300, min_data_in_leaf: 800, feature_fraction: 0.7, bagging_fraction: 1.0, lambda_l1: 5.0, lambda_l2: 5.0, num_threads: 1, random_state: 20261011}

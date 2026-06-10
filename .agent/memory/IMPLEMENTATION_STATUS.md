@@ -6,6 +6,16 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：年度滚动执行 P0 工程骨架已实现
+
+- 分支 `codex/annual-rolling-exec-impl` 在独立 worktree `/Users/fisher/Desktop/git/quant-ashare-annual-rolling-exec` 基于 `origin/main` 实现年度滚动执行 P0 工程骨架。
+- 新增 ADS additive migration `sql/ads/03_create_strategy1_backtest_ledger_state_daily.sql`，只用 `CREATE TABLE IF NOT EXISTS` 补齐 Cloud Run ledger resume state 表；既有 `02_alter_strategy1_backtest_compound_annual_return.sql` 继续负责 performance summary 复合年化字段。
+- 新增 `sql/strategy1/qa/qa_cloudrun_schema_readiness.sql`，检查 Cloud Run backtest/report 所需 ADS 表、字段类型、分区和 backtest_id clustering；并在 `configs/strategy1/active_step_catalog.yml` 注册稳定 step `qa_cloudrun_schema_readiness`。
+- 新增年度滚动专用候选配置 `configs/strategy1/annual_rolling_lgbm_regression_v0.yml`，固定 PRD_03 的 11 个 LightGBM regression 候选、`20` 只持仓、`7.5%` 单票上限、`biweekly` 和 `strategy1_pv_fin_risk_v0_20260606`。
+- 新增 `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`，可生成 `2021-2026` 年度 resolved experiment payload、matrix URI、Cloud Run command plan、B26 diagnostic-only reference 标记和连续 ledger backtest id；P0 wrapper 当前只实现 dry-run / resolved plan，非 dry-run 会 fail-fast，避免误把年度 fresh-run 拼接当正式结果。
+- 本地 review follow-up 已处理：`subtract_weekdays` 明确限制为 12 月年末 label window，新增 pytest 防止 canonical ADS ledger state DDL 与 additive migration 漂移，并在 TODO 中标记 research smoke 前需补充 research readiness。
+- 验证：`python3 -m pytest tests` 58 passed（4 个 Python / SSL 环境 warning）；未运行 BigQuery、Cloud Run 或 Dataform。
+
 ### 最新补充（2026-06-10）：年度滚动执行工程化 PRD 已新增
 
 - 新增 `docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md`，把 2021 annual-selection smoke 暴露的三个工程问题固化为后续实现要求：annual rolling resolved experiment payload 自动生成、ADS additive schema migration、Cloud Run schema readiness QA。
