@@ -6,13 +6,14 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
-### 最新补充（2026-06-11）：PRD_04 research summary identity 修复已实现，待 PR 合并后执行 live migration / 回填
+### 最新补充（2026-06-11）：PRD_04 research summary identity 修复已合并并完成 live migration / 回填
 
 - PR #162 已合并到 `main`（merge commit `ce795e5`），三个年度滚动正式化 PRD 已进入主线；旧 PRD worktree 已清理，本地/远端 `claude/prd-refit-continuous-summary` 分支已删除。
-- 分支 `codex/prd04-research-summary-fix` 基于 `origin/main@ce795e5` 实现 `docs/prd/PRD_20260611_04_ResearchSummary落库修复.md` 的代码侧修复：新增 ADS additive migration `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql`，为 `ads_backtest_performance_summary` 补 `run_id` / `created_date`；`09` summary INSERT 显式写入 `p_run_id` / `CURRENT_DATE()`；`qa_runner_outputs` 增加 summary identity NOT NULL / run_id 对账断言；`qa_cloudrun_schema_readiness` 将 ADS summary 两列纳入 required columns，并把失败信息指向新 migration。
+- PR #163 已合并到 `main`（merge commit `f0ba555`），实现 `docs/prd/PRD_20260611_04_ResearchSummary落库修复.md` 的代码侧修复：新增 ADS additive migration `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql`，为 `ads_backtest_performance_summary` 补 `run_id` / `created_date`；`09` summary INSERT 显式写入 `p_run_id` / `CURRENT_DATE()`；`qa_runner_outputs` 增加 summary identity NOT NULL / run_id 对账断言；`qa_cloudrun_schema_readiness` 将 ADS summary 两列纳入 required columns，并把失败信息指向新 migration。
 - 新增 `tests/strategy1/test_backtest_summary_identity_contract.py`，锁住 migration、`09` INSERT、runner QA 和 schema readiness 四个契约点，防止后续 summary identity 列再次漂移。
-- 当前只完成代码 PR 前验证，尚未执行 live ADS migration、research summary 6 行回填或 readiness QA 复跑；这些动作必须在本 PR 合并后进行，且仍是 PRD_02 / PRD_03 任何重跑的前置。
-- 验证：`PYTHONPATH=src python3 -m pytest -q tests` 105 passed；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过；`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql` 通过；`python3 -m compileall -q src scripts tests` 与 `git diff --check` 通过。
+- 已在 BigQuery live 执行 `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql`，两条 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 均完成；随后复跑 `sql/strategy1/qa/qa_cloudrun_schema_readiness.sql`，4 条 schema assertion 全部 successful。
+- 已按显式 6 个 annual rolling `backtest_id` 回填 `research_backtest_performance_summary.run_id` / `created_date`，UPDATE affected rows=6；`run_id` 取 `JSON_VALUE(metrics_json,'$.prediction_run_id')`，`created_date=DATE(created_at)`。只读复核确认：目标 6 行 `null_run_id=0`、`null_created_date=0`、`run_id_mismatch=0`、`created_date_mismatch=0`，`created_date=2026-06-10` 过滤可查到 6 行；time-travel hash 对比确认排除 `run_id` / `created_date` 后 6 行非目标字段无变化。
+- 验证：`PYTHONPATH=src python3 -m pytest -q tests` 105 passed；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过；`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql` 通过；`python3 -m compileall -q src scripts tests` 与 `git diff --check` 通过；live PRD_04 backfill NOT NULL assertion successful。
 
 ### 最新补充（2026-06-11）：年度滚动 refit / continuous / summary 修复三 PRD 已新增
 
