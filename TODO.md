@@ -16,7 +16,7 @@
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
 
 - [ ] OQ-010：实现年度滚动选参回测实验
-  说明：`docs/prd/PRD_20260610_03_策略1年度滚动选参.md` 已定义年度 walk-forward 参数选择方案：固定 11 个 LightGBM regression 可选候选、B26 binary diagnostic-only reference、20 只 / 7.5%、上一整年 valid 选参、最近 5 年 selected final refit、年度预测合并后一条连续 ledger 评价 `2021-2026`；2021 smoke 已暴露旧 CV fold 硬编码导致 `cv_fold_count=0`，分支 `codex/fix-dynamic-cv-folds` 已修复动态 CV fold，合并后先重跑 2021 smoke，再扩展完整链路。
+  说明：`docs/prd/PRD_20260610_03_策略1年度滚动选参.md` 已定义年度 walk-forward 参数选择方案；`docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md` 已补执行工程化方案。2021 单年度 Cloud Run smoke 已在正式 jobs 上闭环，CV fold 修复已实证为 11/11 候选 `cv_fold_count=3`，select/register/predict 与 backtest/report 均成功。下一步先实现 ADS additive migration、schema readiness QA 和 annual rolling orchestrator resolved payload 生成，再扩展完整 `2021-2026` 年度滚动，并用连续 ledger 评价，不拼接年度 fresh-run。
 
 
 - [x] OQ-010：实现回测复合年化收益字段

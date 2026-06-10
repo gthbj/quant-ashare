@@ -6,6 +6,23 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：年度滚动执行工程化 PRD 已新增
+
+- 新增 `docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md`，把 2021 annual-selection smoke 暴露的三个工程问题固化为后续实现要求：annual rolling resolved experiment payload 自动生成、ADS additive schema migration、Cloud Run schema readiness QA。
+- PRD 明确 P0 不改模型、不扩参数、不调 v3 gate、不切 `ashare_research`，只解决年度滚动从手工 smoke 到可重复正式执行的工程路径。
+- PRD 要求 additive migration 只用 `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ADD COLUMN IF NOT EXISTS`，不得 `CREATE OR REPLACE` 已有 ADS 表，不回填历史 run。
+- PRD 定义完整 `2021-2026` 结果必须来自单一 continuous ledger，或经过 resume-continuous QA 的 segment ledger；禁止把年度 fresh-run NAV 拼接成正式结果。
+- PR #144 review follow-up 已处理：调仓频率固定为 `biweekly`；migration 文件避免与既有 `02_alter_strategy1_backtest_compound_annual_return.sql` 冲突；schema readiness QA 使用无数字前缀并要求登记 catalog；`scripts/strategy1_cloudrun` 标记为过渡 namespace；B26 binary 明确为 diagnostic-only reference。
+
+### 最新补充（2026-06-10）：2021 年度滚动选参 Cloud Run smoke 已闭环
+
+- PR #141 已合并到 `main`（merge commit `2565e0f`），正式 Strategy1 Cloud Run runner 已从该提交构建并部署为镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:2565e0f`。
+- 使用正式 `strategy1-train-candidate-fanout-job` 重跑 2021 annual-selection candidate fanout，execution `strategy1-train-candidate-fanout-job-5f6qg` 成功完成；11 个候选全部 `cv_confirmation_status=passed`、`cv_fold_count=3`，fold 为 `cv_2018/cv_2019/cv_2020`。
+- 使用 resolved experiment payload 重跑 `select_register_predict`，execution `strategy1-select-register-predict-job-pxtbw` 成功；选中候选为 `risk_lgbm_prd_strong_regularized_l5_l63_lr002_n300_leaf800_ff07_bf10`，`prediction_rows=808433`。
+- 使用同一 payload 重跑 `backtest_report`，execution `strategy1-backtest-report-job-t5fg6` 成功；ledger 输出 `trades=1632`、`positions=3862`、`nav=243`、`state=243`，report、runner QA、lot-aware ledger QA、model diagnosis QA、tail-risk diagnosis 和 tail-risk QA 均完成。
+- 本次运行暴露生产 BigQuery ADS schema 未完全应用最新代码契约：已用 additive DDL 补建 `ashare_ads.ads_backtest_ledger_state_daily`，并为 `ashare_ads.ads_backtest_performance_summary` 补列 `compound_annual_return`、`return_period_count`、`annualization_target_period_count`、`annualization_method`；未重建或覆盖已有 ADS 表。
+- 2021 smoke 结果：`bt_s1_annual_param_select_train2015_2019_valid2020_pred2021_n20_w075_v20260610_01` 覆盖 `2021-01-04..2021-12-31`，`total_return=-8.08%`、`compound_annual_return=-8.39%`、`annual_vol=18.49%`、`sharpe=-0.382`、`max_drawdown=-19.54%`、相对 `000001.SH` `excess_return=-12.88%`。这只证明 2021 单年度链路闭环，不代表年度滚动 2021-2026 连续 ledger 已完成。
+
 ### 最新补充（2026-06-10）：项目结构重构 Phase D1b runner research routing 已实现，D1 smoke 待收尾
 
 - 分支 `codex/strategy1-research-routing-d1b` 已实现 `docs/prd/PRD_20260610_02_项目结构重构方案.md` 的 Phase D1b：为 Strategy1 Cloud Run Python runner 增加显式 `output_dataset_role` routing。
