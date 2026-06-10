@@ -2748,3 +2748,43 @@ Agent ID: Codex
 ### 相关文件
 
 `sql/research/01_research_strategy1_tables.sql`, `scripts/strategy1_cloudrun/dataset_roles.py`, `tests/strategy1/test_research_contract.py`, `tests/strategy1_cloudrun/test_dataset_role_routing.py`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260610-09: Research 表契约变更必须同步 additive migration 和 readiness QA
+
+日期: 2026-06-10
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+Phase D1 research-mode smoke 暴露 `research_experiment_run_status.log_dir` 是通过带外 `ALTER TABLE` 补到已存在 physical table 的。`sql/research/01_research_strategy1_tables.sql` 使用 `CREATE TABLE IF NOT EXISTS`，因此新增列不会自动传播到已经创建并有数据的 `ashare_research` 表。若 D2 default research-first 前不补机制，research schema drift 会重演 ADS schema 漂移问题。
+
+### 决策
+
+1. `sql/research/01_research_strategy1_tables.sql` 继续作为新环境 canonical research contract。
+2. 任何对既有 research 表的 additive schema 变更，必须同步写入 `sql/research/02_research_strategy1_additive_migrations.sql`，使用 idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`。
+3. D2 default research-first 前，以及每次 research contract / migration 变更后，必须运行 `sql/research/03_qa_research_schema_readiness.sql`。
+4. Readiness QA 至少覆盖 15 张 research 表、关键列/类型、分区、聚簇、lifecycle DEFAULT、partition filter 和 runtime 关键列（当前包括 `research_experiment_run_status.log_dir`）。
+5. 不得用 `CREATE OR REPLACE` 重建已有 populated research 表，除非 owner 明确批准 destructive reset。
+
+### 理由
+
+Research 表从 D1 起已有真实 smoke 数据，不能再假设 DDL 文件等同于线上 schema。Additive migration + readiness QA 能让后续 D2 默认写 research 时先证明 physical schema 与代码契约一致，避免 runner 在运行期才因缺列、默认值缺失或分区/聚簇漂移失败。
+
+### 影响
+
+1. `sql/research/README.md` 和 `sql/README.md` 的执行顺序固定为 contract、additive migration、readiness QA。
+2. `configs/strategy1/active_step_catalog.yml` 登记 `qa_research_schema_readiness` 作为手工 schema readiness step。
+3. 后续新增 research 表或字段时，必须同步更新 readiness QA 和 pytest 防漂移测试。
+
+### 备选方案
+
+- 只更新 canonical `01_research_strategy1_tables.sql`：不采用。原因是 `CREATE TABLE IF NOT EXISTS` 对既有表无效，无法保护线上 schema。
+- 让 runner 启动时隐式补 schema：不采用。原因是普通实验 runner 不应拥有 schema migration 副作用，且失败可观测性差。
+- 用 `CREATE OR REPLACE` 重建 research 表：不采用。原因是 research 表已含真实实验数据，重建会破坏审计和 promotion provenance。
+
+### 相关文件
+
+`sql/research/01_research_strategy1_tables.sql`, `sql/research/02_research_strategy1_additive_migrations.sql`, `sql/research/03_qa_research_schema_readiness.sql`, `configs/strategy1/active_step_catalog.yml`, `tests/strategy1/test_research_contract.py`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`

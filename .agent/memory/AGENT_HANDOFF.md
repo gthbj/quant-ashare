@@ -255,6 +255,9 @@ Model: GPT-5 Codex
 
 ## 当前交接摘要
 
+- 2026-06-10：PR #146 已合并到 `main`（merge commit `bca0e791abb57b3fb7efaa01b46e7444ac15cfb2`），并已从 merge 后 `origin/main` 重建正式 Strategy1 runner 镜像 `sha256:c0ae9b2ec72b1299a08db66eb02881d0d3156735c14f08193d60e4388c9cc357`。五个 Strategy1 Cloud Run jobs 已更新到该 immutable digest，读回确认资源/SA/args 未改乱；只读 boot smoke execution `strategy1-backtest-report-job-8krjt` succeeded。
+- 2026-06-10：分支 `codex/research-schema-readiness` 已补 D2 前 research additive migration 约定与 readiness QA：新增 `sql/research/02_research_strategy1_additive_migrations.sql` 和 `sql/research/03_qa_research_schema_readiness.sql`，catalog 登记 `qa_research_schema_readiness`，README 写明 `01 contract -> 02 additive migrations -> 03 readiness QA`。live BigQuery readiness QA 7 条断言全部 successful；本地 `python3 -m pytest -q tests` 66 passed，Dataform check/compile、compileall、`git diff --check` 均通过。
+- 下一步：合并 `codex/research-schema-readiness` PR 后，再单独开 Phase D2 default research-first PR；D3 promotion job 和 Phase E 包化/命名收敛仍保持后续独立 PR。
 - 2026-06-10：新增年度滚动执行工程化 PRD `docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md`；范围只解决 annual rolling 从手工 smoke 到可重复正式执行的工程路径，包括 resolved experiment payload 自动生成、ADS additive migration、schema readiness QA、run_id/artifact 规则和 continuous ledger 执行规则。不改模型、不扩参数、不调 v3 gate、不切 `ashare_research`；正式 `2021-2026` 结果不得拼接年度 fresh-run。
 - 2026-06-10：2021 annual-selection Cloud Run smoke 已在正式 Strategy1 jobs 上闭环。PR #141 合并后构建部署 `strategy1-cloudrun-runner:2565e0f`；candidate fanout `strategy1-train-candidate-fanout-job-5f6qg` 成功，11 个候选全部 `cv_fold_count=3`、CV passed；select/register/predict `strategy1-select-register-predict-job-pxtbw` 成功并选中 `risk_lgbm_prd_strong_regularized_l5_l63_lr002_n300_leaf800_ff07_bf10`；backtest/report `strategy1-backtest-report-job-t5fg6` 成功，2021 结果 total_return -8.08%、compound annual -8.39%、Sharpe -0.382、MaxDD -19.54%、vs `000001.SH` excess -12.88%。运行中已用 additive DDL 补齐 `ads_backtest_ledger_state_daily` 和 performance summary 复合年化字段。
 - 2026-06-10：项目结构重构 Phase D1b runner research routing 已在 `codex/strategy1-research-routing-d1b` 实现并处理 PR #143 review follow-up；新增 `output_dataset_role` 配置/CLI、`dataset_roles.py` helper 和 runner/report/diagnosis/QA/acceptance/comparison/factor attribution 显式 research routing。默认仍是 ADS，且默认 ADS 子命令不下发 `--output-dataset-role=ads`，保持旧 Cloud Run 镜像兼容；显式 `research` 模式下 run-scoped Strategy1 表解析到 `ashare_research.research_*`，research status 表解析到 `ashare_research.research_experiment_run_status`。Research DDL 已补 lifecycle 默认值：普通输出为 `candidate/not_promoted`，promotion manifest 为 `planned`。本轮不创建或部署 BigQuery `ashare_research` 对象、不修改 Cloud Run Job spec、不切 default research-first、不实现 promotion；D2 前新增 D1 收尾验收项，读侧 routing 全局态风格收敛登记到 Phase E。验证：`python3 -m pytest tests` 57 passed、Dataform `--check`、Dataform compile、BigQuery DDL dry-run、主要 CLI help/dry-run、41 条程序化 self-review checks、compileall 和 `git diff --check` 均通过。
@@ -278,6 +281,72 @@ Model: GPT-5 Codex
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-10 GPT-5 Codex - Research additive migration 与 readiness QA
+
+### 已完成工作
+
+- 合并 PR #146 到 `main`，merge commit 为 `bca0e791abb57b3fb7efaa01b46e7444ac15cfb2`。
+- 从 merge 后 `origin/main` 新建部署 worktree，使用 Cloud Build 构建正式 Strategy1 runner 镜像 `research-d1-main-bca0e79-20260610-01`，digest 为 `sha256:c0ae9b2ec72b1299a08db66eb02881d0d3156735c14f08193d60e4388c9cc357`。
+- 将五个 Strategy1 Cloud Run jobs 更新到该 immutable digest：`strategy1-train-predict-job`、`strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。
+- 新增 `sql/research/02_research_strategy1_additive_migrations.sql`，用 idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 固化 `research_experiment_run_status.log_dir`。
+- 新增 `sql/research/03_qa_research_schema_readiness.sql`，只读 `INFORMATION_SCHEMA` 检查 15 张 research 表、关键列/类型、分区、聚簇、lifecycle DEFAULT、partition filter 和 `log_dir`。
+- 在 `configs/strategy1/active_step_catalog.yml` 登记 `qa_research_schema_readiness`，并更新 `sql/research/README.md`、`sql/README.md`、`sql/strategy1/README.md`。
+- 新增 pytest 覆盖 research additive migration、readiness QA catalog 登记、表覆盖、lifecycle 默认值和 `log_dir`。
+- 追加 `DECISION-20260610-09`，并同步 `KNOWN_CONSTRAINTS.md` / `IMPLEMENTATION_STATUS.md` / `TODO.md`。
+
+### 重要上下文
+
+- `01_research_strategy1_tables.sql` 仍是新环境 canonical contract，但 `CREATE TABLE IF NOT EXISTS` 不会更新已有表；后续新增 research 列必须同步 `02` migration 和 `03` readiness QA。
+- 本 PR 不切 default research-first，不实现 promotion，不迁移 ADS 历史数据。
+- D2 的前置变为：本 PR 合并后，再单独开 D2 default research-first PR。
+
+### 改动文件
+
+- `configs/strategy1/active_step_catalog.yml`
+- `sql/research/02_research_strategy1_additive_migrations.sql`
+- `sql/research/03_qa_research_schema_readiness.sql`
+- `sql/research/README.md`
+- `sql/README.md`
+- `sql/strategy1/README.md`
+- `tests/strategy1/test_research_contract.py`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- Cloud Build `ce178068-c6eb-4921-a3f4-c1a8ba18f917` succeeded。
+- 五个 Strategy1 jobs 读回均指向 `sha256:c0ae9b2ec72b1299a08db66eb02881d0d3156735c14f08193d60e4388c9cc357`，资源/SA/args 保持原配置。
+- 只读 Cloud Run boot smoke `strategy1-backtest-report-job-8krjt` succeeded。
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/research/02_research_strategy1_additive_migrations.sql` 执行为 no-op skip。
+- `bq query --use_legacy_sql=false --location=asia-east2 < sql/research/03_qa_research_schema_readiness.sql` 7 条断言全部 successful。
+- `python3 -m pytest -q tests` -> 66 passed（4 个 Python / SSL 环境 warning）。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过。
+- `npx --yes @dataform/cli compile dataform` 通过。
+- `python3 -m compileall -q src scripts/strategy1_cloudrun scripts/strategy1` 通过。
+- `git diff --check` 通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提交并推送 `codex/research-schema-readiness`，开单独 PR。
+- PR 合并后进入 Phase D2 default research-first；D3 promotion job 和 Phase E 包化继续单独 PR。
+
+### 已更新记忆文件
+
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - 年度滚动执行工程化 PRD
 

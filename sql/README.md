@@ -44,8 +44,10 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ads/01_ads_strategy1
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_ads_checks.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/04_finance_caliber_checks.sql
 
-# Strategy1 research 表契约（Phase D0，仅在 owner 明确批准创建 research contract 时执行；不切 runner 默认写入）
+# Strategy1 research 表契约与 readiness（Phase D0/D1；D2 research-first 前必跑）
 bq query --use_legacy_sql=false --location=asia-east2 < sql/research/01_research_strategy1_tables.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/research/02_research_strategy1_additive_migrations.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/research/03_qa_research_schema_readiness.sql
 
 # 策略 1 共享 SQL（当前 Cloud Run Python path 复用，详见 sql/strategy1/README.md）
 bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/panel/build_training_panel_base.sql
@@ -147,7 +149,7 @@ python3 scripts/qa/run_windowed_refresh_equivalence.py \
 - `data-aquarium.ashare_ads.ads_backtest_nav_daily`
 - `data-aquarium.ashare_ads.ads_backtest_performance_summary`
 - `data-aquarium.ashare_ads.ads_signal_monitor_daily`
-- `data-aquarium.ashare_research.research_*`（Phase D0 table contract；当前 runner 默认仍写 `ashare_ads`，research routing 和 promotion 后续单独实现）
+- `data-aquarium.ashare_research.research_*`（Phase D0/D1 table contract + explicit research routing；D2 默认 research-first 和 promotion 后续单独实现）
 
 ## QA
 

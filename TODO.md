@@ -52,14 +52,14 @@
 - [x] OQ-010 / 工程治理：完成项目结构重构 PRD Phase D1 收尾验收
   说明：已在独立 worktree `codex/strategy1-research-d1-smoke` 部署 D0 research DDL、给 runtime SA 补 `ashare_research` 写权限、重建并部署 Strategy1 Cloud Run jobs 到 D1 smoke 镜像 `sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`，并跑通显式 research-mode smoke `sklearn_native_research_d1_smoke_20260610_04`。验收确认 research 表写入、lifecycle 默认值正确、registry 显式 `run_id/search_id/created_date/acceptance_status` 写出、report / diagnosis / QA / acceptance 链路通过，且 ADS run-scoped 表同 run/backtest 零污染。
 
-- [ ] OQ-010 / 工程治理：D1 收尾合并后重建正式 main 镜像并部署
-  说明：D1 smoke 为了真实验收临时把五个 Strategy1 Cloud Run jobs 指到 D1 worktree 构建镜像 `sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`；正式 PR 合并后应以 merge/main commit 重建 runner 镜像并更新 jobs，避免长期运行未合并分支镜像。
+- [x] OQ-010 / 工程治理：D1 收尾合并后重建正式 main 镜像并部署
+  说明：PR #146 已合并到 `main`，merge commit `bca0e79`。已从 merge 后 `origin/main` 重建正式 runner 镜像 `sha256:c0ae9b2ec72b1299a08db66eb02881d0d3156735c14f08193d60e4388c9cc357`，并把五个 Strategy1 Cloud Run jobs 更新到该 immutable digest；只读 boot smoke execution `strategy1-backtest-report-job-8krjt` 成功。
 
-- [ ] OQ-010 / 工程治理：D2 前补 research additive migration 约定与 research readiness QA
-  说明：D1 smoke 已用带外 `ALTER TABLE` 给既有 `research_experiment_run_status` 补 `log_dir`，证明 `CREATE TABLE IF NOT EXISTS` 契约不会自动传播新增列；D2 default research-first 前应补 research 表 additive migration 约定，并实现 research 版 schema/readiness QA，避免 research schema drift 重演 ADS 漂移问题。
+- [x] OQ-010 / 工程治理：D2 前补 research additive migration 约定与 research readiness QA
+  说明：分支 `codex/research-schema-readiness` 新增 `sql/research/02_research_strategy1_additive_migrations.sql` 和 `sql/research/03_qa_research_schema_readiness.sql`，固化 research additive migration 约定，并用 readiness QA 覆盖 15 张 research 表、关键列/类型、分区、聚簇、lifecycle 默认值、partition filter 与 `research_experiment_run_status.log_dir`。live BigQuery readiness QA 已通过。
 
 - [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D2-D3/E
-  说明：D1 收尾验收通过后，再做 default research-first、owner-approved promotion job，以及深层 package split / naming cleanup；Phase E 包化时同步收敛读侧 routing 的模块级全局态（当前 setter 与裸全局两种风格并存）。不得与 D1b 显式 routing 混做。
+  说明：D1 收尾验收、正式 main 镜像部署和 research readiness QA PR 合并后，再做 default research-first、owner-approved promotion job，以及深层 package split / naming cleanup；Phase E 包化时同步收敛读侧 routing 的模块级全局态（当前 setter 与裸全局两种风格并存）。不得与 D1b 显式 routing 或 readiness cleanup 混做。
 
 - [x] 工程治理：修复 Dataform generated SQLX drift
   说明：已在单独 cleanup 分支重新运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件，并新增 pytest 防复发检查；`--check`、Dataform compile、`python3 -m pytest tests` 和 `git diff --check` 已通过。
