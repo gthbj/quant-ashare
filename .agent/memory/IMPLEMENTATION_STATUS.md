@@ -6,6 +6,12 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：缺失本机/运行依赖可直接安装的 owner 约定已记录
+
+- 从已清理的旧 `codex/remove-composer-refresh-helper` 分支中只保留仍有效的 owner 约定：本项目执行过程中如缺失必要本机 / 运行依赖，Agent 可直接安装最小必要依赖并继续任务。
+- 旧分支 PR #129 已合并；重复 PRD 暂存和基于旧记忆文件的冲突编号变更未沿用。旧分支本地脏改动已保存在 `stash@{0}`，未提交到 `main`。
+- 新增 `DECISION-20260610-13`，并在 `KNOWN_CONSTRAINTS.md` 记录授权边界：不覆盖密钥 / 凭据 / 隐私、未脱敏敏感日志、显著云成本、生产权限边界或 job spec / IAM 变更、破坏性数据操作。
+
 ### 最新补充（2026-06-10）：Strategy1 旧五 job wrapper 已删除
 
 - 分支 `codex/delete-strategy1-job-wrappers` 基于 `origin/main` commit `5772f30` 删除五个已退役 job wrapper：`scripts/strategy1_cloudrun/train_predict.py`、`prepare_matrix.py`、`train_candidate_task.py`、`select_register_predict.py`、`backtest_report.py`。
