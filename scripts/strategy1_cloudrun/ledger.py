@@ -18,7 +18,8 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
-from scripts.strategy1_cloudrun.bq_io import ADS, execute_query, load_dataframe, query_dataframe
+from scripts.strategy1_cloudrun.bq_io import execute_query, load_dataframe, query_dataframe
+from scripts.strategy1_cloudrun.dataset_roles import TableResolver
 
 ALLOWED_TAIL_RISK_PROFILES = frozenset({
     "diagnostic_only",
@@ -53,6 +54,7 @@ class LedgerParams:
     project: str
     run_id: str
     backtest_id: str
+    output_dataset_role: str = "ads"
     strategy_id: str = "ml_pv_clf_v0"
     predict_start: str = "2024-01-02"
     predict_end: str = "2025-12-31"
@@ -260,10 +262,11 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
     for row in position_rows:
         row["weight"] = safe_divide(row["market_value_cny"], nav_by_date[row["trade_date"]])
 
-    load_dataframe(client, pd.DataFrame(trade_rows), f"{ADS}.ads_backtest_trade_daily")
-    load_dataframe(client, pd.DataFrame(position_rows), f"{ADS}.ads_backtest_position_daily")
-    load_dataframe(client, pd.DataFrame(nav_rows), f"{ADS}.ads_backtest_nav_daily")
-    load_dataframe(client, pd.DataFrame(state_rows), f"{ADS}.ads_backtest_ledger_state_daily")
+    tables = TableResolver(dataset_role=params.output_dataset_role, project=params.project)
+    load_dataframe(client, pd.DataFrame(trade_rows), tables.fqn("backtest_trade_daily"))
+    load_dataframe(client, pd.DataFrame(position_rows), tables.fqn("backtest_position_daily"))
+    load_dataframe(client, pd.DataFrame(nav_rows), tables.fqn("backtest_nav_daily"))
+    load_dataframe(client, pd.DataFrame(state_rows), tables.fqn("backtest_ledger_state_daily"))
     return {"trades": len(trade_rows), "positions": len(position_rows), "nav": len(nav_rows), "state": len(state_rows)}
 
 
@@ -643,15 +646,29 @@ def trade_row(
 
 
 def clear_ledger_outputs(client: bigquery.Client, params: LedgerParams) -> None:
+    tables = TableResolver(dataset_role=params.output_dataset_role, project=params.project)
     calendar_end = (pd.Timestamp(params.predict_end) + pd.Timedelta(days=90)).date().isoformat()
     qparams = [
         bigquery.ScalarQueryParameter("backtest_id", "STRING", params.backtest_id),
         bigquery.ScalarQueryParameter("start_date", "DATE", params.predict_start),
         bigquery.ScalarQueryParameter("end_date", "DATE", calendar_end),
     ]
-    for table in ("ads_backtest_trade_daily", "ads_backtest_position_daily", "ads_backtest_nav_daily", "ads_backtest_ledger_state_daily"):
-        execute_query(client, f"DELETE FROM `{ADS}.{table}` WHERE backtest_id=@backtest_id AND trade_date BETWEEN @start_date AND @end_date", qparams)
-    execute_query(client, f"DELETE FROM `{ADS}.ads_backtest_performance_summary` WHERE backtest_id=@backtest_id", [bigquery.ScalarQueryParameter("backtest_id", "STRING", params.backtest_id)])
+    for role in (
+        "backtest_trade_daily",
+        "backtest_position_daily",
+        "backtest_nav_daily",
+        "backtest_ledger_state_daily",
+    ):
+        execute_query(
+            client,
+            f"DELETE FROM `{tables.fqn(role)}` WHERE backtest_id=@backtest_id AND trade_date BETWEEN @start_date AND @end_date",
+            qparams,
+        )
+    execute_query(
+        client,
+        f"DELETE FROM `{tables.fqn('backtest_summary')}` WHERE backtest_id=@backtest_id",
+        [bigquery.ScalarQueryParameter("backtest_id", "STRING", params.backtest_id)],
+    )
 
 
 def benchmark_assert(client: bigquery.Client, params: LedgerParams) -> None:
@@ -775,6 +792,7 @@ def load_resume_snapshot(
     params: LedgerParams,
     calendar: pd.DataFrame,
 ) -> ResumeSnapshot:
+    tables = TableResolver(dataset_role=params.output_dataset_role, project=params.project)
     next_open = next_open_after(calendar, params.state_as_of_date)
     if next_open is None or str(next_open) != params.predict_start:
         raise RuntimeError(
@@ -789,7 +807,7 @@ def load_resume_snapshot(
         client,
         f"""
         SELECT trade_date, nav, net_value_cny
-        FROM `{ADS}.ads_backtest_nav_daily`
+        FROM `{tables.fqn('backtest_nav_daily')}`
         WHERE backtest_id = @parent_backtest_id
           AND trade_date = @state_as_of_date
         """,
@@ -814,7 +832,7 @@ def load_resume_snapshot(
           ledger_params_hash,
           resume_policy_id,
           rebalance_anchor_start
-        FROM `{ADS}.ads_backtest_ledger_state_daily`
+        FROM `{tables.fqn('backtest_ledger_state_daily')}`
         WHERE backtest_id = @parent_backtest_id
           AND trade_date = @state_as_of_date
         """,
@@ -827,7 +845,7 @@ def load_resume_snapshot(
         client,
         f"""
         SELECT sec_code, shares, market_value_cny
-        FROM `{ADS}.ads_backtest_position_daily`
+        FROM `{tables.fqn('backtest_position_daily')}`
         WHERE backtest_id = @parent_backtest_id
           AND trade_date = @state_as_of_date
         """,
@@ -891,14 +909,15 @@ def next_open_after(calendar: pd.DataFrame, state_as_of_date: str | None) -> obj
 
 
 def load_targets(client: bigquery.Client, params: LedgerParams) -> pd.DataFrame:
+    tables = TableResolver(dataset_role=params.output_dataset_role, project=params.project)
     sql = f"""
     SELECT
       pt.rebalance_date,
       pt.sec_code,
       pt.target_weight,
       cand.rank_raw
-    FROM `{ADS}.ads_portfolio_target_daily` AS pt
-    LEFT JOIN `{ADS}.ads_stock_candidate_daily` AS cand
+    FROM `{tables.fqn('portfolio_target_daily')}` AS pt
+    LEFT JOIN `{tables.fqn('stock_candidate_daily')}` AS cand
       ON cand.strategy_id = pt.strategy_id
      AND cand.run_id = pt.run_id
      AND cand.rebalance_date = pt.rebalance_date
@@ -932,9 +951,10 @@ def build_target_specs_by_signal(targets: pd.DataFrame) -> dict[Any, dict[str, d
 def load_tail_risk_buy_guards(client: bigquery.Client, params: LedgerParams) -> dict[Any, set[str]]:
     if not has_individual_risk_guard(params.tail_risk_profile_id):
         return {}
+    tables = TableResolver(dataset_role=params.output_dataset_role, project=params.project)
     sql = f"""
     SELECT rebalance_date, sec_code
-    FROM `{ADS}.ads_stock_candidate_daily`
+    FROM `{tables.fqn('stock_candidate_daily')}`
     WHERE strategy_id=@strategy_id AND run_id=@run_id
       AND rebalance_date BETWEEN @start AND @end
       AND is_selected_candidate

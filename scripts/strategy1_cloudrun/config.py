@@ -25,6 +25,10 @@ if SRC_ROOT.exists() and str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from quant_ashare.strategy1.catalog import step_name_for_path
+from scripts.strategy1_cloudrun.dataset_roles import (
+    OUTPUT_DATASET_ROLE_CHOICES,
+    validate_output_dataset_role,
+)
 
 
 DEFAULT_CONFIG_PATH = "configs/strategy1/cloudrun_runner_default.yml"
@@ -49,6 +53,7 @@ class RunnerConfig:
     artifact_base_uri: str = DEFAULT_ARTIFACT_BASE_URI
     model_artifact_base_uri: str = DEFAULT_MODEL_ARTIFACT_BASE_URI
     local_mirror_root: str = DEFAULT_LOCAL_MIRROR_ROOT
+    output_dataset_role: str = "ads"
     execution_backend: str = DEFAULT_EXECUTION_BACKEND
     train_predict_job: str = "strategy1-train-predict-job"
     prepare_matrix_job: str = "strategy1-prepare-matrix-job"
@@ -204,6 +209,7 @@ def load_runner_config(path: str | Path | None = None) -> RunnerConfig:
     valid_fields = {field.name for field in dataclasses.fields(RunnerConfig)}
     kwargs = {k: v for k, v in raw.items() if k in valid_fields}
     config = RunnerConfig(candidate_grid=grid, **kwargs)
+    validate_output_dataset_role(config.output_dataset_role)
     if config.training_panel_sql:
         mapped_step = step_name_for_path(config.training_panel_sql)
         if not mapped_step:
@@ -282,6 +288,7 @@ def dump_resolved_manifest(
         "manifest_path": manifest_path,
         "manifest_hash": manifest_hash_value,
         "execution_backend": config.execution_backend,
+        "output_dataset_role": config.output_dataset_role,
         "project": config.project,
         "region": config.region,
         "max_parallel_experiments": resolved_parallel,
@@ -300,6 +307,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--artifact-base-uri", default=None)
     parser.add_argument("--model-artifact-base-uri", default=None)
     parser.add_argument("--local-mirror-root", default=None)
+    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default=None)
     parser.add_argument("--dry-run", action="store_true")
 
 
@@ -355,8 +363,15 @@ def experiment_from_b64(value: str) -> Experiment:
 
 def apply_cli_overrides(config: RunnerConfig, args: argparse.Namespace) -> RunnerConfig:
     updates = {}
-    for field in ("project", "region", "strategy_id", "artifact_base_uri",
-                  "model_artifact_base_uri", "local_mirror_root"):
+    for field in (
+        "project",
+        "region",
+        "strategy_id",
+        "artifact_base_uri",
+        "model_artifact_base_uri",
+        "local_mirror_root",
+        "output_dataset_role",
+    ):
         value = getattr(args, field, None)
         if value is not None:
             updates[field] = value

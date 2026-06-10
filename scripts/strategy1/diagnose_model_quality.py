@@ -46,8 +46,18 @@ except ImportError as e:
           file=sys.stderr)
     sys.exit(1)
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.strategy1_cloudrun.dataset_roles import (
+    OUTPUT_DATASET_ROLE_CHOICES,
+    rewrite_sql_dataset_role,
+)
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 DIAGNOSIS_VERSION = "strategy1_model_diagnosis_v1"
+OUTPUT_DATASET_ROLE = "ads"
 
 # Feature columns referenced in FR-DIAG-6
 FEATURE_COLS = [
@@ -72,6 +82,7 @@ def parse_args():
     p.add_argument("--strategy-id", default="ml_pv_clf_v0")
     p.add_argument("--artifact-base-uri", required=True, help="gs://bucket/path")
     p.add_argument("--local-mirror-root", default="reports/strategy1")
+    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
     p.add_argument("--skip-gcs-upload", action="store_true")
     p.add_argument("--p-target-holdings", type=int, default=5,
                    help="Current portfolio target holdings (OQ-010 default)")
@@ -135,6 +146,11 @@ def make_bqstorage_client(project: str):
 
 
 def bq_query(client: bigquery.Client, sql: str, params: list | None = None) -> pd.DataFrame:
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=OUTPUT_DATASET_ROLE,
+        project=client.project,
+    )
     cfg = bigquery.QueryJobConfig(query_parameters=params or [])
     bqstorage_client = make_bqstorage_client(client.project)
     if bqstorage_client is None:
@@ -1095,6 +1111,11 @@ def write_diagnosis_status_to_ads(client: bigquery.Client, project: str,
     SET bs.metrics_json = TO_JSON_STRING({json_expr})
     WHERE bs.backtest_id = @bid
     """
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=OUTPUT_DATASET_ROLE,
+        project=project,
+    )
     client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
     print(
         "  Updated summary.metrics_json "
@@ -1172,8 +1193,10 @@ def render_diagnosis_markdown(identity: dict, valid_ic: dict, test_ic: dict,
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
+    global OUTPUT_DATASET_ROLE
     args = parse_args()
     args.prediction_run_id = args.prediction_run_id or args.run_id
+    OUTPUT_DATASET_ROLE = args.output_dataset_role
     bq = make_bq_client(args.project)
 
     print("读取模型身份...")

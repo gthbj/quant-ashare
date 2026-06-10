@@ -46,8 +46,11 @@
 - [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase D1a SQL render table-role routing
   说明：`src/quant_ashare/strategy1/sql_render.py` 已按 catalog step 的 `inputs` / `outputs` 注入 table role 替换；默认 ADS 渲染不变，显式 `dataset_role="research"` 仍需 `allow_future_research=True`，并只用于 contract / dry-run / 后续 runner 接线验证。PR #142 review follow-up 已补全 step role 覆盖并新增 pytest，禁止 research 渲染残留 `data-aquarium.ashare_ads.`。Cloud Run 默认写入、实际 BigQuery `ashare_research` 写入和 promotion 尚未开启。
 
-- [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D1b-D3/E
-  说明：下一阶段再做显式 runner `output_dataset_role=research` CLI/config 接线、report / diagnosis / QA / acceptance/comparison 全链路读取 research output、default research-first、owner-approved promotion job，以及深层 package split / naming cleanup；不得与 D0 contract 或 SQL 命名空间迁移混做。
+- [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase D1b runner research routing
+  说明：分支 `codex/strategy1-research-routing-d1b` 已新增显式 `output_dataset_role` CLI/config 接线，并让 Cloud Run Python runner、ledger、orchestrator status、report / diagnosis / QA / acceptance / comparison / factor attribution 在显式 `research` 模式下按 resolver 读取或写入 `ashare_research.research_*`；默认仍是 ADS，未部署 BigQuery / Cloud Run，未切 default research-first，未实现 promotion。
+
+- [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D2-D3/E
+  说明：下一阶段再做 default research-first、owner-approved promotion job，以及深层 package split / naming cleanup；不得与 D1b 显式 routing 混做。
 
 - [x] 工程治理：修复 Dataform generated SQLX drift
   说明：已在单独 cleanup 分支重新运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件，并新增 pytest 防复发检查；`--check`、Dataform compile、`python3 -m pytest tests` 和 `git diff --check` 已通过。

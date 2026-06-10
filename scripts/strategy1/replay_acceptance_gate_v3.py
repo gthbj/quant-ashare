@@ -27,10 +27,14 @@ from scripts.strategy1_cloudrun.bq_io import (
     get_git_commit,
     join_gs_uri,
     make_client,
-    query_dataframe,
+    query_dataframe as bq_query_dataframe,
     upload_directory_to_gcs,
     write_json,
     write_text,
+)
+from scripts.strategy1_cloudrun.dataset_roles import (
+    OUTPUT_DATASET_ROLE_CHOICES,
+    rewrite_sql_dataset_role,
 )
 
 
@@ -51,6 +55,7 @@ REQUIRED_ARTIFACTS = [
     "acceptance_gate_v3_by_benchmark.csv",
     "artifact_manifest.json",
 ]
+OUTPUT_DATASET_ROLE = "ads"
 
 
 def parse_args() -> argparse.Namespace:
@@ -64,12 +69,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-k-per-search", type=int, default=5)
     parser.add_argument("--artifact-base-uri", default="gs://ashare-artifacts/reports/strategy1")
     parser.add_argument("--local-mirror-root", default="reports/strategy1")
+    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
     parser.add_argument("--skip-gcs-upload", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    set_output_dataset_role(args.output_dataset_role)
     args.search_ids = args.search_ids or list(DEFAULT_SEARCH_IDS)
     contract = load_acceptance_contract(args.contract)
     apply_contract_defaults(args, contract)
@@ -140,6 +147,25 @@ def main() -> int:
         "local_dir": str(out_dir),
     }, ensure_ascii=False, indent=2))
     return 0
+
+
+def set_output_dataset_role(dataset_role: str) -> None:
+    global OUTPUT_DATASET_ROLE
+    OUTPUT_DATASET_ROLE = dataset_role
+
+
+def query_dataframe(
+    client: bigquery.Client,
+    sql: str,
+    params: list[bigquery.ScalarQueryParameter],
+    **kwargs: Any,
+) -> pd.DataFrame:
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=OUTPUT_DATASET_ROLE,
+        project=client.project,
+    )
+    return bq_query_dataframe(client, sql, params, **kwargs)
 
 
 def apply_contract_defaults(args: argparse.Namespace, contract: dict[str, Any]) -> None:

@@ -6,6 +6,17 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：项目结构重构 Phase D1b runner research routing 已实现
+
+- 分支 `codex/strategy1-research-routing-d1b` 已实现 `docs/prd/PRD_20260610_02_项目结构重构方案.md` 的 Phase D1b：为 Strategy1 Cloud Run Python runner 增加显式 `output_dataset_role` routing。
+- `RunnerConfig`、通用 CLI、resolved manifest、orchestrator status payload 和 Cloud Run job args 均已透传 `output_dataset_role`；默认值仍是 `ads`，显式 `--output-dataset-role research` 才走 research 表族。
+- 新增 `scripts/strategy1_cloudrun/dataset_roles.py`，封装 `TableResolver`、SQL dataset-role rewrite 和 research opt-in 校验；默认 SQL rewrite 排除 `acceptance_result`，避免 `ads_model_registry` 同时对应 `model_registry` / `acceptance_result` 时误替换。
+- `train_predict.py`、`prepare_matrix.py`、`select_register_predict.py`、`ledger.py`、`backtest_report.py`、`orchestrate_experiments.py`、`orchestrate_sklearn_native_search.py` 和 `state.py` 已按 resolver 读取/写入 run-scoped Strategy1 表；ADS 模式保持现有表，research 模式指向 `ashare_research.research_*`，其中 research status 表为 `ashare_research.research_experiment_run_status`。
+- 报告、诊断、尾部风险、acceptance replay/v2/window、comparison 和 factor attribution 脚本均新增 `--output-dataset-role`，并在 BigQuery 查询/summary 回写前做 dataset-role rewrite；historical BQML parity reference 仍按设计读取 ADS。
+- 新增 `tests/strategy1_cloudrun/test_dataset_role_routing.py` 覆盖默认 ADS、显式 research、resolver/SQL rewrite、`ads_model_registry` 歧义、subcommand 透传、ledger/status routing、native query helper、acceptance diagnostic helper 和 factor attribution summary 回写。
+- 本轮不创建或部署实际 BigQuery `ashare_research` 表，不修改 Cloud Run Job spec，不切 default research-first，不实现 promotion job。
+- 验证：`python3 -m pytest tests` 52 passed；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`npx --yes @dataform/cli compile dataform` 通过；compileall、主要 CLI help/dry-run、47 条程序化 self-review checks 和 `git diff --check` 均通过。
+
 ### 最新补充（2026-06-10）：年度滚动选参动态 CV fold 已修复
 
 - 分支 `codex/fix-dynamic-cv-folds` 修复 Strategy1 Cloud Run Python CV fold 生成逻辑。旧代码在 `evaluate_cv_folds` 中硬编码 `cv_2021/cv_2022/cv_2023`，导致 `2015-2019 train + 2020 valid` 年度滚动选参 smoke 的 `cv_panel` 虽有 1,707,710 行但 `cv_fold_count=0`。

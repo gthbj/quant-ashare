@@ -44,6 +44,15 @@ except ImportError as e:
           file=sys.stderr)
     sys.exit(1)
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.strategy1_cloudrun.dataset_roles import (
+    OUTPUT_DATASET_ROLE_CHOICES,
+    rewrite_sql_dataset_role,
+)
+
 # ── Chinese font setup (before any plt.subplots) ──────────────────────────────
 try:
     import matplotlib.font_manager as fm
@@ -78,6 +87,7 @@ DIAGNOSIS_THRESHOLDS = {
 }
 
 COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
+OUTPUT_DATASET_ROLE = "ads"
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -92,6 +102,7 @@ def parse_args():
     p.add_argument("--strategy-id", default="ml_pv_clf_v0")
     p.add_argument("--artifact-base-uri", required=True, help="gs://bucket/path")
     p.add_argument("--local-mirror-root", default="reports/strategy1")
+    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
     p.add_argument("--skip-gcs-upload", action="store_true",
                    help="Skip GCS upload; write local-only artifacts (no report_uri)")
     p.add_argument("--ai-analysis-mode", default="auto",
@@ -140,6 +151,11 @@ def make_storage_client(project: str) -> storage.Client:
 
 # ── BigQuery helpers ──────────────────────────────────────────────────────────
 def bq_query(client: bigquery.Client, sql: str, params: list | None = None) -> pd.DataFrame:
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=OUTPUT_DATASET_ROLE,
+        project=client.project,
+    )
     cfg = bigquery.QueryJobConfig(query_parameters=params or [])
     return client.query(sql, job_config=cfg).to_dataframe()
 
@@ -1729,6 +1745,11 @@ def write_report_status_to_ads(client: bigquery.Client, project: str,
     SET bs.metrics_json = TO_JSON_STRING({json_expr})
     WHERE bs.backtest_id = @bid
     """
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=OUTPUT_DATASET_ROLE,
+        project=project,
+    )
     client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
     print(f"  Updated summary.metrics_json (status={upload_status})")
 
@@ -1754,8 +1775,10 @@ def validate_evidence_schema(evidence: dict) -> list[str]:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
+    global OUTPUT_DATASET_ROLE
     args = parse_args()
     args.prediction_run_id = args.prediction_run_id or args.run_id
+    OUTPUT_DATASET_ROLE = args.output_dataset_role
     bq = make_bq_client(args.project)
 
     # 1. Fetch data

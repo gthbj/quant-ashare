@@ -50,6 +50,7 @@ from scripts.strategy1_cloudrun.config import (
     load_runner_config,
     experiment_from_b64,
 )
+from scripts.strategy1_cloudrun.dataset_roles import TableResolver
 from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
 
 
@@ -63,6 +64,7 @@ def main() -> int:
         "execution_backend": config.execution_backend,
         "project": config.project,
         "region": config.region,
+        "output_dataset_role": config.output_dataset_role,
         "experiment": experiment.to_params(),
         "model_artifact_base_uri": config.model_artifact_base_uri,
         "local_mirror_root": config.local_mirror_root,
@@ -131,9 +133,13 @@ def run_train_predict(
     skip_gcs_upload: bool,
 ) -> dict[str, Any]:
     client = make_client(config.project, config.region)
-    panel = load_training_panel(client, experiment)
+    panel = load_training_panel(client, config, experiment)
     if panel.empty:
-        raise RuntimeError(f"ads_ml_training_panel_daily has no rows for run_id={experiment.run_id}")
+        source_table = TableResolver(
+            dataset_role=config.output_dataset_role,
+            project=config.project,
+        ).fqn("training_panel")
+        raise RuntimeError(f"{source_table} has no rows for run_id={experiment.run_id}")
 
     feature_frame, feature_columns = feature_frame_from_panel(panel)
     panel = panel.reset_index(drop=True)
@@ -194,7 +200,7 @@ def run_train_predict(
     uploaded = [] if skip_gcs_upload else upload_directory_to_gcs(config.project, artifact_local_dir, artifact_uri)
 
     if force_replace:
-        clear_train_predict_outputs(client, experiment)
+        clear_train_predict_outputs(client, config, experiment)
 
     write_registry(client, config, experiment, candidates, selected, model_id, artifact_uri, force_replace=force_replace)
     write_predictions(client, config, experiment, panel.loc[predict_mask].copy(), feature_frame.loc[predict_mask], preprocessor, selected, model_id)
@@ -225,13 +231,21 @@ class CandidateResult:
     model_params: dict[str, Any]
 
 
-def load_training_panel(client: bigquery.Client, experiment: Experiment) -> pd.DataFrame:
+def load_training_panel(
+    client: bigquery.Client,
+    config: RunnerConfig,
+    experiment: Experiment,
+) -> pd.DataFrame:
+    training_panel = TableResolver(
+        dataset_role=config.output_dataset_role,
+        project=config.project,
+    ).fqn("training_panel")
     sql = f"""
     SELECT
       run_id, strategy_id, trade_date, sec_code, horizon, split_tag,
       sample_weight, target_label, target_return, feature_values_json,
       feature_column_list, feature_version, label_version, preprocess_version
-    FROM `{ADS}.ads_ml_training_panel_daily`
+    FROM `{training_panel}`
     WHERE run_id = @run_id
       AND trade_date BETWEEN @train_start AND @test_end
     ORDER BY trade_date, sec_code
@@ -810,6 +824,8 @@ def compute_model_quality_parity(client: bigquery.Client, config: RunnerConfig, 
 
 
 def load_bqml_reference_metrics(client: bigquery.Client, reference_run_id: str) -> dict[str, Any]:
+    # The BQML parity baseline is a historical ADS reference, not the current
+    # experiment output dataset.
     sql = f"""
     SELECT model_id, metrics_json
     FROM `{ADS}.ads_model_registry`
@@ -896,11 +912,15 @@ def write_registry(
     *,
     force_replace: bool,
 ) -> None:
+    model_registry = TableResolver(
+        dataset_role=config.output_dataset_role,
+        project=config.project,
+    ).fqn("model_registry")
     if force_replace:
         execute_query(
             client,
             f"""
-            DELETE FROM `{ADS}.ads_model_registry`
+            DELETE FROM `{model_registry}`
             WHERE strategy_id = @strategy_id
               AND JSON_VALUE(model_params_json, '$.run_id') = @run_id
             """,
@@ -979,7 +999,7 @@ def write_registry(
             "status": "selected" if is_selected else "candidate",
             "created_at": now,
         })
-    load_dataframe(client, pd.DataFrame(rows), f"{ADS}.ads_model_registry")
+    load_dataframe(client, pd.DataFrame(rows), model_registry)
 
 
 def write_predictions(
@@ -1005,6 +1025,10 @@ def write_predictions_from_preprocessed(
     selected: CandidateResult,
     model_id: str,
 ) -> None:
+    model_prediction_daily = TableResolver(
+        dataset_role=config.output_dataset_role,
+        project=config.project,
+    ).fqn("model_prediction_daily")
     raw_score = score_model(selected.model, x_pred, str(selected.metrics.get("score_source") or "sklearn_predict_proba_label_1"))
     reverse_method = str(selected.metrics.get("score_reverse_method") or "probability_complement")
     oriented = reverse_scores(raw_score, reverse_method) if selected.score_orientation == "reverse_probability" else raw_score
@@ -1027,10 +1051,18 @@ def write_predictions_from_preprocessed(
         "model_id", "predict_date", "horizon", "sec_code", "score", "raw_score",
         "score_orientation", "rank_raw", "rank_pct", "feature_version", "run_id", "created_at",
     ]]
-    load_dataframe(client, out, f"{ADS}.ads_model_prediction_daily")
+    load_dataframe(client, out, model_prediction_daily)
 
 
-def clear_train_predict_outputs(client: bigquery.Client, experiment: Experiment) -> None:
+def clear_train_predict_outputs(
+    client: bigquery.Client,
+    config: RunnerConfig,
+    experiment: Experiment,
+) -> None:
+    model_prediction_daily = TableResolver(
+        dataset_role=config.output_dataset_role,
+        project=config.project,
+    ).fqn("model_prediction_daily")
     params = [
         bigquery.ScalarQueryParameter("run_id", "STRING", experiment.run_id),
         bigquery.ScalarQueryParameter("start_date", "DATE", experiment.valid_start),
@@ -1039,7 +1071,7 @@ def clear_train_predict_outputs(client: bigquery.Client, experiment: Experiment)
     execute_query(
         client,
         f"""
-        DELETE FROM `{ADS}.ads_model_prediction_daily`
+        DELETE FROM `{model_prediction_daily}`
         WHERE run_id = @run_id
           AND predict_date BETWEEN @start_date AND @end_date
         """,

@@ -16,7 +16,6 @@ from google.cloud import bigquery
 
 from scripts.strategy1_cloudrun import __version__
 from scripts.strategy1_cloudrun.bq_io import (
-    ADS,
     env_container_image,
     get_git_commit,
     job_audit_dict,
@@ -36,6 +35,7 @@ from scripts.strategy1_cloudrun.config import (
     load_manifest,
     load_runner_config,
 )
+from scripts.strategy1_cloudrun.dataset_roles import TableResolver
 from scripts.strategy1_cloudrun.feature_sets import (
     PV_FIN_RISK_FEATURE_SET_ID,
     boolean_feature_names,
@@ -75,6 +75,7 @@ def main() -> int:
         "runner_version": __version__,
         "project": config.project,
         "region": config.region,
+        "output_dataset_role": config.output_dataset_role,
         "experiment": experiment.to_params(),
         "matrix_id": matrix_id,
         "matrix_uri": matrix_uri,
@@ -152,9 +153,13 @@ def prepare_matrix(
         "matrix_id": matrix_id,
     }
     expected_columns = expected_feature_columns(experiment.feature_set_id)
-    panel, job = load_training_panel_with_job(client, experiment, labels, expected_columns)
+    panel, job = load_training_panel_with_job(client, config, experiment, labels, expected_columns)
     if panel.empty:
-        raise RuntimeError(f"ads_ml_training_panel_daily has no rows for run_id={experiment.run_id}")
+        source_table = TableResolver(
+            dataset_role=config.output_dataset_role,
+            project=config.project,
+        ).fqn("training_panel")
+        raise RuntimeError(f"{source_table} has no rows for run_id={experiment.run_id}")
 
     if expected_columns is None:
         feature_frame, feature_columns = feature_frame_from_panel(panel)
@@ -278,7 +283,10 @@ def prepare_matrix(
         "experiment_id": experiment.experiment_id,
         "matrix_id": matrix_id,
         "matrix_uri": matrix_uri,
-        "source_table": f"{ADS}.ads_ml_training_panel_daily",
+        "source_table": TableResolver(
+            dataset_role=config.output_dataset_role,
+            project=config.project,
+        ).fqn("training_panel"),
         "source_run_id": experiment.run_id,
         "source_row_count": int(len(panel)),
         "train_row_count": int(train_mask.sum()),
@@ -352,10 +360,15 @@ def resolve_candidate_parallelism(work_unit_count: int, candidate_parallelism: i
 
 def load_training_panel_with_job(
     client: bigquery.Client,
+    config,
     experiment: Experiment,
     labels: dict[str, str],
     feature_columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, bigquery.QueryJob]:
+    training_panel = TableResolver(
+        dataset_role=config.output_dataset_role,
+        project=config.project,
+    ).fqn("training_panel")
     if feature_columns is None:
         feature_select = """
       feature_values_json,
@@ -373,7 +386,7 @@ def load_training_panel_with_job(
       run_id, strategy_id, trade_date, sec_code, horizon, split_tag,
       sample_weight, target_label, target_return,{feature_select}
       feature_version, label_version, preprocess_version
-    FROM `{ADS}.ads_ml_training_panel_daily`
+    FROM `{training_panel}`
     WHERE run_id = @run_id
       AND trade_date BETWEEN @train_start AND @test_end
     ORDER BY trade_date, sec_code

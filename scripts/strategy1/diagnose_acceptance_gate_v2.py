@@ -30,14 +30,19 @@ from scripts.strategy1_cloudrun.bq_io import (
     get_git_commit,
     join_gs_uri,
     make_client,
-    query_dataframe,
+    query_dataframe as bq_query_dataframe,
     upload_directory_to_gcs,
     write_json,
     write_text,
 )
+from scripts.strategy1_cloudrun.dataset_roles import (
+    OUTPUT_DATASET_ROLE_CHOICES,
+    rewrite_sql_dataset_role,
+)
 
 
 ACCEPTANCE_GATE_VERSION = "strategy1_acceptance_gate_v2"
+OUTPUT_DATASET_ROLE = "ads"
 DEFAULT_CONTRACT_PATH = "configs/strategy1/model_acceptance_contract_v2.yml"
 DEFAULT_DIAGNOSIS_ID = "acceptance_gate_v2_reference_20260606_01"
 DEFAULT_REFERENCE_RUN_ID = "s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01"
@@ -89,12 +94,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eligible-benchmark-cost-bps", type=float, default=12.0)
     parser.add_argument("--artifact-base-uri", default="gs://ashare-artifacts/reports/strategy1")
     parser.add_argument("--local-mirror-root", default="reports/strategy1")
+    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
     parser.add_argument("--skip-gcs-upload", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    set_output_dataset_role(args.output_dataset_role)
     args.prediction_run_id = args.prediction_run_id or args.reference_run_id
     contract = load_acceptance_contract(args.contract)
     apply_contract_defaults(args, contract)
@@ -189,6 +196,26 @@ def main() -> int:
         "local_dir": str(out_dir),
     }, ensure_ascii=False, indent=2))
     return 0
+
+
+def set_output_dataset_role(dataset_role: str) -> None:
+    global OUTPUT_DATASET_ROLE
+    OUTPUT_DATASET_ROLE = dataset_role
+
+
+def query_dataframe(
+    client: bigquery.Client,
+    sql: str,
+    params: list[bigquery.ScalarQueryParameter],
+    *,
+    labels: dict[str, str | None] | None = None,
+) -> pd.DataFrame:
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=OUTPUT_DATASET_ROLE,
+        project=client.project,
+    )
+    return bq_query_dataframe(client, sql, params, labels=labels)
 
 
 def apply_contract_defaults(args: argparse.Namespace, contract: dict[str, Any]) -> None:

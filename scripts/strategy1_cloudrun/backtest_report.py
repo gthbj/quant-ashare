@@ -21,6 +21,7 @@ from scripts.strategy1_cloudrun.config import (
 )
 from scripts.strategy1_cloudrun.ledger import LedgerParams, run_ledger
 from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_FLOAT, LEDGER_VERSION_LOT100
+from scripts.strategy1_cloudrun.dataset_roles import allow_future_research
 from scripts.strategy1_cloudrun.sql_runner import resolve_sql_step_path, run_sql_step
 
 
@@ -45,6 +46,7 @@ def main() -> int:
         "min_buy_lot": None if ledger_version == LEDGER_VERSION_FLOAT else args.min_buy_lot,
         "project": config.project,
         "region": config.region,
+        "output_dataset_role": config.output_dataset_role,
         "experiment": experiment.to_params(),
         "search_id": args.search_id,
         "use_python_ledger": True,
@@ -61,26 +63,26 @@ def main() -> int:
     sql_params = build_sql_params(experiment, args.force_replace, args.use_float_ledger, args)
     job_ids = []
     for step in SQL_STEPS:
-        job_ids.append(run_catalog_step(client, step, sql_params))
-    ledger_result = run_ledger(client, build_ledger_params(config.project, experiment, args.force_replace, ledger_version, args))
+        job_ids.append(run_catalog_step(client, step, sql_params, config.output_dataset_role))
+    ledger_result = run_ledger(client, build_ledger_params(config, experiment, args.force_replace, ledger_version, args))
     job_ids.append({"script": "python_ledger_exec_v1", "result": ledger_result})
-    job_ids.append(run_catalog_step(client, "build_metrics_and_report_inputs", sql_params))
+    job_ids.append(run_catalog_step(client, "build_metrics_and_report_inputs", sql_params, config.output_dataset_role))
     if not args.skip_report:
         run_subprocess(report_command(config, experiment, args.skip_gcs_upload))
     if not args.skip_qa:
-        job_ids.append(run_catalog_step(client, "qa_runner_outputs", sql_params))
+        job_ids.append(run_catalog_step(client, "qa_runner_outputs", sql_params, config.output_dataset_role))
         if ledger_version == LEDGER_VERSION_LOT100:
-            job_ids.append(run_catalog_step(client, "qa_lot_aware_ledger_outputs", sql_params))
+            job_ids.append(run_catalog_step(client, "qa_lot_aware_ledger_outputs", sql_params, config.output_dataset_role))
     if not args.skip_diagnosis:
         run_subprocess(diagnosis_command(config, experiment, args.skip_gcs_upload))
         if not args.skip_qa:
-            job_ids.append(run_catalog_step(client, "qa_model_diagnosis_outputs", sql_params))
+            job_ids.append(run_catalog_step(client, "qa_model_diagnosis_outputs", sql_params, config.output_dataset_role))
     if not args.skip_tail_risk:
         tail_risk_result = run_tail_risk_step(config, experiment, args.skip_gcs_upload, args.search_id)
         job_ids.append({"script": "scripts/strategy1/analyze_tail_risk.py", "result": tail_risk_result})
         if tail_risk_result["status"] == "succeeded" and not args.skip_qa:
             tail_risk_params = {**sql_params, **tail_risk_guard_sql_params(experiment)}
-            job_ids.append(run_catalog_step(client, "qa_tail_risk_outputs", tail_risk_params))
+            job_ids.append(run_catalog_step(client, "qa_tail_risk_outputs", tail_risk_params, config.output_dataset_role))
     print(json.dumps({"status": "succeeded", "steps": job_ids}, ensure_ascii=False, indent=2, default=str))
     return 0
 
@@ -219,16 +221,17 @@ def build_sql_params(
 
 
 def build_ledger_params(
-    project: str,
+    config,
     exp: Experiment,
     force_replace: bool,
     ledger_version: str,
     args: argparse.Namespace,
 ) -> LedgerParams:
     return LedgerParams(
-        project=project,
+        project=config.project,
         run_id=exp.run_id,
         backtest_id=exp.backtest_id or f"bt_{exp.run_id}",
+        output_dataset_role=config.output_dataset_role,
         predict_start=exp.predict_start,
         predict_end=exp.predict_end,
         ledger_version=ledger_version,
@@ -257,6 +260,7 @@ def report_command(config, exp: Experiment, skip_gcs_upload: bool) -> list[str]:
         "--run-id", exp.run_id,
         "--prediction-run-id", exp.prediction_run_id,
         "--backtest-id", exp.backtest_id,
+        "--output-dataset-role", config.output_dataset_role,
         "--artifact-base-uri", config.artifact_base_uri,
         "--local-mirror-root", "reports/strategy1",
     ]
@@ -272,6 +276,7 @@ def diagnosis_command(config, exp: Experiment, skip_gcs_upload: bool) -> list[st
         "--run-id", exp.run_id,
         "--prediction-run-id", exp.prediction_run_id,
         "--backtest-id", exp.backtest_id,
+        "--output-dataset-role", config.output_dataset_role,
         "--artifact-base-uri", config.artifact_base_uri,
         "--local-mirror-root", "reports/strategy1",
         "--p-target-holdings", str(exp.target_holdings),
@@ -290,6 +295,7 @@ def tail_risk_command(config, exp: Experiment, skip_gcs_upload: bool, search_id:
         "--run-id", exp.run_id,
         "--prediction-run-id", exp.prediction_run_id,
         "--backtest-id", exp.backtest_id,
+        "--output-dataset-role", config.output_dataset_role,
         "--feature-version", exp.feature_version,
         "--artifact-base-uri", config.artifact_base_uri,
         "--local-mirror-root", "reports/strategy1",
@@ -328,11 +334,23 @@ def run_subprocess(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True)
 
 
-def run_catalog_step(client, step: str, params: dict[str, object]) -> dict[str, str]:
+def run_catalog_step(
+    client,
+    step: str,
+    params: dict[str, object],
+    output_dataset_role: str,
+) -> dict[str, str]:
     return {
         "step": step,
         "script": str(resolve_sql_step_path(step)),
-        "job_id": run_sql_step(client, step, params),
+        "dataset_role": output_dataset_role,
+        "job_id": run_sql_step(
+            client,
+            step,
+            params,
+            dataset_role=output_dataset_role,
+            allow_future_research=allow_future_research(output_dataset_role),
+        ),
     }
 
 
