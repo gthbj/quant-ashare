@@ -2632,3 +2632,46 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/prd/PRD_20260610_02_项目结构重构方案.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+
+## DECISION-20260610-06: Strategy1 年度滚动选参采用上一整年 valid 与 selected final refit
+
+日期: 2026-06-10
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+固定 R14 年度滚动训练回测只能回答“同一参数逐年重训是否有效”，不能回答真实生产中“每年根据上一年 valid 重新选择参数，再上线下一年”的问题。owner 已确认希望评估年度 walk-forward 参数选择，并指定 valid 门口径调整。
+
+### 决策
+
+1. 新增 `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`，作为年度滚动选参实验方案。
+2. P0 固定特征集、股票池、成本、`20` 只持仓、`7.5%` 单票上限、`biweekly` 和 Cloud Run Python `ledger_exec_v1_lot100`，只搜索预先冻结的 11 个 LightGBM regression 可选候选；B26 binary 只作为 diagnostic-only reference，不参与 `selected_candidate_id`。
+3. 每个回测年使用上一整年作为 valid 选择参数，再用选中参数在最近 5 年窗口 final refit，随后回测下一年。
+4. valid 选参门不显式要求 `valid_total_return > 0`；该删除只用于避免重复硬门，不表示允许负收益候选通过。最大回撤硬线为 `valid_max_drawdown >= -33.33%`；相对收益和 Excess Calmar 使用上证指数、深证成指、上证50、沪深300、中证1000五指数任一通过口径。
+5. 年度预测可以分年生成，但最终评价必须来自一条连续 ledger；不得拼接每年 fresh-run。
+
+### 理由
+
+该流程更接近真实生产：在每年初只能使用已经发生的上一年 valid 信息选择参数，且上线模型会用 train+valid final refit。固定 regression 可选候选池、固定组合参数和 B26 diagnostic-only 对照可以限制年度 valid 过拟合与跨目标混排；连续 ledger 能避免年度 fresh-run 拼接破坏资金和持仓状态。
+
+### 影响
+
+1. 后续若实现该实验，应先做 2021 单年度 smoke，再跑完整 2021-2026。
+2. 实现必须输出年度选参表、年度回测表、全周期连续回测表，并与固定 R14 annual walk-forward 对比。
+3. valid 年份只能作为参数选择证据，不能作为同年最终样本外成绩。
+4. 若未来把持仓数、feature set 或 label horizon 纳入年度选择，必须另开新版本 PRD 或 experiment version。
+
+### 备选方案
+
+- 继续只跑固定 R14：不采用作为下一轮主方案。原因是无法判断年度重新选参是否改善泛化。
+- 每年大规模网格搜索：不采用。原因是年度 valid 样本只有一年，候选过多会放大 selection bias。
+- 把 B26 binary 与 regression 候选混排选择：P0 不采用。原因是 binary probability score 与 regression return score 语义不同，本版本只把 B26 作为 diagnostic-only reference。
+- 同时搜索持仓数和模型参数：P0 不采用。原因是组合参数会进一步增加过拟合，先固定 20 只 / 7.5%。
+
+### 相关文件
+
+`docs/prd/PRD_20260610_03_策略1年度滚动选参.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
