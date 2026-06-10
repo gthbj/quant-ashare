@@ -1,12 +1,57 @@
-> 当前交接补充（2026-06-10，GPT-5 Codex）
-> - 当前主工作树 `/Users/fisher/Desktop/git/quant-ashare` 在 `main@f30c1716a55995d169955e1a7c4663d39b82a382`，与 `origin/main` 同步。
-> - PR #159 合并后的 Strategy1 runner 正式镜像已构建并部署到五个普通 Cloud Run jobs：`sha256:b856f46f56ad5b9a9cd9ac8773e67090f702a06ff8931ca51e1d2e3bb24299d7`。
-> - 五个 jobs 的 package entrypoint args、SA、资源、`maxRetries=0` 和 fanout `taskCount=40` / `parallelism=20` 均读回确认未改乱；五个 `--help` boot smoke 均成功且日志含 `usage:`。
-> - 本轮没有触碰 promotion job、没有执行 BigQuery 写入、没有启动年度滚动实跑；下一步可跑完整 `2021-2026` 年度滚动并用 continuous ledger 评价。
-> - 已按记忆协议瘦身本文件：旧 active handoff 内容已归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。
-> - PR #160 review follow-up 已处理：`KNOWN_CONSTRAINTS.md` 不再钉住滚动 image digest，最新 digest 以 `IMPLEMENTATION_STATUS.md` 部署记录为准。
+> 当前交接补充（2026-06-11，GPT-5 Codex）
+> - 新 worktree `/Users/fisher/Desktop/git/quant-ashare-annual-pipeline-prd` 基于 `origin/main@d4aa2e3`，分支 `codex/prd-annual-rolling-pipeline-scheduler`。
+> - 新增 PRD `docs/prd/PRD_20260611_01_策略1年度滚动并发调度.md`，定义年度滚动跨年份流水线调度方案：默认全局 candidate task 并发不超过 20，允许下一年训练与上一年慢候选并行，但本年 `select_register_predict` 必须等本年 11/11 候选完成。
+> - PR #161 review follow-up 已补齐 scheduler-level GCS generation-guarded lease lock、GCS state generation 条件写，以及 prepare/select/backtest 与 candidate 共享 CPU / memory token 的资源模型。
+> - 本轮只写 PRD 并同步 TODO / 项目记忆；未改 runner 代码、未运行 BigQuery、未启动 Cloud Run、未改 job spec 或 IAM。
+> - 后续建议：先实现 scheduler dry-run（跨年度 DAG + 资源 token 计划 + 状态恢复模型），再做 candidate-only 小规模 live smoke。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - Annual rolling pipeline scheduler PRD
+
+### 已完成工作
+
+- 在新 worktree `/Users/fisher/Desktop/git/quant-ashare-annual-pipeline-prd`、分支 `codex/prd-annual-rolling-pipeline-scheduler` 中新增年度滚动并发调度 PRD。
+- PRD 定义从按年份串行执行升级为跨年份流水线调度：`build_training_panel`、`prepare_matrix` 和 candidate fanout 可跨年度并发；本年 `select_register_predict` 仍必须等本年全部候选成功。
+- PRD 固化默认资源上限：全局 candidate task 并发 `20`，candidate task `2 CPU / 8Gi`，并把 prepare、select、backtest/report 纳入资源 token 模型。
+- PR #161 review follow-up 已补齐两个 Medium 设计缺口：scheduler 必须持有 generation-guarded GCS lease lock 才能提交 execution，且 GCS state JSON 写入必须使用 generation precondition；prepare `8 CPU / 32Gi`、select `4 CPU / 16Gi`、backtest `4 CPU / 16Gi` 与 candidate 共享 `40 CPU / 160Gi` 全局 token 池。
+- PRD 定义 scheduler 必须可 dry-run、可恢复、可按 `(year, unit_index)` 跟踪状态，并对 `gcloud --wait` / Cloud Run 控制面超时做 execution / task / GCS artifact 二次确认。
+- 同步更新 `TODO.md` 和 `.agent/memory/IMPLEMENTATION_STATUS.md`。
+
+### 重要上下文
+
+- 2026-06-10 年度滚动实跑观察显示，每年候选训练中 `unit_index=6` 明显拖尾；该候选是 `risk_lgbm_prd_attack_lr005_n600_l63_lr005_n600_leaf800_ff07_bf09_l1_1_l2_1`，`n_estimators=600`、`num_threads=1`。
+- 不能在本年 unit6 未完成时提前跑本年 select，否则会把 unit6 排除在年度选参之外，破坏实验口径。
+- 可以在上一年慢候选仍 running 时启动下一年 training panel、prepare matrix 和候选训练，只要全局资源预算允许。
+- Cloud Run `parallelism` 只限制单 execution；年度 pipeline scheduler 必须自己维护全局资源池和 scheduler 实例互斥，不能靠 job spec 防止跨 execution 超配额或重复提交。
+- 正式年度滚动结果仍必须来自单一 continuous ledger 或通过 resume-continuous QA 的 segment ledger；年度 fresh backtest 只作 diagnostic。
+
+### 改动文件
+
+- `docs/prd/PRD_20260611_01_策略1年度滚动并发调度.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 文档只读校验：对照现有年度滚动 PRD、年度执行工程化 PRD、annual rolling orchestrator、`pipeline_control.build_task_fanout_steps`、`annual_rolling_lgbm_regression_v0.yml`。
+- 未运行 BigQuery、Cloud Run、Dataform 或 pytest；本轮不改代码。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 若 owner 确认 PRD，下一步实现 Phase 1：scheduler dry-run，输出跨年度 DAG、资源峰值和预计提交顺序。
+- Phase 1 完成后再做 2 年 * 2-3 candidate unit 的 candidate-only live smoke，验证部分 batch、恢复和 artifact skip。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - Strategy1 main image deploy after PR #159
 

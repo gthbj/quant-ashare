@@ -2,9 +2,18 @@
 
 这是实现状态的唯一事实来源。面向「已完成/进行中/受阻的整体状态」；「下一步要做什么」见根目录 `TODO.md`。
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 ## 当前状态
+
+### 最新补充（2026-06-11）：年度滚动跨年份并发调度 PRD 已新增
+
+- 新增 `docs/prd/PRD_20260611_01_策略1年度滚动并发调度.md`，定义 Strategy1 年度滚动执行从“按年份串行”升级为“跨年份流水线 + 全局资源上限调度”的后续工程方案。
+- PRD 明确候选训练可以跨年度流水线并发：上一年慢候选仍在 running 时，下一年的 `build_training_panel`、`prepare_matrix` 和候选 fanout 可在资源空位内启动；但本年 `select_register_predict` 必须等待本年全部 candidate unit 成功，不能把慢候选隐式排除。
+- PRD 将默认全局 candidate task 并发上限定为 `20`，并把 `2 CPU / 8Gi` candidate task、prepare、select 和 backtest/report 纳入资源 token 模型，避免 6 年 * 11 候选形成 66 task 无上限并发。
+- PR #161 review follow-up 已补齐两个 P0 设计约束：scheduler 必须复用 GCS generation-guarded lease lock + heartbeat 做实例互斥，GCS state JSON 必须用 generation precondition 条件写；prepare `8 CPU / 32Gi`、select `4 CPU / 16Gi`、backtest `4 CPU / 16Gi` 与 candidate 共享同一 CPU / memory token 池，不能在 20 个 candidate 已占满 `40 CPU / 160Gi` 时额外启动 prepare。
+- PRD 要求 scheduler 可 dry-run、可恢复、按 `(year, unit_index)` 跟踪状态，并在 `gcloud --wait` / 控制面轮询超时时通过 Cloud Run execution / task list / GCS artifact 二次确认，避免把已成功 execution 误判为失败。
+- 本轮只写 PRD 并同步 TODO / 项目记忆；未改 runner 代码、未运行 BigQuery、未启动 Cloud Run、未改变 job spec 或 IAM。
 
 ### 最新补充（2026-06-10）：PR #159 后 Strategy1 main 镜像已部署
 
