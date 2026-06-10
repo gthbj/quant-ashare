@@ -8,7 +8,7 @@ from quant_ashare.strategy1.sql_render import (
     render_sql_text,
     table_role_replacements,
 )
-from scripts.strategy1_cloudrun.backtest_report import build_sql_params
+from quant_ashare.strategy1.backtest_report import build_sql_params
 from scripts.strategy1_cloudrun.config import Experiment, load_runner_config
 from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_LOT100
 

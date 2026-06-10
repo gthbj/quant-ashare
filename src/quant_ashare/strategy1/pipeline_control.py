@@ -229,7 +229,7 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
                     config.project,
                     config.region,
                     config.train_predict_job,
-                    "scripts.strategy1_cloudrun.train_predict",
+                    "quant_ashare.strategy1.train_predict",
                     common_flags,
                 ),
             ))
@@ -248,7 +248,7 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
             config.project,
             config.region,
             config.backtest_report_job,
-            "scripts.strategy1_cloudrun.backtest_report",
+            "quant_ashare.strategy1.backtest_report",
             backtest_flags,
         ),
     ))
@@ -286,7 +286,7 @@ def build_task_fanout_steps(config, exp, args, common_flags: list[str]) -> list[
                 config.project,
                 config.region,
                 config.prepare_matrix_job,
-                "scripts.strategy1_cloudrun.prepare_matrix",
+                "quant_ashare.strategy1.prepare_matrix",
                 prepare_flags,
             ),
         )
@@ -303,7 +303,7 @@ def build_task_fanout_steps(config, exp, args, common_flags: list[str]) -> list[
                 config.project,
                 config.region,
                 config.train_candidate_fanout_job,
-                "scripts.strategy1_cloudrun.train_candidate_task",
+                "quant_ashare.strategy1.train_candidate_task",
                 [
                     f"--project={config.project}",
                     f"--region={config.region}",
@@ -334,7 +334,7 @@ def build_task_fanout_steps(config, exp, args, common_flags: list[str]) -> list[
             config.project,
             config.region,
             config.select_register_predict_job,
-            "scripts.strategy1_cloudrun.select_register_predict",
+            "quant_ashare.strategy1.select_register_predict",
             select_flags,
         ),
     ))

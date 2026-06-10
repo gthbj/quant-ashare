@@ -6,6 +6,16 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：Strategy1 package entrypoint 代码侧 cutover 已实现
+
+- 分支 `codex/package-entrypoint-code-cutover` 基于 PR #154 合并后的 `origin/main`，同步代码侧仍硬编码旧五 job module 的 active 调用点。
+- `quant_ashare.strategy1.pipeline_control` 生成的 Cloud Run command 已从 `scripts.strategy1_cloudrun.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report` 切到对应 `quant_ashare.strategy1.*` package entrypoint。
+- `scripts.strategy1_cloudrun.orchestrate_sklearn_native_search` 与 `orchestrate_annual_rolling_selection` 仍作为现有脚本入口保留，但其内部发出的 TopK select/register/predict、backtest/report 与 annual plan command 均改为 package module；两者显式加入本地 `src` path 以支持未安装 editable package 的 checkout 运行。
+- `configs/strategy1/active_step_catalog.yml` 中由 backtest/report 执行的 active step caller 已切为 `quant_ashare.strategy1.backtest_report`。五个旧 job module 路径已加入 `retired_reference_lint.banned_active_refs`，且 `retired_lint` 新增 catalog caller 专门检查，避免 catalog 本身因规则配置跳过而漏报。
+- Active runbook / 示例命令已切到 package 入口：单 job 入口使用 `quant_ashare.strategy1.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report`，多实验 orchestrator 示例使用 `quant_ashare.strategy1.pipeline_control`。
+- 旧五 job wrapper 本轮不删除，仍保留兼容 import / CLI 路径；删除需等代码侧 cutover 合并并验证后单独评估，同时调整 wrapper parity 测试。
+- 本地验证：`python3 -m pytest -q tests/strategy1 tests/strategy1_cloudrun` 91 passed；`python3 -m compileall -q src scripts tests` 通过；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`git diff --check` 通过；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过；`quant_ashare.strategy1.pipeline_control`、native search、annual rolling 三个入口 `--help` smoke 通过。
+
 ### 最新补充（2026-06-10）：五个正式 Strategy1 Cloud Run jobs 已切到 package entrypoint
 
 - PR #153 已合并到 `main`，merge commit `1775099a6f8e3722dcf6ecead60f4fc0263115a1`。从该 `origin/main` merge commit 构建正式镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:package-entrypoints-main-1775099-20260610-01`，Cloud Build `6c91beb7-1ac7-4401-8218-a9b657455de9` succeeded，digest `sha256:0dce0e78256140a92d7b73bc083e028b377b9a132f9e08ccfd57d4730d7ac8b7`。该构建使用一次性 Cloud Build config，只推固定 tag，未更新 `latest`。

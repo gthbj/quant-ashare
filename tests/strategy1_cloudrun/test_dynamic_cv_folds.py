@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from scripts.strategy1_cloudrun.train_predict import dynamic_cv_folds
+from quant_ashare.strategy1.train_predict import dynamic_cv_folds
 
 
 def test_dynamic_cv_folds_use_train_years_and_exclude_valid_year() -> None:

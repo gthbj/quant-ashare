@@ -70,8 +70,11 @@
 - [x] OQ-010 / 工程治理：迁移五个正式 Strategy1 Cloud Run Job command 到 package entrypoint
   说明：PR #153 合并后，已从 `origin/main` merge commit `1775099` 构建正式镜像 `strategy1-cloudrun-runner:package-entrypoints-main-1775099-20260610-01`，digest `sha256:0dce0e78256140a92d7b73bc083e028b377b9a132f9e08ccfd57d4730d7ac8b7`；五个正式 jobs 已更新到该 digest，并把 `args` 从 `scripts.strategy1_cloudrun.*` 切到 `quant_ashare.strategy1.*`。五个正式 jobs 的 `--help` boot smoke 均成功：`strategy1-train-predict-job-wdfv4`、`strategy1-prepare-matrix-job-rxc5n`、`strategy1-train-candidate-fanout-job-rltvm`、`strategy1-select-register-predict-job-sh2bz`、`strategy1-backtest-report-job-mtj4t`；日志均匹配到 `usage:`。PR #153 临时 job `strategy1-package-entrypoint-help-smoke` 已删除。
 
-- [ ] OQ-010 / 工程治理：完成 package entrypoint 代码侧 cutover 与 wrapper 删除护栏
-  说明：正式 job spec 已切换，但还需单独代码 PR 同步 orchestrator / pipeline-control / native search / annual rolling 等 Cloud Run override args 中硬编码的 module 字符串、`configs/strategy1/active_step_catalog.yml` 的 `caller` 字段和 active runbook / 示例命令。删除旧 wrapper 的前置条件是 active scopes 内 grep 不到五个旧模块路径，并把旧模块路径纳入 retired-reference linter 防回流。
+- [x] OQ-010 / 工程治理：完成 package entrypoint 代码侧 cutover 与 wrapper 删除护栏
+  说明：分支 `codex/package-entrypoint-code-cutover` 已同步 `pipeline_control`、native search、annual rolling 的 Cloud Run override args 到 `quant_ashare.strategy1.*` 五个 package entrypoint；`configs/strategy1/active_step_catalog.yml` 的 backtest/report caller 已切到 `quant_ashare.strategy1.backtest_report`；active runbook / 示例命令已更新。五个旧 job module 路径已纳入 retired-reference linter，且 linter 新增 catalog caller 检查；本 PR 不删除旧 wrapper，继续保留兼容 import / CLI 路径。
+
+- [ ] OQ-010 / 工程治理：合并并验证代码侧 cutover 后评估删除旧五 job wrapper
+  说明：旧 `scripts.strategy1_cloudrun.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report` 当前仍保留为兼容 wrapper。删除前需确认代码侧 cutover 已合并、相关镜像/作业 smoke 通过、active scopes 内旧五模块路径仍为 0，并同步移除或替换 old/new wrapper parity 测试。
 
 - [x] OQ-013 / 工程治理：决策并收敛 Strategy1 普通 runner 的 ADS 写权限
   说明：owner 已选择方案 1：接受现状但保留流程约束。五个普通 Strategy1 runner jobs 暂继续使用 `241358486859-compute@developer.gserviceaccount.com`，且该 SA 暂保留 `ashare_ads` WRITER，用于 ADS audit / 历史报告重渲染等兼容路径；不做 live IAM revoke。正式流程仍要求普通实验默认写 `ashare_research`，ADS 正式发布只走 owner-approved promotion job，显式 `--output-dataset-role ads` 仅作为历史 ADS audit / 兼容路径。
