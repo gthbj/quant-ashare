@@ -2,6 +2,7 @@
 > - 新增 `docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md`。
 > - PRD 把 2021 smoke 暴露的三个工程问题转成后续实现要求：annual rolling orchestrator 自动生成 resolved experiment payload、ADS additive migration、Cloud Run schema readiness QA。
 > - PRD 明确 P0 不改模型、不扩参数、不调 v3 gate、不切 `ashare_research`；完整 `2021-2026` 正式结果必须来自单一 continuous ledger，或通过 resume-continuous QA 的 segment ledger，禁止拼年度 fresh-run。
+> - PR #144 review follow-up 已处理：`biweekly` 口径、既有 `02` migration 关系、无数字前缀 QA + catalog step、过渡 namespace 和 B26 diagnostic-only reference 均已补齐。
 
 > 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #141 已合并，正式 Strategy1 Cloud Run runner 已构建并部署到镜像 `strategy1-cloudrun-runner:2565e0f`。
@@ -170,6 +171,7 @@
 - 新增 `docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md`。
 - PRD 将 2021 annual-selection smoke 暴露的问题收敛为三个 P0 工程要求：resolved experiment payload 自动生成、ADS additive migration、schema readiness QA。
 - PRD 明确年度 rolling orchestrator 的建议入口、输入输出、run_id 命名、artifact 要求、连续 ledger 执行规则和验收标准。
+- PR #144 review follow-up 已处理 5 项：`--rebalance-frequency` 固定为 `biweekly`；migration 文件不再建议冲突的 `02_strategy1_additive_migrations.sql`；schema readiness QA 使用无数字前缀并要求登记 catalog；`scripts/strategy1_cloudrun/` 标记为过渡 wrapper namespace；B26 binary 明确为 diagnostic-only reference。
 - 同步更新 `IMPLEMENTATION_STATUS`、`AGENT_HANDOFF` 和 `TODO.md`。
 
 ### 重要上下文

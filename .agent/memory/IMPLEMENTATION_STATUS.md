@@ -12,6 +12,7 @@ Last updated: 2026-06-10
 - PRD 明确 P0 不改模型、不扩参数、不调 v3 gate、不切 `ashare_research`，只解决年度滚动从手工 smoke 到可重复正式执行的工程路径。
 - PRD 要求 additive migration 只用 `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ADD COLUMN IF NOT EXISTS`，不得 `CREATE OR REPLACE` 已有 ADS 表，不回填历史 run。
 - PRD 定义完整 `2021-2026` 结果必须来自单一 continuous ledger，或经过 resume-continuous QA 的 segment ledger；禁止把年度 fresh-run NAV 拼接成正式结果。
+- PR #144 review follow-up 已处理：调仓频率固定为 `biweekly`；migration 文件避免与既有 `02_alter_strategy1_backtest_compound_annual_return.sql` 冲突；schema readiness QA 使用无数字前缀并要求登记 catalog；`scripts/strategy1_cloudrun` 标记为过渡 namespace；B26 binary 明确为 diagnostic-only reference。
 
 ### 最新补充（2026-06-10）：2021 年度滚动选参 Cloud Run smoke 已闭环
 
