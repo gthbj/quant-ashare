@@ -23,7 +23,7 @@
   说明：`09` summary INSERT 列清单补 `run_id`/`created_date`，ADS additive 补列对齐 schema，回填现有 6 行（需 owner 批准），`qa_runner_outputs` 加 NOT NULL 断言。必须先于 final refit / continuous 任何重跑执行。
 
 - [ ] OQ-010：按 `PRD_20260611_02` 实现年度滚动 final refit 并六年重跑
-  说明：valid 选参后用最近 5 年在冻结 matrix 上 refit selected candidate，独立 refit run_id + 溯源契约 + 训练窗口 QA 硬门；2021-2026 从 select 之后重跑（refit + predict + 可选年度 diagnostic），不重跑 panel/matrix/fanout。
+  说明：valid 选参后用最近 5 年 refit selected candidate——复用既有 BigQuery panel（经 `source_panel_run_id` 读 selection run panel），重新 fit preprocessor，不消费冻结 matrix transformed arrays；独立 refit run_id + 溯源契约 + 训练窗口 QA 硬门；2021-2026 从 select 之后重跑（refit + predict + 可选年度 diagnostic），不重跑 panel/matrix/fanout。
 
 - [ ] OQ-010：按 `PRD_20260611_03` 实现 synthetic continuous merge 与正式 continuous ledger
   说明：manifest 参数化逐年 test 窗口切片（排除 valid 段）+ 重叠/缺口/行数/溯源 QA + official continuous ledger（`2021-01-04` fresh-start 至 `2026-06-09`）。merge/QA 实现与彩排（pre-refit manifest）可与 final refit 并行先行；正式执行依赖六年 refit 重跑完成。

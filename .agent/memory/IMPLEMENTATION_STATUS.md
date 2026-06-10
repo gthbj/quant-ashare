@@ -9,7 +9,7 @@ Last updated: 2026-06-11
 ### 最新补充（2026-06-11）：年度滚动 refit / continuous / summary 修复三 PRD 已新增
 
 - 分支 `claude/prd-refit-continuous-summary` 新增三个 PRD，收口 2021-2026 首轮年度滚动实跑暴露的问题：
-  - `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`：当前实现在 valid 选参后未执行 final refit（2026 selected model 训练窗口为 `2020-01-02 ~ 2024-12-24`，PRD 要求 `2021-01-04 ~ 2025-12-24`）；方案为复用冻结 matrix 的 `refit_register_predict` 步骤 + 独立 refit run_id 溯源契约 + 训练窗口 QA 硬门，六年从 select 之后重跑，不重跑 panel/matrix/fanout。
+  - `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`：当前实现在 valid 选参后未执行 final refit（2026 selected model 训练窗口为 `2020-01-02 ~ 2024-12-24`，PRD 要求 `2021-01-04 ~ 2025-12-24`）；方案为 `refit_register_predict` 步骤复用既有 BigQuery panel（经 `source_panel_run_id` 读 selection run panel，重新 fit preprocessor，不消费冻结 matrix transformed arrays）+ 独立 refit run_id 溯源契约 + 训练窗口 QA 硬门，六年从 select 之后重跑，不重跑 panel/matrix/fanout。
   - `docs/prd/PRD_20260611_03_策略1SyntheticContinuous正式回测.md`：manifest 参数化的逐年 test 窗口切片 merge（排除 valid 段）、重叠/缺口/行数/溯源 QA、official continuous ledger（`2021-01-04` fresh-start 至 `2026-06-09`）；彩排用 pre-refit 预测可立即先行，正式执行依赖 02 完成。
   - `docs/prd/PRD_20260611_04_ResearchSummary落库修复.md`（简短）：6 行年度 summary `created_date`/`run_id` 为 NULL 的根因已实证（`09` INSERT 列清单不含这两列、ADS 表本无此两列、research 渲染只重写表名）；方案为 ADS additive 补列 + `09` 列清单修复 + 回填 + QA NOT NULL 断言；该修复必须先于 02/03 的任何重跑。
 - 本轮 docs/记忆-only，未改代码、未执行 BigQuery / Cloud Run。当前 6 年年度 diagnostic 结果在 refit 修正前不得作指标解读。
