@@ -482,6 +482,8 @@ def insert_synthetic_predictions(
     years: list[YearSlice],
     source_rows: dict[str, dict[str, Any]],
 ) -> bigquery.QueryJob:
+    predict_start = min(item.predict_start for item in years)
+    predict_end = max(item.predict_end for item in years)
     manifest_sql = ",\n".join(
         "STRUCT("
         f"{item.backtest_year} AS backtest_year, "
@@ -520,6 +522,7 @@ def insert_synthetic_predictions(
     JOIN `{prediction_table}` AS pred
       ON pred.run_id = m.source_run_id
      AND pred.model_id = m.source_model_id
+     AND pred.predict_date BETWEEN DATE '{predict_start.isoformat()}' AND DATE '{predict_end.isoformat()}'
      AND pred.predict_date BETWEEN m.predict_start AND m.predict_end
     """
     job_config = bigquery.QueryJobConfig(
