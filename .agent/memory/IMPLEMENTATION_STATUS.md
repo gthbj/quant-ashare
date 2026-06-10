@@ -16,7 +16,7 @@ Last updated: 2026-06-10
 - 新建 promotion 专用 Cloud Run job `strategy1-promote-research-to-ads-job`，使用同一 D3/E digest，command 为 `python -m scripts.strategy1.promote_research_to_ads`，SA 为 `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com`，`taskCount=1`、`cpu=1`、`memory=2Gi`、`maxRetries=0`。
 - Promotion job boot smoke `strategy1-promote-research-to-ads-job-6kqd7` 成功；完整参数 review-only dry-run `strategy1-promote-research-to-ads-job-4mkrv` 成功，日志包含 `Review-only mode. Re-run with --execute to write ADS and promotion manifest.`。验收查询确认 `promotion_id='promo_deploy_smoke_20260610_01'` 在 `research_promotion_manifest` 行数为 `0`，未写 ADS / manifest。
 - 部署后复跑 live BigQuery `sql/research/03_qa_research_schema_readiness.sql` 通过，7 条 `QA-RESEARCH-SCHEMA-*` assertion successful。
-- PR #151 review follow-up 已确认 IAM 收敛仍有开放决策：五个普通 runner jobs 使用的 compute SA 仍具备 `ashare_ads` WRITER；本轮只登记为 OQ-013 / TODO 和约束说明，未修改线上 IAM。
+- PR #151 review follow-up 已确认普通 runner jobs 使用的 compute SA 仍具备 `ashare_ads` WRITER；owner 已选择方案 1，接受现状但保留流程约束，不修改线上 IAM。OQ-013 已关闭归档；普通实验仍默认 research-first，ADS 正式发布仍只走 owner-approved promotion job。
 - 本轮仍未执行真实 owner-approved promotion；后续只有 owner 明确批准具体 accepted research run 后，才按 runbook 先 review-only 再带 `--execute` promotion。
 
 ### 最新补充（2026-06-10）：项目结构重构 Phase D3/E promotion job 与包化已实现
