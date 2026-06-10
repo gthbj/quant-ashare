@@ -1,4 +1,15 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 新增 `docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md`。
+> - PRD 把 2021 smoke 暴露的三个工程问题转成后续实现要求：annual rolling orchestrator 自动生成 resolved experiment payload、ADS additive migration、Cloud Run schema readiness QA。
+> - PRD 明确 P0 不改模型、不扩参数、不调 v3 gate、不切 `ashare_research`；完整 `2021-2026` 正式结果必须来自单一 continuous ledger，或通过 resume-continuous QA 的 segment ledger，禁止拼年度 fresh-run。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
+> - PR #141 已合并，正式 Strategy1 Cloud Run runner 已构建并部署到镜像 `strategy1-cloudrun-runner:2565e0f`。
+> - 2021 annual-selection smoke 已在正式 jobs 上闭环：candidate fanout `5f6qg`、select/register/predict `pxtbw`、backtest/report `t5fg6` 均 succeeded。
+> - CV 修复实证：11 个候选全部 `cv_confirmation_status=passed`、`cv_fold_count=3`，fold 为 `cv_2018/cv_2019/cv_2020`；选中候选为 `risk_lgbm_prd_strong_regularized_l5_l63_lr002_n300_leaf800_ff07_bf10`。
+> - 本次手工补齐生产 ADS additive schema：创建 `ads_backtest_ledger_state_daily`，并为 `ads_backtest_performance_summary` 补 4 个复合年化字段。2021 回测结果为 total_return -8.08%、compound annual -8.39%、Sharpe -0.382、MaxDD -19.54%、vs `000001.SH` excess -12.88%。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 分支 `codex/strategy1-research-routing-d1b` 已处理 PR #143 review follow-up：默认 ADS 子命令不下发 `--output-dataset-role=ads`，保持旧 Cloud Run 镜像兼容；显式 research 仍下发 role flag。
 > - Research contract 已补 lifecycle 默认值：普通 research 输出默认 `research_status='candidate'`、`promotion_status='not_promoted'`，`research_promotion_manifest.promotion_status` 默认 `planned`。
 > - D1 真实 research smoke 仍是独立收尾项：部署 D0 DDL、重建镜像、补 runtime SA `ashare_research` 写权限并跑显式 research-mode smoke 后，才能进入 D2 default research-first；读侧 routing 全局态收敛已登记到 Phase E。验证包括 `python3 -m pytest tests` 57 passed、Dataform `--check`、Dataform compile、BigQuery DDL dry-run、主要 CLI help/dry-run、41 条程序化 self-review checks、compileall 和 `git diff --check`。
@@ -128,6 +139,8 @@
 
 ## 当前交接摘要
 
+- 2026-06-10：新增年度滚动执行工程化 PRD `docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md`；范围只解决 annual rolling 从手工 smoke 到可重复正式执行的工程路径，包括 resolved experiment payload 自动生成、ADS additive migration、schema readiness QA、run_id/artifact 规则和 continuous ledger 执行规则。不改模型、不扩参数、不调 v3 gate、不切 `ashare_research`；正式 `2021-2026` 结果不得拼接年度 fresh-run。
+- 2026-06-10：2021 annual-selection Cloud Run smoke 已在正式 Strategy1 jobs 上闭环。PR #141 合并后构建部署 `strategy1-cloudrun-runner:2565e0f`；candidate fanout `strategy1-train-candidate-fanout-job-5f6qg` 成功，11 个候选全部 `cv_fold_count=3`、CV passed；select/register/predict `strategy1-select-register-predict-job-pxtbw` 成功并选中 `risk_lgbm_prd_strong_regularized_l5_l63_lr002_n300_leaf800_ff07_bf10`；backtest/report `strategy1-backtest-report-job-t5fg6` 成功，2021 结果 total_return -8.08%、compound annual -8.39%、Sharpe -0.382、MaxDD -19.54%、vs `000001.SH` excess -12.88%。运行中已用 additive DDL 补齐 `ads_backtest_ledger_state_daily` 和 performance summary 复合年化字段。
 - 2026-06-10：项目结构重构 Phase D1b runner research routing 已在 `codex/strategy1-research-routing-d1b` 实现并处理 PR #143 review follow-up；新增 `output_dataset_role` 配置/CLI、`dataset_roles.py` helper 和 runner/report/diagnosis/QA/acceptance/comparison/factor attribution 显式 research routing。默认仍是 ADS，且默认 ADS 子命令不下发 `--output-dataset-role=ads`，保持旧 Cloud Run 镜像兼容；显式 `research` 模式下 run-scoped Strategy1 表解析到 `ashare_research.research_*`，research status 表解析到 `ashare_research.research_experiment_run_status`。Research DDL 已补 lifecycle 默认值：普通输出为 `candidate/not_promoted`，promotion manifest 为 `planned`。本轮不创建或部署 BigQuery `ashare_research` 对象、不修改 Cloud Run Job spec、不切 default research-first、不实现 promotion；D2 前新增 D1 收尾验收项，读侧 routing 全局态风格收敛登记到 Phase E。验证：`python3 -m pytest tests` 57 passed、Dataform `--check`、Dataform compile、BigQuery DDL dry-run、主要 CLI help/dry-run、41 条程序化 self-review checks、compileall 和 `git diff --check` 均通过。
 - 2026-06-10：项目结构重构 Phase D1a SQL render table-role routing 已在 `codex/strategy1-research-routing-d1a` 实现并 rebase 到最新 `origin/main`；PR #142 review follow-up 已补全 catalog step role 覆盖，并新增 pytest 防止 research 渲染残留 `data-aquarium.ashare_ads.`。`sql_render.py` 可按 catalog step 的 role 集合把 ADS 表引用显式改写为 `ashare_research.research_*`，`sql_runner.py` wrapper 已透传 `dataset_role` / `allow_future_research`，默认 ADS 行为不变。无 step 上下文的全局 research 替换会 fail-fast，防止 `model_registry` / `acceptance_result` 共享 ADS 表造成误替换。本轮不启用 Cloud Run 默认写 research、不写 BigQuery、不做 promotion；D1b 仍需单独接 runner config / report / diagnosis / QA / acceptance/comparison research source。
 - 2026-06-10：项目结构重构 Phase D0 research table contract 已在 `codex/add-research-table-contract` 实现；新增 `sql/research/**`、`ashare_research` schema contract、catalog research contract metadata 和 DDL drift tests。PR #140 review follow-up 已补 `experiment_run_status` 当前侧 `ashare_meta` dataset override 和 `build_order_plan` 分区列一致性测试；D0 不部署 BigQuery、不写 research、不迁移历史 ADS、不实现 promotion。D1a 已新增 render-only research opt-in，真正 runner 写 research 仍需 D1b 单独 PR。
@@ -149,6 +162,98 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-10 GPT-5 Codex - 年度滚动执行工程化 PRD
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md`。
+- PRD 将 2021 annual-selection smoke 暴露的问题收敛为三个 P0 工程要求：resolved experiment payload 自动生成、ADS additive migration、schema readiness QA。
+- PRD 明确年度 rolling orchestrator 的建议入口、输入输出、run_id 命名、artifact 要求、连续 ledger 执行规则和验收标准。
+- 同步更新 `IMPLEMENTATION_STATUS`、`AGENT_HANDOFF` 和 `TODO.md`。
+
+### 重要上下文
+
+- 本轮只写 PRD，不改 runner、不改 SQL、不改 BigQuery、不跑 Cloud Run。
+- PRD 明确 P0 不改模型、不扩 LightGBM 参数、不调整 v3 gate、不把默认输出切到 `ashare_research`。
+- 正式 `2021-2026` 结果必须来自单一 continuous ledger，或经过 resume-continuous QA 的 segment ledger；不能拼接年度 fresh-run。
+
+### 改动文件
+
+- `docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未运行测试；本轮为文档和记忆更新。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 按 PRD 实现 ADS additive migration 与 schema readiness QA。
+- 再实现 annual rolling orchestrator dry-run / resolved payload 生成，并用它重跑 2021 smoke。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - 年度滚动选参 2021 smoke 闭环
+
+### 已完成工作
+
+- 合并 PR #141 后，从 `main` commit `2565e0f` 构建并部署正式 Strategy1 Cloud Run runner 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:2565e0f`。
+- 四个正式 jobs 已更新到该镜像：`strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。
+- 重跑 2021 annual-selection candidate fanout：execution `strategy1-train-candidate-fanout-job-5f6qg` 成功，11 个候选全部 `cv_confirmation_status=passed`、`cv_fold_count=3`。
+- 重跑 `select_register_predict`：execution `strategy1-select-register-predict-job-pxtbw` 成功，选中 `risk_lgbm_prd_strong_regularized_l5_l63_lr002_n300_leaf800_ff07_bf10`，`prediction_rows=808433`。
+- 重跑 `backtest_report`：execution `strategy1-backtest-report-job-t5fg6` 成功，ledger、report、runner QA、lot-aware ledger QA、model diagnosis QA、tail-risk diagnosis 和 tail-risk QA 全部走完。
+- 手工补齐生产 ADS additive schema：创建 `ashare_ads.ads_backtest_ledger_state_daily`，并为 `ashare_ads.ads_backtest_performance_summary` 补 4 个复合年化字段。
+
+### 重要上下文
+
+- 第一次 `select_register_predict` 失败是因为 annual-selection experiment 不在 `configs/strategy1/oq010_experiments_v0.json` 中；后续使用 base64 resolved experiment payload 解决。
+- 第一次 `backtest_report` 失败是因为缺 `ads_backtest_ledger_state_daily`；第二次失败是因为 `ads_backtest_performance_summary` 缺复合年化字段；两者均为 BigQuery schema 未同步最新代码契约，不是模型训练或 CV 逻辑失败。
+- 2021 smoke 只验证单年度链路闭环；还没有执行完整 `2021-2026` 年度滚动参数选择和连续 ledger。
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- Cloud Build `945cead1-c916-42af-a471-193928c8ca78`：SUCCESS。
+- `strategy1-train-candidate-fanout-job-5f6qg`：succeeded，11/11 candidate metrics updated。
+- Candidate metrics：全部 `cv_confirmation_status=passed`、`cv_fold_count=3`，fold ids `cv_2018/cv_2019/cv_2020`。
+- `strategy1-select-register-predict-job-pxtbw`：succeeded，selected candidate `risk_lgbm_prd_strong_regularized_l5_l63_lr002_n300_leaf800_ff07_bf10`。
+- `strategy1-backtest-report-job-t5fg6`：succeeded。
+- BigQuery summary：`bt_s1_annual_param_select_train2015_2019_valid2020_pred2021_n20_w075_v20260610_01` 覆盖 `2021-01-04..2021-12-31`，`total_return=-0.08075416625099796`、`compound_annual_return=-0.08394704034322242`、`annual_vol=0.18489507632796431`、`sharpe=-0.3820502523215857`、`max_drawdown=-0.1953798536113548`、`excess_return=-0.12875580760744898`。
+
+### 阻塞项
+
+- 无当前阻塞。2021 单年度 smoke 已闭环，但策略表现不达可接受 baseline。
+
+### 下一步建议
+
+- 扩展实现完整年度滚动 `2021-2026`：逐年参数选择、逐年预测生成，最后用一条连续 `ledger_exec_v1_lot100` 评价，不拼接年度 fresh-run。
+- 后续正式 annual walk-forward 建议使用新的 run_id，不复用本次 smoke 的 `s1_annual_param_select_train2015_2019_valid2020_pred2021_n20_w075_v20260610_01`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - Runner research routing D1b
 
