@@ -65,29 +65,40 @@ label embargo 规则不变：`label_horizon=5` 的训练样本必须保证未来
 
 ## 5. 核心设计
 
-### 5.1 复用冻结 matrix，不重建数据
+### 5.1 复用层级：panel 可复用，冻结 matrix 不可复用
 
-这是"从 select 之后重跑"成立的关键论证：
+> 本节按 PR #162 review finding 1 修正：初稿"复用冻结 matrix、只换 date mask"的论断**不成立**。
 
-- 每年 panel / matrix 的日期覆盖 = selection train + valid + test 的连续区间。
-- refit 窗口 = selection train 的尾部 + valid 年，**真子集于 matrix 覆盖区间**。
-- 因此 refit = 同一冻结 matrix 上按日期窗口换 train mask（横跨原 train 与 valid split 的行），无需新 panel、无需新 matrix。
+实证事实：`prepare_matrix` 在 **selection train mask** 上 fit preprocessor（winsor 分位数等），冻结产物是各 split 的 **transformed arrays** 加上拟合好的 `preprocess.joblib`。直接在 matrix 上换 date mask 会得到"旧 preprocessor（selection train 拟合）+ 新训练窗口"的混合态，不是完整 final refit。
 
-实现 PR 必须包含前置断言：matrix 的日期覆盖区间 ⊇ refit 窗口；不满足时 fail-fast，禁止静默缩窗。
+正确的复用层级是 **BigQuery panel**（raw_v0 特征）：
+
+- 每年 panel 的日期覆盖 = selection train + valid + test 的连续区间，refit 窗口是其真子集 → **不需要重建 panel**，"从 select 之后重跑"仍然成立。
+- refit 必须从 panel 读取 refit 窗口的原始特征行，**重新 fit preprocessor**，再训练、再预测。
+- 冻结 matrix 与其 `preprocess.joblib` 对 refit 一律只读不复用，继续作为 selection run 的 audit 产物。
+
+实现 PR 必须包含前置断言：panel 的日期覆盖区间 ⊇ refit 窗口；不满足时 fail-fast，禁止静默缩窗。
 
 ### 5.2 Refit 执行步骤
 
-新增执行步骤（建议名 `refit_register_predict`，package entrypoint 优先）：
+新增执行步骤（建议名 `refit_register_predict`，package entrypoint 优先）。实现上它是现有 `quant_ashare.strategy1.train_predict` 流程的约束版——该流程本身即"读 panel → train mask 上 fit preprocessor → 训练 → 预测 → 写 registry/prediction"，约束为：
 
 输入：
-- 该年 select 阶段输出的 `selected_candidate_id` 与模型参数。
-- 该年冻结 matrix（`matrix_uri`）。
+- 该年 select 阶段输出的 `selected_candidate_id` 与模型参数（候选网格固定为这一个）。
+- 该年既有 BigQuery panel（按 run_id 读取）。
 - resolved plan 的 `final_refit` 窗口。
 
 动作：
-1. 在 refit 窗口（date mask，跨原 train/valid split）上训练 selected candidate 参数的单个模型。
-2. 用 refit 模型对该年 test/predict 窗口生成 prediction。
-3. 写 registry 与 prediction（见 5.3）。
+1. 从 panel 读取 refit 窗口行（date mask，跨原 train/valid split tag），fit 新 preprocessor。
+2. 在 refit 窗口上训练 selected candidate 参数的单个模型。
+3. 用 **refit preprocessor** transform 该年 test/predict 窗口的 panel 行后生成 prediction——禁止消费冻结 matrix 中按旧 preprocessor transform 过的 predict arrays。
+4. 写 registry、prediction 与 refit preprocess artifact（见 5.3）。
+
+### 5.2.1 Preprocessing 契约
+
+- refit run 必须产出独立的 preprocess artifact（`preprocess.joblib` + `preprocess_stats.json`），归属 refit run 的 artifact prefix。
+- `preprocess_stats.json` 必须记录 fit 所用日期窗口（`fit_start` / `fit_end`），供 QA 断言。
+- `preprocess_version` 沿用 `tree_winsor_missing_passthrough_v1`，不引入新预处理逻辑——变化只在 fit 窗口与 fit 数据。
 
 ### 5.3 Registry 与 run 契约
 
@@ -123,7 +134,8 @@ select:yYYYY -> refit:yYYYY -> diagnostic_backtest:yYYYY
 1. refit model 的 `train_start_date/train_end_date` == resolved plan 的 `final_refit` 窗口（逐年）。
 2. refit run prediction 完整覆盖该年 test/predict 窗口（行数 > 0 且日期边界吻合）。
 3. refit registry 行含 `selected_candidate_id` 与 `source_run_id` 溯源且非空。
-4. refit 使用的 matrix 日期覆盖 ⊇ refit 窗口。
+4. refit 使用的 panel 日期覆盖 ⊇ refit 窗口。
+5. refit run 存在独立 preprocess artifact，且 `preprocess_stats.json` 的 `fit_start/fit_end` == refit 窗口；禁止引用 selection matrix 的 `preprocess.joblib`（artifact 路径归属断言）。
 
 ## 6. 重跑范围
 
@@ -136,7 +148,8 @@ select:yYYYY -> refit:yYYYY -> diagnostic_backtest:yYYYY
 | 验收项 | 要求 |
 |---|---|
 | refit 窗口 | 六年 refit model 训练窗口逐年等于 resolved plan `final_refit` 窗口，QA 断言通过 |
-| 数据复用 | 全程未新建 panel / matrix，refit 从冻结 matrix 读取 |
+| 数据复用 | 全程未新建 panel / matrix；refit 从既有 BigQuery panel 读取，不消费冻结 matrix 的 transformed arrays |
+| preprocessing | 每个 refit run 有独立重新拟合的 preprocess artifact，fit 窗口 == refit 窗口 |
 | 溯源 | 每个 refit run 可回溯到 selected candidate 与 selection run |
 | 审计保留 | 原 selection run 的 registry / prediction 行未被修改或删除 |
 | prediction | 六年 refit prediction 覆盖各自 test 窗口，QA 通过 |
@@ -147,7 +160,8 @@ select:yYYYY -> refit:yYYYY -> diagnostic_backtest:yYYYY
 | 风险 | 控制 |
 |---|---|
 | refit 窗口配置漂移（重蹈本次覆辙） | QA 硬门逐年断言窗口；窗口唯一来源是 resolved plan |
-| matrix 覆盖不足 refit 窗口 | 前置断言 fail-fast，禁止静默缩窗 |
+| 误用 selection preprocessor（旧 preprocessor + 新窗口混合态） | refit 强制重新 fit；QA 断言 preprocess artifact 归属与 fit 窗口 |
+| panel 覆盖不足 refit 窗口 | 前置断言 fail-fast，禁止静默缩窗 |
 | refit 行污染 selection run 查询语义 | refit 独立 run_id，原 run 保持 audit 不变 |
 | refit 与 selection 模型混用 | diagnostic / continuous 流程只接受带 `refit=true` 溯源的 run |
 | 重跑覆盖已 succeeded artifact | 沿用既有纪律：`--force-replace` 仅显式使用 |

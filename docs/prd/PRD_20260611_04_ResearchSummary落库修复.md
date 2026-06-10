@@ -27,7 +27,8 @@
 3. **回填现有 6 行 research summary**（需 owner 批准的 research 数据更正）：按 `backtest_id` UPDATE 补 `run_id` 与 `created_date`；`created_date` 取各行 `created_at` 的日期部分，保持与写入时刻一致。该表 `require_partition_filter=FALSE`，UPDATE 按 `backtest_id` 过滤合规。
 4. **QA 防复发**：
    - `qa_runner_outputs` 增加断言：summary 行 `run_id` / `created_date` NOT NULL；
-   - research readiness QA（列存在性已覆盖）不需改；
+   - **扩展 `qa_cloudrun_schema_readiness`（按 PR #162 review finding 3）**：在 `ads_backtest_performance_summary` 的 `required_columns` 中加入 `run_id STRING` / `created_date DATE`——修复后 ADS 渲染的 `09` 也依赖这两列，漏跑 additive migration 的环境必须被 preflight 拦截而不是 `09` 运行期报错；失败信息指向本 PRD 的 migration 文件；
+   - research readiness QA（research 侧列存在性已覆盖）不需改；
    - 同步检查 catalog `backtest_summary` 的分区元数据语义（research 侧 `created_date` 分区、ADS 侧无分区），如有表述歧义在 catalog 注释说明。
 
 备选方案（不推荐）：`09` 按 dataset role 条件化列清单——引入双份 SQL 维护成本，且 schema 对齐本来就是 research/ADS 镜像设计的既定方向。
@@ -40,6 +41,7 @@
 | 回填 | 现有 6 行 research summary 两字段补齐，且其余字段逐字节不变 |
 | 分区可查 | 按 `created_date` 分区过滤可查到全部 6 行 |
 | QA | `qa_runner_outputs` 的 NOT NULL 断言上线并在回填后通过 |
+| readiness 防漏 | `qa_cloudrun_schema_readiness` 覆盖 ADS summary 新增两列，live 复跑通过 |
 | ADS 兼容 | ADS 渲染的 `09` 在补列后正常执行；ADS 历史行不回填、不重建 |
 
 ## 5. 执行顺序
