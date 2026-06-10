@@ -17,6 +17,8 @@
 
 本 PRD 把 PRD_20260610_04 §9 的路径 A 落为可实现规约，并把切片陷阱显式化。
 
+代码级现状（owner 复核确认）：merge 与 continuous ledger 在代码中完全未实现；annual orchestrator non-dry-run 仍 fail-fast，只输出命令供人工执行。P0 接受 merge / continuous ledger 以人工执行 resolved 命令的方式落地（与 2021-2026 首轮一致），自动化编排归 `PRD_20260611_01` Phase 2+。
+
 ## 2. 目标
 
 1. 定义逐年 prediction 切片规则与合并产物（synthetic continuous prediction run）。

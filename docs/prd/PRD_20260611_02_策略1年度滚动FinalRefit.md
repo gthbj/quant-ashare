@@ -24,6 +24,12 @@
 
 实现层面有一个有利事实：annual orchestrator 的 resolved plan **已经计算并携带每年的 refit 窗口**（`year_plan` 输出中的 `final_refit` 块，`status='planned_after_candidate_selection'`），缺的只是消费这些窗口的执行步骤、registry 契约和 QA 硬门。
 
+代码级缺口定位（owner 复核确认，作为实现 PR 的对照基准）：
+
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`：`final_refit` 只进 plan 元数据，`command_plan()` 不生成任何 refit 执行命令。
+- `src/quant_ashare/strategy1/select_register_predict.py`：加载已训练候选 artifact 选参后，直接用冻结 matrix 的 `predict_features.parquet`（selection preprocessor transform 产物）写预测——没有 final refit，也是 §5.1 禁止 refit 复用 matrix predict arrays 的原因。
+- 该缺口是**功能未实现**，不是运行期故障：2021-2026 全链路 succeeded，但产出停留在"选参 + 年度诊断"层。
+
 ## 2. 目标
 
 1. 每年 valid 选参后，对 selected candidate 的参数在 final refit 窗口上重新训练最终模型。
@@ -115,9 +121,11 @@ s1_annual_roll_y{year}_..._{version}__refit01
 
 备选方案（不推荐）：在原 run 内追加 refit 行——会破坏"每 run 一个 selected"语义，且需要改既有 QA；仅当 owner 明确要求时采用。
 
-### 5.4 Scheduler DAG 变更
+### 5.4 Orchestrator plan 与 Scheduler DAG 变更
 
-`PRD_20260611_01` 的 DAG 在 select 与 diagnostic backtest 之间插入 refit stage：
+**Annual orchestrator resolved plan**（`orchestrate_annual_rolling_selection`）：每年 `year_plan` 必须把 `final_refit` 从纯元数据块（`planned_after_candidate_selection`）升级为**可执行命令步骤**——`select` 之后插入 `final_refit` step，命令调用 `refit_register_predict` 入口（与 PR #159 给 plan 插入 panel step 同模式）；plan 的步骤顺序断言测试同步扩展。
+
+**Pipeline scheduler DAG**（`PRD_20260611_01`）：在 select 与 diagnostic backtest 之间插入 refit stage：
 
 ```text
 select:yYYYY -> refit:yYYYY -> diagnostic_backtest:yYYYY
