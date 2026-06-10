@@ -66,7 +66,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--force-replace", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Build and print the promotion plan without executing")
-    parser.add_argument("--print-sql", action="store_true")
+    parser.add_argument(
+        "--print-sql",
+        action="store_true",
+        help="Print generated SQL. Without --execute this is review-only.",
+    )
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually run the promotion. Omit this flag for review-only plan/SQL output.",
+    )
     return parser.parse_args()
 
 
@@ -74,12 +83,16 @@ def main() -> int:
     args = parse_args()
     request = request_from_args(args)
     plan = build_promotion_plan(request)
-    if args.dry_run or args.print_sql:
+    if args.dry_run or args.print_sql or not args.execute:
         print(json.dumps(plan_summary(plan), ensure_ascii=False, indent=2, default=str))
         if args.print_sql:
             print("\n--- SQL ---")
             print(plan.sql)
+        if not args.execute:
+            print("\nReview-only mode. Re-run with --execute to write ADS and promotion manifest.")
+            return 0
         if args.dry_run:
+            print("\nDry run requested. Re-run with --execute without --dry-run to write ADS.")
             return 0
 
     client = bigquery.Client(project=args.project, location=args.location)

@@ -49,5 +49,7 @@ Naming rules:
   as `promoted`.
 - `promoted` requires a successful row in `research_promotion_manifest`; the
   promotion job also marks promoted research rows with
-  `promotion_status='promoted'`.
+  `promotion_status='promoted'`. Promotion does not rewrite
+  `acceptance_status` or `research_status` to `accepted`, including
+  owner-approved `--allow-unaccepted` runs.
 - `ashare_ads` remains the target for owner-approved promoted outputs only.

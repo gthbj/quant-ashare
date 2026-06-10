@@ -1,11 +1,69 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
-> - 分支 `codex/strategy1-d3e-promotion-package` 已实现项目结构重构 Phase D3/E：新增 owner-approved promotion job `python -m scripts.strategy1.promote_research_to_ads`，默认只 promotion accepted research，写 ADS 前防重复，写 `research_promotion_manifest`，并默认不复制 training panel。
+> - 分支 `codex/strategy1-d3e-promotion-package` 已实现项目结构重构 Phase D3/E，并按 PR #150 review follow-up 加固：promotion 不再反写 `acceptance_status/research_status=accepted`，CLI 真实写 ADS 必须传 `--execute`，source trade/NAV 有窗口完整性 guard。
 > - Phase E 已把 dataset routing、acceptance、ledger、reporting/backtest、pipeline-control/orchestrator 实现迁入 `src/quant_ashare/strategy1/**`；旧 `scripts.strategy1_cloudrun.*` 对应文件保留为短 wrapper，Cloud Run entrypoint 名称暂不迁移。
-> - 新增 `docs/策略1ResearchPromotion运行手册.md`、promotion/package tests，并把 retired-reference linter active scope 扩展到 `src/**`。
-> - 验证：`python3 -m pytest -q tests` 77 passed；compileall、Dataform generated SQLX `--check`、Dataform compile、`git diff --check`、promotion CLI dry-run、BigQuery dry-run 和 41 条程序化 self-review invariant 均通过。
+> - `docs/策略1ResearchPromotion运行手册.md` 已说明 `--print-sql` review-only、失败 attempt 不写 manifest 成功行、`--allow-unaccepted` 不涂改验收状态；DECISION-20260610-11 已记录 D3/E 同 PR 交付的一次性边界豁免。
+> - 验证：`python3 -m pytest -q tests` 79 passed；compileall、Dataform generated SQLX `--check`、Dataform compile、`git diff --check`、promotion CLI dry-run / print-sql review-only、BigQuery dry-run 和 55 条程序化 self-review invariant 均通过。
 > - 尚未执行真实 promotion，也未部署专用 promotion Cloud Run job；合并后若要线上使用，需要按 runbook 部署/运行 owner-approved promotion。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - PR #150 review follow-up
+
+### 已完成工作
+
+- 修复 `--allow-unaccepted` 路径下 promotion 伪造验收状态的问题：registry / summary / 普通 research 输出只写 promotion lifecycle 字段，不再写 `acceptance_status='accepted'` 或 `research_status='accepted'`。
+- 为 source backtest trade / NAV 增加 promotion window 外行数为 0 的 ASSERT，并检查 summary `start_date` / `end_date` 被本次 promotion window 完整覆盖。
+- 将 promotion CLI 改为默认 review-only；真实写 ADS / manifest 必须显式传 `--execute`，单独 `--print-sql` 只打印 plan + SQL。
+- 更新 runbook、research README、ARCHITECTURE / KNOWN_CONSTRAINTS / DECISION / TODO，记录失败 attempt 审计方式和 D3/E 同 PR 交付的一次性边界豁免。
+
+### 重要上下文
+
+- Promotion ASSERT 失败会整体回滚，因此不会留下 `research_promotion_manifest` 成功行；失败 attempt 需要查 BigQuery job history 或 Cloud Run execution logs。
+- 本轮仍未执行真实 promotion，未部署专用 promotion Cloud Run job，也未迁移 Cloud Run entrypoint。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/promotion.py`
+- `scripts/strategy1/promote_research_to_ads.py`
+- `tests/strategy1/test_promotion.py`
+- `docs/策略1ResearchPromotion运行手册.md`
+- `sql/research/README.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests`：79 passed。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform`：通过，35 actions。
+- `git diff --check`：通过。
+- `python3 -m scripts.strategy1.promote_research_to_ads ... --dry-run --print-sql`：成功输出 plan + SQL，未执行写入。
+- `python3 -m scripts.strategy1.promote_research_to_ads ... --print-sql`：review-only，未执行写入。
+- BigQuery client dry-run：`dry_run=True`。
+- 程序化 self-review invariant：55 PASS / 0 FAIL。
+
+### 阻塞项
+
+- 无代码阻塞。真实 promotion / promotion Cloud Run job 部署未在本轮执行。
+
+### 下一步建议
+
+- PR #150 合并后如需线上 promotion，基于 main 构建/部署 owner-approved promotion job，或按 runbook 手工先 review-only 再 `--execute`。
+- Cloud Run entrypoint 从 `scripts.strategy1_cloudrun.*` 迁到 package module 仍需单独 PR 和镜像 smoke。
+
+### 已更新记忆文件
+
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - 项目结构重构 Phase D3/E promotion 与包化
 

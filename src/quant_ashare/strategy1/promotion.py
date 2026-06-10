@@ -24,7 +24,9 @@ class PromotionTableSpec:
     target_predicate: str
     lifecycle_predicate: str
     source_row_assertion: str | None = None
-    lifecycle_set_sql: str = "research_status = 'accepted', promotion_status = 'promoted'"
+    lifecycle_set_sql: str = "promotion_status = 'promoted'"
+    completeness_scope_predicate: str | None = None
+    completeness_date_column: str | None = None
 
 
 TRAINING_PANEL_COLUMNS = (
@@ -114,8 +116,8 @@ PROMOTION_TABLE_SPECS: dict[str, PromotionTableSpec] = {
         lifecycle_predicate="run_id = @source_run_id AND model_id = @source_model_id",
         source_row_assertion="model registry source row is missing",
         lifecycle_set_sql=(
-            "acceptance_status = 'accepted', promotion_status = 'promoted', "
-            "promotion_id = @promotion_id, approval_ref = @approval_ref"
+            "promotion_status = 'promoted', promotion_id = @promotion_id, "
+            "approval_ref = @approval_ref"
         ),
     ),
     "model_prediction_daily": PromotionTableSpec(
@@ -196,6 +198,8 @@ PROMOTION_TABLE_SPECS: dict[str, PromotionTableSpec] = {
             "backtest_id = @source_backtest_id AND trade_date BETWEEN @window_start AND @window_end"
         ),
         source_row_assertion="backtest trade source rows are missing",
+        completeness_scope_predicate="backtest_id = @source_backtest_id",
+        completeness_date_column="trade_date",
     ),
     "backtest_position_daily": PromotionTableSpec(
         role="backtest_position_daily",
@@ -224,6 +228,8 @@ PROMOTION_TABLE_SPECS: dict[str, PromotionTableSpec] = {
             "backtest_id = @source_backtest_id AND trade_date BETWEEN @window_start AND @window_end"
         ),
         source_row_assertion="backtest NAV source rows are missing",
+        completeness_scope_predicate="backtest_id = @source_backtest_id",
+        completeness_date_column="trade_date",
     ),
     "backtest_ledger_state_daily": PromotionTableSpec(
         role="backtest_ledger_state_daily",
@@ -253,8 +259,8 @@ PROMOTION_TABLE_SPECS: dict[str, PromotionTableSpec] = {
         ),
         source_row_assertion="backtest summary source row is missing",
         lifecycle_set_sql=(
-            "acceptance_status = 'accepted', promotion_status = 'promoted', "
-            "promotion_id = @promotion_id, approval_ref = @approval_ref"
+            "promotion_status = 'promoted', promotion_id = @promotion_id, "
+            "approval_ref = @approval_ref"
         ),
     ),
     "signal_monitor_daily": PromotionTableSpec(
@@ -426,6 +432,7 @@ def build_promotion_sql(request: PromotionRequest, target_ads_tables: tuple[str,
         "BEGIN TRANSACTION;",
         _manifest_id_guard(manifest_table),
         _accepted_source_guard(registry_table, acceptance_table),
+        _summary_window_guard(_research_table_id("backtest_summary", request.project)),
     ]
     for role in request.target_roles:
         statements.extend(_table_copy_statements(PROMOTION_TABLE_SPECS[role], request.project))
@@ -451,6 +458,7 @@ def _table_copy_statements(spec: PromotionTableSpec, project: str) -> list[str]:
   WHERE {spec.source_predicate}
 ) AS '{spec.source_row_assertion}';"""
         )
+    statements.extend(_window_completeness_statements(spec, source))
     statements.extend([
         f"""IF NOT @force_replace THEN
   ASSERT (
@@ -472,6 +480,26 @@ SET {spec.lifecycle_set_sql}
 WHERE {spec.lifecycle_predicate};""",
     ])
     return statements
+
+
+def _window_completeness_statements(spec: PromotionTableSpec, source: str) -> list[str]:
+    if not spec.completeness_scope_predicate or not spec.completeness_date_column:
+        return []
+    date_column = spec.completeness_date_column
+    return [
+        f"""ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `{source}`
+  WHERE {spec.completeness_scope_predicate}
+    AND {date_column} BETWEEN DATE '1990-01-01' AND DATE_SUB(@window_start, INTERVAL 1 DAY)
+) AS 'source {spec.role} has rows before promotion window';""",
+        f"""ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `{source}`
+  WHERE {spec.completeness_scope_predicate}
+    AND {date_column} BETWEEN DATE_ADD(@window_end, INTERVAL 1 DAY) AND DATE '2100-12-31'
+) AS 'source {spec.role} has rows after promotion window';""",
+    ]
 
 
 def _manifest_id_guard(manifest_table: str) -> str:
@@ -502,6 +530,17 @@ def _accepted_source_guard(registry_table: str, acceptance_table: str) -> str:
       AND acceptance_status = 'accepted'
   )
 ) AS 'source research result is not accepted; owner-approved promotion requires accepted research unless allow_unaccepted is explicit';"""
+
+
+def _summary_window_guard(summary_table: str) -> str:
+    return f"""ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `{summary_table}`
+  WHERE run_id = @source_run_id
+    AND backtest_id = @source_backtest_id
+    AND model_id = @source_model_id
+    AND (start_date < @window_start OR end_date > @window_end)
+) AS 'promotion window does not cover source backtest summary start_date/end_date';"""
 
 
 def _acceptance_lifecycle_update(acceptance_table: str) -> str:

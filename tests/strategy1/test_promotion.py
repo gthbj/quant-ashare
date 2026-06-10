@@ -55,6 +55,17 @@ def test_promotion_sql_has_explicit_accepted_guard_and_manifest_insert() -> None
     assert "COMMIT TRANSACTION" in sql
 
 
+def test_promotion_sql_does_not_rewrite_acceptance_state() -> None:
+    sql = build_promotion_plan(_request(allow_unaccepted=True)).sql
+
+    assert "SET acceptance_status = 'accepted'" not in sql
+    assert "SET research_status = 'accepted'" not in sql
+    assert "research_status = 'accepted'" not in sql
+    assert "SET promotion_status = 'promoted'" in sql
+    assert "promotion_id = @promotion_id" in sql
+    assert "approval_ref = @approval_ref" in sql
+
+
 def test_promotion_sql_uses_ads_columns_only_and_partition_filters() -> None:
     sql = build_promotion_plan(_request()).sql
 
@@ -67,6 +78,9 @@ def test_promotion_sql_uses_ads_columns_only_and_partition_filters() -> None:
     assert "predict_date BETWEEN @window_start AND @window_end" in sql
     assert "rebalance_date BETWEEN @window_start AND @window_end" in sql
     assert "trade_date BETWEEN @window_start AND @window_end" in sql
+    assert "promotion window does not cover source backtest summary start_date/end_date" in sql
+    assert "source backtest_trade_daily has rows after promotion window" in sql
+    assert "source backtest_nav_daily has rows after promotion window" in sql
 
 
 def test_promotion_plan_validates_approval_and_target_roles() -> None:
@@ -116,3 +130,42 @@ def test_promotion_cli_dry_run_prints_plan_without_bigquery_execution() -> None:
     assert '"promotion_id": "promo_unit_20260610"' in result.stdout
     assert "ads_model_registry" in result.stdout
     assert "ads_ml_training_panel_daily" not in result.stdout
+    assert "Review-only mode" in result.stdout
+
+
+def test_promotion_cli_print_sql_is_review_only_without_execute() -> None:
+    result = subprocess.run(
+        [
+            "python3",
+            "-m",
+            "scripts.strategy1.promote_research_to_ads",
+            "--promotion-id",
+            "promo_unit_20260610",
+            "--source-run-id",
+            "unit_run",
+            "--source-backtest-id",
+            "unit_bt",
+            "--source-model-id",
+            "unit_model",
+            "--window-start",
+            "2024-01-02",
+            "--window-end",
+            "2024-01-31",
+            "--approval-ref",
+            "PR-UNIT",
+            "--approved-by",
+            "owner",
+            "--acceptance-contract-version",
+            "model_acceptance_contract_v3",
+            "--acceptance-contract-sha256",
+            "abc123",
+            "--print-sql",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "--- SQL ---" in result.stdout
+    assert "BEGIN TRANSACTION" in result.stdout
+    assert "Review-only mode" in result.stdout
