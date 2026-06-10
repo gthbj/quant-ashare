@@ -1,3 +1,7 @@
+## 当前交接摘要
+
+2026-06-10：分支 `codex/fix-dynamic-cv-folds` 修复 Strategy1 Cloud Run Python CV fold 硬编码问题。`scripts/strategy1_cloudrun/train_predict.py` 现在基于 `cv_panel` 中 `split_tag='train'` 的年份动态生成最多 3 个滚动 CV fold，排除外部 valid 年；新增 `tests/strategy1_cloudrun/test_dynamic_cv_folds.py` 覆盖 `2015-2019 -> cv_2017/2018/2019` 与旧 `2019-2023 -> cv_2021/2022/2023` 形态。未运行测试。
+
 > 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 分支 `codex/add-research-table-contract` 已实现项目结构重构 Phase D0：新增 `ashare_research` schema contract、`sql/research/01_research_strategy1_tables.sql`、research README 和 catalog contract metadata。
 > - D0 只定义 `research_*` 表族、`research_acceptance_result`、`research_experiment_run_status` 与 `research_promotion_manifest`；不部署 BigQuery、不切 runner 默认写入、不迁移历史 ADS、不实现 promotion job。
@@ -1131,3 +1135,43 @@ Run ID: doc-only
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
+
+## 交接条目
+
+日期: 2026-06-10
+Agent ID: Codex
+Agent 实例 ID: codex/fix-dynamic-cv-folds
+模型: GPT-5 Codex
+运行环境: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-dynamic-cv`
+Run ID: n/a
+相关 issue/PR: pending
+
+### 已完成工作
+- 修复 Strategy1 Cloud Run Python CV fold 硬编码 `2021/2022/2023` 的问题，改为基于当前 `cv_panel` 的 train 年份动态生成最多 3 个 rolling fold。
+- 新增单元测试覆盖年度滚动选参窗口 `2015-2019 train + 2020 valid` 应生成 `cv_2017/cv_2018/cv_2019`，以及旧搜索窗口仍保持 `cv_2021/cv_2022/cv_2023`。
+
+### 重要上下文
+- 2021 annual-selection smoke 暴露 `cv_fold_count=0`，原因是 CV panel 实际覆盖 `2015-2020`，但旧代码固定寻找 `2021/2022/2023` eval 年。
+- 本修复只解决 CV fold 生成口径；不改变 valid/test/backtest gate，也不实现 selected final refit 云端化。
+
+### 改动文件
+- `scripts/strategy1_cloudrun/train_predict.py`
+- `tests/strategy1_cloudrun/test_dynamic_cv_folds.py`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+- 未运行测试；owner 未要求执行测试。
+
+### 阻塞项
+- 无。
+
+### 下一步建议
+- 合并后重跑 2021 annual-selection smoke 的 candidate fanout，确认 `cv_fold_count=3` 且 CV 指标不再为 NULL/NaN。
+- 后续单独实现 selected final refit 云端化，避免本地下载大 matrix。
+
+### 已更新记忆文件
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `TODO.md`
