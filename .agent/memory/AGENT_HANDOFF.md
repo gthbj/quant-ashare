@@ -1,4 +1,54 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 旧分支 `codex/remove-composer-refresh-helper` 已确认 PR #129 合并且本地改动过时；重复 PRD 暂存和冲突编号记忆改动未沿用。
+> - 旧分支本地脏改动已保存在 `stash@{0}`，随后清理本地/远端旧分支，并从最新 `origin/main` 新开 `codex/record-dependency-install-convention`。
+> - 已追加 `DECISION-20260610-13`：本项目执行过程中若缺失必要本机 / 运行依赖，Agent 可直接安装最小必要依赖并继续任务，无需再次询问。
+> - 授权边界已写入 `KNOWN_CONSTRAINTS.md`：不覆盖密钥 / 凭据 / 隐私、未脱敏敏感日志、显著云成本、生产权限边界或 job spec / IAM 变更、破坏性数据操作。
+
+Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - Dependency install convention recorded
+
+### 已完成工作
+
+- 核对 `origin/main` 后确认旧分支 `codex/remove-composer-refresh-helper` 的 PR #129 已合并，且本地 staged PRD 与 main 内容重复。
+- 确认旧分支本地记忆改动基于过时上下文并复用了当前 main 已占用的 `DECISION-20260610-01` 编号，因此不直接提交。
+- 将旧分支本地脏改动保存为 `stash@{0}`，清理本地/远端旧分支，并从最新 `origin/main` 新建 `codex/record-dependency-install-convention`。
+- 追加 `DECISION-20260610-13`，记录 owner 约定：缺失必要本机 / 运行依赖时，Agent 可直接安装最小必要依赖并继续任务。
+- 在 `KNOWN_CONSTRAINTS.md` 写明授权边界，避免把该约定误用到密钥、权限、生产 job spec / IAM 或破坏性操作。
+
+### 重要上下文
+
+- 该记录只保留旧分支中仍有效的 owner 约定，不恢复旧 PRD 暂存，也不沿用旧分支冲突编号的记忆内容。
+- 依赖安装授权适用于本机 / 运行环境准备；生产权限边界、显著云成本、破坏性数据操作和任何凭据处理仍需遵守既有安全约束。
+
+### 改动文件
+
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 如需进入仓库历史，可提交并推送本分支后开小 PR。
+- `stash@{0}` 只是旧分支过时改动备份；除非 owner 明确要求，不应再恢复提交。
+
+### 已更新记忆文件
+
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 分支 `codex/delete-strategy1-job-wrappers` 已删除五个旧 job wrapper 文件：`scripts/strategy1_cloudrun/train_predict.py`、`prepare_matrix.py`、`train_candidate_task.py`、`select_register_predict.py`、`backtest_report.py`。
 > - 本轮不改正式 Cloud Run job spec、不重建镜像；线上 jobs 和代码侧 override args 已在前序 PR 切到 `quant_ashare.strategy1.*` package entrypoint。
 > - `tests/strategy1/test_cloudrun_package_entrypoints.py` 已从 old/new wrapper parity 改为 package entrypoint `--help` smoke 与 dry-run JSON 解析；`tests/strategy1/test_package_boundaries.py` 新增旧五 wrapper 文件不存在断言。

@@ -55,6 +55,7 @@
 ## 工程约束
 
 - 需要代码在工作树中改，改完推 PR。
+- owner 已明确授权：本项目执行过程中如缺失必要本机 / 运行依赖，Agent 可直接安装最小必要依赖并继续任务，无需再次询问。适用范围包括系统包、Python / Node 依赖、CLI 工具和运行时库（例如 LightGBM 所需 `libomp`）。该授权不覆盖密钥、token、service account key、OAuth 凭据、个人隐私材料、未脱敏敏感日志、显著云成本增加、生产权限边界变更、生产 job spec / IAM 变更或破坏性数据操作；这些仍需按既有安全约束和 owner 确认处理。
 - 调度运行代码、Composer DAG、告警配置、生产 QA 文件名 / task_id、Dataform action / tag 等运行时命名不得绑定 OQ、Phase、P0/P1 等阶段性编号；使用 `pipeline`、`ingestion`、`warehouse`、`core`、`contract` 等长期业务语义命名。历史 PRD / archive 可保留原问题编号作为审计记录。
 - `dataform/definitions/**/*.sqlx` 是由 canonical `sql/` 和 `dataform/action_manifest.json` 生成的产物；任何修改 manifest 覆盖范围内 `sql/` 的 PR 都必须运行 `python3 scripts/dataform/generate_sqlx_from_sql.py` 并用 `python3 scripts/dataform/generate_sqlx_from_sql.py --check` 验证无漂移。
 - OQ-005 Workflows runtime 约束：Google Cloud Workflows `http.*` 单 step timeout 上限是 `1800s`，不能配置成 `3300` 或其他更大值；长耗时 BigQuery / Cloud Run 调用必须通过 `ashare-pipeline-control` 这类服务端轮询到终态，而不是继续放大 Workflow HTTP timeout。凡调用窗口刷新 / 窗口 QA SQL 的 Workflow BigQuery task，必须显式透传 `warehouse_mode`，避免 live 部署时因 SQL 参数缺失才暴露运行期错误。
