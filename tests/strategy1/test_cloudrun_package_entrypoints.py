@@ -56,6 +56,29 @@ def _entrypoint_args(tmp_path: Path) -> dict[str, list[str]]:
     refit_exp_b64 = base64.urlsafe_b64encode(
         json.dumps(refit_exp, sort_keys=True).encode("utf-8")
     ).decode("ascii")
+    synthetic_manifest = tmp_path / "synthetic_manifest.json"
+    synthetic_manifest.write_text(
+        json.dumps(
+            {
+                "synthetic_run_id": "s1_annual_roll_synth_continuous_unit",
+                "years": [
+                    {
+                        "backtest_year": 2021,
+                        "source_run_id": "unit_run__refit01",
+                        "predict_start": "2021-01-04",
+                        "predict_end": "2021-12-31",
+                    },
+                    {
+                        "backtest_year": 2022,
+                        "source_run_id": "unit_run_2022__refit01",
+                        "predict_start": "2022-01-04",
+                        "predict_end": "2022-12-30",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     return {
         "train_predict": [
@@ -106,6 +129,13 @@ def _entrypoint_args(tmp_path: Path) -> dict[str, list[str]]:
             "2025-12-24",
             "--skip-gcs-upload",
         ],
+        "synthetic_continuous": [
+            "--dry-run",
+            "--manifest-json",
+            str(synthetic_manifest),
+            "--require-source-refit",
+            "--skip-gcs-upload",
+        ],
         "backtest_report": [
             "--dry-run",
             "--experiment-id",
@@ -147,6 +177,7 @@ def _run_module(module: str, args: list[str]) -> subprocess.CompletedProcess[str
         "train_candidate_task",
         "select_register_predict",
         "refit_register_predict",
+        "synthetic_continuous",
         "backtest_report",
     ],
 )
@@ -165,6 +196,7 @@ def test_package_entrypoint_help_smoke(entrypoint: str) -> None:
         "train_candidate_task",
         "select_register_predict",
         "refit_register_predict",
+        "synthetic_continuous",
         "backtest_report",
     ],
 )

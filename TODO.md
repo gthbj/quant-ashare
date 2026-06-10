@@ -22,11 +22,11 @@
 - [x] OQ-010：按 `PRD_20260611_04` 修复 research summary `created_date`/`run_id` 落库
   说明：PR #163 已合并到 `main`（merge commit `f0ba555`）：`09` summary INSERT 列清单补 `run_id`/`created_date`，ADS additive migration `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql` 补列对齐 schema，`qa_runner_outputs` / `qa_cloudrun_schema_readiness` 加防复发断言。Live 已执行 ADS migration、schema readiness QA、现有 6 行 annual research summary 回填与 NOT NULL/created_date 查询复核；该前置已完成，可以进入 final refit / continuous 实现。
 
-- [ ] OQ-010：按 `PRD_20260611_02` 实现年度滚动 final refit 并六年重跑
-  说明：valid 选参后用最近 5 年 refit selected candidate——复用既有 BigQuery panel（经 `source_panel_run_id` 读 selection run panel），重新 fit preprocessor，不消费冻结 matrix transformed arrays；独立 refit run_id + 溯源契约 + 训练窗口 QA 硬门；2021-2026 从 select 之后重跑（refit + predict + 可选年度 diagnostic），不重跑 panel/matrix/fanout。PR #165 已合并并部署镜像 `sha256:fc94a02d388e0a988dac56366ea0dcba80e65c15dea10efc93ef38e11778b757`；2021/2022/2023 refit 已成功，2024 因 2019 panel 起点晚于 resolved start 失败，2025/2026 因 16Gi memory limit 失败。当前 hotfix 分支 `codex/strategy1-final-refit-hotfix` 将 2019 final-refit start 调整为 `2019-04-03`、refit 资源口径调为 `8 CPU / 32Gi`；待合并部署后重跑 2024-2026 并执行 refit QA。
+- [x] OQ-010：按 `PRD_20260611_02` 实现年度滚动 final refit 并六年重跑
+  说明：PR #165 / #166 已合并并部署。正式 Strategy1 runner 镜像当前为 `sha256:e379fdccb49281ec628f389de261929d37e60906b51538132b350314ba8db9da`，`strategy1-train-predict-job` 已提升为 `8 CPU / 32Gi`。2021-2026 六年 refit 全部成功：2021/2022/2023 首轮 execution `strategy1-train-predict-job-rwftt` / `qhs9q` / `fb4lr`，2024/2025/2026 hotfix 后 execution `strategy1-train-predict-job-5s49j` / `mx272` / `d6g52`。六年 `qa_refit_register_predict_outputs` 全部通过，final refit 执行层已闭环。
 
 - [ ] OQ-010：按 `PRD_20260611_03` 实现 synthetic continuous merge 与正式 continuous ledger
-  说明：manifest 参数化逐年 test 窗口切片（排除 valid 段）+ 重叠/缺口/行数/溯源 QA + official continuous ledger（`2021-01-04` fresh-start 至 `2026-06-09`）。merge/QA 实现与彩排（pre-refit manifest）可与 final refit 并行先行；正式执行依赖六年 refit 重跑完成。
+  说明：分支 `codex/strategy1-synthetic-continuous` 已实现代码侧能力：`quant_ashare.strategy1.synthetic_continuous` 按 manifest 合并逐年 refit prediction slice、写 synthetic selected registry 和统一 synthetic model/run；`qa_continuous_backtest_outputs` 已登记 catalog，覆盖 manifest/hash/source lineage、source/target 行数、valid 排除、交易日历覆盖和 continuous ledger 不变式。代码验证 115 passed + Dataform / retired lint / compileall / BigQuery dry-run 均通过。剩余：PR 合并后从 main 执行 official synthetic merge、跑单一 continuous backtest（`--skip-diagnosis --skip-tail-risk --skip-qa`），再执行 `qa_continuous_backtest_outputs` 与 `qa_lot_aware_ledger_outputs`。
 
 - [x] OQ-010：实现回测复合年化收益字段
   说明：PR #134 已扩展 ADS summary 契约并在 `09` 写出 `compound_annual_return` / `return_period_count` / annualization metadata，`10` 和 `24` QA 校验 `NAV 有效交易日数 - 1` 口径，report 默认展示复合年化；旧 `annual_return` / `sharpe` 保留 legacy 语义，不回填历史 run。

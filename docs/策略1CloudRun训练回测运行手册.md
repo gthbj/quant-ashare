@@ -93,6 +93,41 @@ python -m scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection \
 4. `cloudrun_refit_register_predict` 使用 `quant_ashare.strategy1.refit_register_predict`，读取 selection run 的 selected registry 与 `source_panel_run_id`，写入独立 `__refit01` run。
 5. 年度 fresh-run backtest 只作 diagnostic，且应引用 refit run；正式 `2021-2026` 结果仍必须来自单一 continuous ledger 或经过 resume-continuous QA 的 segment ledger。
 
+年度滚动 synthetic continuous merge 与 official continuous ledger：
+
+```bash
+python -m quant_ashare.strategy1.synthetic_continuous \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/annual_rolling_lgbm_regression_v0.yml \
+  --manifest-json /tmp/strategy1_annual_refit_manifest_vYYYYMMDD_NN.json \
+  --require-source-refit
+```
+
+manifest 示例：
+
+```json
+{
+  "synthetic_run_id": "s1_annual_roll_synth_continuous_2021_2026_n20_w075_vYYYYMMDD_NN",
+  "years": [
+    {
+      "backtest_year": 2021,
+      "source_run_id": "s1_annual_roll_y2021_train2015_2019_valid2020_n20_w075_vYYYYMMDD_NN__refit01",
+      "predict_start": "2021-01-04",
+      "predict_end": "2021-12-31"
+    }
+  ]
+}
+```
+
+期望：
+
+1. merge 只写 `ashare_research`：生成 1 行 synthetic selected registry，`model_id` 统一为 `synth_<synthetic_run_id>`，prediction 行统一改写到该 synthetic model/run。
+2. manifest 必须显式列出每年 `(source_run_id, predict_start, predict_end)`；official 模式必须传 `--require-source-refit`，确保 source registry 带 `refit=true`。
+3. merge 不删除或修改任何年度 source run；若 synthetic run 已存在，必须显式 `--force-replace` 才会删除同 synthetic run 的 registry/prediction 后重写。
+4. continuous ledger 通过现有 `quant_ashare.strategy1.backtest_report` 执行，`prediction_run_id` 指向 synthetic run，且必须显式传 `--skip-diagnosis --skip-tail-risk --skip-qa`；随后单独执行 `qa_continuous_backtest_outputs` 和 `qa_lot_aware_ledger_outputs`。
+5. `qa_continuous_backtest_outputs` 必须验证 synthetic manifest hash、year→source model 溯源、source/target prediction 行数、valid 段排除、交易日历覆盖，以及 continuous summary / NAV / ledger state 不变式。不得把年度 fresh NAV 拼接成正式结论。
+
 年度滚动 pipeline scheduler dry-run：
 
 ```bash

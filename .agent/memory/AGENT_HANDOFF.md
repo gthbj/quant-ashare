@@ -1,10 +1,69 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
-> - PR #165 已合并并部署正式 Strategy1 runner 镜像 `sha256:fc94a02d388e0a988dac56366ea0dcba80e65c15dea10efc93ef38e11778b757`；五个 jobs 读回确认新 digest，六个 boot smoke（含 `refit_register_predict --help`）均成功。
-> - `v20260610_02` final refit 首轮执行：2021/2022/2023 成功（executions `strategy1-train-predict-job-rwftt` / `qhs9q` / `fb4lr`）；2024 失败于 source panel coverage（resolved start `2019-01-02`，实际 panel min `2019-04-03`）；2025/2026 失败于 16Gi memory limit。
-> - 当前 hotfix 分支 `codex/strategy1-final-refit-hotfix`：2019 final-refit start override 为 `2019-04-03`，refit scheduler/runbook token 改为 `8 CPU / 32Gi`；待完整验证、PR、合并、重建镜像、更新 train-predict job 到 8CPU/32Gi 后重跑 2024-2026。
-> - 仍禁止把年度 fresh NAV 拼成正式结果；PRD_03 continuous merge/ledger 未实现前，2021-2026 official continuous 仍未完成。
+> - PR #166 已合并并部署正式 Strategy1 runner 镜像 `sha256:e379fdccb49281ec628f389de261929d37e60906b51538132b350314ba8db9da`；五个 jobs 已更新，`strategy1-train-predict-job` 已提升到 `8 CPU / 32Gi`，六个 boot smoke（含 `refit_register_predict --help`）均成功。
+> - `v20260610_02` final refit 六年全部完成：2021/2022/2023 首轮成功，hotfix 后 2024/2025/2026 成功（executions `strategy1-train-predict-job-5s49j` / `mx272` / `d6g52`）；六年 `qa_refit_register_predict_outputs` 全部 succeeded。
+> - 当前 PRD_03 分支 `codex/strategy1-synthetic-continuous` 已实现 synthetic continuous merge entrypoint 与 `qa_continuous_backtest_outputs`，focused tests / full pytest / Dataform / dry-run 均通过；待 PR 合并后执行 official synthetic merge + single continuous ledger。
+> - 仍禁止把年度 fresh NAV 拼成正式结果；official `2021-2026` 结果必须等 synthetic run、continuous backtest、`qa_continuous_backtest_outputs` 与 lot-aware QA 全部通过。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - PRD_03 synthetic continuous implementation
+
+### 已完成工作
+
+- 新增 package entrypoint `quant_ashare.strategy1.synthetic_continuous`，按 manifest 合并逐年 refit prediction slice，生成 synthetic selected registry 行和统一 `model_id` / `run_id` 的 prediction stream；默认只允许写 `ashare_research`，ADS 发布仍走 promotion。
+- 新增 `sql/strategy1/qa/qa_continuous_backtest_outputs.sql` 并登记 catalog，覆盖 synthetic manifest hash、year slice 溯源、source/target prediction 行数、valid 段排除、交易日历覆盖、continuous summary / NAV / position / trade / ledger state 不变式。
+- 更新 `docs/策略1CloudRun训练回测运行手册.md`，补 official synthetic merge、continuous backtest skip flags 和外接 QA 执行口径。
+- 扩展 package entrypoint / catalog / SQL render / package boundary 测试，锁住新入口和 QA step。
+- PR #166 合并后已从 `main@7b2bd67` 构建部署 hotfix 镜像 `sha256:e379fdccb49281ec628f389de261929d37e60906b51538132b350314ba8db9da`，五个 jobs 读回确认新 digest；`strategy1-train-predict-job` 资源已更新为 `8 CPU / 32Gi`。
+- 使用 hotfix plan 重跑 2024/2025/2026 refit 成功：`strategy1-train-predict-job-5s49j`（约 7m20s）、`strategy1-train-predict-job-mx272`（约 9m50s）、`strategy1-train-predict-job-d6g52`（约 10m10s）。六年 refit registry 均为 1 行 selected，prediction 覆盖各年窗口。
+- 六年 `qa_refit_register_predict_outputs` 均通过，job ids：`c6bcbf46-ec47-4917-a0a4-e67fbc467997`、`4f75fb48-52ce-4f1b-a270-e555b1358e3e`、`e90a2a1e-0802-4013-9356-e0544304e21d`、`4216cc23-3b09-4001-9291-d93380c44d40`、`04e923a0-e59c-4bfa-a333-2a6a806213e7`、`4e9d241f-7cf3-4def-bee0-0077f6b44d41`。
+
+### 重要上下文
+
+- `PRD_20260611_02` 的 final refit 执行与 QA 已完成；2021-2026 official 评价的剩余硬门是 PRD_03 synthetic continuous merge + single continuous ledger。
+- `qa_continuous_backtest_outputs` 是 synthetic run 专用 QA；`10` / `12` / `20` 默认 QA/诊断不适用于无 training panel / 无真实 model artifact 的 synthetic run。continuous backtest 必须用 `--skip-diagnosis --skip-tail-risk --skip-qa`，再外接 `qa_continuous_backtest_outputs` 与 `qa_lot_aware_ledger_outputs`。
+- 主工作树仍有 unrelated `scripts/strategy1_cloudrun/bq_io.py` 本地脏改，不属于本 PRD_03 分支，后续构建镜像必须继续使用干净 worktree。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/synthetic_continuous.py`
+- `sql/strategy1/qa/qa_continuous_backtest_outputs.sql`
+- `configs/strategy1/active_step_catalog.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `tests/strategy1/test_synthetic_continuous.py`
+- `tests/strategy1/test_cloudrun_package_entrypoints.py`
+- `tests/strategy1/test_package_boundaries.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests`：115 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `git diff --check`：通过。
+- `python3 -m quant_ashare.strategy1.sql_runner --step=qa_continuous_backtest_outputs --output-dataset-role=research --dry-run`：BigQuery dry-run 通过。
+
+### 阻塞项
+
+- 无代码阻塞；official continuous ledger 尚未执行，需先合并 PRD_03 code PR。
+
+### 下一步建议
+
+- 提交 PRD_03 代码 PR，review / merge。
+- 从合并后的 main 生成 official manifest，执行 `quant_ashare.strategy1.synthetic_continuous --require-source-refit` 写 synthetic run。
+- 用 `strategy1-backtest-report-job` 跑 official continuous backtest（skip diagnosis/tail-risk/default QA），再执行 `qa_continuous_backtest_outputs` 与 `qa_lot_aware_ledger_outputs`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - PRD_02 deployment and refit hotfix
 
