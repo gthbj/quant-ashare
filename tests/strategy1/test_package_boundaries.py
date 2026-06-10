@@ -27,6 +27,7 @@ def test_strategy1_package_import_smoke_for_phase_e_boundaries() -> None:
         "quant_ashare.strategy1.refit_register_predict",
         "quant_ashare.strategy1.reporting",
         "quant_ashare.strategy1.select_register_predict",
+        "quant_ashare.strategy1.synthetic_continuous",
         "quant_ashare.strategy1.train_candidate_task",
         "quant_ashare.strategy1.train_predict",
         "scripts.strategy1_cloudrun.dataset_roles",

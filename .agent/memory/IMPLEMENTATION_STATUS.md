@@ -6,6 +6,15 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：PRD_02 final refit 已完成，PRD_03 synthetic continuous 代码实现已就绪
+
+- PR #166 已合并到 `main`（merge commit `7b2bd67`），修复 PRD_02 首轮 refit 暴露的 2024+ 问题：2019 final-refit 起点显式 override 为 `2019-04-03`，scheduler / runbook refit 资源口径改为 `8 CPU / 32Gi`。
+- 已从 `main@7b2bd67` 构建并部署正式 Strategy1 runner 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:e379fdccb49281ec628f389de261929d37e60906b51538132b350314ba8db9da`；五个正式 jobs 均已更新到该 digest，`strategy1-train-predict-job` 已提升为 `8 CPU / 32Gi`，读回确认 package args / SA / `maxRetries=0` / fanout `taskCount=40, parallelism=20` 保持预期。六个 boot smoke 全部 Completed=True 且 Cloud Logging 匹配 `usage:`：`strategy1-train-predict-job-cpmm4`、`strategy1-prepare-matrix-job-2gfdq`、`strategy1-train-candidate-fanout-job-hx8w8`、`strategy1-select-register-predict-job-b9h7x`、`strategy1-backtest-report-job-7827f`、`strategy1-train-predict-job-ksf82`（`refit_register_predict --help` override）。
+- 使用 hotfix plan 重跑 2024/2025/2026 refit 成功：`strategy1-train-predict-job-5s49j`（约 7m20s）、`strategy1-train-predict-job-mx272`（约 9m50s）、`strategy1-train-predict-job-d6g52`（约 10m10s）。六年 refit registry 均为 exactly one selected row，prediction 覆盖各自窗口：2021 `403410`、2022 `480818`、2023 `448452`、2024 `476346`、2025 `580370`、2026 `254010` 行。
+- 六年 `qa_refit_register_predict_outputs` 已全部通过，job ids：`c6bcbf46-ec47-4917-a0a4-e67fbc467997`、`4f75fb48-52ce-4f1b-a270-e555b1358e3e`、`e90a2a1e-0802-4013-9356-e0544304e21d`、`4216cc23-3b09-4001-9291-d93380c44d40`、`04e923a0-e59c-4bfa-a333-2a6a806213e7`、`4e9d241f-7cf3-4def-bee0-0077f6b44d41`。PRD_02 final refit 执行层已闭环。
+- 分支 `codex/strategy1-synthetic-continuous` 已实现 `docs/prd/PRD_20260611_03_策略1SyntheticContinuous正式回测.md` 的代码侧能力：新增 `quant_ashare.strategy1.synthetic_continuous`（manifest-driven annual prediction slice merge、synthetic selected registry、统一 synthetic model/run、research-only guard、manifest GCS artifact/hash）和 `qa_continuous_backtest_outputs`（merge + continuous ledger 专用 QA），并登记 catalog / runbook / tests。
+- PRD_03 代码验证：`PYTHONPATH=src python3 -m pytest -q tests` 115 passed；Dataform generated SQLX `--check` 通过；Dataform compile 通过；retired lint 通过；compileall、`git diff --check` 和 `qa_continuous_backtest_outputs` BigQuery dry-run 均通过。尚未执行 official synthetic merge / continuous ledger；下一步是提交并合并该代码 PR 后，从 main 执行 official run。
+
 ### 最新补充（2026-06-11）：PRD_02 final refit 已合并部署，首轮重跑暴露 2024+ hotfix
 
 - PR #165 已合并到 `main`（merge commit `ebb6dbf`），实现 `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md` 的代码侧 refit 路径：新增 `quant_ashare.strategy1.refit_register_predict`、`qa_refit_register_predict_outputs.sql`、annual plan `cloudrun_refit_register_predict` step、scheduler `refit:yYYYY` stage，并让 continuous metadata / DAG 依赖 refit runs。
