@@ -6,6 +6,14 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：Strategy1 旧五 job wrapper 已删除
+
+- 分支 `codex/delete-strategy1-job-wrappers` 基于 `origin/main` commit `5772f30` 删除五个已退役 job wrapper：`scripts/strategy1_cloudrun/train_predict.py`、`prepare_matrix.py`、`train_candidate_task.py`、`select_register_predict.py`、`backtest_report.py`。
+- 五个正式 Cloud Run jobs、pipeline-control / native search / annual rolling override args、catalog caller 和 active runbook 已在前序 PR 切到 `quant_ashare.strategy1.*` package entrypoint；本轮不修改线上 job spec、不重建镜像。
+- 旧五模块路径仍保留在 `retired_reference_lint.banned_active_refs` 和测试清单中，继续防止 active scopes 回流；`tests/strategy1/test_package_boundaries.py` 新增断言确认五个旧 wrapper 文件不存在。
+- `tests/strategy1/test_cloudrun_package_entrypoints.py` 已从 old/new wrapper parity 改为 package entrypoint `--help` smoke 与 dry-run JSON 解析测试；非 job wrapper 兼容层（如 `acceptance`、`ledger`、`orchestrate_experiments`）仍保留。
+- 验证：`PYTHONPATH=src python3 -m pytest -q tests/strategy1 tests/strategy1_cloudrun` 92 passed；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过；`python3 -m compileall -q src scripts tests` 通过；`git diff --check` 通过。
+
 ### 最新补充（2026-06-10）：Strategy1 package entrypoint 代码侧 cutover 已随 main 镜像部署
 
 - PR #156 已合并到 `main`，merge commit `2156bb4b5a1d40c358a738395e01c10803ffa825`。由于 orchestrator / search 会从镜像内代码生成 Cloud Run override args，合并后已从该 `origin/main` commit 重建正式 Strategy1 runner 镜像。

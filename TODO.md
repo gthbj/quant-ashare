@@ -73,8 +73,8 @@
 - [x] OQ-010 / 工程治理：完成 package entrypoint 代码侧 cutover 与 wrapper 删除护栏
   说明：分支 `codex/package-entrypoint-code-cutover` 已同步 `pipeline_control`、native search、annual rolling 的 Cloud Run override args 到 `quant_ashare.strategy1.*` 五个 package entrypoint；`configs/strategy1/active_step_catalog.yml` 的 backtest/report caller 已切到 `quant_ashare.strategy1.backtest_report`；active runbook / 示例命令已更新。五个旧 job module 路径已纳入 retired-reference linter，且 linter 新增 catalog caller 检查；分支 `codex/entrypoint-active-scope-guard` 进一步补显式 pytest，断言五个旧入口路径必须在 banned refs 中且 non-historical active scopes 零命中。PR #156 已合并到 `main` 后重建正式镜像并部署到五个 jobs，digest `sha256:c84b47d8daea59d6d89dd5a1c218d6d1ee1a1195885a16c6d66a262a60f7305c`；五个正式 jobs 的 `--help` boot smoke 均成功：`strategy1-train-predict-job-vh59r`、`strategy1-prepare-matrix-job-fjshr`、`strategy1-train-candidate-fanout-job-cpxr2`、`strategy1-select-register-predict-job-82wsq`、`strategy1-backtest-report-job-44cmd`。旧 wrapper 仍保留兼容 import / CLI 路径。
 
-- [ ] OQ-010 / 工程治理：删除旧五 job wrapper
-  说明：旧 `scripts.strategy1_cloudrun.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report` 当前仍保留为兼容 wrapper。代码侧 cutover 已合并并随 main 镜像部署，五 job boot smoke 已通过；删除前仍需在删除 PR 内确认 active scopes 内旧五模块路径为 0，并同步移除或替换 old/new wrapper parity 测试。
+- [x] OQ-010 / 工程治理：删除旧五 job wrapper
+  说明：分支 `codex/delete-strategy1-job-wrappers` 已删除 `scripts/strategy1_cloudrun/train_predict.py` / `prepare_matrix.py` / `train_candidate_task.py` / `select_register_predict.py` / `backtest_report.py` 五个旧 job wrapper。old/new wrapper parity 测试已改为 package entrypoint `--help` / dry-run JSON smoke，且 package boundary 测试新增旧 wrapper 文件不存在断言；旧五模块路径仍留在 retired linter ban-list 和测试清单中防回流。
 
 - [x] OQ-013 / 工程治理：决策并收敛 Strategy1 普通 runner 的 ADS 写权限
   说明：owner 已选择方案 1：接受现状但保留流程约束。五个普通 Strategy1 runner jobs 暂继续使用 `241358486859-compute@developer.gserviceaccount.com`，且该 SA 暂保留 `ashare_ads` WRITER，用于 ADS audit / 历史报告重渲染等兼容路径；不做 live IAM revoke。正式流程仍要求普通实验默认写 `ashare_research`，ADS 正式发布只走 owner-approved promotion job，显式 `--output-dataset-role ads` 仅作为历史 ADS audit / 兼容路径。
