@@ -23,7 +23,7 @@
   说明：PR #163 已合并到 `main`（merge commit `f0ba555`）：`09` summary INSERT 列清单补 `run_id`/`created_date`，ADS additive migration `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql` 补列对齐 schema，`qa_runner_outputs` / `qa_cloudrun_schema_readiness` 加防复发断言。Live 已执行 ADS migration、schema readiness QA、现有 6 行 annual research summary 回填与 NOT NULL/created_date 查询复核；该前置已完成，可以进入 final refit / continuous 实现。
 
 - [ ] OQ-010：按 `PRD_20260611_02` 实现年度滚动 final refit 并六年重跑
-  说明：valid 选参后用最近 5 年 refit selected candidate——复用既有 BigQuery panel（经 `source_panel_run_id` 读 selection run panel），重新 fit preprocessor，不消费冻结 matrix transformed arrays；独立 refit run_id + 溯源契约 + 训练窗口 QA 硬门；2021-2026 从 select 之后重跑（refit + predict + 可选年度 diagnostic），不重跑 panel/matrix/fanout。
+  说明：valid 选参后用最近 5 年 refit selected candidate——复用既有 BigQuery panel（经 `source_panel_run_id` 读 selection run panel），重新 fit preprocessor，不消费冻结 matrix transformed arrays；独立 refit run_id + 溯源契约 + 训练窗口 QA 硬门；2021-2026 从 select 之后重跑（refit + predict + 可选年度 diagnostic），不重跑 panel/matrix/fanout。代码侧实现已在分支 `codex/strategy1-final-refit` 完成：新增 `quant_ashare.strategy1.refit_register_predict`、`qa_refit_register_predict_outputs`、annual plan refit step 与 scheduler `refit` stage；仍待 PR 合并后重建镜像并执行六年 refit 重跑。
 
 - [ ] OQ-010：按 `PRD_20260611_03` 实现 synthetic continuous merge 与正式 continuous ledger
   说明：manifest 参数化逐年 test 窗口切片（排除 valid 段）+ 重叠/缺口/行数/溯源 QA + official continuous ledger（`2021-01-04` fresh-start 至 `2026-06-09`）。merge/QA 实现与彩排（pre-refit manifest）可与 final refit 并行先行；正式执行依赖六年 refit 重跑完成。

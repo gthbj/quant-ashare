@@ -196,6 +196,23 @@ steps:
     outputs: []
     partition_columns: []
 
+  qa_refit_register_predict_outputs:
+    stable_name: qa_refit_register_predict_outputs
+    status: active
+    execution_mode: manual_refit_qa
+    current_path: sql/strategy1/qa/qa_refit_register_predict_outputs.sql
+    target_path: sql/strategy1/qa/qa_refit_register_predict_outputs.sql
+    sql_path: sql/strategy1/qa/qa_refit_register_predict_outputs.sql
+    caller: [manual_runbook, scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection, quant_ashare.strategy1.annual_pipeline_scheduler]
+    output_dataset_role_current: research
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_source_run_id, p_source_panel_run_id, p_strategy_id, p_refit_train_start, p_refit_train_end, p_predict_start, p_predict_end]
+    internal_params: []
+    optional_params: {}
+    inputs: [training_panel, model_registry, model_prediction_daily]
+    outputs: []
+    partition_columns: []
+
   qa_model_diagnosis_outputs:
     stable_name: qa_model_diagnosis_outputs
     status: active

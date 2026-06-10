@@ -89,8 +89,9 @@ python -m scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection \
 
 1. 每个年度 plan 的第一步必须是 `build_training_panel`，`sql_step=build_training_panel_risk_feature`。
 2. `build_training_panel` 命令使用 `python -m quant_ashare.strategy1.sql_runner` 执行 catalog SQL step，并显式带 `--output-dataset-role=research`。
-3. 后续顺序必须是 `cloudrun_prepare_matrix`、`cloudrun_train_candidate_fanout`、`cloudrun_select_register_predict`，若传 `--include-yearly-backtest-commands` 再追加 `cloudrun_backtest_report`。
-4. 年度 fresh-run backtest 只作 diagnostic；正式 `2021-2026` 结果仍必须来自单一 continuous ledger 或经过 resume-continuous QA 的 segment ledger。
+3. 后续顺序必须是 `cloudrun_prepare_matrix`、`cloudrun_train_candidate_fanout`、`cloudrun_select_register_predict`、`cloudrun_refit_register_predict`，若传 `--include-yearly-backtest-commands` 再追加 `cloudrun_backtest_report`。
+4. `cloudrun_refit_register_predict` 使用 `quant_ashare.strategy1.refit_register_predict`，读取 selection run 的 selected registry 与 `source_panel_run_id`，写入独立 `__refit01` run。
+5. 年度 fresh-run backtest 只作 diagnostic，且应引用 refit run；正式 `2021-2026` 结果仍必须来自单一 continuous ledger 或经过 resume-continuous QA 的 segment ledger。
 
 年度滚动 pipeline scheduler dry-run：
 
@@ -111,10 +112,10 @@ python -m quant_ashare.strategy1.annual_pipeline_scheduler \
 
 期望：
 
-1. 输出 2021-2026 全部 `panel` / `matrix` / `candidate` / `select` / `diagnostic_backtest` / `continuous_ledger` DAG task。
-2. `select:yYYYY` 依赖本年 11 个 `candidate:yYYYY:uNNN` 全部成功；下一年 `panel` / `matrix` 不依赖上一年 `select`。
+1. 输出 2021-2026 全部 `panel` / `matrix` / `candidate` / `select` / `refit` / `diagnostic_backtest` / `continuous_ledger` DAG task。
+2. `select:yYYYY` 依赖本年 11 个 `candidate:yYYYY:uNNN` 全部成功；`refit:yYYYY` 依赖本年 `select:yYYYY`；`continuous_ledger` 依赖六个 `refit:*`，不是 selection run；下一年 `panel` / `matrix` 不依赖上一年 `select`。
 3. `scheduler_lock` 明确使用 GCS generation-guarded lease lock；`state_model` 明确 GCS state JSON 必须 generation-conditioned update，不允许 blind overwrite。
-4. `stage_tokens` 显示 candidate `2 CPU / 8Gi`、prepare `8 CPU / 32Gi`、select/backtest `4 CPU / 16Gi`，且 `simulation.peak_resource_usage` 不超过全局 `20 / 40 CPU / 160Gi`。
+4. `stage_tokens` 显示 candidate `2 CPU / 8Gi`、prepare `8 CPU / 32Gi`、select/refit/backtest `4 CPU / 16Gi`（refit 复用现有 train job 资源），且 `simulation.peak_resource_usage` 不超过全局 `20 / 40 CPU / 160Gi`。
 5. `simulation.simulation_model=synchronous_waves` 表示 dry-run 每个 wave 原子完成后再排下一轮；该峰值是 DAG/resource admission 参考值，不是 live overlap 容量上限。Phase 2 真实执行必须按 Cloud Run execution 粒度统计 fanout，因为 retry / 尾部 batch 可能让同一年拆成多个 execution。
 
 sklearn native search dry-run：

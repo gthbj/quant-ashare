@@ -32,7 +32,13 @@ from scripts.strategy1_cloudrun.orchestrate_sklearn_native_search import (
     patch_native_acceptance,
     run_topk_candidate,
 )
-from scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection import command_plan as annual_command_plan
+from scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection import (
+    build_year_experiment,
+    command_plan as annual_command_plan,
+    continuous_backtest_id_for,
+    parse_iso_date,
+    year_plan,
+)
 from scripts.strategy1_cloudrun.state import LockConfig, OrchestratorStatusTable, status_table_ref
 from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_LOT100
 from quant_ashare.strategy1.train_predict import CandidateResult, write_registry
@@ -304,6 +310,10 @@ def test_annual_rolling_command_plan_uses_package_entrypoints() -> None:
         "cloudrun_train_candidate_fanout",
         "cloudrun_select_register_predict",
     ]
+    assert [step["step_id"] for step in plan[-2:]] == [
+        "cloudrun_refit_register_predict",
+        "cloudrun_backtest_report",
+    ]
     assert plan[0]["sql_step"] == "build_training_panel_risk_feature"
     assert plan[0]["params"]["p_run_id"] == "unit_run"
     assert plan[0]["params"]["p_feature_set_id"] == _experiment().feature_set_id
@@ -324,11 +334,72 @@ def test_annual_rolling_command_plan_uses_package_entrypoints() -> None:
     assert "quant_ashare.strategy1.prepare_matrix" in joined
     assert "quant_ashare.strategy1.train_candidate_task" in joined
     assert "quant_ashare.strategy1.select_register_predict" in joined
+    assert "quant_ashare.strategy1.refit_register_predict" in joined
     assert "quant_ashare.strategy1.backtest_report" in joined
     assert "scripts.strategy1_cloudrun.prepare_matrix" not in joined
     assert "scripts.strategy1_cloudrun.train_candidate_task" not in joined
     assert "scripts.strategy1_cloudrun.select_register_predict" not in joined
+    assert "scripts.strategy1_cloudrun.refit_register_predict" not in joined
     assert "scripts.strategy1_cloudrun.backtest_report" not in joined
+    assert "--source-run-id=unit_run" in joined
+    assert "--source-panel-run-id=unit_run" in joined
+    assert "--run-id=unit_run__refit01" in joined
+    assert "--prediction-run-id=unit_run__refit01" in joined
+    assert "--backtest-id=unit_bt__refit01" in joined
+    assert "--skip-diagnosis" in joined
+    assert "--skip-tail-risk" in joined
+    assert "--skip-qa" in joined
+
+
+def test_annual_year_plan_continuous_contract_uses_refit_run_id() -> None:
+    args = argparse.Namespace(
+        as_of_date="2026-06-09",
+        target_holdings=20,
+        max_single_weight=0.075,
+        rebalance_frequency="biweekly",
+        feature_set_id="strategy1_pv_fin_risk_v0_20260606",
+        feature_version="strategy1_pv_v0_20260601",
+        fin_feature_version="fin_default_v0_20260602",
+        market_state_version="market_state_v0_20260606",
+        tail_risk_profile_id="diagnostic_only",
+        config="configs/strategy1/annual_rolling_lgbm_regression_v0.yml",
+        manifest="configs/strategy1/annual_rolling_lgbm_regression_v0.yml",
+        force_replace=False,
+        skip_gcs_upload=False,
+        candidate_parallelism=0,
+        skip_diagnosis=False,
+        skip_qa=False,
+        include_yearly_backtest_commands=True,
+    )
+    exp = build_year_experiment(
+        backtest_year=2026,
+        args=args,
+        version="v20260611_test",
+        as_of=parse_iso_date(args.as_of_date),
+        continuous_anchor_start="2021-01-04",
+    )
+    plan = year_plan(
+        config=RunnerConfig(
+            output_dataset_role="research",
+            training_panel_step="build_training_panel_risk_feature",
+        ),
+        exp=exp,
+        args=args,
+        continuous_backtest_id=continuous_backtest_id_for(
+            start_year=2021,
+            end_year=2026,
+            target_holdings=args.target_holdings,
+            max_single_weight=args.max_single_weight,
+            version="v20260611_test",
+        ),
+    )
+
+    assert plan["final_refit"]["run_id"].endswith("__refit01")
+    assert plan["final_refit"]["source_run_id"] == exp.run_id
+    assert plan["final_refit"]["source_panel_run_id"] == exp.run_id
+    assert plan["final_refit"]["train_start"] == "2021-01-04"
+    assert plan["final_refit"]["train_end"] == "2025-12-24"
+    assert plan["single_year_backtest"]["backtest_id"].endswith("__refit01")
 
 
 def test_native_search_qa_params_cover_catalog_required_params() -> None:

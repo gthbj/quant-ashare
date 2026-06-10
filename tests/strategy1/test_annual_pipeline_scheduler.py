@@ -100,13 +100,21 @@ def test_scheduler_plan_select_depends_on_all_candidates_and_cross_year_is_indep
     assert plan["entrypoint"] == "annual_pipeline_scheduler"
     assert plan["stage_tokens"]["prepare_matrix"] == {"cpu": 8, "memory_gib": 32, "candidate_slots": 0}
     assert plan["stage_tokens"]["select"] == {"cpu": 4, "memory_gib": 16, "candidate_slots": 0}
+    assert plan["stage_tokens"]["refit"] == {"cpu": 4, "memory_gib": 16, "candidate_slots": 0}
     assert plan["stage_tokens"]["diagnostic_backtest"] == {"cpu": 4, "memory_gib": 16, "candidate_slots": 0}
 
     select_2021 = tasks["select:y2021"]
     assert set(select_2021["dependencies"]) == {f"candidate:y2021:u{idx:03d}" for idx in range(11)}
+    assert tasks["refit:y2021"]["dependencies"] == ["select:y2021"]
+    assert "quant_ashare.strategy1.refit_register_predict" in " ".join(tasks["refit:y2021"]["command"])
+    assert tasks["diagnostic_backtest:y2021"]["dependencies"] == ["refit:y2021"]
     assert "select:y2021" not in tasks["panel:y2022"]["dependencies"]
     assert tasks["matrix:y2022"]["dependencies"] == ["panel:y2022"]
-    assert tasks["continuous_ledger"]["dependencies"] == ["select:y2021", "select:y2022"]
+    assert tasks["continuous_ledger"]["dependencies"] == ["refit:y2021", "refit:y2022"]
+    assert plan["continuous_ledger"]["prediction_run_ids"] == [
+        "s1_annual_roll_y2021_train2015_2019_valid2020_n20_w075_v20260611_test__refit01",
+        "s1_annual_roll_y2022_train2016_2020_valid2021_n20_w075_v20260611_test__refit01",
+    ]
 
 
 def test_scheduler_requires_lock_ownership_before_ready_tasks() -> None:

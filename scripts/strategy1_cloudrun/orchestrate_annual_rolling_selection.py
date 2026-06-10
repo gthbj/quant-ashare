@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import dataclasses
 import json
 import sys
 from datetime import date, datetime, timedelta
@@ -133,12 +134,12 @@ def main() -> int:
         "rebalance_frequency": args.rebalance_frequency,
         "continuous_ledger": {
             "backtest_id": continuous_backtest_id,
-            "prediction_run_ids": [exp.prediction_run_id for exp in experiments],
+            "prediction_run_ids": [final_refit_experiment(exp).prediction_run_id for exp in experiments],
             "prediction_merge_required": True,
             "fresh_segment_stitching_allowed": False,
             "resume_segment_allowed_if_qa_passed": True,
             "selected_candidate_id": None,
-            "selected_candidate_source": "yearly select_register_predict outputs",
+            "selected_candidate_source": "yearly final refit outputs",
         },
         "years": [
             year_plan(
@@ -317,11 +318,14 @@ def build_year_experiment(
 def year_plan(*, config, exp: Experiment, args: argparse.Namespace, continuous_backtest_id: str) -> dict[str, Any]:
     matrix_id = default_matrix_id(config, exp)
     matrix_uri = matrix_artifact_uri(config, exp, matrix_id)
+    refit_exp = final_refit_experiment(exp)
     selection_commands = command_plan(config=config, exp=exp, args=args, include_backtest=args.include_yearly_backtest_commands)
     return {
         "backtest_year": int(exp.raw["backtest_year"]),
         "experiment": exp.to_params(),
         "experiment_json": experiment_to_b64(exp),
+        "refit_experiment": refit_exp.to_params(),
+        "refit_experiment_json": experiment_to_b64(refit_exp),
         "matrix_id": matrix_id,
         "matrix_uri": matrix_uri,
         "selected_candidate_id": None,
@@ -332,13 +336,21 @@ def year_plan(*, config, exp: Experiment, args: argparse.Namespace, continuous_b
             if key.startswith("nominal_") or key.startswith("actual_")
         },
         "final_refit": {
+            "experiment_id": refit_exp.experiment_id,
+            "run_id": refit_exp.run_id,
+            "prediction_run_id": refit_exp.prediction_run_id,
+            "backtest_id": refit_exp.backtest_id,
+            "source_run_id": exp.run_id,
+            "source_panel_run_id": exp.run_id,
             "train_start": exp.raw["final_refit_train_start"],
             "train_end": exp.raw["final_refit_train_end"],
+            "predict_start": refit_exp.predict_start,
+            "predict_end": refit_exp.predict_end,
             "selected_candidate_required": True,
-            "status": "planned_after_candidate_selection",
+            "status": "executable_after_candidate_selection",
         },
         "single_year_backtest": {
-            "backtest_id": exp.backtest_id,
+            "backtest_id": refit_exp.backtest_id,
             "diagnostic_only": True,
             "official_continuous_backtest_id": continuous_backtest_id,
         },
@@ -366,19 +378,53 @@ def command_plan(*, config, exp: Experiment, args: argparse.Namespace, include_b
         candidate_parallelism=args.candidate_parallelism,
         candidate_parallelism_from_cli=args.candidate_parallelism not in (None, 0),
     )
+    refit_exp = final_refit_experiment(exp)
     steps = [training_panel_step(config, exp, args)]
     steps.extend(build_task_fanout_steps(config, exp, task_args, common_flags))
+    refit_flags = [
+        f"--project={config.project}",
+        f"--region={config.region}",
+        f"--config={args.config}",
+        f"--manifest={args.manifest}",
+        *output_dataset_role_cli_args(config.output_dataset_role, equals=True),
+        f"--experiment-json={experiment_to_b64(refit_exp)}",
+        f"--source-run-id={exp.run_id}",
+        f"--source-panel-run-id={exp.run_id}",
+        f"--refit-train-start={refit_exp.train_start}",
+        f"--refit-train-end={refit_exp.train_end}",
+    ]
+    if args.force_replace:
+        refit_flags.append("--force-replace")
+    if args.skip_gcs_upload:
+        refit_flags.append("--skip-gcs-upload")
+    steps.append(SimpleNamespace(
+        step_id="cloudrun_refit_register_predict",
+        display_name="Cloud Run final refit/register/predict",
+        job_name=config.train_predict_job,
+        command=gcloud_execute_command(
+            config.project,
+            config.region,
+            config.train_predict_job,
+            "quant_ashare.strategy1.refit_register_predict",
+            refit_flags,
+        ),
+    ))
     if include_backtest:
         backtest_flags = [
-            *common_flags,
-            f"--run-id={exp.run_id}",
-            f"--prediction-run-id={exp.prediction_run_id}",
-            f"--backtest-id={exp.backtest_id}",
+            f"--project={config.project}",
+            f"--region={config.region}",
+            f"--config={args.config}",
+            f"--manifest={args.manifest}",
+            *output_dataset_role_cli_args(config.output_dataset_role, equals=True),
+            f"--experiment-id={refit_exp.experiment_id}",
+            f"--experiment-json={experiment_to_b64(refit_exp)}",
+            f"--run-id={refit_exp.run_id}",
+            f"--prediction-run-id={refit_exp.prediction_run_id}",
+            f"--backtest-id={refit_exp.backtest_id}",
+            "--skip-diagnosis",
+            "--skip-tail-risk",
+            "--skip-qa",
         ]
-        if args.skip_diagnosis:
-            backtest_flags.append("--skip-diagnosis")
-        if args.skip_qa:
-            backtest_flags.append("--skip-qa")
         steps.append(SimpleNamespace(
             step_id="cloudrun_backtest_report",
             display_name="Cloud Run yearly diagnostic backtest/report",
@@ -401,6 +447,49 @@ def command_plan(*, config, exp: Experiment, args: argparse.Namespace, include_b
         }
         for step in steps
     ]
+
+
+def final_refit_run_id(exp: Experiment) -> str:
+    return f"{exp.run_id}__refit01"
+
+
+def final_refit_backtest_id(exp: Experiment) -> str | None:
+    if not exp.backtest_id:
+        return None
+    return f"{exp.backtest_id}__refit01"
+
+
+def final_refit_experiment(exp: Experiment) -> Experiment:
+    refit_train_start = str(exp.raw.get("final_refit_train_start") or exp.train_start)
+    refit_train_end = str(exp.raw.get("final_refit_train_end") or exp.train_end)
+    raw = dict(exp.raw)
+    raw.update({
+        "source_run_id": exp.run_id,
+        "source_panel_run_id": exp.run_id,
+        "selection_run_id": exp.run_id,
+        "selection_experiment_id": exp.experiment_id,
+        "selection_backtest_id": exp.backtest_id,
+        "selection_prediction_run_id": exp.prediction_run_id,
+        "final_refit_train_start": refit_train_start,
+        "final_refit_train_end": refit_train_end,
+        "refit": True,
+    })
+    return dataclasses.replace(
+        exp,
+        experiment_id=f"{exp.experiment_id}__final_refit",
+        run_id=final_refit_run_id(exp),
+        backtest_id=final_refit_backtest_id(exp),
+        prediction_run_id=final_refit_run_id(exp),
+        parent_experiment_id=exp.experiment_id,
+        parent_run_id=exp.run_id,
+        requires_retrain=True,
+        status="planned",
+        train_start=refit_train_start,
+        train_end=refit_train_end,
+        valid_start=refit_train_start,
+        valid_end=refit_train_end,
+        raw=raw,
+    )
 
 
 def training_panel_step(config, exp: Experiment, args: argparse.Namespace) -> SimpleNamespace:

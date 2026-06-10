@@ -24,6 +24,7 @@ def test_strategy1_package_import_smoke_for_phase_e_boundaries() -> None:
         "quant_ashare.strategy1.pipeline_control",
         "quant_ashare.strategy1.prepare_matrix",
         "quant_ashare.strategy1.promotion",
+        "quant_ashare.strategy1.refit_register_predict",
         "quant_ashare.strategy1.reporting",
         "quant_ashare.strategy1.select_register_predict",
         "quant_ashare.strategy1.train_candidate_task",

@@ -971,6 +971,8 @@ def write_registry(
             "test_reuse_wave_no", "test_reuse_approval_ref", "final_holdout_status",
             "model_backend", "model_library", "model_library_version", "model_search_wave_no",
             "acceptance_contract_version", "cv_confirmation_status", "holdout_watch_flag",
+            "source_panel_run_id", "refit", "refit_train_start", "refit_train_end",
+            "preprocess_fit_start", "preprocess_fit_end",
         ):
             if candidate.metrics.get(key) is not None:
                 params_json[key] = candidate.metrics.get(key)
