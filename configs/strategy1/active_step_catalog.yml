@@ -1,0 +1,468 @@
+# Strategy 1 active path catalog.
+# 文档维护：GPT-5 Codex（最近更新 2026-06-10）
+version: strategy1_step_catalog_v1
+project: data-aquarium
+current_dataset_role: ads
+future_dataset_role: research
+
+dataset_roles:
+  ads:
+    project: data-aquarium
+    dataset: ashare_ads
+    lifecycle: current_mixed_ads
+  research:
+    project: data-aquarium
+    dataset: ashare_research
+    lifecycle: future_research_default
+
+table_roles:
+  training_panel:
+    ads_table: ads_ml_training_panel_daily
+    research_table: research_ml_training_panel_daily
+    partition_columns: [trade_date]
+  model_registry:
+    ads_table: ads_model_registry
+    research_table: research_model_registry
+    partition_columns: [created_date]
+  model_prediction_daily:
+    ads_table: ads_model_prediction_daily
+    research_table: research_model_prediction_daily
+    partition_columns: [trade_date]
+  stock_candidate_daily:
+    ads_table: ads_stock_candidate_daily
+    research_table: research_stock_candidate_daily
+    partition_columns: [rebalance_date]
+  portfolio_target_daily:
+    ads_table: ads_portfolio_target_daily
+    research_table: research_portfolio_target_daily
+    partition_columns: [rebalance_date]
+  order_plan_daily:
+    ads_table: ads_order_plan_daily
+    research_table: research_order_plan_daily
+    partition_columns: [trade_date]
+  backtest_trade_daily:
+    ads_table: ads_backtest_trade_daily
+    research_table: research_backtest_trade_daily
+    partition_columns: [trade_date]
+  backtest_position_daily:
+    ads_table: ads_backtest_position_daily
+    research_table: research_backtest_position_daily
+    partition_columns: [trade_date]
+  backtest_nav_daily:
+    ads_table: ads_backtest_nav_daily
+    research_table: research_backtest_nav_daily
+    partition_columns: [trade_date]
+  backtest_summary:
+    ads_table: ads_backtest_performance_summary
+    research_table: research_backtest_performance_summary
+    partition_columns: [created_date]
+  backtest_ledger_state_daily:
+    ads_table: ads_backtest_ledger_state_daily
+    research_table: research_backtest_ledger_state_daily
+    partition_columns: [trade_date]
+  signal_monitor_daily:
+    ads_table: ads_signal_monitor_daily
+    research_table: research_signal_monitor_daily
+    partition_columns: [trade_date]
+  acceptance_result:
+    ads_table: ads_model_registry
+    research_table: research_acceptance_result
+    partition_columns: [created_date]
+  experiment_run_status:
+    ads_table: strategy1_experiment_run_status
+    research_table: research_experiment_run_status
+    partition_columns: [updated_date]
+
+steps:
+  build_training_panel_base:
+    stable_name: build_training_panel_base
+    status: active
+    execution_mode: cloudrun_optional_prebuild
+    current_path: sql/ml/strategy1/01_build_training_panel.sql
+    target_path: sql/strategy1/panel/build_training_panel_base.sql
+    sql_path: sql/strategy1/panel/build_training_panel_base.sql
+    caller: [scripts.strategy1_cloudrun.orchestrate_sklearn_native_search]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_strategy_id, p_experiment_id, p_experiment_group, p_baseline_experiment_id, p_parent_experiment_id, p_parent_run_id, p_preprocess_version, p_feature_version, p_feature_set_id, p_fin_feature_version, p_label_version, p_label_horizon, p_rebalance_frequency, p_target_holdings, p_max_single_weight, p_horizon_natural_frequency, p_train_start, p_train_end, p_valid_start, p_valid_end, p_test_start, p_test_end, p_final_holdout_start, p_final_holdout_end, p_force_replace]
+    internal_params: [p_panel_end]
+    optional_params: {}
+    inputs: [stock_universe_daily, stock_feature_daily, stock_feature_fin_daily, stock_label_daily]
+    outputs: [training_panel]
+    partition_columns: [trade_date]
+
+  build_training_panel_risk_feature:
+    stable_name: build_training_panel_risk_feature
+    status: active
+    execution_mode: cloudrun_optional_prebuild
+    current_path: sql/cloudrun/strategy1/01_build_training_panel.sql
+    target_path: sql/strategy1/panel/build_training_panel_risk_feature.sql
+    sql_path: sql/strategy1/panel/build_training_panel_risk_feature.sql
+    caller: [scripts.strategy1_cloudrun.orchestrate_sklearn_native_search]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_strategy_id, p_experiment_id, p_experiment_group, p_baseline_experiment_id, p_parent_experiment_id, p_parent_run_id, p_preprocess_version, p_feature_version, p_feature_set_id, p_fin_feature_version, p_market_state_version, p_market_state_ffill_max_trade_days, p_label_version, p_label_horizon, p_rebalance_frequency, p_target_holdings, p_max_single_weight, p_horizon_natural_frequency, p_train_start, p_train_end, p_valid_start, p_valid_end, p_test_start, p_test_end, p_final_holdout_start, p_final_holdout_end, p_force_replace]
+    internal_params: [p_panel_end, p_fin_enabled, p_risk_enabled]
+    optional_params: {}
+    inputs: [stock_universe_daily, stock_feature_daily, stock_feature_fin_daily, market_state_daily, stock_label_daily]
+    outputs: [training_panel]
+    partition_columns: [trade_date]
+
+  build_candidates:
+    stable_name: build_candidates
+    status: active
+    execution_mode: cloudrun_backtest_report
+    current_path: sql/ml/strategy1/05_build_candidates.sql
+    target_path: sql/strategy1/execution/build_candidates.sql
+    sql_path: sql/strategy1/execution/build_candidates.sql
+    caller: [scripts.strategy1_cloudrun.backtest_report]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_label_horizon, p_rebalance_frequency, p_rebalance_anchor_start, p_predict_start, p_predict_end, p_feature_version, p_tail_risk_profile_id, p_tail_risk_ret_20d_min, p_tail_risk_drawdown_20d_min, p_tail_risk_limit_down_days_20d_min, p_tail_risk_one_word_limit_days_20d_min, p_tail_risk_total_mv_min_cny, p_tail_risk_circ_mv_min_cny, p_target_holdings, p_force_replace]
+    internal_params: [p_selected_model_id]
+    optional_params: {}
+    inputs: [model_registry, model_prediction_daily]
+    outputs: [stock_candidate_daily]
+    partition_columns: [rebalance_date]
+
+  build_portfolio_targets:
+    stable_name: build_portfolio_targets
+    status: active
+    execution_mode: cloudrun_backtest_report
+    current_path: sql/ml/strategy1/06_build_portfolio_targets.sql
+    target_path: sql/strategy1/execution/build_portfolio_targets.sql
+    sql_path: sql/strategy1/execution/build_portfolio_targets.sql
+    caller: [scripts.strategy1_cloudrun.backtest_report]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_strategy_id, p_label_horizon, p_predict_start, p_predict_end, p_target_holdings, p_max_single_weight, p_initial_capital, p_force_replace]
+    internal_params: []
+    optional_params: {}
+    inputs: [stock_candidate_daily]
+    outputs: [portfolio_target_daily]
+    partition_columns: [rebalance_date]
+
+  build_order_plan:
+    stable_name: build_order_plan
+    status: active
+    execution_mode: cloudrun_backtest_report
+    current_path: sql/ml/strategy1/07_build_order_plan.sql
+    target_path: sql/strategy1/execution/build_order_plan.sql
+    sql_path: sql/strategy1/execution/build_order_plan.sql
+    caller: [scripts.strategy1_cloudrun.backtest_report]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_strategy_id, p_predict_start, p_predict_end, p_initial_capital, p_force_replace]
+    internal_params: []
+    optional_params: {}
+    inputs: [portfolio_target_daily]
+    outputs: [order_plan_daily]
+    partition_columns: [trade_date]
+
+  build_metrics_and_report_inputs:
+    stable_name: build_metrics_and_report_inputs
+    status: active
+    execution_mode: cloudrun_backtest_report
+    current_path: sql/ml/strategy1/09_build_metrics_and_report_inputs.sql
+    target_path: sql/strategy1/reporting/build_metrics_and_report_inputs.sql
+    sql_path: sql/strategy1/reporting/build_metrics_and_report_inputs.sql
+    caller: [scripts.strategy1_cloudrun.backtest_report]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_experiment_id, p_experiment_group, p_baseline_experiment_id, p_parent_experiment_id, p_parent_run_id, p_rebalance_frequency, p_rebalance_anchor_start, p_target_holdings, p_max_single_weight, p_label_horizon, p_horizon_natural_frequency, p_feature_set_id, p_tail_risk_profile_id, p_market_state_version, p_execution_backend, p_ledger_version, p_ledger_executor, p_lot_size, p_min_buy_lot, p_predict_start, p_predict_end, p_initial_capital, p_cost_profile_id, p_commission_bps, p_min_commission_cny, p_stamp_tax_buy_bps, p_stamp_tax_sell_bps, p_slippage_buy_bps, p_slippage_sell_bps, p_cost_bps, p_benchmark, p_initial_state_mode, p_parent_backtest_id, p_state_as_of_date, p_resume_policy_id, p_force_replace]
+    internal_params: [p_calendar_end, p_selected_model_id]
+    optional_params: {}
+    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily]
+    outputs: [backtest_summary, signal_monitor_daily]
+    partition_columns: [trade_date]
+
+  qa_runner_outputs:
+    stable_name: qa_runner_outputs
+    status: active
+    execution_mode: cloudrun_backtest_report
+    current_path: sql/ml/strategy1/10_qa_runner_outputs.sql
+    target_path: sql/strategy1/qa/qa_runner_outputs.sql
+    sql_path: sql/strategy1/qa/qa_runner_outputs.sql
+    caller: [scripts.strategy1_cloudrun.backtest_report]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_experiment_id, p_rebalance_frequency, p_target_holdings, p_label_horizon, p_train_start, p_train_end, p_valid_start, p_valid_end, p_test_start, p_test_end, p_final_holdout_start, p_final_holdout_end, p_predict_start, p_predict_end, p_rebalance_anchor_start, p_max_single_weight, p_tail_risk_profile_id, p_market_state_version, p_ledger_version, p_lot_size, p_min_buy_lot, p_initial_state_mode, p_parent_backtest_id, p_state_as_of_date, p_resume_policy_id]
+    internal_params: [p_calendar_end]
+    optional_params: {}
+    inputs: [training_panel, model_registry, model_prediction_daily, stock_candidate_daily, portfolio_target_daily, order_plan_daily, backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary]
+    outputs: []
+    partition_columns: []
+
+  qa_model_diagnosis_outputs:
+    stable_name: qa_model_diagnosis_outputs
+    status: active
+    execution_mode: cloudrun_backtest_report
+    current_path: sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql
+    target_path: sql/strategy1/qa/qa_model_diagnosis_outputs.sql
+    sql_path: sql/strategy1/qa/qa_model_diagnosis_outputs.sql
+    caller: [scripts.strategy1_cloudrun.backtest_report]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_train_start, p_train_end, p_valid_start, p_valid_end, p_test_start, p_test_end, p_label_horizon]
+    internal_params: []
+    optional_params: {}
+    inputs: [backtest_summary]
+    outputs: []
+    partition_columns: []
+
+  qa_tail_risk_outputs:
+    stable_name: qa_tail_risk_outputs
+    status: active
+    execution_mode: cloudrun_backtest_report
+    current_path: sql/ml/strategy1/20_qa_tail_risk_outputs.sql
+    target_path: sql/strategy1/qa/qa_tail_risk_outputs.sql
+    sql_path: sql/strategy1/qa/qa_tail_risk_outputs.sql
+    caller: [scripts.strategy1_cloudrun.backtest_report]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_predict_start, p_predict_end, p_tail_risk_profile_id, p_market_state_version, p_expected_summary_hash, p_expected_nav_hash]
+    internal_params: []
+    optional_params: {}
+    inputs: [stock_candidate_daily, backtest_summary, backtest_nav_daily]
+    outputs: []
+    partition_columns: []
+
+  qa_lot_aware_ledger_outputs:
+    stable_name: qa_lot_aware_ledger_outputs
+    status: active
+    execution_mode: cloudrun_backtest_report
+    current_path: sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql
+    target_path: sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql
+    sql_path: sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql
+    caller: [scripts.strategy1_cloudrun.backtest_report]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_backtest_id, p_run_id, p_predict_start, p_predict_end, p_ledger_version, p_lot_size, p_min_buy_lot, p_min_buy_shares, p_resume_policy_id]
+    internal_params: []
+    optional_params: {}
+    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary]
+    outputs: []
+    partition_columns: []
+
+  qa_sklearn_native_search_outputs:
+    stable_name: qa_sklearn_native_search_outputs
+    status: active
+    execution_mode: cloudrun_search_orchestrator
+    current_path: sql/ml/strategy1/18_qa_sklearn_native_search_outputs.sql
+    target_path: sql/strategy1/qa/qa_sklearn_native_search_outputs.sql
+    sql_path: sql/strategy1/qa/qa_sklearn_native_search_outputs.sql
+    caller: [scripts.strategy1_cloudrun.orchestrate_sklearn_native_search]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_search_id, p_source_run_id, p_strategy_id, p_expected_candidate_count, p_top_k, p_test_reuse_wave_no, p_acceptance_contract_version, p_min_test_rank_ic, p_min_test_year_excess_return_vs_000852, p_min_sharpe, p_min_max_drawdown, p_required_valid_signal_status, p_final_holdout_required_after_wave, p_final_holdout_passed_status]
+    internal_params: []
+    optional_params: {}
+    inputs: [model_registry, backtest_summary]
+    outputs: []
+    partition_columns: []
+
+  qa_cloudrun_python_baseline_search_outputs:
+    stable_name: qa_cloudrun_python_baseline_search_outputs
+    status: active
+    execution_mode: cloudrun_search_orchestrator
+    current_path: sql/ml/strategy1/19_qa_cloudrun_python_baseline_search_outputs.sql
+    target_path: sql/strategy1/qa/qa_cloudrun_python_baseline_search_outputs.sql
+    sql_path: sql/strategy1/qa/qa_cloudrun_python_baseline_search_outputs.sql
+    caller: [scripts.strategy1_cloudrun.orchestrate_sklearn_native_search]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_search_id, p_source_run_id, p_strategy_id, p_expected_candidate_count, p_expected_candidate_parallelism, p_expected_candidate_task_cpu, p_expected_candidate_task_memory, p_expected_model_family, p_expected_model_search_wave_no, p_top_k, p_test_reuse_wave_no, p_acceptance_gate_version, p_acceptance_contract_version, p_acceptance_contract_sha256, p_primary_benchmark_sec_code, p_valid_start_date, p_valid_end_date, p_test_start_date, p_test_end_date, p_final_holdout_start_date, p_final_holdout_end_date, p_data_end_date, p_min_valid_rank_ic, p_min_valid_top_minus_bottom_fwd_ret, p_min_test_rank_ic, p_min_test_top_minus_bottom_fwd_ret, p_min_test_year_excess_return_vs_000852, p_min_overall_excess_return_vs_000852, p_min_total_return, p_min_sharpe, p_min_calmar_ratio, p_min_max_drawdown, p_min_final_holdout_excess_return_vs_000852, p_min_final_holdout_total_return, p_min_final_holdout_trading_days, p_required_valid_signal_status, p_required_cv_confirmation_status, p_final_holdout_required_after_wave, p_final_holdout_passed_status]
+    internal_params: []
+    optional_params: {}
+    inputs: [model_registry, backtest_summary]
+    outputs: []
+    partition_columns: []
+
+  qa_risk_feature_search_outputs:
+    stable_name: qa_risk_feature_search_outputs
+    status: active
+    execution_mode: cloudrun_search_orchestrator
+    current_path: sql/ml/strategy1/21_qa_risk_feature_search_outputs.sql
+    target_path: sql/strategy1/qa/qa_risk_feature_search_outputs.sql
+    sql_path: sql/strategy1/qa/qa_risk_feature_search_outputs.sql
+    caller: [scripts.strategy1_cloudrun.orchestrate_sklearn_native_search]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_search_id, p_source_run_id, p_strategy_id, p_expected_feature_set_id, p_expected_model_search_wave_no, p_top_k, p_test_reuse_wave_no, p_acceptance_contract_version, p_test_reuse_approval_ref, p_market_state_version, p_train_start_date, p_data_end_date, p_final_holdout_start_date, p_final_holdout_end_date, p_risk_feature_max_drawdown_target]
+    internal_params: []
+    optional_params: {}
+    inputs: [training_panel, model_registry, backtest_summary]
+    outputs: []
+    partition_columns: []
+
+  qa_acceptance_gate_v3_replay_outputs:
+    stable_name: qa_acceptance_gate_v3_replay_outputs
+    status: active
+    execution_mode: helper_rendered_manual_qa
+    current_path: sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql
+    target_path: sql/strategy1/acceptance/qa_acceptance_gate_v3_replay_outputs.sql
+    sql_path: sql/strategy1/acceptance/qa_acceptance_gate_v3_replay_outputs.sql
+    caller: [scripts.strategy1.run_acceptance_gate_v3_replay_qa]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_acceptance_gate_version, p_acceptance_contract_version, p_acceptance_contract_sha256, p_strategy_id, p_search_ids_json, p_top_k_per_search, p_primary_benchmark_sec_code, p_comparison_benchmark_sec_codes_json, p_final_holdout_enforcement, p_legacy_valid_as_cv_search_ids_json, p_full_start_date, p_full_end_date, p_valid_start_date, p_valid_end_date, p_test_start_date, p_test_end_date, p_final_holdout_start_date, p_final_holdout_end_date, p_min_valid_rank_ic, p_min_valid_top_minus_bottom_fwd_ret, p_min_test_rank_ic, p_min_test_top_minus_bottom_fwd_ret, p_min_sharpe, p_min_calmar_ratio, p_min_final_holdout_trading_days, p_allowed_score_orientations_json]
+    internal_params: [p_search_ids, p_comparison_benchmark_sec_codes, p_legacy_valid_as_cv_search_ids, p_allowed_score_orientations]
+    optional_params: {}
+    inputs: [model_registry, backtest_summary, backtest_nav_daily]
+    outputs: []
+    partition_columns: []
+
+  qa_cloudrun_runner_outputs:
+    stable_name: qa_cloudrun_runner_outputs
+    status: active
+    execution_mode: manual_smoke_qa
+    current_path: sql/ml/strategy1/16_qa_cloudrun_runner_outputs.sql
+    target_path: sql/strategy1/qa/qa_cloudrun_runner_outputs.sql
+    sql_path: sql/strategy1/qa/qa_cloudrun_runner_outputs.sql
+    caller: [manual_runbook]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_predict_start, p_predict_end, p_expected_execution_backend, p_expected_ledger_version, p_expected_ledger_executor, p_expected_executable_experiment_count, p_resolved_max_parallel_experiments, p_require_model_quality_parity_passed, p_require_task_fanout, p_candidate_task_bq_audit_window_days, p_candidate_task_max_bq_bytes, p_prediction_run_id_label]
+    internal_params: []
+    optional_params: {}
+    inputs: [model_registry, backtest_summary]
+    outputs: []
+    partition_columns: []
+
+  qa_cloudrun_orchestrator_status:
+    stable_name: qa_cloudrun_orchestrator_status
+    status: active
+    execution_mode: manual_smoke_qa
+    current_path: sql/ml/strategy1/17_qa_cloudrun_orchestrator_status.sql
+    target_path: sql/strategy1/qa/qa_cloudrun_orchestrator_status.sql
+    sql_path: sql/strategy1/qa/qa_cloudrun_orchestrator_status.sql
+    caller: [manual_runbook]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_experiment_id, p_run_id, p_backtest_id, p_require_train_step, p_require_backtest_step, p_require_task_fanout, p_expected_execution_backend]
+    internal_params: []
+    optional_params: {}
+    inputs: [experiment_run_status]
+    outputs: []
+    partition_columns: []
+
+  model_quality_diagnostics:
+    stable_name: model_quality_diagnostics
+    status: audit_only
+    execution_mode: manual_diagnostic_sql
+    current_path: sql/ml/strategy1/11_model_quality_diagnostics.sql
+    target_path: sql/strategy1/diagnostics/model_quality_diagnostics.sql
+    sql_path: sql/strategy1/diagnostics/model_quality_diagnostics.sql
+    caller: [manual_runbook]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_valid_start, p_valid_end, p_test_start, p_test_end, p_target_holdings, p_label_horizon]
+    internal_params: []
+    optional_params: {}
+    inputs: [training_panel, model_prediction_daily, backtest_summary]
+    outputs: []
+    partition_columns: []
+
+  qa_factor_attribution_outputs:
+    stable_name: qa_factor_attribution_outputs
+    status: audit_only
+    execution_mode: manual_qa
+    current_path: sql/ml/strategy1/14_qa_factor_attribution_outputs.sql
+    target_path: sql/strategy1/qa/qa_factor_attribution_outputs.sql
+    sql_path: sql/strategy1/qa/qa_factor_attribution_outputs.sql
+    caller: [manual_runbook]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id]
+    internal_params: [p_selected_model_path]
+    optional_params: {}
+    inputs: [model_registry, backtest_summary]
+    outputs: []
+    partition_columns: []
+
+  qa_ledger_resume_consistency:
+    stable_name: qa_ledger_resume_consistency
+    status: audit_only
+    execution_mode: manual_qa
+    current_path: sql/ml/strategy1/15_qa_ledger_resume_consistency.sql
+    target_path: sql/strategy1/qa/qa_ledger_resume_consistency.sql
+    sql_path: sql/strategy1/qa/qa_ledger_resume_consistency.sql
+    caller: [manual_runbook]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_cash_tolerance_cny, p_value_tolerance_cny, p_share_tolerance]
+    internal_params: []
+    optional_params: {}
+    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily]
+    outputs: []
+    partition_columns: []
+
+  qa_acceptance_gate_v2_outputs:
+    stable_name: qa_acceptance_gate_v2_outputs
+    status: audit_only
+    execution_mode: manual_qa
+    current_path: sql/ml/strategy1/22_qa_acceptance_gate_v2_outputs.sql
+    target_path: sql/strategy1/acceptance/qa_acceptance_gate_v2_outputs.sql
+    sql_path: sql/strategy1/acceptance/qa_acceptance_gate_v2_outputs.sql
+    caller: [manual_runbook]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_acceptance_gate_version, p_acceptance_contract_version, p_acceptance_contract_sha256, p_strategy_id, p_required_ledger_version, p_reference_run_id, p_reference_backtest_id, p_prediction_run_id, p_full_start_date, p_full_end_date, p_valid_start_date, p_valid_end_date, p_test_start_date, p_test_end_date, p_label_version, p_expected_target_holdings, p_forbidden_target_holdings, p_hard_reject_full_period_excess_return_vs_000852, p_needs_more_evidence_full_period_excess_lower_open, p_needs_more_evidence_full_period_excess_upper_closed]
+    internal_params: []
+    optional_params: {}
+    inputs: [model_registry, backtest_summary]
+    outputs: []
+    partition_columns: []
+
+  qa_cloudrun_ledger_resume_outputs:
+    stable_name: qa_cloudrun_ledger_resume_outputs
+    status: active
+    execution_mode: manual_resume_qa
+    current_path: sql/ml/strategy1/25_qa_cloudrun_ledger_resume_outputs.sql
+    target_path: sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql
+    sql_path: sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql
+    caller: [manual_runbook]
+    output_dataset_role_current: ads
+    output_dataset_role_target: research
+    required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_state_as_of_date, p_resume_policy_id, p_ledger_version]
+    internal_params: []
+    optional_params: {}
+    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily]
+    outputs: []
+    partition_columns: []
+
+retired_reference_lint:
+  banned_active_refs:
+    - sql/ml/strategy1/02_train_bqml_logistic_candidates.sql
+    - sql/ml/strategy1/03_select_model_and_register.sql
+    - sql/ml/strategy1/04_predict_daily.sql
+    - sql/ml/strategy1/08_run_backtest.sql
+    - --use-bq-ledger
+    - scripts/strategy1/run_oq010_experiments.py
+  active_scopes:
+    - scripts/**
+    - sql/**
+    - configs/**
+    - docs/runbooks/**
+    - orchestration/workflows/**
+    - docs/策略1CloudRun训练回测运行手册.md
+    - docs/策略1实验并发调度器运行手册.md
+    - docs/策略1报告GCS上传运行手册.md
+  historical_allowed_scopes:
+    - sql/ml/strategy1/README.md
+    - sql/cloudrun/strategy1/README.md
+    - docs/prd/**
+    - docs/retired/**
+    - .agent/memory/AGENT_HANDOFF.md
+    - .agent/memory/IMPLEMENTATION_STATUS.md
+    - .agent/memory/KNOWN_CONSTRAINTS.md
+    - .agent/memory/OPEN_QUESTIONS.md
+    - .agent/memory/PROJECT_CONTEXT.md
+    - .agent/memory/MEMORY_INDEX.md
+  required_marker_for_historical_refs: [retired, historical, audit, 已退役, 历史]
+
+allowed_legacy_names:
+  bqml_reference_run_id:
+    reason: historical reference and parity evidence
+    allowed_in: [configs/strategy1/**, scripts/strategy1_cloudrun/**]
+    removal_condition: parity/audit fields no longer consumed by report or QA

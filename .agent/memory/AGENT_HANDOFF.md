@@ -1,4 +1,14 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - PR #136 review follow-up 已处理：retired linter 在 Python 3.11/3.12 下递归扫描 active scope，不再空跑；显式 `dataset_role="research"` 当前阶段 fail-fast，不再静默降级 ADS。
+> - Owner 已确认 PR #136 可一次性合并项目结构重构 Phase A/A2/B/C；该豁免已记录为 `DECISION-20260610-07`，后续 Phase D/E 仍需单独 PR。
+> - 已删除 PASS 型 self-review 文档，`sql/strategy1/README.md` 已说明 `audit_only` SQL 同 namespace 但执行状态以 catalog 为准，`TODO.md` 已补 Dataform generated SQLX drift cleanup 项。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 分支 `codex/strategy1-structure-refactor` 已实现项目结构重构 PRD Phase A/B/C：active step catalog、retired linter、table role / dataset role resolver、`src/quant_ashare/**` package foundation、`sql/strategy1/**` active SQL 命名空间。
+> - 当前 table role 默认仍解析到 `ashare_ads`；显式 `dataset_role="research"` fail-fast，未创建或写入 `ashare_research`，也未迁移 Cloud Run entrypoint。
+> - 验证：pytest 24 passed、catalog validate、retired linter、active step render smoke、compileall、CLI dry-run/help 和 `git diff --check` 均通过；Dataform `--check` 仍因既有 generated SQLX stale/missing 失败，本分支无 `dataform/` diff。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 新增 `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`。
 > - PRD 定义年度 walk-forward 参数选择：上一整年 valid 选择参数，选中参数在最近 5 年 final refit，再回测下一年；2021-2026 结果必须用年度预测合并后的一条连续 ledger 评价。
 > - P0 固定 feature set、20 只、7.5% 单票上限、biweekly 和 `ledger_exec_v1_lot100`，只搜索 11 个冻结 LightGBM regression 可选候选；B26 binary 只作为 diagnostic-only reference。
@@ -80,6 +90,7 @@
 
 ## 当前交接摘要
 
+- 2026-06-10：项目结构重构 PRD Phase A/A2/B/C 已在 `codex/strategy1-structure-refactor` 实现并完成 PR #136 review follow-up：新增 Strategy1 active step catalog、retired linter、table-role/dataset-role resolver 与 `src/quant_ashare/**` 包基础，active/shared SQL 已迁到 `sql/strategy1/**`；旧 `sql/ml/strategy1/**`、`sql/cloudrun/strategy1/**` 只保留 historical/audit README。当前默认仍解析/写入 `ashare_ads`，显式 `dataset_role="research"` fail-fast，不创建 `ashare_research`，后续 Phase D/E 需单独 PR。Owner 已确认 PR #136 一次性合并 Phase A/A2/B/C 的豁免，记录为 `DECISION-20260610-07`。
 - 2026-06-10：新增 Strategy1 年度滚动选参 PRD `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`；P0 固定 11 个 LightGBM regression 可选候选、B26 binary diagnostic-only reference、20 只持仓、7.5% 单票上限、biweekly 和 `ledger_exec_v1_lot100`，每年用上一整年 valid 选参数，再用最近 5 年 final refit，最终用年度预测合并后的一条连续 ledger 评价 `2021-2026`。
 - 2026-06-10：新增项目结构重构总 PRD `docs/prd/PRD_20260610_02_项目结构重构方案.md`；owner 已确认采用 `ashare_research` / `research_*` / `accepted != promoted`、`sql/strategy1/**`、`src/quant_ashare/**`、短期保留 `scripts/strategy1_cloudrun/**` wrapper，且 P0 不强制创建 `docs/retired/`。实施顺序为先做 active path catalog、防误用护栏和 table role / dataset role resolver，再迁移 Strategy1 active shared SQL（同时覆盖 `sql/ml/strategy1/**` 与 `sql/cloudrun/strategy1/**`）到 `sql/strategy1/**`，随后抽 Strategy1 package foundation，最后再分段实现 `ashare_research` / `ashare_ads` 生命周期隔离和 deeper package split。
 - 2026-06-10：新增 Strategy1 回测复合年化收益 PRD，范围为 summary / report / v3 gate 的复利年化字段口径；本 PR 不改代码、不跑 BigQuery / Cloud Run。
@@ -96,6 +107,64 @@
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
 
+## 2026-06-10 GPT-5 Codex - 项目结构重构 Phase A-C 实现
+
+### 已完成工作
+
+- 新增 `configs/strategy1/active_step_catalog.yml`，记录 Strategy1 SQL stable step、旧路径、目标路径、调用方、参数契约、table role、当前 ADS role 与未来 research role。
+- 新增 `src/quant_ashare/strategy1/catalog.py`、`sql_render.py`、`table_roles.py`、`retired_lint.py` 和 `pyproject.toml`。
+- 将当前 active/shared Strategy1 SQL 从旧 `sql/ml/strategy1/**`、`sql/cloudrun/strategy1/**` 迁移到 `sql/strategy1/**`；旧目录只保留 historical/audit README。
+- `backtest_report.py`、`orchestrate_sklearn_native_search.py`、risk-feature manifest、v3 replay QA helper 和 SQL runbook 已切到 catalog step / 新命名空间。
+- 恢复 `ledger.py` 中被后置同名函数覆盖的 resume 参数校验，使现有 ledger resume 单测通过。
+- PR #136 review follow-up 已修复 retired linter 递归扫描、research role fail-fast、audit-only README 说明、Dataform drift TODO 和自查文档协议问题。
+
+### 重要上下文
+
+- 本轮只实现 PRD Phase A/B/C；未创建 `ashare_research` dataset，未默认 research-first，未迁移历史 ADS/GCS，未迁移 Cloud Run Job entrypoint。
+- 当前 `table_roles.resolve_table_role(..., dataset_role="research")` 会 fail-fast；默认不传 `dataset_role` 时仍返回 `data-aquarium.ashare_ads.*`。
+- Owner 已确认 PR #136 可一次性合并 Phase A/A2/B/C；后续 Phase D/E 仍按 PRD 单独拆分。
+- Dataform `--check` 失败是既有 generated SQLX stale/missing；本分支相对 `origin/main` 没有 `dataform/` diff。
+
+### 改动文件
+
+- `configs/strategy1/active_step_catalog.yml`
+- `src/quant_ashare/strategy1/**`
+- `sql/strategy1/**`
+- `scripts/strategy1_cloudrun/**` wrapper 相关文件
+- `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `docs/策略1报告GCS上传运行手册.md`
+- `sql/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src:. <venv>/bin/python -m pytest tests/strategy1 tests/strategy1_cloudrun tests/pipeline_control`：24 passed。
+- `PYTHONPATH=src /tmp/quant-ashare-structure-venv/bin/python -m quant_ashare.strategy1.retired_lint`：通过。
+- catalog validate、active step render smoke、compileall、`backtest_report --dry-run`、search orchestrator `--help`、v3 replay QA helper `--help`、`git diff --check` 均通过。
+- `scripts/dataform/generate_sqlx_from_sql.py --check`：失败，原因是既有 `dataform/definitions/**` generated SQLX stale/missing；本分支无 `dataform/` diff。
+
+### 阻塞项
+
+- 无实现阻塞；Dataform generated SQLX stale 需要单独 cleanup PR 或 owner 决策。
+
+### 下一步建议
+
+- 后续 Phase D/E 单独做 `ashare_research` table contract、optional research routing、default research-first、promotion job 和 deeper package split。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - Strategy1 年度滚动选参 PRD
 

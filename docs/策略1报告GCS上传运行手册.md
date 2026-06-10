@@ -39,7 +39,7 @@ reports/strategy1/ml_pv_clf_v0/run_id=<run_id>/backtest_id=<backtest_id>/
 
 ## 3. 前置条件
 
-1. `sql/ml/strategy1/01-09` 已跑完，并且指定 `run_id` / `backtest_id` 在 ADS 中有完整结果。
+1. `sql/strategy1/panel`、`sql/strategy1/execution` 和 `sql/strategy1/reporting` 中对应 step 已跑完，并且指定 `run_id` / `backtest_id` 在 ADS 中有完整结果。
 2. Python 依赖已安装：
 
 ```bash
@@ -171,7 +171,7 @@ WHERE backtest_id = "bt_s1_bqml_20260601_01"
 最后跑 runner QA：
 
 ```bash
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_runner_outputs.sql
 ```
 
 uploaded 模式的合格标准：
@@ -202,7 +202,7 @@ uploaded 模式的合格标准：
 
 ## 12. 执行清单
 
-- [ ] 确认 `sql/ml/strategy1/01-09` 已针对目标 `run_id` / `backtest_id` 跑完。
+- [ ] 确认 Strategy1 panel / execution / reporting SQL 已针对目标 `run_id` / `backtest_id` 跑完。
 - [ ] 确认 `gs://ashare-artifacts` 存在，location 已由 owner 确认。
 - [ ] 确认执行身份具备 GCS 写权限、ADS summary 更新权限和 DWD/ADS 读取权限。
 - [ ] 配置 ADC 或云上 service account 默认凭据。
@@ -210,4 +210,4 @@ uploaded 模式的合格标准：
 - [ ] 去掉 `--skip-gcs-upload` 跑 uploaded 模式。
 - [ ] 用 `gcloud storage ls` 验证 GCS 文件存在。
 - [ ] 查询 ADS `metrics_json`，确认 `report_upload_status=uploaded` 且 `report_uri` 非空。
-- [ ] 跑通 `sql/ml/strategy1/10_qa_runner_outputs.sql`。
+- [ ] 跑通 `sql/strategy1/qa/qa_runner_outputs.sql`。

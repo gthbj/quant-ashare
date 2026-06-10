@@ -6,6 +6,19 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：项目结构重构 Phase A-C 已实现并完成 PR #136 review follow-up
+
+- 分支 `codex/strategy1-structure-refactor` 已按 `docs/prd/PRD_20260610_02_项目结构重构方案.md` 实现 Phase A/B/C。
+- 新增 `configs/strategy1/active_step_catalog.yml`，覆盖当前 Strategy1 shared SQL、旧路径、目标路径、调用方、参数契约、table role、当前 ADS dataset role 和未来 research dataset role。
+- 新增 `src/quant_ashare/strategy1/{catalog,sql_render,table_roles,retired_lint}.py` 与 `pyproject.toml`；Cloud Run image 在 `Dockerfile.strategy1-cloudrun` 中执行 `pip install --no-deps -e .`，旧 `scripts.strategy1_cloudrun.*` wrapper 保留。Review follow-up 已修复 retired linter 在 Python 3.11/3.12 下 `**` scope 只扫目录的问题，并补正向测试确认 active 文件确实被扫描。
+- 当前 active/shared Strategy1 SQL 已迁移到 `sql/strategy1/**`；`sql/ml/strategy1/README.md` 与 `sql/cloudrun/strategy1/README.md` 只保留 historical/audit note。
+- `backtest_report.py`、search orchestrator、risk-feature manifests 和 v3 replay QA helper 已改为通过 catalog step / 新路径解析；当前 resolver 默认仍解析到 `data-aquarium.ashare_ads.*`，显式 `dataset_role="research"` 在当前阶段 fail-fast，未创建或写入 `ashare_research`。
+- PR #136 review follow-up 已明确：本 PR 合并 Phase A/A2/B/C 是 owner 对 `DECISION-20260610-05` 拆分顺序的一次性豁免，后续 Phase D/E 仍需单独 PR；`sql/strategy1/README.md` 已说明 `audit_only` SQL 与 active SQL 同 namespace 但执行状态以 catalog 为准。
+- `ledger.py` 中被后置同名函数覆盖的 resume/fresh 参数校验已恢复到最终生效函数：非法 resume 参数现在 fail-fast，符合既有 resume 约束。
+- PR #136 review follow-up 已删除 PASS 型自查文档；Dataform generated SQLX drift 已作为独立 TODO 记录。
+- 本轮补测：`pytest tests/strategy1 tests/strategy1_cloudrun tests/pipeline_control` 24 passed；catalog validate、retired linter、active step render smoke、compileall、CLI dry-run/help 和 `git diff --check` 均通过。
+- `scripts/dataform/generate_sqlx_from_sql.py --check` 仍失败，但本分支相对 `origin/main` 没有 `dataform/` diff；失败项是现有 generated SQLX stale/missing 文件，不由本次 Strategy1 SQL 迁移引入。
+
 ### 最新补充（2026-06-10）：Strategy1 年度滚动选参 PRD 已新增
 
 - 新增 `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`，定义年度 walk-forward 参数选择、上一整年 valid、选中参数 final refit 和连续 ledger 回测方案。

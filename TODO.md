@@ -37,8 +37,14 @@
 
 ## P1 — 后续优化
 
-- [ ] OQ-010 / 工程治理：按项目结构重构 PRD 分阶段收敛 Strategy1 runner 和共享 SQL 边界
-  说明：新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`；owner 已确认采用 `ashare_research`、`research_*` 表名前缀、`accepted != promoted`、先 table-role abstraction 后 research-first、`sql/strategy1/**`、`src/quant_ashare/**`、短期保留 `scripts/strategy1_cloudrun/**` wrapper，且 P0 不强制创建 `docs/retired/`。该项仍为 P1 工程治理，待 owner 决定启动或在 OQ-010/R14 空档穿插推进；后续按 active path catalog、防误用护栏、table role / dataset role resolver、SQL 命名空间、Python package foundation、research/ADS 生命周期隔离、深层包拆分和命名 cleanup 分阶段实现。
+- [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase A-C
+  说明：分支 `codex/strategy1-structure-refactor` 已新增 Strategy1 active step catalog、retired reference linter、table-role/dataset-role resolver、`src/quant_ashare/**` package foundation，并把当前 active/shared Strategy1 SQL 迁移到 `sql/strategy1/**`；Cloud Run wrapper 仍保留，当前 table role 仍解析到 `ashare_ads`，不创建或写入 `ashare_research`。
+
+- [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D/E
+  说明：下一阶段再做 `ashare_research` 物理表契约、可选 research routing、default research-first、explicit promotion job，以及深层 package split / naming cleanup；不得与本轮 SQL 命名空间迁移混做。
+
+- [ ] 工程治理：修复 Dataform generated SQLX drift
+  说明：`scripts/dataform/generate_sqlx_from_sql.py --check` 在当前 `main` 基线仍报告部分 `dataform/definitions/**/*.sqlx` stale/missing；PR #136 没有 `dataform/` diff，因此应单独开 cleanup PR 重新生成并验证。
 
 - [ ] OQ-005：如真实运行暴露 stale-lock 边界，再为 `ashare-pipeline-control` 的 stale-lock reclaim 增加 Workflows execution liveness 检查
 

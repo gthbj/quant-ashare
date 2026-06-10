@@ -11,13 +11,17 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+SRC_ROOT = REPO_ROOT / "src"
+if SRC_ROOT.exists() and str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
+from quant_ashare.strategy1.catalog import resolve_step_path
 from scripts.strategy1_cloudrun.acceptance import contract_hash, contract_version, load_acceptance_contract
 from scripts.strategy1_cloudrun.bq_io import execute_query, make_client
 
 
 DEFAULT_CONTRACT_PATH = "configs/strategy1/model_acceptance_contract_v3.yml"
-DEFAULT_SQL_TEMPLATE_PATH = "sql/ml/strategy1/24_qa_acceptance_gate_v3_replay_outputs.sql"
+DEFAULT_SQL_TEMPLATE_PATH = "sql/strategy1/acceptance/qa_acceptance_gate_v3_replay_outputs.sql"
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,7 +38,7 @@ def main() -> int:
     contract = load_acceptance_contract(args.contract)
     if contract_version(contract) != "model_acceptance_contract_v3":
         raise SystemExit("--contract must point to model_acceptance_contract_v3")
-    sql = render_sql(Path(args.sql_template).read_text(encoding="utf-8"), contract)
+    sql = render_sql(resolve_step_path(args.sql_template).read_text(encoding="utf-8"), contract)
     client = make_client(args.project, args.region)
     execute_query(
         client,

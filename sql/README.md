@@ -44,17 +44,17 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/ads/01_ads_strategy1
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/02_strategy1_dws_ads_checks.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/04_finance_caliber_checks.sql
 
-# 策略 1 共享 SQL（当前 Cloud Run Python path 仍复用，详见 sql/ml/strategy1/README.md）
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/01_build_training_panel.sql
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/05_build_candidates.sql
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/06_build_portfolio_targets.sql
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/07_build_order_plan.sql
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/09_build_metrics_and_report_inputs.sql
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/10_qa_runner_outputs.sql
+# 策略 1 共享 SQL（当前 Cloud Run Python path 复用，详见 sql/strategy1/README.md）
+bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/panel/build_training_panel_base.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/execution/build_candidates.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/execution/build_portfolio_targets.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/execution/build_order_plan.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/reporting/build_metrics_and_report_inputs.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_runner_outputs.sql
 python scripts/strategy1/render_report.py --project data-aquarium --backtest-id bt_s1_bqml_20260601_01 --run-id s1_bqml_20260601_01 --artifact-base-uri gs://ashare-artifacts/reports/strategy1
 
 # Cloud Run Python lot-aware ledger 路径额外执行
-bq query --use_legacy_sql=false --location=asia-east2 < sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql
 ```
 
 ## 范围参数
@@ -174,4 +174,4 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/05_unit_contract_
 - `dwd_index_eod.sec_code` 输出 canonical 指数代码，`source_sec_code` 保留 ODS/Tushare 实际代码；例如沪深300 来源 `399300.SZ` 输出为 `sec_code='000300.SH'`。策略 runner 使用 benchmark 前会校验 `dim_index` 和完整回测窗口覆盖。
 - 价格/估值/指数 DWD 使用月分区并开启 `require_partition_filter`；财务指标按公告月分区，但不强制分区过滤，方便 PIT as-of join。
 - 策略 1 标签口径为 `close_hfq[t+H] / open_hfq[t+1] - 1`，H 为 1/5/10/20；`rank_pct_Hd` / `fwd_xs_ret_Hd` 按默认 universe 截面计算；`label_valid_Hd` 检查 t+1 入场可交易和标签价格可用，退出日可卖性单独由 `exit_reachable_Hd` 标记并交给回测撮合处理；`label_entry_tradable` 不能在 t 日选股时预先过滤。
-- 策略 1 ADS SQL 只创建表契约；当前训练、预测和回测由 Cloud Run Python path 写入，候选池、组合、订单、报告输入和 QA 仍复用 `sql/ml/strategy1` 的共享 SQL。
+- 策略 1 ADS SQL 只创建表契约；当前训练、预测和回测由 Cloud Run Python path 写入，候选池、组合、订单、报告输入和 QA 复用 `sql/strategy1/**` 的共享 SQL，并由 `configs/strategy1/active_step_catalog.yml` 维护路径和参数契约。

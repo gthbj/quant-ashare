@@ -21,13 +21,13 @@ from scripts.strategy1_cloudrun.config import (
 )
 from scripts.strategy1_cloudrun.ledger import LedgerParams, run_ledger
 from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_FLOAT, LEDGER_VERSION_LOT100
-from scripts.strategy1_cloudrun.sql_runner import run_sql_script
+from scripts.strategy1_cloudrun.sql_runner import resolve_sql_step_path, run_sql_step
 
 
 SQL_STEPS = [
-    "sql/ml/strategy1/05_build_candidates.sql",
-    "sql/ml/strategy1/06_build_portfolio_targets.sql",
-    "sql/ml/strategy1/07_build_order_plan.sql",
+    "build_candidates",
+    "build_portfolio_targets",
+    "build_order_plan",
 ]
 
 
@@ -60,42 +60,27 @@ def main() -> int:
     client = make_client(config.project, config.region)
     sql_params = build_sql_params(experiment, args.force_replace, args.use_float_ledger, args)
     job_ids = []
-    for script in SQL_STEPS:
-        job_ids.append({"script": script, "job_id": run_sql_script(client, script, sql_params)})
+    for step in SQL_STEPS:
+        job_ids.append(run_catalog_step(client, step, sql_params))
     ledger_result = run_ledger(client, build_ledger_params(config.project, experiment, args.force_replace, ledger_version, args))
     job_ids.append({"script": "python_ledger_exec_v1", "result": ledger_result})
-    job_ids.append({
-        "script": "sql/ml/strategy1/09_build_metrics_and_report_inputs.sql",
-        "job_id": run_sql_script(client, "sql/ml/strategy1/09_build_metrics_and_report_inputs.sql", sql_params),
-    })
+    job_ids.append(run_catalog_step(client, "build_metrics_and_report_inputs", sql_params))
     if not args.skip_report:
         run_subprocess(report_command(config, experiment, args.skip_gcs_upload))
     if not args.skip_qa:
-        job_ids.append({
-            "script": "sql/ml/strategy1/10_qa_runner_outputs.sql",
-            "job_id": run_sql_script(client, "sql/ml/strategy1/10_qa_runner_outputs.sql", sql_params),
-        })
+        job_ids.append(run_catalog_step(client, "qa_runner_outputs", sql_params))
         if ledger_version == LEDGER_VERSION_LOT100:
-            job_ids.append({
-                "script": "sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql",
-                "job_id": run_sql_script(client, "sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql", sql_params),
-            })
+            job_ids.append(run_catalog_step(client, "qa_lot_aware_ledger_outputs", sql_params))
     if not args.skip_diagnosis:
         run_subprocess(diagnosis_command(config, experiment, args.skip_gcs_upload))
         if not args.skip_qa:
-            job_ids.append({
-                "script": "sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql",
-                "job_id": run_sql_script(client, "sql/ml/strategy1/12_qa_model_diagnosis_outputs.sql", sql_params),
-            })
+            job_ids.append(run_catalog_step(client, "qa_model_diagnosis_outputs", sql_params))
     if not args.skip_tail_risk:
         tail_risk_result = run_tail_risk_step(config, experiment, args.skip_gcs_upload, args.search_id)
         job_ids.append({"script": "scripts/strategy1/analyze_tail_risk.py", "result": tail_risk_result})
         if tail_risk_result["status"] == "succeeded" and not args.skip_qa:
             tail_risk_params = {**sql_params, **tail_risk_guard_sql_params(experiment)}
-            job_ids.append({
-                "script": "sql/ml/strategy1/20_qa_tail_risk_outputs.sql",
-                "job_id": run_sql_script(client, "sql/ml/strategy1/20_qa_tail_risk_outputs.sql", tail_risk_params),
-            })
+            job_ids.append(run_catalog_step(client, "qa_tail_risk_outputs", tail_risk_params))
     print(json.dumps({"status": "succeeded", "steps": job_ids}, ensure_ascii=False, indent=2, default=str))
     return 0
 
@@ -198,6 +183,7 @@ def build_sql_params(
         "p_ledger_executor": ledger_executor,
         "p_lot_size": None if ledger_version == LEDGER_VERSION_FLOAT else args.lot_size,
         "p_min_buy_lot": None if ledger_version == LEDGER_VERSION_FLOAT else args.min_buy_lot,
+        "p_min_buy_shares": None if ledger_version == LEDGER_VERSION_FLOAT else args.lot_size * args.min_buy_lot,
         "p_train_start": exp.train_start,
         "p_train_end": exp.train_end,
         "p_valid_start": exp.valid_start,
@@ -208,10 +194,26 @@ def build_sql_params(
         "p_final_holdout_end": exp.final_holdout_end,
         "p_predict_start": exp.predict_start,
         "p_predict_end": exp.predict_end,
+        "p_initial_capital": 100000.0,
+        "p_cost_profile_id": "cn_a_share_wanyi_no_min_slip5_v20260602",
+        "p_commission_bps": 1.0,
+        "p_min_commission_cny": 0.0,
+        "p_stamp_tax_buy_bps": 0.0,
+        "p_stamp_tax_sell_bps": 5.0,
+        "p_slippage_buy_bps": 5.0,
+        "p_slippage_sell_bps": 5.0,
+        "p_cost_bps": 30.0,
+        "p_benchmark": "000001.SH",
         "p_initial_state_mode": exp.initial_state_mode,
         "p_parent_backtest_id": exp.parent_backtest_id,
         "p_state_as_of_date": exp.state_as_of_date,
         "p_resume_policy_id": exp.resume_policy_id,
+        "p_tail_risk_ret_20d_min": -0.30,
+        "p_tail_risk_drawdown_20d_min": -0.30,
+        "p_tail_risk_limit_down_days_20d_min": 2,
+        "p_tail_risk_one_word_limit_days_20d_min": 1,
+        "p_tail_risk_total_mv_min_cny": 30e8,
+        "p_tail_risk_circ_mv_min_cny": 20e8,
         "p_force_replace": force_replace,
     }
 
@@ -324,6 +326,14 @@ def tail_risk_guard_sql_params(exp: Experiment) -> dict[str, str | None]:
 
 def run_subprocess(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True)
+
+
+def run_catalog_step(client, step: str, params: dict[str, object]) -> dict[str, str]:
+    return {
+        "step": step,
+        "script": str(resolve_sql_step_path(step)),
+        "job_id": run_sql_step(client, step, params),
+    }
 
 
 def run_tail_risk_step(config, exp: Experiment, skip_gcs_upload: bool, search_id: str | None) -> dict[str, object]:

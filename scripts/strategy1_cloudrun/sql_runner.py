@@ -1,35 +1,34 @@
-"""Run existing Strategy 1 BigQuery SQL scripts with explicit parameters."""
+"""Run Strategy 1 BigQuery SQL steps with explicit parameters."""
 
 from __future__ import annotations
 
-import datetime as dt
-import re
 from pathlib import Path
+import sys
 from typing import Any
 
 from google.cloud import bigquery
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = REPO_ROOT / "src"
+if SRC_ROOT.exists() and str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
-DECLARE_RE = re.compile(
-    r"(?im)^(\s*DECLARE\s+(?P<name>p_[A-Za-z0-9_]+)\s+"
-    r"(?P<type>STRING|INT64|FLOAT64|BOOL|DATE|TIMESTAMP)\s+DEFAULT\s+)(?P<value>[^;]*)(;)"
+from quant_ashare.strategy1.catalog import load_step_catalog, resolve_step_path
+from quant_ashare.strategy1.sql_render import (
+    render_sql_file,
+    render_sql_step as render_step_sql,
+    render_value,
 )
 
 
 def render_sql(script_path: str | Path, params: dict[str, Any]) -> str:
-    sql = Path(script_path).read_text(encoding="utf-8")
-    seen: set[str] = set()
+    """Compatibility renderer for path callers.
 
-    def replace(match: re.Match[str]) -> str:
-        name = match.group("name")
-        if name not in params:
-            return match.group(0)
-        seen.add(name)
-        rendered = render_value(params[name], match.group("type"))
-        return f"{match.group(1)}{rendered}{match.group(5)}"
+    New active runners should call ``render_sql_step`` / ``run_sql_step`` so the
+    catalog can enforce required parameters.
+    """
 
-    rendered = DECLARE_RE.sub(replace, sql)
-    return rendered
+    return render_sql_file(script_path, params, strict=False)
 
 
 def run_sql_script(
@@ -39,7 +38,7 @@ def run_sql_script(
     *,
     dry_run: bool = False,
 ) -> str:
-    sql = render_sql(script_path, params)
+    sql = render_sql_file(script_path, params, strict=False)
     job_config = bigquery.QueryJobConfig(dry_run=dry_run, use_query_cache=False)
     job = client.query(sql, job_config=job_config)
     if dry_run:
@@ -48,22 +47,26 @@ def run_sql_script(
     return job.job_id
 
 
-def render_value(value: Any, sql_type: str) -> str:
-    if value is None:
-        return "NULL"
-    if sql_type == "STRING":
-        escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
-        return f"'{escaped}'"
-    if sql_type == "DATE":
-        if isinstance(value, (dt.datetime, dt.date)):
-            value = value.isoformat()[:10]
-        return f"DATE '{value}'"
-    if sql_type == "TIMESTAMP":
-        if isinstance(value, dt.datetime):
-            value = value.isoformat()
-        return f"TIMESTAMP '{value}'"
-    if sql_type == "BOOL":
-        return "TRUE" if bool(value) else "FALSE"
-    if sql_type in {"INT64", "FLOAT64"}:
-        return str(value)
-    raise ValueError(f"unsupported SQL type: {sql_type}")
+def render_sql_step(step: str, params: dict[str, Any]) -> str:
+    return render_step_sql(step, params)
+
+
+def resolve_sql_step_path(step: str) -> Path:
+    catalog = load_step_catalog()
+    return resolve_step_path(step, catalog)
+
+
+def run_sql_step(
+    client: bigquery.Client,
+    step: str,
+    params: dict[str, Any],
+    *,
+    dry_run: bool = False,
+) -> str:
+    sql = render_step_sql(step, params)
+    job_config = bigquery.QueryJobConfig(dry_run=dry_run, use_query_cache=False)
+    job = client.query(sql, job_config=job_config)
+    if dry_run:
+        return job.job_id
+    job.result()
+    return job.job_id
