@@ -1,11 +1,60 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
 > - PR #166 已合并并部署正式 Strategy1 runner 镜像 `sha256:e379fdccb49281ec628f389de261929d37e60906b51538132b350314ba8db9da`；五个 jobs 已更新，`strategy1-train-predict-job` 已提升到 `8 CPU / 32Gi`，六个 boot smoke（含 `refit_register_predict --help`）均成功。
 > - `v20260610_02` final refit 六年全部完成：2021/2022/2023 首轮成功，hotfix 后 2024/2025/2026 成功（executions `strategy1-train-predict-job-5s49j` / `mx272` / `d6g52`）；六年 `qa_refit_register_predict_outputs` 全部 succeeded。
-> - PR #168 已合并 synthetic source prediction partition-filter hotfix；official synthetic merge 已用 `--force-replace` 成功，prediction rows=`2643406`，insert job `f8953afd-b95b-4b20-82f7-2af153bed998`；single continuous ledger 已成功，execution `strategy1-backtest-report-job-w5k24`；lot-aware QA 已通过，job `4dcfd716-6cea-4efd-b1f9-d7f195d1f004`。
-> - `qa_continuous_backtest_outputs` 发现 `QA-CONT-6` 失败：synthetic manifest 的 `valid_start/end` 被错误解析成 refit train window，而非原 selection valid window。当前分支 `codex/synthetic-continuous-valid-windows` 正在修复 valid-window lineage；修复合并后需 `--force-replace` 重跑 synthetic merge，再跑 continuous QA。
-> - 仍禁止把年度 fresh NAV 拼成正式结果；official `2021-2026` 结果必须等 `qa_continuous_backtest_outputs` 也通过后才可解释指标。
+> - PR #169 已合并 valid-window lineage hotfix；official synthetic merge 已再次 `--force-replace` 成功，prediction rows=`2643406`，insert job `f566b4dd-14b8-4419-8225-4747adcb045a`，resolved manifest sha256=`2062d93544dd7c2bd12566f42da0ad3c973b5c6a63f00f4cd1c72a3a5269ba97`。
+> - 当前分支 `codex/synthetic-continuous-qa-valid-scope` 修复 `QA-CONT-6` 的跨年度误匹配：valid 排除只检查同一个 year slice 的 predict window。修复后 `qa_continuous_backtest_outputs` 已通过，job `843cfc18-054a-4910-b303-61e47f82f249`；lot-aware QA 复跑也通过，job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`。
+> - PRD_03 official synthetic continuous 硬门已实质通过；本分支合并后可查询并解释 single continuous ledger 指标，仍禁止把年度 fresh NAV 拼成正式结果。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - PRD_03 continuous QA scope hotfix
+
+### 已完成工作
+
+- PR #169 已合并到 `main`（merge commit `d0f9e4d`），synthetic manifest valid window 已从原 selection registry 行解析。
+- 从 `main@d0f9e4d` 以 `--force-replace` 重跑 official synthetic merge 成功：prediction rows=`2643406`，registry rows=`1`，input manifest sha256=`bfd1e3c3e251954ae5ffa1a58102570e4c4538a92b24c9c181c7e41368877166`，resolved manifest sha256=`2062d93544dd7c2bd12566f42da0ad3c973b5c6a63f00f4cd1c72a3a5269ba97`，insert job `f566b4dd-14b8-4419-8225-4747adcb045a`。
+- `qa_continuous_backtest_outputs` 仍暴露 `QA-CONT-6` scope bug：SQL 把所有 target prediction date 与所有 year slice 的 valid window 交叉检查，导致 2021 official prediction 被 2022 source 的 2021 valid window 误伤。
+- 当前分支 `codex/synthetic-continuous-qa-valid-scope` 已把 `QA-CONT-6` 收窄到同一 manifest year slice：`pred.predict_date` 同时满足 `m.predict_start..m.predict_end` 和 `m.valid_start..m.valid_end` 才算违规。
+- 使用修正后 SQL 对 live official continuous run 执行 `qa_continuous_backtest_outputs` 已通过，job `843cfc18-054a-4910-b303-61e47f82f249`。
+- `qa_lot_aware_ledger_outputs` 已再次通过，job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`。
+
+### 重要上下文
+
+- Official synthetic merge、single continuous ledger、continuous QA、lot-aware QA 均已实质通过；本分支合并后 PRD_03 执行层闭环。
+- continuous ledger execution 仍是 `strategy1-backtest-report-job-w5k24`，窗口 `2021-01-04..2026-06-09`，fresh start，`ledger_exec_v1_lot100`。
+
+### 改动文件
+
+- `sql/strategy1/qa/qa_continuous_backtest_outputs.sql`
+- `tests/strategy1/test_synthetic_continuous.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_synthetic_continuous.py tests/strategy1/test_strategy1_catalog.py tests/strategy1/test_sql_render.py`：29 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.sql_runner --step=qa_continuous_backtest_outputs --output-dataset-role=research --params-json-b64=<official continuous QA params> --dry-run`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.sql_runner --step=qa_continuous_backtest_outputs --output-dataset-role=research --params-json-b64=<official continuous QA params>`：通过，job `843cfc18-054a-4910-b303-61e47f82f249`。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.sql_runner --step=qa_lot_aware_ledger_outputs --output-dataset-role=research --params-json-b64=<official lot-aware QA params>`：通过，job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无；本分支合并后可查询 continuous summary 指标并解释结果。
+
+### 下一步建议
+
+- 合并 `codex/synthetic-continuous-qa-valid-scope`。
+- 查询 `research_backtest_performance_summary` / NAV / trade / position 行数，给出 single continuous ledger 指标。
+- 更新最终运维记录后清理临时 worktree / 分支。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - PRD_03 synthetic continuous valid-window hotfix
 

@@ -133,6 +133,7 @@ ASSERT (
   JOIN `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
     ON pred.run_id = p_prediction_run_id
    AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
+   AND pred.predict_date BETWEEN m.predict_start AND m.predict_end
    AND pred.predict_date BETWEEN m.valid_start AND m.valid_end
   WHERE m.valid_start IS NOT NULL
     AND m.valid_end IS NOT NULL
