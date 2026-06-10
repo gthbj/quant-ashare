@@ -86,6 +86,7 @@ ASSERT (
     JOIN `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
       ON pred.run_id = m.source_run_id
      AND pred.model_id = m.source_model_id
+     AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
      AND pred.predict_date BETWEEN m.predict_start AND m.predict_end
     GROUP BY m.backtest_year
   ),

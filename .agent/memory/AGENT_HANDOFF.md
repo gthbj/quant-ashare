@@ -1,10 +1,54 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
 > - PR #166 已合并并部署正式 Strategy1 runner 镜像 `sha256:e379fdccb49281ec628f389de261929d37e60906b51538132b350314ba8db9da`；五个 jobs 已更新，`strategy1-train-predict-job` 已提升到 `8 CPU / 32Gi`，六个 boot smoke（含 `refit_register_predict --help`）均成功。
 > - `v20260610_02` final refit 六年全部完成：2021/2022/2023 首轮成功，hotfix 后 2024/2025/2026 成功（executions `strategy1-train-predict-job-5s49j` / `mx272` / `d6g52`）；六年 `qa_refit_register_predict_outputs` 全部 succeeded。
-> - 当前 PRD_03 分支 `codex/strategy1-synthetic-continuous` 已实现 synthetic continuous merge entrypoint 与 `qa_continuous_backtest_outputs`，focused tests / full pytest / Dataform / dry-run 均通过；待 PR 合并后执行 official synthetic merge + single continuous ledger。
+> - PR #167 已合并 synthetic continuous merge entrypoint 与 `qa_continuous_backtest_outputs`；official merge 首次执行暴露 BigQuery 分区过滤缺口（source prediction join 只有动态 manifest 窗口，不满足 `predict_date` partition filter），当前 hotfix 分支 `codex/synthetic-continuous-partition-filter` 已补静态整体窗口过滤并通过 focused tests / BigQuery dry-run。
 > - 仍禁止把年度 fresh NAV 拼成正式结果；official `2021-2026` 结果必须等 synthetic run、continuous backtest、`qa_continuous_backtest_outputs` 与 lot-aware QA 全部通过。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - PRD_03 synthetic continuous partition filter hotfix
+
+### 已完成工作
+
+- PR #167 合并后，从 `main@c72cd8f` 执行 official synthetic merge，首次 BigQuery prediction insert 暴露 partition filter 缺口：source `research_model_prediction_daily` join 只有 manifest 动态窗口，缺少静态 `predict_date` 过滤，BigQuery job `cde0ff0e-fe0a-4124-89d1-c5406a8c5caa` 失败。
+- 当前分支 `codex/synthetic-continuous-partition-filter` 已补 synthetic prediction insert 的整体 `predict_date` 静态窗口过滤，并同步补 `qa_continuous_backtest_outputs` source count 的 `p_predict_start` / `p_predict_end` 分区过滤。
+- `TODO.md` 与 `IMPLEMENTATION_STATUS.md` 已更新为“PR #167 代码已合并，但 official synthetic merge 需 hotfix 合并后 `--force-replace` 重跑”的状态。
+
+### 重要上下文
+
+- 首次 official merge 已可能写入 synthetic registry partial row，但 prediction insert 未完成；hotfix 合并后必须用 `--force-replace` 重跑，避免 partial registry 干扰。
+- Official continuous 结果仍未产生；禁止把年度 fresh NAV 拼成正式结果。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/synthetic_continuous.py`
+- `sql/strategy1/qa/qa_continuous_backtest_outputs.sql`
+- `tests/strategy1/test_synthetic_continuous.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_synthetic_continuous.py tests/strategy1/test_strategy1_catalog.py tests/strategy1/test_sql_render.py`：25 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.sql_runner --step=qa_continuous_backtest_outputs --output-dataset-role=research --params-json-b64=<official continuous QA params> --dry-run`：BigQuery dry-run 通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 需合并 hotfix 后再继续 official synthetic merge / continuous ledger。
+
+### 下一步建议
+
+- 提交并合并 `codex/synthetic-continuous-partition-filter`。
+- 从最新 main 以 `--force-replace` 重跑 official synthetic merge。
+- 跑 single continuous backtest，再执行 `qa_continuous_backtest_outputs` 与 `qa_lot_aware_ledger_outputs`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - PRD_03 synthetic continuous implementation
 

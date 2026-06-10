@@ -142,4 +142,5 @@ def test_continuous_qa_sql_documents_default_path_exclusions() -> None:
 
     assert "JSON_QUERY_ARRAY(reg.metrics_json, '$.year_slices')" in sql
     assert "p_require_source_refit" in sql
+    assert "pred.predict_date BETWEEN p_predict_start AND p_predict_end" in sql
     assert "research_model_prediction_daily" not in sql
