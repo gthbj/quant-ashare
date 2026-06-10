@@ -6,14 +6,14 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
-### 最新补充（2026-06-11）：PRD_02 annual rolling final refit 代码侧实现已完成待 PR
+### 最新补充（2026-06-11）：PRD_02 final refit 已合并部署，首轮重跑暴露 2024+ hotfix
 
-- 分支 `codex/strategy1-final-refit` 基于 `origin/main@b08145e` 实现 `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md` 的代码侧 refit 路径，尚未部署镜像或重跑六年年度滚动。
-- 新增 package entrypoint `quant_ashare.strategy1.refit_register_predict`：读取 selection run 的 selected registry 与 `source_panel_run_id` 面板，按 resolved final-refit 窗口重新 fit preprocessor、训练 selected candidate 单模型、写 refit run 的 registry / prediction / artifact；写出 `source_run_id`、`source_panel_run_id`、`refit=true`、`refit_train_start/end`、`preprocess_fit_start/end` lineage。
-- `orchestrate_annual_rolling_selection` 的 resolved plan 已把 `final_refit` 从 metadata 升级为可执行 `cloudrun_refit_register_predict` step，顺序为 `build_training_panel -> prepare_matrix -> candidate_fanout -> select_register_predict -> refit_register_predict -> yearly diagnostic backtest`；年度 diagnostic backtest 改为引用独立 `__refit01` run/backtest，并强制跳过默认 diagnosis / tail-risk / runner QA，避免 refit run 无 training panel 时误跑默认 QA。
-- `annual_pipeline_scheduler` 已插入 `refit:yYYYY` stage：`select:yYYYY -> refit:yYYYY -> diagnostic_backtest:yYYYY`，`continuous_ledger` 依赖从 `select:*` 改为 `refit:*`，并输出 refit prediction run ids。当前 refit 复用现有 `strategy1-train-predict-job` 资源 envelope，scheduler token 记录为 `4 CPU / 16Gi`。
-- 新增 `sql/strategy1/qa/qa_refit_register_predict_outputs.sql` 并登记 catalog，断言 source selected row、refit 单 selected registry、source panel 覆盖、prediction 边界、lineage 与 preprocess artifact 归属。
-- 验证：focused annual/scheduler/package/catalog tests 48 passed；全量 `PYTHONPATH=src python3 -m pytest -q tests` 108 passed；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过；`python3 -m compileall -q src scripts tests` 与 `git diff --check` 通过；`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_refit_register_predict_outputs.sql` 通过。
+- PR #165 已合并到 `main`（merge commit `ebb6dbf`），实现 `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md` 的代码侧 refit 路径：新增 `quant_ashare.strategy1.refit_register_predict`、`qa_refit_register_predict_outputs.sql`、annual plan `cloudrun_refit_register_predict` step、scheduler `refit:yYYYY` stage，并让 continuous metadata / DAG 依赖 refit runs。
+- 已从 `main@ebb6dbf` 构建并部署正式 Strategy1 runner 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:fc94a02d388e0a988dac56366ea0dcba80e65c15dea10efc93ef38e11778b757`；五个正式 jobs 均已更新到该 digest，读回确认 args / SA / maxRetries / resources 保持原值；六个 boot smoke（五个正式 entrypoint + `refit_register_predict --help` override）均 Completed=True 且 Cloud Logging 有 `usage:`。
+- `v20260610_02` refit preflight 通过：六个 source selection run 均有 exactly one selected registry row，`source_panel_run_id` panel 覆盖各自 predict window，目标 `__refit01` registry / prediction 起始均为 0 行。
+- 首轮 refit 执行结果：2021/2022/2023 refit 成功（executions `strategy1-train-predict-job-rwftt` / `qhs9q` / `fb4lr`，耗时约 6m50s / 6m50s / 7m16s）；2024 失败，因为 resolved final-refit start `2019-01-02` 早于实际 source panel 覆盖 `2019-04-03`；2025/2026 失败，因为 `strategy1-train-predict-job` 16Gi memory limit reached。
+- 分支 `codex/strategy1-final-refit-hotfix` 正在修复上述 2024+ 问题：2019 final-refit 起点显式 override 为 `2019-04-03`，scheduler / runbook refit token 调整为 `8 CPU / 32Gi`；待合并、重建镜像、把 train-predict job 调整到 8CPU/32Gi 后重跑 2024-2026。
+- PR #165 代码验证：focused annual/scheduler/package/catalog tests 48 passed；全量 `PYTHONPATH=src python3 -m pytest -q tests` 108 passed；Dataform `--check`、retired linter、compileall、`git diff --check`、BigQuery QA dry-run 均通过。Hotfix focused tests / 2024 dry-run 已通过，完整验证待提交前执行。
 
 ### 最新补充（2026-06-11）：PRD_04 research summary identity 修复已合并并完成 live migration / 回填
 

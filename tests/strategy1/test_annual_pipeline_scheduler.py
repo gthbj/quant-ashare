@@ -100,7 +100,7 @@ def test_scheduler_plan_select_depends_on_all_candidates_and_cross_year_is_indep
     assert plan["entrypoint"] == "annual_pipeline_scheduler"
     assert plan["stage_tokens"]["prepare_matrix"] == {"cpu": 8, "memory_gib": 32, "candidate_slots": 0}
     assert plan["stage_tokens"]["select"] == {"cpu": 4, "memory_gib": 16, "candidate_slots": 0}
-    assert plan["stage_tokens"]["refit"] == {"cpu": 4, "memory_gib": 16, "candidate_slots": 0}
+    assert plan["stage_tokens"]["refit"] == {"cpu": 8, "memory_gib": 32, "candidate_slots": 0}
     assert plan["stage_tokens"]["diagnostic_backtest"] == {"cpu": 4, "memory_gib": 16, "candidate_slots": 0}
 
     select_2021 = tasks["select:y2021"]

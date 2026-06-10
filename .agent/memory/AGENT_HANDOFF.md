@@ -1,11 +1,61 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
-> - PRD_04 前置已完成并已 live 回填；当前分支 `codex/strategy1-final-refit` 完成 PRD_02 final refit 代码侧实现，待 PR review / merge / 镜像重建 / 六年 refit 重跑。
-> - 新增 `quant_ashare.strategy1.refit_register_predict`：读取 selection run 的 selected registry 与 `source_panel_run_id` panel，按 resolved final-refit 窗口重新 fit preprocessor、训练 selected candidate 单模型、写独立 `__refit01` registry / prediction / artifact。
-> - Annual resolved plan 已生成可执行 `cloudrun_refit_register_predict` step；scheduler DAG 已改为 `select -> refit -> diagnostic_backtest`，continuous 依赖 refit runs；年度 diagnostic backtest 使用 refit backtest id 并跳过默认 diagnosis / tail-risk / QA。
-> - 新增 `qa_refit_register_predict_outputs.sql` 与 catalog 登记，断言 source/refit registry、panel 覆盖、prediction 边界、lineage 和 preprocess artifact 归属。
-> - 验证完成：全量 pytest 108 passed，Dataform `--check`、retired linter、compileall、`git diff --check`、BigQuery QA dry-run 均通过。
+> - PR #165 已合并并部署正式 Strategy1 runner 镜像 `sha256:fc94a02d388e0a988dac56366ea0dcba80e65c15dea10efc93ef38e11778b757`；五个 jobs 读回确认新 digest，六个 boot smoke（含 `refit_register_predict --help`）均成功。
+> - `v20260610_02` final refit 首轮执行：2021/2022/2023 成功（executions `strategy1-train-predict-job-rwftt` / `qhs9q` / `fb4lr`）；2024 失败于 source panel coverage（resolved start `2019-01-02`，实际 panel min `2019-04-03`）；2025/2026 失败于 16Gi memory limit。
+> - 当前 hotfix 分支 `codex/strategy1-final-refit-hotfix`：2019 final-refit start override 为 `2019-04-03`，refit scheduler/runbook token 改为 `8 CPU / 32Gi`；待完整验证、PR、合并、重建镜像、更新 train-predict job 到 8CPU/32Gi 后重跑 2024-2026。
+> - 仍禁止把年度 fresh NAV 拼成正式结果；PRD_03 continuous merge/ledger 未实现前，2021-2026 official continuous 仍未完成。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - PRD_02 deployment and refit hotfix
+
+### 已完成工作
+
+- 合并 PR #165 到 `main`，merge commit `ebb6dbf`。
+- 从 `main@ebb6dbf` 构建固定 tag 镜像 `strategy1-cloudrun-runner:final-refit-main-ebb6dbf-20260611-01`，Cloud Build `8dcd4d62-a61d-459a-aeb8-86fc69a76313` succeeded，digest `sha256:fc94a02d388e0a988dac56366ea0dcba80e65c15dea10efc93ef38e11778b757`。
+- 五个正式 Strategy1 jobs 已更新到该 digest；读回确认 package args、SA、maxRetries、资源和 fanout `taskCount=40 / parallelism=20` 保持预期。
+- Boot smoke：`strategy1-train-predict-job-nmnkn`、`strategy1-prepare-matrix-job-bhpwm`、`strategy1-train-candidate-fanout-job-rrz6h`、`strategy1-select-register-predict-job-vfkzx`、`strategy1-backtest-report-job-ncn69`、`strategy1-train-predict-job-2kk7c`（`refit_register_predict --help` override）全部 Completed=True，Cloud Logging 均匹配到 `usage:`。
+- 生成 `/tmp/strategy1_annual_refit_plan_v20260610_02.json` 并做 BigQuery preflight；六年 source selected registry / panel / target empty checks 通过。
+- 启动 2021-2026 refit：2021、2022、2023 成功；2024 因 panel min date 晚于 resolved start 失败；2025、2026 因 train-predict job 16Gi memory limit 失败。
+- 新建 hotfix worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-final-refit-hotfix`，分支 `codex/strategy1-final-refit-hotfix`，修复 2024+ 暴露的问题：2019 final-refit start override 为 `2019-04-03`，scheduler/runbook refit resource token 改为 `8 CPU / 32Gi`。
+
+### 重要上下文
+
+- 2021-2023 refit outputs 已实际写入 research；不要用 `--force-replace` 重跑它们，除非 owner 明确要求。
+- 2024 失败发生在 coverage guard 之前，没有写出 refit registry/prediction；2025/2026 因内存限制失败，也需在重跑前复核目标 refit rows。
+- Hotfix 合并后必须重建镜像，并把至少 `strategy1-train-predict-job` 更新到 `8 CPU / 32Gi` 后再重跑 2024-2026。
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`
+- `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `tests/strategy1/test_annual_pipeline_scheduler.py`
+- `tests/strategy1_cloudrun/test_dataset_role_routing.py`
+
+### 测试 / 验证
+
+- Hotfix focused pytest：`tests/strategy1_cloudrun/test_dataset_role_routing.py::test_annual_year_plan_continuous_contract_uses_refit_run_id` 与 `tests/strategy1/test_annual_pipeline_scheduler.py::test_scheduler_plan_select_depends_on_all_candidates_and_cross_year_is_independent` 通过。
+- Hotfix 2024 annual dry-run 确认 `final_refit.train_start='2019-04-03'`。
+- 完整验证待 hotfix 提交前执行。
+
+### 阻塞项
+
+- 无代码阻塞；需完成 hotfix PR / merge / redeploy 后才能重跑 2024-2026。
+
+### 下一步建议
+
+- 完成 hotfix 全量验证、提交 PR、合并并部署新镜像。
+- 更新 `strategy1-train-predict-job` 至 `8 CPU / 32Gi` 后重跑 2024、2025、2026 refit，并执行 `qa_refit_register_predict_outputs`。
+- PRD_03 synthetic continuous merge / official continuous ledger 仍待实现，不能拼接年度 NAV。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - PRD_02 annual rolling final refit implementation
 
