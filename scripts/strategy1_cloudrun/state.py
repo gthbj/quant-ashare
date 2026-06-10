@@ -16,7 +16,8 @@ from google.cloud import bigquery, storage
 
 from scripts.strategy1_cloudrun import __version__
 from scripts.strategy1_cloudrun.bq_io import json_dumps_strict
-from scripts.strategy1_cloudrun.config import Experiment, RunnerConfig
+from scripts.strategy1_cloudrun.config import Experiment
+from scripts.strategy1_cloudrun.dataset_roles import TableResolver
 
 
 STATUS_TABLE = "`data-aquarium.ashare_meta.strategy1_experiment_run_status`"
@@ -56,10 +57,17 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def experiment_params_json(exp: Experiment, *, execution_backend: str, manifest_hash: str) -> str:
+def experiment_params_json(
+    exp: Experiment,
+    *,
+    execution_backend: str,
+    manifest_hash: str,
+    output_dataset_role: str = "ads",
+) -> str:
     payload = exp.to_params()
     payload["execution_backend"] = execution_backend
     payload["manifest_hash"] = manifest_hash
+    payload["output_dataset_role"] = output_dataset_role
     payload["runner_version"] = __version__
     return json_dumps_strict(payload, ensure_ascii=False, sort_keys=True)
 
@@ -228,10 +236,18 @@ class GcsLeaseLock:
 class OrchestratorStatusTable:
     """BigQuery status table writer used for Cloud Run orchestration audit/resume."""
 
-    def __init__(self, project: str, location: str, *, dry_run: bool = False):
+    def __init__(
+        self,
+        project: str,
+        location: str,
+        *,
+        dry_run: bool = False,
+        output_dataset_role: str = "ads",
+    ):
         self.project = project
         self.location = location
         self.dry_run = dry_run
+        self.status_table = status_table_ref(project, output_dataset_role)
         self._client: bigquery.Client | None = None
 
     def get_status(self, exp: Experiment, step_id: str) -> str | None:
@@ -239,7 +255,7 @@ class OrchestratorStatusTable:
             return None
         sql = f"""
         SELECT status
-        FROM {STATUS_TABLE}
+        FROM {self.status_table}
         WHERE experiment_id = @experiment_id
           AND run_id = @run_id
           AND step_id = @step_id
@@ -281,7 +297,7 @@ class OrchestratorStatusTable:
         lock_expires_at = lock.lease_expires_at if lock and status == "running" else None
         last_heartbeat_at = now if lock and status == "running" else None
         sql = f"""
-        MERGE {STATUS_TABLE} AS T
+        MERGE {self.status_table} AS T
         USING (
           SELECT @experiment_id AS experiment_id, @run_id AS run_id, @step_id AS step_id
         ) AS S
@@ -379,6 +395,10 @@ class OrchestratorStatusTable:
         if self._client is None:
             self._client = bigquery.Client(project=self.project, location=self.location)
         return self._client
+
+
+def status_table_ref(project: str, output_dataset_role: str = "ads") -> str:
+    return f"`{TableResolver(dataset_role=output_dataset_role, project=project).fqn('experiment_run_status')}`"
 
 
 def extract_cloud_run_execution_id(stdout: str, stderr: str) -> str | None:

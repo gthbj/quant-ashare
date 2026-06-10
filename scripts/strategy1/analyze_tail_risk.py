@@ -30,15 +30,20 @@ from scripts.strategy1_cloudrun.bq_io import (
     join_gs_uri,
     json_dumps_strict,
     make_client,
-    query_dataframe,
+    query_dataframe as bq_query_dataframe,
     upload_directory_to_gcs,
     write_json,
     write_text,
+)
+from scripts.strategy1_cloudrun.dataset_roles import (
+    OUTPUT_DATASET_ROLE_CHOICES,
+    rewrite_sql_dataset_role,
 )
 
 
 TAIL_RISK_VERSION = "strategy1_tail_risk_v1"
 TAIL_RISK_PROFILE_ID = "diagnostic_only"
+OUTPUT_DATASET_ROLE = "ads"
 REQUIRED_ARTIFACTS = [
     "max_drawdown_windows.csv",
     "max_drawdown_windows.json",
@@ -96,13 +101,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-drawdown-top-k", type=int, default=5)
     parser.add_argument("--artifact-base-uri", required=True)
     parser.add_argument("--local-mirror-root", default="reports/strategy1")
+    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
     parser.add_argument("--skip-gcs-upload", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
+    global OUTPUT_DATASET_ROLE
     args = parse_args()
     args.prediction_run_id = args.prediction_run_id or args.run_id
+    OUTPUT_DATASET_ROLE = args.output_dataset_role
     if args.max_drawdown_top_k <= 0:
         raise SystemExit("--max-drawdown-top-k must be positive")
 
@@ -285,6 +293,20 @@ def main() -> int:
     }
     print(json_dumps_strict(result, ensure_ascii=False, indent=2))
     return 0
+
+
+def query_dataframe(
+    client: bigquery.Client,
+    sql: str,
+    params: list[bigquery.ScalarQueryParameter],
+    **kwargs: Any,
+) -> pd.DataFrame:
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=OUTPUT_DATASET_ROLE,
+        project=client.project,
+    )
+    return bq_query_dataframe(client, sql, params, **kwargs)
 
 
 def artifact_local_dir(args: argparse.Namespace) -> Path:

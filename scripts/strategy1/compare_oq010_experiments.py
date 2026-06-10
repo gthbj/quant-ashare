@@ -29,6 +29,15 @@ except ImportError as exc:
     print("Install: pip install google-cloud-bigquery pandas db-dtypes", file=sys.stderr)
     sys.exit(1)
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.strategy1_cloudrun.dataset_roles import (
+    OUTPUT_DATASET_ROLE_CHOICES,
+    rewrite_sql_dataset_role,
+)
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="生成 OQ-010 实验对比报告")
@@ -36,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--manifest", default="configs/strategy1/oq010_experiments_v0.json")
     p.add_argument("--comparison-id", required=True)
     p.add_argument("--output-root", default="reports/strategy1/oq010_experiment_comparison")
+    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
     p.add_argument("--include-planned", action="store_true",
                    help="Include manifest rows without ADS outputs in CSV/JSON")
     return p.parse_args()
@@ -63,7 +73,18 @@ def make_bq_client(project: str) -> bigquery.Client:
         return bigquery.Client(project=project, credentials=creds)
 
 
-def query_rows(client: bigquery.Client, sql: str, params: list) -> list[dict[str, Any]]:
+def query_rows(
+    client: bigquery.Client,
+    sql: str,
+    params: list,
+    *,
+    output_dataset_role: str,
+) -> list[dict[str, Any]]:
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=output_dataset_role,
+        project=client.project,
+    )
     job_config = bigquery.QueryJobConfig(query_parameters=params)
     return [dict(row) for row in client.query(sql, job_config=job_config)]
 
@@ -93,7 +114,12 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
-def fetch_ads_outputs(client: bigquery.Client, experiments: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def fetch_ads_outputs(
+    client: bigquery.Client,
+    experiments: list[dict[str, Any]],
+    *,
+    output_dataset_role: str,
+) -> dict[str, dict[str, Any]]:
     backtest_ids = [e["backtest_id"] for e in experiments if isinstance(e.get("backtest_id"), str)]
     run_ids = sorted({
         rid
@@ -117,6 +143,7 @@ def fetch_ads_outputs(client: bigquery.Client, experiments: list[dict[str, Any]]
         WHERE bs.backtest_id IN UNNEST(@backtest_ids)
         """,
         [bigquery.ArrayQueryParameter("backtest_ids", "STRING", backtest_ids)],
+        output_dataset_role=output_dataset_role,
     )
     summary_by_backtest = {r["backtest_id"]: r for r in summaries}
     run_ids = sorted(set(run_ids) | {
@@ -139,6 +166,7 @@ def fetch_ads_outputs(client: bigquery.Client, experiments: list[dict[str, Any]]
           AND reg.status = 'selected'
         """,
         [bigquery.ArrayQueryParameter("run_ids", "STRING", run_ids)],
+        output_dataset_role=output_dataset_role,
     )
     registry_by_run = {r["run_id"]: r for r in registries}
 
@@ -284,7 +312,11 @@ def main() -> None:
     manifest = load_manifest(Path(args.manifest))
     experiments = manifest.get("experiments", [])
     client = make_bq_client(args.project)
-    ads_by_experiment = fetch_ads_outputs(client, experiments)
+    ads_by_experiment = fetch_ads_outputs(
+        client,
+        experiments,
+        output_dataset_role=args.output_dataset_role,
+    )
     rows = [
         row_for_experiment(exp, ads_by_experiment.get(exp["experiment_id"]))
         for exp in experiments

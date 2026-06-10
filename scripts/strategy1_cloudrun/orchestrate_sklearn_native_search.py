@@ -72,6 +72,11 @@ from scripts.strategy1_cloudrun.select_register_predict import (
     load_candidates,
     rank_candidates,
 )
+from scripts.strategy1_cloudrun.dataset_roles import (
+    allow_future_research,
+    output_dataset_role_cli_args,
+    rewrite_sql_dataset_role,
+)
 from scripts.strategy1_cloudrun.sql_runner import run_sql_step
 from scripts.strategy1_cloudrun.state import (
     LockConfig,
@@ -79,6 +84,7 @@ from scripts.strategy1_cloudrun.state import (
     StepStateSpec,
     build_lock_key,
     scheduler_instance_id,
+    status_table_ref,
 )
 from scripts.strategy1_cloudrun.task_fanout import default_matrix_id, matrix_artifact_uri, read_json
 from scripts.strategy1.replay_acceptance_gate_v3 import (
@@ -88,6 +94,7 @@ from scripts.strategy1.replay_acceptance_gate_v3 import (
     evaluate_candidate as evaluate_v3_candidate,
     fetch_benchmark_rows as fetch_v3_benchmark_rows,
     fetch_nav_rows as fetch_v3_nav_rows,
+    set_output_dataset_role as set_v3_output_dataset_role,
     split_nav_by_backtest as split_v3_nav_by_backtest,
     split_prices_by_benchmark as split_v3_prices_by_benchmark,
 )
@@ -96,6 +103,7 @@ from scripts.strategy1.replay_acceptance_gate_v3 import (
 def main() -> int:
     args = parse_args()
     config = apply_cli_overrides(load_runner_config(args.config), args)
+    args.output_dataset_role = config.output_dataset_role
     requested_candidate_parallelism = effective_candidate_parallelism(config, args.candidate_parallelism)
     candidate_parallelism_source = "cli" if args.candidate_parallelism not in (None, 0) else "config"
     args.candidate_parallelism_from_cli = args.candidate_parallelism not in (None, 0)
@@ -132,6 +140,7 @@ def main() -> int:
         "runner_version": __version__,
         "project": config.project,
         "region": config.region,
+        "output_dataset_role": config.output_dataset_role,
         "config": args.config,
         "manifest": args.manifest,
         "search_id": search_id,
@@ -143,6 +152,7 @@ def main() -> int:
         "candidate_parallelism_source": candidate_parallelism_source,
         "candidate_task_cpu": config.candidate_task_cpu,
         "candidate_task_memory": config.candidate_task_memory,
+        "status_table": status_table_ref(config.project, config.output_dataset_role).strip("`"),
         "top_k_backtest": top_k,
         "test_reuse_wave_no": test_reuse_wave_no,
         "test_reuse_approval_ref": test_reuse_approval_ref,
@@ -175,6 +185,8 @@ def main() -> int:
             client,
             config.training_panel_step,
             build_training_panel_params(search_exp, force_replace=args.force_replace),
+            dataset_role=config.output_dataset_role,
+            allow_future_research=allow_future_research(config.output_dataset_role),
         )
 
     scheduler_id = args.scheduler_instance_id or scheduler_instance_id()
@@ -187,7 +199,12 @@ def main() -> int:
         dry_run=False,
     )
     manifest_hash_value = manifest_hash(args.manifest)
-    status_table = OrchestratorStatusTable(config.project, config.region, dry_run=False)
+    status_table = OrchestratorStatusTable(
+        config.project,
+        config.region,
+        dry_run=False,
+        output_dataset_role=config.output_dataset_role,
+    )
     for step in train_steps:
         run_step(
             config=config,
@@ -276,8 +293,8 @@ def main() -> int:
                 })
 
     successful_topk_results = [item for item in topk_results if item.get("status") == "succeeded"]
-    comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results, search_exp) if successful_topk_results else []
-    comparison_rows = enrich_tail_risk_rows(client, comparison_rows)
+    comparison_rows = fetch_topk_ads_outputs(client, config, successful_topk_results, search_exp) if successful_topk_results else []
+    comparison_rows = enrich_tail_risk_rows(client, config, comparison_rows)
     contract = load_acceptance_contract(config.acceptance_contract_path)
     v3_benchmark_rows: list[dict[str, Any]] = []
     if contract_version(contract) == "model_acceptance_contract_v3":
@@ -288,9 +305,9 @@ def main() -> int:
             comparison_rows,
             contract,
         )
-    apply_native_acceptance_to_ads(client, comparison_rows, raw_manifest, contract)
-    comparison_rows = fetch_topk_ads_outputs(client, successful_topk_results, search_exp) if successful_topk_results else []
-    comparison_rows = enrich_tail_risk_rows(client, comparison_rows)
+    apply_native_acceptance_to_ads(client, config, comparison_rows, raw_manifest, contract)
+    comparison_rows = fetch_topk_ads_outputs(client, config, successful_topk_results, search_exp) if successful_topk_results else []
+    comparison_rows = enrich_tail_risk_rows(client, config, comparison_rows)
     if contract_version(contract) == "model_acceptance_contract_v3":
         comparison_rows, v3_benchmark_rows = enrich_v3_acceptance_rows(
             client,
@@ -299,7 +316,7 @@ def main() -> int:
             comparison_rows,
             contract,
         )
-    overlap_rows, common_crash_rows = build_search_tail_risk_artifacts(client, search_id, comparison_rows)
+    overlap_rows, common_crash_rows = build_search_tail_risk_artifacts(client, config, search_id, comparison_rows)
     write_final_comparison(
         comparison_dir,
         search_id=search_id,
@@ -352,7 +369,13 @@ def main() -> int:
             "p_data_end_date": search_exp.final_holdout_end or search_exp.predict_end,
         }
         qa_params.update(contract_sql_params(contract))
-        run_sql_step(client, qa_step, qa_params)
+        run_sql_step(
+            client,
+            qa_step,
+            qa_params,
+            dataset_role=config.output_dataset_role,
+            allow_future_research=allow_future_research(config.output_dataset_role),
+        )
         if search_exp.feature_set_id == PV_FIN_RISK_FEATURE_SET_ID:
             risk_qa_params = contract_sql_params(contract)
             risk_qa_params = {
@@ -370,7 +393,13 @@ def main() -> int:
                 "p_final_holdout_start_date": search_exp.final_holdout_start,
                 "p_final_holdout_end_date": search_exp.final_holdout_end,
             }
-            run_sql_step(client, "qa_risk_feature_search_outputs", risk_qa_params)
+            run_sql_step(
+                client,
+                "qa_risk_feature_search_outputs",
+                risk_qa_params,
+                dataset_role=config.output_dataset_role,
+                allow_future_research=allow_future_research(config.output_dataset_role),
+            )
     next_wave = maybe_run_next_wave(
         args=args,
         raw_manifest=raw_manifest,
@@ -451,6 +480,7 @@ def maybe_run_next_wave(
         f"--region={args.region}" if args.region else None,
         f"--config={next_manifest}",
         f"--manifest={next_manifest}",
+        *output_dataset_role_cli_args(args.output_dataset_role, equals=True),
         f"--candidate-parallelism={args.candidate_parallelism}",
         f"--top-k-backtest={args.top_k_backtest}" if args.top_k_backtest else None,
     ]
@@ -515,6 +545,7 @@ def common_job_flags(config, args, exp: Experiment) -> list[str]:
         f"--region={config.region}",
         f"--config={args.config}",
         f"--manifest={args.manifest}",
+        *output_dataset_role_cli_args(config.output_dataset_role, equals=True),
         f"--experiment-id={exp.experiment_id}",
         f"--experiment-json={experiment_to_b64(exp)}",
     ]
@@ -581,7 +612,12 @@ def run_topk_candidate(
 ) -> dict[str, Any]:
     candidate_id = row["candidate_id"]
     exp = topk_experiment(search_exp, search_id, candidate_id)
-    status_table = OrchestratorStatusTable(config.project, config.region, dry_run=False)
+    status_table = OrchestratorStatusTable(
+        config.project,
+        config.region,
+        dry_run=False,
+        output_dataset_role=config.output_dataset_role,
+    )
     select_flags = common_job_flags(config, args, exp)
     select_flags.extend([
         f"--matrix-uri={matrix_uri}",
@@ -676,6 +712,32 @@ def run_step(
         status_table=status_table,
         args=args,
     )
+
+
+def dataset_role_query_job(
+    client: bigquery.Client,
+    config,
+    sql: str,
+    params: list[bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter],
+) -> bigquery.QueryJob:
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=config.output_dataset_role,
+        project=config.project,
+    )
+    return client.query(
+        sql,
+        job_config=bigquery.QueryJobConfig(query_parameters=params),
+    )
+
+
+def dataset_role_dataframe(
+    client: bigquery.Client,
+    config,
+    sql: str,
+    params: list[bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter],
+) -> pd.DataFrame:
+    return dataset_role_query_job(client, config, sql, params).to_dataframe(create_bqstorage_client=False)
 
 
 def comparison_local_dir(config, search_id: str) -> Path:
@@ -902,6 +964,7 @@ def render_comparison_md(payload: dict[str, Any], comparison_rows: list[dict[str
 
 def fetch_topk_ads_outputs(
     client: bigquery.Client,
+    config,
     topk_results: list[dict[str, Any]],
     search_exp: Experiment,
 ) -> list[dict[str, Any]]:
@@ -1065,16 +1128,18 @@ def fetch_topk_ads_outputs(
     """
     rows = [
         dict(row)
-        for row in client.query(
+        for row in dataset_role_query_job(
+            client,
+            config,
             sql,
-            job_config=bigquery.QueryJobConfig(query_parameters=[
+            [
                 bigquery.ArrayQueryParameter("run_ids", "STRING", run_ids),
                 bigquery.ArrayQueryParameter("backtest_ids", "STRING", backtest_ids),
                 bigquery.ScalarQueryParameter("test_start", "DATE", search_exp.test_start),
                 bigquery.ScalarQueryParameter("test_end", "DATE", search_exp.test_end),
                 bigquery.ScalarQueryParameter("final_holdout_start", "DATE", search_exp.final_holdout_start),
                 bigquery.ScalarQueryParameter("final_holdout_end", "DATE", search_exp.final_holdout_end),
-            ]),
+            ],
         ).result()
     ]
     out = []
@@ -1152,7 +1217,7 @@ def fetch_topk_ads_outputs(
     return sorted(out, key=lambda row: row.get("shortlist_rank_valid_only") or 999)
 
 
-def enrich_tail_risk_rows(client: bigquery.Client, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def enrich_tail_risk_rows(client: bigquery.Client, config, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     backtest_ids = [row.get("backtest_id") for row in rows if row.get("backtest_id")]
     if not backtest_ids:
         return rows
@@ -1196,14 +1261,8 @@ def enrich_tail_risk_rows(client: bigquery.Client, rows: list[dict[str, Any]]) -
         bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
         bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
     ]
-    nav = client.query(
-        nav_sql,
-        job_config=bigquery.QueryJobConfig(query_parameters=params),
-    ).to_dataframe(create_bqstorage_client=False)
-    pos = client.query(
-        pos_sql,
-        job_config=bigquery.QueryJobConfig(query_parameters=params),
-    ).to_dataframe(create_bqstorage_client=False)
+    nav = dataset_role_dataframe(client, config, nav_sql, params)
+    pos = dataset_role_dataframe(client, config, pos_sql, params)
     if nav.empty:
         return rows
     nav["trade_date"] = pd.to_datetime(nav["trade_date"]).dt.date
@@ -1245,6 +1304,7 @@ def enrich_tail_risk_rows(client: bigquery.Client, rows: list[dict[str, Any]]) -
 
 def build_search_tail_risk_artifacts(
     client: bigquery.Client,
+    config,
     search_id: str,
     rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -1275,10 +1335,7 @@ def build_search_tail_risk_artifacts(
         bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
         bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
     ]
-    targets = client.query(
-        target_sql,
-        job_config=bigquery.QueryJobConfig(query_parameters=params),
-    ).to_dataframe(create_bqstorage_client=False)
+    targets = dataset_role_dataframe(client, config, target_sql, params)
     if targets.empty:
         return [], []
     targets["signal_date"] = pd.to_datetime(targets["signal_date"]).dt.date
@@ -1323,12 +1380,13 @@ def build_search_tail_risk_artifacts(
                 "candidate_ids": ";".join(str(candidate_by_run.get(run_id) or "") for run_id in run_list),
                 "window_cumulative_contribution": None,
             })
-    common_rows = attach_common_crash_contribution(client, rows, common_rows)
+    common_rows = attach_common_crash_contribution(client, config, rows, common_rows)
     return overlap_rows, common_rows
 
 
 def attach_common_crash_contribution(
     client: bigquery.Client,
+    config,
     rows: list[dict[str, Any]],
     common_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -1370,10 +1428,7 @@ def attach_common_crash_contribution(
         bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
         bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
     ]
-    pos = client.query(
-        pos_sql,
-        job_config=bigquery.QueryJobConfig(query_parameters=params),
-    ).to_dataframe(create_bqstorage_client=False)
+    pos = dataset_role_dataframe(client, config, pos_sql, params)
     if pos.empty:
         return common_rows
     pos["trade_date"] = pd.to_datetime(pos["trade_date"]).dt.date
@@ -1454,7 +1509,12 @@ def enrich_v3_acceptance_rows(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not rows:
         return rows, []
-    args = argparse.Namespace(project=config.project, strategy_id=config.strategy_id)
+    set_v3_output_dataset_role(config.output_dataset_role)
+    args = argparse.Namespace(
+        project=config.project,
+        strategy_id=config.strategy_id,
+        output_dataset_role=config.output_dataset_role,
+    )
     apply_v3_contract_defaults(args, contract)
     apply_live_v3_windows(args, search_exp, rows)
     backtest_ids = [str(row.get("backtest_id")) for row in rows if row.get("backtest_id")]
@@ -1662,6 +1722,7 @@ def safe_int_or_none(value: Any) -> int | None:
 
 def apply_native_acceptance_to_ads(
     client: bigquery.Client,
+    config,
     rows: list[dict[str, Any]],
     manifest: dict[str, Any],
     contract: dict[str, Any],
@@ -1691,7 +1752,7 @@ def apply_native_acceptance_to_ads(
             if legacy_risk_overlay_enabled and row.get("feature_set_id") == PV_FIN_RISK_FEATURE_SET_ID
             else None
         )
-        patch_native_acceptance(client, row, status, reason, derived)
+        patch_native_acceptance(client, config, row, status, reason, derived)
         row["native_acceptance_status"] = status
         row["native_acceptance_reason"] = reason
         row.update(derived)
@@ -1706,6 +1767,7 @@ def append_reason(reason: str, extra: str) -> str:
 
 def patch_native_acceptance(
     client: bigquery.Client,
+    config,
     row: dict[str, Any],
     status: str,
     reason: str,
@@ -1770,7 +1832,9 @@ def patch_native_acceptance(
             safe_int_or_none(derived.get("v3_relative_gate_evaluated_benchmark_count")),
         ),
     ]
-    client.query(
+    dataset_role_query_job(
+        client,
+        config,
         """
         UPDATE `data-aquarium.ashare_ads.ads_model_registry` AS reg
         SET reg.metrics_json = TO_JSON_STRING(JSON_SET(
@@ -1811,9 +1875,11 @@ def patch_native_acceptance(
         WHERE reg.model_id = @model_id
           AND reg.status = 'selected'
         """,
-        job_config=bigquery.QueryJobConfig(query_parameters=params),
+        params,
     ).result()
-    client.query(
+    dataset_role_query_job(
+        client,
+        config,
         """
         UPDATE `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
         SET bs.metrics_json = TO_JSON_STRING(JSON_SET(
@@ -1856,7 +1922,7 @@ def patch_native_acceptance(
         ))
         WHERE bs.backtest_id = @backtest_id
         """,
-        job_config=bigquery.QueryJobConfig(query_parameters=params),
+        params,
     ).result()
 
 

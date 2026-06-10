@@ -9,6 +9,7 @@ execution_backend: cloud_run_sklearn_ledger_v1_lot100
 artifact_base_uri: gs://ashare-artifacts/reports/strategy1
 model_artifact_base_uri: gs://ashare-artifacts/models/strategy1
 local_mirror_root: reports/strategy1_cloudrun
+output_dataset_role: ads
 
 train_predict_job: strategy1-train-predict-job
 prepare_matrix_job: strategy1-prepare-matrix-job

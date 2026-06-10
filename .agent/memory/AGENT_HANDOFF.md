@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 分支 `codex/strategy1-research-routing-d1b` 已处理 PR #143 review follow-up：默认 ADS 子命令不下发 `--output-dataset-role=ads`，保持旧 Cloud Run 镜像兼容；显式 research 仍下发 role flag。
+> - Research contract 已补 lifecycle 默认值：普通 research 输出默认 `research_status='candidate'`、`promotion_status='not_promoted'`，`research_promotion_manifest.promotion_status` 默认 `planned`。
+> - D1 真实 research smoke 仍是独立收尾项：部署 D0 DDL、重建镜像、补 runtime SA `ashare_research` 写权限并跑显式 research-mode smoke 后，才能进入 D2 default research-first；读侧 routing 全局态收敛已登记到 Phase E。验证包括 `python3 -m pytest tests` 57 passed、Dataform `--check`、Dataform compile、BigQuery DDL dry-run、主要 CLI help/dry-run、41 条程序化 self-review checks、compileall 和 `git diff --check`。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 分支 `codex/strategy1-research-routing-d1a` 已 rebase 到最新 `origin/main`（含 PR #141 dynamic CV fold 修复），并继续用于 PR #142。
 > - PR #142 review follow-up 已处理：补全非 retired Strategy1 step 的 catalog `inputs` / `outputs`，使其覆盖 SQL 中实际 `data-aquarium.ashare_ads.*` 引用；新增 pytest 校验 catalog role 覆盖和 research 渲染无 ADS 残留。
 > - 验证：`python3 -m pytest tests` 42 passed；Dataform `--check`、Dataform compile、catalog ADS role 覆盖扫描、88 条程序化 self-review checks、compileall 和 `git diff --check` 均通过。
@@ -123,6 +128,7 @@
 
 ## 当前交接摘要
 
+- 2026-06-10：项目结构重构 Phase D1b runner research routing 已在 `codex/strategy1-research-routing-d1b` 实现并处理 PR #143 review follow-up；新增 `output_dataset_role` 配置/CLI、`dataset_roles.py` helper 和 runner/report/diagnosis/QA/acceptance/comparison/factor attribution 显式 research routing。默认仍是 ADS，且默认 ADS 子命令不下发 `--output-dataset-role=ads`，保持旧 Cloud Run 镜像兼容；显式 `research` 模式下 run-scoped Strategy1 表解析到 `ashare_research.research_*`，research status 表解析到 `ashare_research.research_experiment_run_status`。Research DDL 已补 lifecycle 默认值：普通输出为 `candidate/not_promoted`，promotion manifest 为 `planned`。本轮不创建或部署 BigQuery `ashare_research` 对象、不修改 Cloud Run Job spec、不切 default research-first、不实现 promotion；D2 前新增 D1 收尾验收项，读侧 routing 全局态风格收敛登记到 Phase E。验证：`python3 -m pytest tests` 57 passed、Dataform `--check`、Dataform compile、BigQuery DDL dry-run、主要 CLI help/dry-run、41 条程序化 self-review checks、compileall 和 `git diff --check` 均通过。
 - 2026-06-10：项目结构重构 Phase D1a SQL render table-role routing 已在 `codex/strategy1-research-routing-d1a` 实现并 rebase 到最新 `origin/main`；PR #142 review follow-up 已补全 catalog step role 覆盖，并新增 pytest 防止 research 渲染残留 `data-aquarium.ashare_ads.`。`sql_render.py` 可按 catalog step 的 role 集合把 ADS 表引用显式改写为 `ashare_research.research_*`，`sql_runner.py` wrapper 已透传 `dataset_role` / `allow_future_research`，默认 ADS 行为不变。无 step 上下文的全局 research 替换会 fail-fast，防止 `model_registry` / `acceptance_result` 共享 ADS 表造成误替换。本轮不启用 Cloud Run 默认写 research、不写 BigQuery、不做 promotion；D1b 仍需单独接 runner config / report / diagnosis / QA / acceptance/comparison research source。
 - 2026-06-10：项目结构重构 Phase D0 research table contract 已在 `codex/add-research-table-contract` 实现；新增 `sql/research/**`、`ashare_research` schema contract、catalog research contract metadata 和 DDL drift tests。PR #140 review follow-up 已补 `experiment_run_status` 当前侧 `ashare_meta` dataset override 和 `build_order_plan` 分区列一致性测试；D0 不部署 BigQuery、不写 research、不迁移历史 ADS、不实现 promotion。D1a 已新增 render-only research opt-in，真正 runner 写 research 仍需 D1b 单独 PR。
 - 2026-06-10：OQ-005 Cloud Run Job IAM bootstrap TODO 已收口；PR #126 已合并到 `main`，`orchestration/workflows/bootstrap_scheduler_iam.sh` 已固化 runtime SA 的 job-level `roles/run.jobsExecutorWithOverrides`、project-level `roles/run.viewer` 并移除旧 job-level `roles/run.invoker`；本轮只清理过期 TODO / 记忆状态，不改运行代码。
@@ -135,7 +141,7 @@
 - OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更；旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
 - Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；旧 BQML-only `02-04`、SQL ledger fallback `08` / `--use-bq-ledger` 和旧 `run_oq010_experiments.py` 已在 PR #131 分支退役删除；当前没有 accepted Python baseline，OQ-010 仍然 open；R14 长训练补数已越过历史 backfill 日期下限和 `dim_stock` 生命周期问题，但 2015 年重跑又暴露 core smoke 2019 全表下限误杀，需合并部署 `codex/fix-historical-backfill-core-smoke` 后再重跑 2015 年窗口。
 - OQ-012 当前状态：schema contract / repair tooling / QA 都已具备，当前 BigQuery 读层无 mismatch 报警；剩余是 owner 是否把该问题正式关闭或保留防复发工程项。
-- 下一步：owner review 年度滚动选参 PRD 后，若认可，先实现 2021 单年度 smoke，再跑完整 2021-2026 annual walk-forward 参数选择与连续 ledger 对比。
+- 下一步：结构重构若继续推进，应单独做 Phase D2 default research-first 或 Phase D3 owner-approved promotion job；D1b 合并前不应切默认写入，也不应把 research 结果自动 promotion 到 ADS。
 
 
 # Agent 交接（Agent Handoff）
@@ -143,6 +149,85 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-10 GPT-5 Codex - Runner research routing D1b
+
+### 已完成工作
+
+- 从最新 `origin/main` 新建 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-research-routing-d1b` 和分支 `codex/strategy1-research-routing-d1b`；未触碰主工作树 `/Users/fisher/Desktop/git/quant-ashare`。
+- 新增 `scripts/strategy1_cloudrun/dataset_roles.py`，封装 `TableResolver`、`output_dataset_role` 校验、research opt-in 和 SQL dataset-role rewrite；默认 rewrite 排除 `acceptance_result`，避免 `ads_model_registry` 双 role 歧义。
+- `RunnerConfig`、通用 CLI、resolved manifest、orchestrator status payload 和 Cloud Run job args 已透传 `output_dataset_role`；默认值保持 `ads`。
+- `train_predict.py`、`prepare_matrix.py`、`select_register_predict.py`、`ledger.py`、`backtest_report.py`、`orchestrate_experiments.py`、`orchestrate_sklearn_native_search.py` 和 `state.py` 已接入 resolver；显式 research 模式下 run-scoped 表指向 `ashare_research.research_*`。
+- `render_report.py`、`diagnose_model_quality.py`、`analyze_tail_risk.py`、`replay_acceptance_gate_v3.py`、`compare_oq010_experiments.py`、`diagnose_acceptance_gate_v2.py`、`diagnose_acceptance_window.py` 和 `attribute_factor_contribution.py` 已新增 `--output-dataset-role`，并在查询或 summary 回写前做 dataset-role rewrite。
+- 新增 `tests/strategy1_cloudrun/test_dataset_role_routing.py`，覆盖默认 ADS、显式 research、resolver/SQL rewrite、subcommand 透传、ledger/status routing、native query helper、acceptance diagnostic helper 和 factor attribution summary 回写。
+- PR #143 review follow-up 已处理：默认 ADS 子命令不下发 `--output-dataset-role=ads`，保持旧 Cloud Run 镜像兼容；显式 research 仍下发 role flag。
+- `sql/research/01_research_strategy1_tables.sql` 已补 lifecycle 默认值：普通 research 输出默认 `research_status='candidate'`、`promotion_status='not_promoted'`，`research_promotion_manifest.promotion_status` 默认 `planned`。
+- 新增 D1 收尾 TODO 和 `DECISION-20260610-08`，明确 D2 前必须完成 D0 DDL 部署、Cloud Run 镜像重建、runtime SA `ashare_research` 写权限和真实 research-mode smoke。
+- 同步更新 `TODO.md`、`IMPLEMENTATION_STATUS`、`KNOWN_CONSTRAINTS`、`ARCHITECTURE_MEMORY`、`DECISION_LOG` 和 `AGENT_HANDOFF`。
+
+### 重要上下文
+
+- D1b 仍是 explicit opt-in；不切 default research-first。
+- 本轮不创建或部署实际 BigQuery `ashare_research` 表，不修改 Cloud Run Job spec，不迁移历史 ADS，不实现 promotion job。
+- historical BQML parity reference 仍按设计读取 ADS，不随当前 run 的 output role 改写。
+- D1b 单测 / dry-run 不是 PRD D1 的真实验收；进入 D2 前必须完成显式 research-mode smoke。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/dataset_roles.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/train_predict.py`
+- `scripts/strategy1_cloudrun/prepare_matrix.py`
+- `scripts/strategy1_cloudrun/select_register_predict.py`
+- `scripts/strategy1_cloudrun/ledger.py`
+- `scripts/strategy1_cloudrun/backtest_report.py`
+- `scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1_cloudrun/state.py`
+- `scripts/strategy1/*.py` report / diagnosis / acceptance / comparison helpers
+- `configs/strategy1/cloudrun_runner_default.yml`
+- `sql/research/01_research_strategy1_tables.sql`
+- `sql/research/README.md`
+- `tests/strategy1_cloudrun/test_dataset_role_routing.py`
+- `tests/strategy1/test_research_contract.py`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest tests -q`：57 passed。
+- `PYTHONPATH=src python3 -m pytest tests/strategy1_cloudrun/test_dataset_role_routing.py tests/strategy1/test_research_contract.py -q`：21 passed。
+- `python3 -m compileall -q src/quant_ashare/strategy1 scripts/strategy1_cloudrun scripts/strategy1 tests/strategy1_cloudrun/test_dataset_role_routing.py tests/strategy1/test_research_contract.py`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform`：通过。
+- `(cat sql/00_create_datasets.sql; cat sql/research/01_research_strategy1_tables.sql) | bq query --dry_run --use_legacy_sql=false --location=asia-east2`：通过。
+- CLI help 覆盖 `orchestrate_experiments`、`orchestrate_sklearn_native_search` 和 `backtest_report`。
+- CLI dry-run 覆盖 `orchestrate_experiments`、`orchestrate_sklearn_native_search` 和 `backtest_report` 默认 ADS 路径；两个 orchestrator dry-run 均确认默认计划不含 `--output-dataset-role`。
+- 41 条程序化 self-review checks：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 合并 D1b 前继续保持默认 ADS；后续先做 D1 收尾验收，再单独推进 Phase D2 default research-first，Phase D3 单独实现 owner-approved promotion job；Phase E 包化时收敛读侧 routing 全局态。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - SQL render table-role routing D1a
 

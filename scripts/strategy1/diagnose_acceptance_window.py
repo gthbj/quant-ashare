@@ -30,14 +30,19 @@ from scripts.strategy1_cloudrun.bq_io import (
     get_git_commit,
     join_gs_uri,
     make_client,
-    query_dataframe,
+    query_dataframe as bq_query_dataframe,
     upload_directory_to_gcs,
     write_json,
     write_text,
 )
+from scripts.strategy1_cloudrun.dataset_roles import (
+    OUTPUT_DATASET_ROLE_CHOICES,
+    rewrite_sql_dataset_role,
+)
 
 
 DEFAULT_DIAGNOSIS_ID = "riskfeat_acceptance_window_20260606_01"
+OUTPUT_DATASET_ROLE = "ads"
 DEFAULT_BQML_BACKTEST_ID = "bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01"
 DEFAULT_SEARCH_IDS = [
     "sklearn_native_pvfq_n30_bw_h5_20260605_01",
@@ -68,12 +73,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--python-same-side-threshold", type=float, default=0.80)
     parser.add_argument("--artifact-base-uri", default="gs://ashare-artifacts/reports/strategy1")
     parser.add_argument("--local-mirror-root", default="reports/strategy1")
+    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
     parser.add_argument("--skip-gcs-upload", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    set_output_dataset_role(args.output_dataset_role)
     if not 0 < args.python_same_side_threshold <= 1:
         raise SystemExit("--python-same-side-threshold must be in (0, 1]")
     search_ids = args.search_id or DEFAULT_SEARCH_IDS
@@ -125,6 +132,26 @@ def main() -> int:
         "python_candidate_count": int(len(candidates_df)),
     }, ensure_ascii=False, indent=2))
     return 0
+
+
+def set_output_dataset_role(dataset_role: str) -> None:
+    global OUTPUT_DATASET_ROLE
+    OUTPUT_DATASET_ROLE = dataset_role
+
+
+def query_dataframe(
+    client: bigquery.Client,
+    sql: str,
+    params: list[bigquery.ScalarQueryParameter],
+    *,
+    labels: dict[str, str | None] | None = None,
+) -> pd.DataFrame:
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=OUTPUT_DATASET_ROLE,
+        project=client.project,
+    )
+    return bq_query_dataframe(client, sql, params, labels=labels)
 
 
 def artifact_local_dir(args: argparse.Namespace) -> Path:

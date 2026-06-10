@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_ml_training_p
   target_return FLOAT64 OPTIONS(description = '回归目标收益'),
   feature_values_json STRING OPTIONS(description = '本 run 固化后的预处理特征 JSON'),
   feature_column_list ARRAY<STRING> OPTIONS(description = '特征列清单，顺序与 feature_values_json 对齐'),
-  research_status STRING OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated；默认 not_promoted'),
+  research_status STRING DEFAULT 'candidate' OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated；默认 not_promoted'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )
 PARTITION BY DATE_TRUNC(trade_date, MONTH)
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_model_registr
   git_commit STRING OPTIONS(description = '代码 commit hash'),
   status STRING OPTIONS(description = '候选状态：registered/rejected/accepted/superseded 等'),
   acceptance_status STRING OPTIONS(description = 'acceptance gate 状态：not_evaluated/rejected/accepted/needs_more_evidence'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated；accepted 不等于 promoted'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated；accepted 不等于 promoted'),
   promotion_id STRING OPTIONS(description = '若已 promotion，对应 promotion id；否则为空'),
   approval_ref STRING OPTIONS(description = 'owner approval / PR / issue 引用；未 promotion 时为空'),
   created_date DATE OPTIONS(description = '注册日期，月分区字段'),
@@ -87,8 +87,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_model_predict
   rank_pct FLOAT64 OPTIONS(description = '当日 score 横截面分位，1 为最高'),
   feature_version STRING OPTIONS(description = '特征版本'),
   run_id STRING OPTIONS(description = '预测 run id'),
-  research_status STRING OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
+  research_status STRING DEFAULT 'candidate' OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )
 PARTITION BY DATE_TRUNC(predict_date, MONTH)
@@ -111,8 +111,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_stock_candida
   is_selected_candidate BOOL OPTIONS(description = '是否进入目标候选名单'),
   filter_reason STRING OPTIONS(description = '未入选或过滤原因'),
   run_id STRING OPTIONS(description = '生成 run id'),
-  research_status STRING OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
+  research_status STRING DEFAULT 'candidate' OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )
 PARTITION BY DATE_TRUNC(rebalance_date, MONTH)
@@ -132,8 +132,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_portfolio_tar
   model_id STRING OPTIONS(description = '候选模型 id'),
   horizon INT64 OPTIONS(description = '模型 horizon，交易日'),
   run_id STRING OPTIONS(description = '生成 run id'),
-  research_status STRING OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
+  research_status STRING DEFAULT 'candidate' OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )
 PARTITION BY DATE_TRUNC(rebalance_date, MONTH)
@@ -154,8 +154,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_order_plan_da
   expected_amount_cny FLOAT64 OPTIONS(description = '预期成交金额，元'),
   order_reason STRING OPTIONS(description = '下单原因'),
   run_id STRING OPTIONS(description = '生成 run id'),
-  research_status STRING OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
+  research_status STRING DEFAULT 'candidate' OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )
 PARTITION BY DATE_TRUNC(rebalance_date, MONTH)
@@ -180,8 +180,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_backtest_trad
   cash_effect_cny FLOAT64 OPTIONS(description = '现金影响，元'),
   fill_status STRING OPTIONS(description = '成交状态；非成交状态 filled_shares=0 且无现金/换手影响'),
   run_id STRING OPTIONS(description = '回测 run id'),
-  research_status STRING OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
+  research_status STRING DEFAULT 'candidate' OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )
 PARTITION BY DATE_TRUNC(trade_date, MONTH)
@@ -201,8 +201,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_backtest_posi
   weight FLOAT64 OPTIONS(description = '组合权重'),
   unrealized_pnl_cny FLOAT64 OPTIONS(description = '未实现盈亏，元'),
   run_id STRING OPTIONS(description = '回测 run id'),
-  research_status STRING OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
+  research_status STRING DEFAULT 'candidate' OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )
 PARTITION BY DATE_TRUNC(trade_date, MONTH)
@@ -226,8 +226,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_backtest_nav_
   benchmark_return FLOAT64 OPTIONS(description = '基准日收益'),
   excess_return FLOAT64 OPTIONS(description = '相对基准日超额收益'),
   run_id STRING OPTIONS(description = '回测 run id'),
-  research_status STRING OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
+  research_status STRING DEFAULT 'candidate' OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )
 PARTITION BY DATE_TRUNC(trade_date, MONTH)
@@ -252,8 +252,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_backtest_ledg
   resume_policy_id STRING OPTIONS(description = 'resume 策略语义 id'),
   rebalance_anchor_start DATE OPTIONS(description = '调仓 cadence 锚点起始日'),
   run_id STRING OPTIONS(description = '回测 run id'),
-  research_status STRING OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
+  research_status STRING DEFAULT 'candidate' OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )
 PARTITION BY DATE_TRUNC(trade_date, MONTH)
@@ -286,7 +286,7 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_backtest_perf
   cost_bps FLOAT64 OPTIONS(description = '回测成本假设，bps'),
   metrics_json STRING OPTIONS(description = '扩展指标 JSON'),
   acceptance_status STRING OPTIONS(description = 'acceptance gate 状态：not_evaluated/rejected/accepted/needs_more_evidence'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
   promotion_id STRING OPTIONS(description = '若已 promotion，对应 promotion id；否则为空'),
   approval_ref STRING OPTIONS(description = 'owner approval / PR / issue 引用；未 promotion 时为空'),
   created_date DATE OPTIONS(description = '写入日期，月分区字段'),
@@ -311,8 +311,8 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_signal_monito
   not_tradable_entry_count INT64 OPTIONS(description = '入场不可交易样本数'),
   metrics_json STRING OPTIONS(description = '扩展监控指标 JSON'),
   run_id STRING OPTIONS(description = '监控 run id'),
-  research_status STRING OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
-  promotion_status STRING OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
+  research_status STRING DEFAULT 'candidate' OPTIONS(description = '研究生命周期状态：candidate/rejected/accepted/superseded 等'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'promotion 状态：not_promoted/promoted/deprecated'),
   created_at TIMESTAMP OPTIONS(description = '写入时间')
 )
 PARTITION BY DATE_TRUNC(trade_date, MONTH)
@@ -344,7 +344,7 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_acceptance_re
   comparison_benchmarks_json STRING OPTIONS(description = '对比基准 JSON array'),
   acceptance_status STRING OPTIONS(description = 'rejected/accepted/needs_more_evidence 等；accepted 仍属于 research'),
   accepted BOOL OPTIONS(description = 'TRUE 表示 acceptance gate 通过；不代表已 promotion'),
-  promotion_status STRING OPTIONS(description = 'not_promoted/promoted/deprecated；accepted 不等于 promoted'),
+  promotion_status STRING DEFAULT 'not_promoted' OPTIONS(description = 'not_promoted/promoted/deprecated；accepted 不等于 promoted'),
   promoted BOOL OPTIONS(description = 'TRUE 表示已有 owner-approved promotion manifest 并完成 promotion'),
   promotion_manifest_id STRING OPTIONS(description = '关联 research_promotion_manifest.promotion_id；未 promotion 时为空'),
   metrics_json STRING OPTIONS(description = '结构化评价指标 JSON'),
@@ -431,7 +431,7 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_promotion_man
   approved_at TIMESTAMP OPTIONS(description = '批准时间'),
   source_git_commit STRING OPTIONS(description = 'source run 使用的 git commit'),
   promotion_code_version STRING OPTIONS(description = 'promotion 代码版本'),
-  promotion_status STRING OPTIONS(description = 'planned/running/succeeded/failed/cancelled/deprecated'),
+  promotion_status STRING DEFAULT 'planned' OPTIONS(description = 'planned/running/succeeded/failed/cancelled/deprecated'),
   promoted_at TIMESTAMP OPTIONS(description = 'promotion 成功写入 ADS 的时间；未完成时为空'),
   created_date DATE OPTIONS(description = 'manifest 创建日期，月分区字段'),
   created_at TIMESTAMP OPTIONS(description = 'manifest 创建时间')

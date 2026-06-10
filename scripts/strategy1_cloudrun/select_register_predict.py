@@ -18,7 +18,6 @@ from google.cloud import bigquery
 
 from scripts.strategy1_cloudrun import __version__
 from scripts.strategy1_cloudrun.bq_io import (
-    ADS,
     bq_label_value,
     execute_query,
     get_git_commit,
@@ -39,6 +38,7 @@ from scripts.strategy1_cloudrun.config import (
     load_manifest,
     load_runner_config,
 )
+from scripts.strategy1_cloudrun.dataset_roles import TableResolver
 from scripts.strategy1_cloudrun.task_fanout import (
     ensure_matrix_local,
     read_json,
@@ -71,6 +71,7 @@ def main() -> int:
         "runner_version": __version__,
         "project": config.project,
         "region": config.region,
+        "output_dataset_role": config.output_dataset_role,
         "experiment": experiment.to_params(),
         "matrix_uri": args.matrix_uri,
         "matrix_local_dir": str(matrix_local),
@@ -263,9 +264,17 @@ def select_register_predict(
     uploaded = [] if skip_gcs_upload else upload_directory_to_gcs(config.project, artifact_local_dir, artifact_uri)
 
     if force_replace:
-        clear_train_predict_outputs(client, experiment)
+        clear_train_predict_outputs(client, config, experiment)
     if source_run_id != experiment.run_id:
-        copy_training_panel_alias(client, source_run_id, experiment.run_id, model_id, experiment, force_replace=force_replace)
+        copy_training_panel_alias(
+            client,
+            config,
+            source_run_id,
+            experiment.run_id,
+            model_id,
+            experiment,
+            force_replace=force_replace,
+        )
     registry_candidates = [selected] if candidate_id else candidates
     write_registry(client, config, experiment, registry_candidates, selected, model_id, artifact_uri, force_replace=force_replace)
     predict_panel = pd.read_parquet(matrix_local / "predict_index.parquet")
@@ -298,10 +307,16 @@ def audit_candidate_task_bigquery_usage(
     *,
     audit_run_id: str | None = None,
 ) -> dict[str, Any]:
+    training_panel = TableResolver(
+        dataset_role=config.output_dataset_role,
+        project=config.project,
+    ).fqn("training_panel")
     forbidden_tables = [
-        f"{ADS}.ads_ml_training_panel_daily",
+        training_panel,
+        "data-aquarium.ashare_ads.ads_ml_training_panel_daily",
         "data-aquarium.ashare_dws.dws_stock_sample_daily",
     ]
+    forbidden_tables = sorted(set(forbidden_tables))
     audit_window_days = 14
     max_bytes_threshold = 0
     jobs_table = f"`{config.project}.region-{config.region}.INFORMATION_SCHEMA.JOBS_BY_PROJECT`"
@@ -542,6 +557,7 @@ def native_search_metrics(
 
 def copy_training_panel_alias(
     client: bigquery.Client,
+    config,
     source_run_id: str,
     target_run_id: str,
     model_id: str,
@@ -551,12 +567,16 @@ def copy_training_panel_alias(
 ) -> None:
     if source_run_id == target_run_id:
         return
+    training_panel = TableResolver(
+        dataset_role=config.output_dataset_role,
+        project=config.project,
+    ).fqn("training_panel")
     panel_end = experiment.final_holdout_end or experiment.predict_end or experiment.test_end
     if force_replace:
         execute_query(
             client,
             f"""
-            DELETE FROM `{ADS}.ads_ml_training_panel_daily`
+            DELETE FROM `{training_panel}`
             WHERE run_id = @target_run_id
               AND trade_date BETWEEN @train_start AND @panel_end
             """,
@@ -570,7 +590,7 @@ def copy_training_panel_alias(
         client,
         f"""
         SELECT COUNT(*) AS n
-        FROM `{ADS}.ads_ml_training_panel_daily`
+        FROM `{training_panel}`
         WHERE run_id = @target_run_id
           AND trade_date BETWEEN @train_start AND @panel_end
         """,
@@ -585,7 +605,7 @@ def copy_training_panel_alias(
     execute_query(
         client,
         f"""
-        INSERT INTO `{ADS}.ads_ml_training_panel_daily`
+        INSERT INTO `{training_panel}`
         (
           run_id, strategy_id, model_id, preprocess_version, feature_version,
           label_version, universe_version, trade_date, sec_code, horizon,
@@ -611,7 +631,7 @@ def copy_training_panel_alias(
           feature_values_json,
           feature_column_list,
           CURRENT_TIMESTAMP() AS created_at
-        FROM `{ADS}.ads_ml_training_panel_daily`
+        FROM `{training_panel}`
         WHERE run_id = @source_run_id
           AND trade_date BETWEEN @train_start AND @panel_end
         """,

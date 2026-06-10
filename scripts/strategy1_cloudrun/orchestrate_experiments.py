@@ -27,6 +27,7 @@ from scripts.strategy1_cloudrun.config import (
     resolve_parallel_count,
 )
 from scripts.strategy1_cloudrun.bq_io import join_gs_uri
+from scripts.strategy1_cloudrun.dataset_roles import output_dataset_role_cli_args
 from scripts.strategy1_cloudrun.state import (
     GcsLeaseLock,
     LockConfig,
@@ -39,6 +40,7 @@ from scripts.strategy1_cloudrun.state import (
     experiment_params_json,
     extract_cloud_run_execution_id,
     scheduler_instance_id,
+    status_table_ref,
 )
 from scripts.strategy1_cloudrun.task_fanout import default_matrix_id, matrix_artifact_uri
 
@@ -77,6 +79,7 @@ def main() -> int:
         "project": config.project,
         "region": config.region,
         "execution_backend": config.execution_backend,
+        "output_dataset_role": config.output_dataset_role,
         "manifest": args.manifest,
         "manifest_hash": manifest_hash_value,
         "selected_experiment_count": len(selected),
@@ -87,7 +90,7 @@ def main() -> int:
         "resume": args.resume,
         "resume_from_step": args.resume_from_step,
         "scheduler_instance_id": scheduler_id,
-        "status_table": "data-aquarium.ashare_meta.strategy1_experiment_run_status",
+        "status_table": status_table_ref(config.project, config.output_dataset_role).strip("`"),
         "lock_bucket": args.lock_bucket or config.lock_bucket,
         "lock_prefix": args.lock_prefix or config.lock_prefix,
         "heartbeat_interval_seconds": args.heartbeat_interval_seconds,
@@ -205,6 +208,7 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
         f"--region={config.region}",
         f"--config={args.config}",
         f"--manifest={args.manifest}",
+        *output_dataset_role_cli_args(config.output_dataset_role, equals=True),
         f"--experiment-id={exp.experiment_id}",
         f"--experiment-json={experiment_to_b64(exp)}",
     ]
@@ -383,7 +387,12 @@ def run_chain(
 ) -> dict[str, object]:
     if args.resume_from_step and args.resume_from_step not in {step.step_id for step in steps}:
         raise ValueError(f"{exp.experiment_id} has no step {args.resume_from_step}")
-    status_table = OrchestratorStatusTable(config.project, config.region, dry_run=False)
+    status_table = OrchestratorStatusTable(
+        config.project,
+        config.region,
+        dry_run=False,
+        output_dataset_role=config.output_dataset_role,
+    )
     outputs = []
     skip_until_step = args.resume_from_step
     for step in steps:
@@ -420,7 +429,12 @@ def run_locked_step(
     args,
 ) -> dict[str, object]:
     lock = GcsLeaseLock(lock_config, step.lock_key, exp, step.step_id, scheduler_id)
-    params_json = experiment_params_json(exp, execution_backend=config.execution_backend, manifest_hash=manifest_hash_value)
+    params_json = experiment_params_json(
+        exp,
+        execution_backend=config.execution_backend,
+        manifest_hash=manifest_hash_value,
+        output_dataset_role=config.output_dataset_role,
+    )
     if not lock.acquire():
         status_table.upsert(
             exp, step, status="cancelled", scheduler_id=scheduler_id,

@@ -46,8 +46,18 @@ except ImportError as e:
     )
     sys.exit(1)
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.strategy1_cloudrun.dataset_roles import (
+    OUTPUT_DATASET_ROLE_CHOICES,
+    rewrite_sql_dataset_role,
+)
+
 
 ATTRIBUTION_VERSION = "strategy1_factor_attribution_v1"
+OUTPUT_DATASET_ROLE = "ads"
 REQUIRED_ARTIFACTS = [
     "factor_attribution.md",
     "factor_attribution_summary.json",
@@ -143,6 +153,7 @@ def parse_args():
     p.add_argument("--strategy-id", default="ml_pv_clf_v0")
     p.add_argument("--artifact-base-uri", required=True, help="gs://bucket/path")
     p.add_argument("--local-mirror-root", default="reports/strategy1")
+    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
     p.add_argument("--skip-gcs-upload", action="store_true")
     p.add_argument("--p-label-horizon", type=int, default=None)
     p.add_argument("--start-date", default=None, help="Analysis start date; defaults to summary.start_date")
@@ -207,6 +218,11 @@ def make_bqstorage_client(project: str):
 
 
 def bq_query(client: bigquery.Client, sql: str, params: list | None = None) -> pd.DataFrame:
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=OUTPUT_DATASET_ROLE,
+        project=client.project,
+    )
     cfg = bigquery.QueryJobConfig(query_parameters=params or [])
     bqstorage_client = make_bqstorage_client(client.project)
     if bqstorage_client is None:
@@ -1237,8 +1253,8 @@ def upload_dir_to_gcs(project: str, local_dir: Path, gcs_uri: str) -> bool:
     return True
 
 
-def write_attribution_status_to_ads(client: bigquery.Client, project: str,
-                                    backtest_id: str, patch: dict):
+def write_attribution_status(client: bigquery.Client, project: str,
+                             backtest_id: str, patch: dict):
     base = "PARSE_JSON(COALESCE(bs.metrics_json, '{}'), wide_number_mode => 'round')"
     if patch.get("factor_attribution_uri") is None:
         base = f"JSON_REMOVE({base}, '$.factor_attribution_uri')"
@@ -1277,12 +1293,19 @@ def write_attribution_status_to_ads(client: bigquery.Client, project: str,
     SET bs.metrics_json = TO_JSON_STRING({json_expr})
     WHERE bs.backtest_id = @bid
     """
+    sql = rewrite_sql_dataset_role(
+        sql,
+        dataset_role=OUTPUT_DATASET_ROLE,
+        project=client.project,
+    )
     client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params)).result()
     print("  Updated summary.metrics_json (factor_attribution_status=completed)")
 
 
 def main():
+    global OUTPUT_DATASET_ROLE
     args = parse_args()
+    OUTPUT_DATASET_ROLE = args.output_dataset_role
     args.prediction_run_id = args.prediction_run_id or args.run_id
     bq = make_bq_client(args.project)
 
@@ -1484,8 +1507,8 @@ def main():
         "factor_attribution_artifact_manifest": final_manifest,
     }
 
-    print("回写 ADS...")
-    write_attribution_status_to_ads(bq, args.project, args.backtest_id, patch)
+    print("回写 summary...")
+    write_attribution_status(bq, args.project, args.backtest_id, patch)
     print(f"完成。本地: {factor_dir}")
 
 
