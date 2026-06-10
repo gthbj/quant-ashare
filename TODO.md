@@ -19,6 +19,15 @@
   说明：`docs/prd/PRD_20260610_03_策略1年度滚动选参.md` 已定义年度 walk-forward 参数选择方案；`docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md` 已补执行工程化方案；`docs/prd/PRD_20260611_01_策略1年度滚动并发调度.md` 已补跨年度流水线调度方案，要求全局 candidate task 并发默认不超过 20，允许下一年训练与上一年慢候选并行，但本年 `select_register_predict` 必须等本年 11/11 候选完成；PR #161 review follow-up 后还要求 scheduler-level GCS generation-guarded lease lock、GCS state generation 条件写，以及 prepare/select/backtest 与 candidate 共享 `40 CPU / 160Gi` 全局资源池。Phase 1 scheduler dry-run 已在 PR #161 分支实现：新增 `quant_ashare.strategy1.annual_pipeline_scheduler`，输出跨年度 DAG、互斥锁计划、generation-conditioned state 模型和共享资源池模拟，并有 pytest 覆盖 lock ownership / state generation / 资源 admission；后续 review follow-up 已明确 `simulation_model=synchronous_waves`，dry-run 峰值只是 reference 不是 live capacity ceiling，且 `--no-tail-fill-single-task` 的 deferred batch 不再误记 succeeded。2021 单年度 Cloud Run smoke 已在正式 jobs 上闭环，CV fold 修复已实证为 11/11 候选 `cv_fold_count=3`，select/register/predict 与 backtest/report 均成功；另有旧 `f57ff0a` 镜像时代的 2021 历史 smoke 证据，确认 11/11 candidate 成功和 `cv_fold_count=3`，但不代表当前线上状态。annual rolling resolved plan 已把 `build_training_panel_risk_feature` 作为每年第一步显式纳入；PR #159 合并后已从 `main@f30c171` 重建并部署正式 Strategy1 runner 镜像 `sha256:b856f46f56ad5b9a9cd9ac8773e67090f702a06ff8931ca51e1d2e3bb24299d7`，五个正式 jobs 的 `--help` boot smoke 均成功。下一步在 PR #161 合并后做 Phase 2 candidate-only live smoke，把 active fanout 计数从 candidate-year proxy 改为 Cloud Run execution 粒度，再扩展完整 `2021-2026` 年度滚动，并用连续 ledger 评价，不拼接年度 fresh-run。
 
 
+- [ ] OQ-010：按 `PRD_20260611_04` 修复 research summary `created_date`/`run_id` 落库
+  说明：`09` summary INSERT 列清单补 `run_id`/`created_date`，ADS additive 补列对齐 schema，回填现有 6 行（需 owner 批准），`qa_runner_outputs` 加 NOT NULL 断言。必须先于 final refit / continuous 任何重跑执行。
+
+- [ ] OQ-010：按 `PRD_20260611_02` 实现年度滚动 final refit 并六年重跑
+  说明：valid 选参后用最近 5 年 refit selected candidate——复用既有 BigQuery panel（经 `source_panel_run_id` 读 selection run panel），重新 fit preprocessor，不消费冻结 matrix transformed arrays；独立 refit run_id + 溯源契约 + 训练窗口 QA 硬门；2021-2026 从 select 之后重跑（refit + predict + 可选年度 diagnostic），不重跑 panel/matrix/fanout。
+
+- [ ] OQ-010：按 `PRD_20260611_03` 实现 synthetic continuous merge 与正式 continuous ledger
+  说明：manifest 参数化逐年 test 窗口切片（排除 valid 段）+ 重叠/缺口/行数/溯源 QA + official continuous ledger（`2021-01-04` fresh-start 至 `2026-06-09`）。merge/QA 实现与彩排（pre-refit manifest）可与 final refit 并行先行；正式执行依赖六年 refit 重跑完成。
+
 - [x] OQ-010：实现回测复合年化收益字段
   说明：PR #134 已扩展 ADS summary 契约并在 `09` 写出 `compound_annual_return` / `return_period_count` / annualization metadata，`10` 和 `24` QA 校验 `NAV 有效交易日数 - 1` 口径，report 默认展示复合年化；旧 `annual_return` / `sharpe` 保留 legacy 语义，不回填历史 run。
 

@@ -1,3 +1,54 @@
+> 当前交接补充（2026-06-11，Claude Fable 5）
+> - 分支 `claude/prd-refit-continuous-summary` 新增三个 PRD，收口 2021-2026 首轮年度滚动实跑暴露的三类问题：`PRD_20260611_02`（final refit 方法论修正）、`PRD_20260611_03`（synthetic continuous prediction + 正式 continuous ledger）、`PRD_20260611_04`（research summary `created_date`/`run_id` 落库修复，简短）。
+> - 关键依赖关系已写入 PRD：04 的修复必须先于任何重跑；02 与 03 的代码实现可并行（03 的 merge 输入参数化为 manifest，彩排用 pre-refit 预测），只有 03 的正式执行依赖 02 的六年 refit 重跑。
+> - 04 的根因已实证：`09` SQL summary INSERT 列清单不含 `run_id`/`created_date`（ADS 表本无这两列，research 表是 D0 新增），research 渲染只重写表名不重写列清单 → 未列出且无 DEFAULT 的列写 NULL。
+> - 本轮 docs/记忆-only：不改代码、不执行 BigQuery / Cloud Run。当前 6 年年度结果（含 2025 +53.32%）仍只是 diagnostic，final refit 修正前不得解读指标。
+> - PR #162 review 三条 follow-up 已全部采纳修正：①（实证确认 `prepare_matrix` 在 selection train 上 fit preprocessor、matrix 冻结 transformed arrays）PRD_02 复用层级从 matrix 改为 panel，refit 必须重新 fit preprocessor，新增 preprocessing 契约与 QA；② PRD_03 新增 synthetic registry 契约（单 selected synthetic model、prediction model_id 统一改写、逐年溯源入 manifest + `year_model_map`）与专用 `qa_continuous_backtest_outputs` QA 套件，保住下游"每 run 单 selected"不变式；③ PRD_04 扩展 `qa_cloudrun_schema_readiness` 覆盖 ADS summary 新增两列，preflight 拦截漏跑 migration。
+
+Model: Claude Fable 5
+
+## 2026-06-11 Claude Fable 5 - 年度滚动 refit / continuous / summary 三 PRD
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`：refit 窗口口径（resolved plan `final_refit` 块为权威）、复用既有 BigQuery panel（经 `source_panel_run_id` 读 selection run panel，重新 fit preprocessor，不消费冻结 matrix transformed arrays）、`refit_register_predict` 步骤、独立 refit run_id 的 registry 溯源契约、QA 硬门（训练窗口逐年断言）、六年从 select 之后重跑的范围声明。
+- 新增 `docs/prd/PRD_20260611_03_策略1SyntheticContinuous正式回测.md`：manifest 参数化 merge（彩排/正式同代码）、逐年 test 窗口切片排除 valid 段、重叠/缺口/行数/溯源 QA、official continuous ledger 口径、rehearsal 与 official 的强制区分。
+- 新增 `docs/prd/PRD_20260611_04_ResearchSummary落库修复.md`（简短）：根因实证、ADS additive 补列 + `09` 列清单修复 + 6 行回填（需 owner 批准）+ `qa_runner_outputs` NOT NULL 断言。
+- 同步 `IMPLEMENTATION_STATUS.md`、`AGENT_HANDOFF.md`、`TODO.md`。
+
+### 重要上下文
+
+- 实跑暴露的其余问题不另开 PRD：`gcloud --wait` 误报与控制面滞后是 `PRD_20260611_01` §8.1 既定 Phase 2 要求（本次为实证）；慢候选长尾归 scheduler PRD P1；registry 11 行需筛 `status='selected'` 拟作为约定写入 KNOWN_CONSTRAINTS（随实现 PR 落，本轮不动约束文件）。
+- 执行顺序：04 修复 PR → 02/03 并行实现（03 彩排可先行）→ 02 六年 refit 重跑 → 03 正式 merge + continuous ledger。
+
+### 改动文件
+
+- `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`
+- `docs/prd/PRD_20260611_03_策略1SyntheticContinuous正式回测.md`
+- `docs/prd/PRD_20260611_04_ResearchSummary落库修复.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 文档与记忆更新；未运行 pytest / BigQuery / Cloud Run。`git diff --check` 通过。
+
+### 阻塞项
+
+- 无。三个 PRD 均待 owner review。
+
+### 下一步建议
+
+- owner review 三个 PRD 后，先实现 `PRD_20260611_04` 的修复 PR（成本最低且阻塞重跑）。
+- `PRD_20260611_03` 的 merge/QA 实现与彩排可与 `PRD_20260611_02` 并行启动。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
 > 当前交接补充（2026-06-11，GPT-5 Codex）
 > - PRD 分支实现收口中：实现工作树 `/Users/fisher/Desktop/git/quant-ashare-annual-pipeline-impl` 从 PRD 分支派生，最终按 owner 要求 fast-forward 回 `codex/prd-annual-rolling-pipeline-scheduler`。
 > - 新增 package entrypoint `quant_ashare.strategy1.annual_pipeline_scheduler`，实现年度滚动 pipeline scheduler Phase 1 dry-run；只输出 DAG / lock / state / resource plan，不执行 Cloud Run / BigQuery / GCS 写入。
