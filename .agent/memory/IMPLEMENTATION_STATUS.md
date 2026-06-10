@@ -6,6 +6,15 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：年度滚动 pipeline scheduler Phase 1 dry-run 已实现
+
+- 分支 `codex/annual-pipeline-scheduler-impl` 基于 PR #161 PRD 分支新增 package entrypoint `quant_ashare.strategy1.annual_pipeline_scheduler`，实现年度滚动并发调度 Phase 1 dry-run。
+- Scheduler 复用现有 annual rolling experiment/window 生成逻辑，输出 2021-2026 `panel` / `matrix` / `candidate` / `select` / `diagnostic_backtest` / `continuous_ledger` DAG；`select:yYYYY` 依赖本年全部 11 个 candidate unit，下一年 `panel` / `matrix` 不依赖上一年 `select`。
+- Dry-run 输出 scheduler-level GCS generation-guarded lease lock 计划、GCS state generation-conditioned write 模型、stage token 表和资源模拟；prepare `8 CPU / 32Gi`、select/backtest `4 CPU / 16Gi` 与 candidate `2 CPU / 8Gi` 共享同一 `40 CPU / 160Gi` 全局资源池。
+- 新增 `tests/strategy1/test_annual_pipeline_scheduler.py`，覆盖年度 DAG 依赖、scheduler lock ownership、candidate 饱和阻止 prepare、state generation mismatch 和 CLI JSON dry-run；catalog caller / package import 测试已同步。
+- PR #161 follow-up 已明确 dry-run `simulation_model=synchronous_waves`：当前峰值是同步 wave 参考值，不是 live overlap 容量上限；dry-run fanout 计数仍是 candidate-year proxy，Phase 2 live scheduler 必须改为 Cloud Run execution 粒度。`--no-tail-fill-single-task` 下的尾部 candidate batch 现在标记为 `deferred`，不会被误记为 succeeded。
+- 本轮未执行 Cloud Run、BigQuery 或 GCS 写入，未修改 job spec / IAM；后续进入 Phase 2 前仍需先合并 PRD / 实现 PR，并按小规模 candidate-only live smoke 验证真实状态恢复与 artifact skip。
+
 ### 最新补充（2026-06-11）：年度滚动跨年份并发调度 PRD 已新增
 
 - 新增 `docs/prd/PRD_20260611_01_策略1年度滚动并发调度.md`，定义 Strategy1 年度滚动执行从“按年份串行”升级为“跨年份流水线 + 全局资源上限调度”的后续工程方案。

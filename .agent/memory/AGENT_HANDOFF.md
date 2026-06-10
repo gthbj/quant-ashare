@@ -1,13 +1,67 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
-> - 新 worktree `/Users/fisher/Desktop/git/quant-ashare-annual-pipeline-prd` 基于 `origin/main@d4aa2e3`，分支 `codex/prd-annual-rolling-pipeline-scheduler`。
-> - 新增 PRD `docs/prd/PRD_20260611_01_策略1年度滚动并发调度.md`，定义年度滚动跨年份流水线调度方案：默认全局 candidate task 并发不超过 20，允许下一年训练与上一年慢候选并行，但本年 `select_register_predict` 必须等本年 11/11 候选完成。
-> - PR #161 review follow-up 已补齐 scheduler-level GCS generation-guarded lease lock、GCS state generation 条件写，以及 prepare/select/backtest 与 candidate 共享 CPU / memory token 的资源模型。
-> - 本轮只写 PRD 并同步 TODO / 项目记忆；未改 runner 代码、未运行 BigQuery、未启动 Cloud Run、未改 job spec 或 IAM。
-> - 后续建议：先实现 scheduler dry-run（跨年度 DAG + 资源 token 计划 + 状态恢复模型），再做 candidate-only 小规模 live smoke。
+> - PRD 分支实现收口中：实现工作树 `/Users/fisher/Desktop/git/quant-ashare-annual-pipeline-impl` 从 PRD 分支派生，最终按 owner 要求 fast-forward 回 `codex/prd-annual-rolling-pipeline-scheduler`。
+> - 新增 package entrypoint `quant_ashare.strategy1.annual_pipeline_scheduler`，实现年度滚动 pipeline scheduler Phase 1 dry-run；只输出 DAG / lock / state / resource plan，不执行 Cloud Run / BigQuery / GCS 写入。
+> - PR #161 review follow-up 已补：dry-run 输出 `simulation_model=synchronous_waves`，峰值标记为 reference 而非 live capacity ceiling；fanout 计数声明为 candidate-year proxy；`--no-tail-fill-single-task` 的 deferred batch 不再误记 succeeded。
+> - 新增测试覆盖年度 DAG、scheduler lock ownership、candidate 饱和阻止 prepare、GCS state generation mismatch、deferred batch 和 CLI dry-run JSON；catalog caller / package boundary / runbook 已同步。
+> - 后续建议：PR #161 合并后进入 Phase 2 candidate-only live smoke，先用 2 年 * 2-3 candidate unit 验证真实状态恢复、artifact skip 和 Cloud Run execution 粒度 fanout 统计。
 
 Model: GPT-5 Codex
 
+## 2026-06-11 GPT-5 Codex - Annual pipeline scheduler Phase 1 dry-run
+
+### 已完成工作
+
+- 新增 `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`，实现 PRD Phase 1 dry-run package entrypoint。
+- Scheduler 复用年度 rolling experiment/window 生成逻辑，输出 2021-2026 跨年度 DAG；本年 `select` 强依赖本年 11/11 candidate，下一年 `panel` / `matrix` 不依赖上一年 `select`。
+- Dry-run 输出 scheduler-level GCS generation-guarded lease lock、GCS state generation-conditioned write 模型、stage token 表和资源模拟。
+- 资源模型明确 candidate `2 CPU / 8Gi`、prepare `8 CPU / 32Gi`、select/backtest `4 CPU / 16Gi` 共用 `40 CPU / 160Gi` 全局资源池；单测覆盖 20 个 candidate running 时 prepare 不可 admission。
+- PR #161 review follow-up：`simulation_model=synchronous_waves` 与 `peak_resource_usage_semantics=synchronous_wave_reference_not_live_capacity_ceiling` 已进入输出；fanout execution accounting 明确 Phase 1 为 candidate-year proxy；deferred candidate batch 不再标记 succeeded。
+- 更新 `configs/strategy1/active_step_catalog.yml` caller、`docs/策略1CloudRun训练回测运行手册.md` 和相关测试。
+
+### 重要上下文
+
+- 本轮仍是 Phase 1：不启动 Cloud Run，不读写 BigQuery / GCS，不修改 job spec / IAM；dry-run 资源峰值只用于 admission 自检，不代表 live overlap 的容量上限。
+- Owner 已要求不要单独开实现 PR；完成后把实现合回 `codex/prd-annual-rolling-pipeline-scheduler` / PR #161。
+- Phase 2 live scheduler 必须按真实 Cloud Run execution 粒度统计 active fanout，而不能沿用 Phase 1 的 candidate-year proxy。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`
+- `tests/strategy1/test_annual_pipeline_scheduler.py`
+- `tests/strategy1/test_package_boundaries.py`
+- `tests/strategy1_cloudrun/test_dataset_role_routing.py`
+- `configs/strategy1/active_step_catalog.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1 tests/strategy1_cloudrun`：98 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `git diff --check`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.annual_pipeline_scheduler --start-year 2021 --end-year 2026 --run-version v20260611_followup --dry-run`：输出 `simulation_model=synchronous_waves`、`fanout_model=candidate_year_proxy`、`deferred_task_count=0`，峰值 `38 CPU / 152Gi / 11 candidate_slots`；该峰值是 synchronous wave reference，不是 live capacity ceiling。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 推回 PR #161 后 review。
+- 合并后再做 Phase 2 candidate-only live smoke，并把 active fanout 计数从 candidate-year proxy 改为 Cloud Run execution 粒度。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
 ## 2026-06-11 GPT-5 Codex - Annual rolling pipeline scheduler PRD
+
+Model: GPT-5 Codex
 
 ### 已完成工作
 
