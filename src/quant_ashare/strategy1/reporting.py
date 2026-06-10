@@ -22,7 +22,7 @@ from scripts.strategy1_cloudrun.config import (
 from quant_ashare.strategy1.ledger import LedgerParams, run_ledger
 from quant_ashare.strategy1.ledger import LEDGER_VERSION_FLOAT, LEDGER_VERSION_LOT100
 from quant_ashare.strategy1.dataset_roles import allow_future_research, output_dataset_role_cli_args
-from scripts.strategy1_cloudrun.sql_runner import resolve_sql_step_path, run_sql_step
+from quant_ashare.strategy1.sql_runner import resolve_sql_step_path, run_sql_step
 
 
 SQL_STEPS = [

@@ -82,7 +82,7 @@ from scripts.strategy1_cloudrun.dataset_roles import (
     output_dataset_role_cli_args,
     rewrite_sql_dataset_role,
 )
-from scripts.strategy1_cloudrun.sql_runner import run_sql_step
+from quant_ashare.strategy1.sql_runner import run_sql_step
 from scripts.strategy1_cloudrun.state import (
     LockConfig,
     OrchestratorStatusTable,
@@ -92,6 +92,7 @@ from scripts.strategy1_cloudrun.state import (
     status_table_ref,
 )
 from scripts.strategy1_cloudrun.task_fanout import default_matrix_id, matrix_artifact_uri, read_json
+from scripts.strategy1_cloudrun.training_panel import build_training_panel_params
 from scripts.strategy1.replay_acceptance_gate_v3 import (
     apply_contract_defaults as apply_v3_contract_defaults,
     comparison_benchmarks as v3_comparison_benchmarks,
@@ -536,39 +537,6 @@ def build_search_qa_params(
     }
     params.update(contract_sql_params(contract))
     return params
-
-
-def build_training_panel_params(exp: Experiment, *, force_replace: bool) -> dict[str, Any]:
-    return {
-        "p_run_id": exp.run_id,
-        "p_strategy_id": "ml_pv_clf_v0",
-        "p_experiment_id": exp.experiment_id,
-        "p_experiment_group": exp.experiment_group,
-        "p_baseline_experiment_id": exp.baseline_experiment_id,
-        "p_parent_experiment_id": exp.parent_experiment_id,
-        "p_parent_run_id": exp.parent_run_id,
-        "p_preprocess_version": "raw_v0",
-        "p_feature_version": exp.feature_version,
-        "p_feature_set_id": exp.feature_set_id,
-        "p_fin_feature_version": exp.fin_feature_version,
-        "p_market_state_version": exp.market_state_version,
-        "p_market_state_ffill_max_trade_days": 5,
-        "p_label_version": "open_to_close_h1_5_10_20_v20260601",
-        "p_label_horizon": exp.label_horizon,
-        "p_rebalance_frequency": exp.rebalance_frequency,
-        "p_target_holdings": exp.target_holdings,
-        "p_max_single_weight": exp.max_single_weight,
-        "p_horizon_natural_frequency": exp.horizon_natural_frequency,
-        "p_train_start": exp.train_start,
-        "p_train_end": exp.train_end,
-        "p_valid_start": exp.valid_start,
-        "p_valid_end": exp.valid_end,
-        "p_test_start": exp.test_start,
-        "p_test_end": exp.test_end,
-        "p_final_holdout_start": exp.final_holdout_start,
-        "p_final_holdout_end": exp.final_holdout_end,
-        "p_force_replace": force_replace,
-    }
 
 
 def common_job_flags(config, args, exp: Experiment) -> list[str]:
