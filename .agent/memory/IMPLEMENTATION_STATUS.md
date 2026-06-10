@@ -6,7 +6,16 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
-### 最新补充（2026-06-10）：五个 Strategy1 Cloud Run package entrypoint 已建立，线上 job command 尚未迁移
+### 最新补充（2026-06-10）：五个正式 Strategy1 Cloud Run jobs 已切到 package entrypoint
+
+- PR #153 已合并到 `main`，merge commit `1775099a6f8e3722dcf6ecead60f4fc0263115a1`。从该 `origin/main` merge commit 构建正式镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:package-entrypoints-main-1775099-20260610-01`，Cloud Build `6c91beb7-1ac7-4401-8218-a9b657455de9` succeeded，digest `sha256:0dce0e78256140a92d7b73bc083e028b377b9a132f9e08ccfd57d4730d7ac8b7`。该构建使用一次性 Cloud Build config，只推固定 tag，未更新 `latest`。
+- 五个正式 Strategy1 Cloud Run jobs 已更新到上述 immutable digest，并把容器 args 从旧 `scripts.strategy1_cloudrun.*` module 切到 package module：`strategy1-train-predict-job` -> `quant_ashare.strategy1.train_predict`、`strategy1-prepare-matrix-job` -> `quant_ashare.strategy1.prepare_matrix`、`strategy1-train-candidate-fanout-job` -> `quant_ashare.strategy1.train_candidate_task`、`strategy1-select-register-predict-job` -> `quant_ashare.strategy1.select_register_predict`、`strategy1-backtest-report-job` -> `quant_ashare.strategy1.backtest_report`。
+- 读回确认五个 jobs 的 command 仍为 `python`，SA 仍为 `241358486859-compute@developer.gserviceaccount.com`，`maxRetries=0`，CPU/memory、timeout、taskCount/parallelism 保持原值；fanout job 仍为 `taskCount=40`、`parallelism=20`、`2 CPU / 8Gi`。
+- 五个正式 jobs 的 `--help` boot smoke 均成功且 Cloud Logging 均存在 `usage:`：`strategy1-train-predict-job-wdfv4`、`strategy1-prepare-matrix-job-rxc5n`、`strategy1-train-candidate-fanout-job-rltvm`、`strategy1-select-register-predict-job-sh2bz`、`strategy1-backtest-report-job-mtj4t`。
+- PR #153 验证遗留的临时 job `strategy1-package-entrypoint-help-smoke` 已删除并确认不存在。
+- 本轮只切正式 Cloud Run job spec 和镜像，不修改 repo 代码中的 orchestrator override args、catalog `caller` 或 runbook 示例；这些代码侧 cutover 与旧 wrapper 删除护栏仍需单独 PR。
+
+### 补充（2026-06-10）：五个 Strategy1 Cloud Run package entrypoint 已建立，线上 job command 后续已迁移
 
 - 分支 `codex/package-entrypoints` 基于 PR #152 后的 `origin/main`，为五个现有 Strategy1 Cloud Run jobs 建立稳定 package entrypoint：`quant_ashare.strategy1.train_predict`、`quant_ashare.strategy1.prepare_matrix`、`quant_ashare.strategy1.train_candidate_task`、`quant_ashare.strategy1.select_register_predict`、`quant_ashare.strategy1.backtest_report`。
 - 旧 `scripts.strategy1_cloudrun.train_predict`、`prepare_matrix`、`train_candidate_task`、`select_register_predict`、`backtest_report` 已缩为兼容 wrapper；普通 import 下 alias 到 package 实现模块，CLI `python -m scripts.strategy1_cloudrun.*` 仍调用同一 `main()`，保持旧入口可运行。
@@ -15,7 +24,7 @@ Last updated: 2026-06-10
 - PR #153 review follow-up：五个 wrapper 的 `sys.modules` alias 已补注释，避免未来误删；cutover TODO / 约束已补全为 job spec、override args、catalog caller、runbook 示例四类范围，并明确删 wrapper 前 active scopes 内旧路径 grep 必须为 0 且 retired linter 兜底。
 - 已从 PR #153 HEAD `6b1b3c7` 构建验证镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:package-entrypoints-6b1b3c7-20260610-01`，Cloud Build `b906160e-1ae3-4acb-851f-bd19ac248f47` succeeded，digest `sha256:101eab22ac1504fc03f42392fdb2db984c23715b441955a1f7ae0316ca35c172`。该构建使用一次性 Cloud Build config，只推固定 tag，未更新 `latest`。
 - 临时 Cloud Run job `strategy1-package-entrypoint-help-smoke` 指向上述 digest，分别 override args 跑通五个新 package entrypoint 的 `--help` smoke，execution 均 `Completed=True` 且日志存在 `usage:`：`train_predict`=`...-w2g7d`、`prepare_matrix`=`...-tcf7s`、`train_candidate_task`=`...-df6vr`、`select_register_predict`=`...-b2lc5`、`backtest_report`=`...-vbfgg`。
-- 本轮不修改正式 Cloud Run Job spec、不部署五个线上 jobs、不删除旧 wrapper。线上五个 jobs 仍通过 `scripts.strategy1_cloudrun.*` command 启动；下一步应单独做 job command 迁移 PR。
+- PR #153 本身不修改正式 Cloud Run Job spec、不部署五个线上 jobs、不删除旧 wrapper；正式 job command 迁移已在后续 cutover 执行，见上一节。代码侧 override args / catalog caller / runbook 示例迁移仍需单独 PR。
 
 ### 最新补充（2026-06-10）：项目结构重构 D3/E main 镜像已部署，promotion job 已上线 dry-run
 

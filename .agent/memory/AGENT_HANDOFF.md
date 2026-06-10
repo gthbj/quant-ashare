@@ -1,13 +1,52 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - PR #153 已合并到 `main`；从 merge commit `1775099` 构建正式镜像 `strategy1-cloudrun-runner:package-entrypoints-main-1775099-20260610-01`，digest `sha256:0dce0e78256140a92d7b73bc083e028b377b9a132f9e08ccfd57d4730d7ac8b7`。
+> - 五个正式 Strategy1 jobs 已切到 package entrypoint args：`quant_ashare.strategy1.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report`，并保留原资源、SA、maxRetries、taskCount/parallelism。
+> - 五个正式 jobs 的 `--help` boot smoke 全部成功：`strategy1-train-predict-job-wdfv4`、`strategy1-prepare-matrix-job-rxc5n`、`strategy1-train-candidate-fanout-job-rltvm`、`strategy1-select-register-predict-job-sh2bz`、`strategy1-backtest-report-job-mtj4t`；日志均有 `usage:`。
+> - PR #153 临时 smoke job `strategy1-package-entrypoint-help-smoke` 已删除。代码侧 override args / catalog caller / runbook 示例迁移仍需单独 PR，旧 wrapper 暂不可删。
 > - PR #150 已合并到 `main`；D3/E main 镜像已构建并部署到五个 Strategy1 jobs，digest `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`。
 > - 五个现有 jobs 的 `--help` boot smoke 全部成功：`train-predict-job-rrjmf`、`prepare-matrix-job-7bgfl`、`train-candidate-fanout-job-jtw78`、`select-register-predict-job-p88c9`、`backtest-report-job-glntc`。
-> - 分支 `codex/package-entrypoints` 已为五个 jobs 建立 `quant_ashare.strategy1.*` package entrypoint，并用 pytest 覆盖旧/新入口 `--help` 与关键 dry-run parity；PR #153 review follow-up 已补 wrapper alias 注释和 cutover 范围约束；验证镜像 `package-entrypoints-6b1b3c7-20260610-01` 已完成五个新 package entrypoint `--help` Cloud Run smoke；本轮不改线上 job command。
+> - 分支 `codex/package-entrypoints` 已为五个 jobs 建立 `quant_ashare.strategy1.*` package entrypoint，并用 pytest 覆盖旧/新入口 `--help` 与关键 dry-run parity；PR #153 review follow-up 已补 wrapper alias 注释和 cutover 范围约束；验证镜像 `package-entrypoints-6b1b3c7-20260610-01` 已完成五个新 package entrypoint `--help` Cloud Run smoke；正式 job command 已由后续 cutover 更新。
 > - 新建专用 promotion SA `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com` 与 Cloud Run job `strategy1-promote-research-to-ads-job`；help smoke `...-6kqd7` 与完整参数 review-only dry-run `...-4mkrv` 成功。
 > - Dry-run promotion smoke 未写 manifest：`promo_deploy_smoke_20260610_01` 在 `research_promotion_manifest` 行数为 `0`；`sql/research/03_qa_research_schema_readiness.sql` 7 条断言通过。
 > - Owner 已选择 OQ-013 方案 1：接受普通 runner compute SA 暂保留 `ashare_ads` WRITER，但保留流程约束；OQ-013 已关闭归档，未改线上 IAM。
 > - 尚未执行真实 owner-approved promotion；后续必须 owner 指定 accepted research run 后，按 runbook 先 review-only 再带 `--execute`。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - 五个正式 Strategy1 Cloud Run jobs package entrypoint cutover
+
+### 已完成工作
+
+- 从 PR #153 merge commit `1775099a6f8e3722dcf6ecead60f4fc0263115a1` 构建正式镜像 `strategy1-cloudrun-runner:package-entrypoints-main-1775099-20260610-01`，digest `sha256:0dce0e78256140a92d7b73bc083e028b377b9a132f9e08ccfd57d4730d7ac8b7`，Cloud Build `6c91beb7-1ac7-4401-8218-a9b657455de9`。
+- 更新五个正式 Cloud Run jobs 的 image digest 和 args：
+  - `strategy1-train-predict-job` -> `quant_ashare.strategy1.train_predict`
+  - `strategy1-prepare-matrix-job` -> `quant_ashare.strategy1.prepare_matrix`
+  - `strategy1-train-candidate-fanout-job` -> `quant_ashare.strategy1.train_candidate_task`
+  - `strategy1-select-register-predict-job` -> `quant_ashare.strategy1.select_register_predict`
+  - `strategy1-backtest-report-job` -> `quant_ashare.strategy1.backtest_report`
+- 读回确认 command、SA、maxRetries、CPU/memory、timeout、taskCount/parallelism 保持预期。
+- 删除 PR #153 验证遗留的临时 Cloud Run job `strategy1-package-entrypoint-help-smoke`。
+
+### 测试 / 验证
+
+- 五个正式 jobs 的 `--help` boot smoke 均 `Completed=True`，且 Cloud Logging 均匹配到 `usage:`：
+  - `strategy1-train-predict-job-wdfv4`
+  - `strategy1-prepare-matrix-job-rxc5n`
+  - `strategy1-train-candidate-fanout-job-rltvm`
+  - `strategy1-select-register-predict-job-sh2bz`
+  - `strategy1-backtest-report-job-mtj4t`
+
+### 后续
+
+- 单独代码 PR 同步 orchestrator / pipeline-control / native search / annual rolling 的 Cloud Run override args、catalog `caller` 字段和 active runbook / 示例命令。
+- 旧 wrapper 删除前，active scopes 内五个旧模块路径 grep 必须为 0，并把旧模块路径纳入 retired-reference linter 防回流。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - 五个 Strategy1 Cloud Run package entrypoint
 
