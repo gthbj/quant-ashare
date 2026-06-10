@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from quant_ashare.strategy1.catalog import declared_params, load_step_catalog, repo_path
 from quant_ashare.strategy1.sql_render import (
     render_sql_step,
     render_sql_text,
@@ -10,6 +11,29 @@ from quant_ashare.strategy1.sql_render import (
 from scripts.strategy1_cloudrun.backtest_report import build_sql_params
 from scripts.strategy1_cloudrun.config import Experiment, load_runner_config
 from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_LOT100
+
+
+def _sql_value_for_type(sql_type: str) -> object:
+    values = {
+        "ARRAY<INT64>": [1],
+        "ARRAY<STRING>": ["unit"],
+        "BOOL": True,
+        "DATE": "2024-01-02",
+        "FLOAT64": 1.0,
+        "INT64": 1,
+        "STRING": "unit",
+        "TIMESTAMP": "2024-01-02T00:00:00Z",
+    }
+    return values[sql_type]
+
+
+def _params_for_step_sql(step_cfg: dict[str, object]) -> dict[str, object]:
+    sql_path = repo_path(step_cfg.get("sql_path") or step_cfg["target_path"])
+    declarations = declared_params(sql_path.read_text(encoding="utf-8"))
+    return {
+        name: _sql_value_for_type(str(spec["type"]))
+        for name, spec in declarations.items()
+    }
 
 
 def _backtest_params() -> dict[str, object]:
@@ -81,6 +105,23 @@ def test_research_table_role_rendering_rewrites_step_roles_only() -> None:
     assert "data-aquarium.ashare_ads.ads_stock_candidate_daily" not in sql
     assert "data-aquarium.ashare_research.research_acceptance_result" not in sql
     assert "`data-aquarium.ashare_dws.dws_stock_universe_daily`" in sql
+
+
+def test_all_active_steps_render_research_without_ads_residue() -> None:
+    catalog = load_step_catalog()
+
+    for step_name, cfg in catalog["steps"].items():
+        if cfg.get("status") == "retired":
+            continue
+        rendered = render_sql_step(
+            step_name,
+            _params_for_step_sql(cfg),
+            catalog=catalog,
+            dataset_role="research",
+            allow_future_research=True,
+        )
+
+        assert "data-aquarium.ashare_ads." not in rendered, step_name
 
 
 def test_table_role_rendering_handles_meta_dataset_override() -> None:

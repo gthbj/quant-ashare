@@ -44,7 +44,7 @@
   说明：新增 `sql/research/01_research_strategy1_tables.sql`、`sql/research/README.md` 和 `ashare_research` schema contract，覆盖 `research_*` 表族、`research_acceptance_result`、`research_experiment_run_status` 与 `research_promotion_manifest`；PR #140 review follow-up 已补 `experiment_run_status` 当前侧 `ads_dataset: ashare_meta` override、`build_order_plan` 分区列修正和防漂移测试；默认 runner 仍写 `ashare_ads`，research routing / default research-first / promotion job 尚未开启。
 
 - [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase D1a SQL render table-role routing
-  说明：`src/quant_ashare/strategy1/sql_render.py` 已按 catalog step 的 `inputs` / `outputs` 注入 table role 替换；默认 ADS 渲染不变，显式 `dataset_role="research"` 仍需 `allow_future_research=True`，并只用于 contract / dry-run / 后续 runner 接线验证。Cloud Run 默认写入、实际 BigQuery `ashare_research` 写入和 promotion 尚未开启。
+  说明：`src/quant_ashare/strategy1/sql_render.py` 已按 catalog step 的 `inputs` / `outputs` 注入 table role 替换；默认 ADS 渲染不变，显式 `dataset_role="research"` 仍需 `allow_future_research=True`，并只用于 contract / dry-run / 后续 runner 接线验证。PR #142 review follow-up 已补全 step role 覆盖并新增 pytest，禁止 research 渲染残留 `data-aquarium.ashare_ads.`。Cloud Run 默认写入、实际 BigQuery `ashare_research` 写入和 promotion 尚未开启。
 
 - [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D1b-D3/E
   说明：下一阶段再做显式 runner `output_dataset_role=research` CLI/config 接线、report / diagnosis / QA / acceptance/comparison 全链路读取 research output、default research-first、owner-approved promotion job，以及深层 package split / naming cleanup；不得与 D0 contract 或 SQL 命名空间迁移混做。

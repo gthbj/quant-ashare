@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
 from quant_ashare.strategy1.catalog import (
     load_step_catalog,
+    repo_path,
     resolve_step_path,
     step_name_for_path,
     validate_catalog,
 )
 from quant_ashare.strategy1.table_roles import resolve_table_role
+
+
+ADS_REF_RE = re.compile(r"data-aquarium\.ashare_ads\.[A-Za-z0-9_]+")
 
 
 def test_catalog_validates_paths_and_declared_params() -> None:
@@ -50,6 +55,35 @@ def test_single_output_step_partition_columns_match_output_role() -> None:
         step_partition_columns = cfg.get("partition_columns") or []
         role_partition_columns = table_roles[outputs[0]].get("partition_columns") or []
         assert step_partition_columns == role_partition_columns, step_name
+
+
+def test_step_role_contract_covers_ads_sql_references() -> None:
+    catalog = load_step_catalog()
+    source_to_roles: dict[str, set[str]] = {}
+    for role in catalog["table_roles"]:
+        source_to_roles.setdefault(resolve_table_role(role, catalog=catalog), set()).add(role)
+
+    failures: list[str] = []
+    for step_name, cfg in catalog["steps"].items():
+        if cfg.get("status") == "retired":
+            continue
+        sql_path = repo_path(cfg.get("sql_path") or cfg["target_path"])
+        actual_sources = set(ADS_REF_RE.findall(sql_path.read_text(encoding="utf-8")))
+        declared_roles = set(cfg.get("inputs") or []) | set(cfg.get("outputs") or [])
+        covered_sources = {
+            resolve_table_role(role, catalog=catalog)
+            for role in declared_roles
+            if role in catalog["table_roles"]
+        }
+        missing_sources = sorted(actual_sources - covered_sources)
+        if missing_sources:
+            missing_roles = {
+                source: sorted(source_to_roles.get(source, []))
+                for source in missing_sources
+            }
+            failures.append(f"{step_name}: missing ADS role coverage {missing_roles}")
+
+    assert failures == []
 
 
 def test_catalog_classifies_sql_16_to_25_individually() -> None:
