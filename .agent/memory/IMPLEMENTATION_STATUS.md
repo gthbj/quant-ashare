@@ -6,6 +6,15 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：PR #159 后 Strategy1 main 镜像已部署
+
+- PR #159 已合并到 `main`，merge commit `f30c1716a55995d169955e1a7c4663d39b82a382`。为让年度滚动 plan、`quant_ashare.strategy1.sql_runner` 和 reporting import 与线上运行时代码对齐，已从当前 `main@f30c171` 重新构建正式 Strategy1 runner 镜像。
+- 本次构建使用一次性 Cloud Build config，只推固定 tag `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:annual-plan-main-f30c171-20260610-01`，未更新 `latest`；Cloud Build `4dfba35e-cbaf-4727-9596-137010c9d6ea` succeeded，digest 为 `sha256:b856f46f56ad5b9a9cd9ac8773e67090f702a06ff8931ca51e1d2e3bb24299d7`。
+- 五个正式 Strategy1 Cloud Run jobs 已更新到该 immutable digest：`strategy1-train-predict-job`、`strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。读回确认 command/args 仍为 `quant_ashare.strategy1.*` package entrypoint，SA 仍为 `241358486859-compute@developer.gserviceaccount.com`，`maxRetries=0`，CPU/memory/timeout 保持不变，fanout 仍为 `taskCount=40`、`parallelism=20`。
+- 五个正式 jobs 的 `--help` boot smoke 均成功且 Cloud Logging 均匹配到 `usage:`：`strategy1-train-predict-job-gwpn7`、`strategy1-prepare-matrix-job-rjgzf`、`strategy1-train-candidate-fanout-job-njl4q`（本次 smoke 用 `--tasks=1`）、`strategy1-select-register-predict-job-njmxd`、`strategy1-backtest-report-job-jj7ng`。
+- 本轮只更新五个普通 Strategy1 runner jobs 的 image 并做只读 help smoke；未修改 promotion job，未执行 BigQuery 写入，未启动年度滚动实跑。下一步可按最新 main 镜像执行完整 `2021-2026` 年度滚动，并用 continuous ledger 评价。
+- PR #160 review follow-up：`KNOWN_CONSTRAINTS.md` 不再记录具体 Strategy1 runner image digest；该 digest 属滚动运维状态，以本节最新部署记录为准，约束文件只保留 package entrypoint、wrapper 已删和 retired linter 防回流等长期规则。
+
 ### 最新补充（2026-06-10）：年度滚动 resolved plan 已显式纳入 training panel build
 
 - 分支 `codex/annual-training-panel-plan` 基于 `origin/main` commit `d8ac505`，修复 annual rolling orchestrator 的 plan 缺口：每个年度 command plan 第一项现在是 `build_training_panel`，执行 catalog step `build_training_panel_risk_feature`，后续才是 prepare matrix、candidate fanout、select/register/predict 和可选 yearly diagnostic backtest/report。
