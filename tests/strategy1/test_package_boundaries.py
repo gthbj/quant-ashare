@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def test_strategy1_package_import_smoke_for_phase_e_boundaries() -> None:
     for module_name in (
         "quant_ashare.strategy1.acceptance",
+        "quant_ashare.strategy1.annual_pipeline_scheduler",
         "quant_ashare.strategy1.backtest_report",
         "quant_ashare.strategy1.dataset_roles",
         "quant_ashare.strategy1.ledger",

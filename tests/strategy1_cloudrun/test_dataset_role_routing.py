@@ -318,6 +318,9 @@ def test_annual_rolling_command_plan_uses_package_entrypoints() -> None:
     assert "scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection" in (
         catalog["steps"]["build_training_panel_risk_feature"]["caller"]
     )
+    assert "quant_ashare.strategy1.annual_pipeline_scheduler" in (
+        catalog["steps"]["build_training_panel_risk_feature"]["caller"]
+    )
     assert "quant_ashare.strategy1.prepare_matrix" in joined
     assert "quant_ashare.strategy1.train_candidate_task" in joined
     assert "quant_ashare.strategy1.select_register_predict" in joined
