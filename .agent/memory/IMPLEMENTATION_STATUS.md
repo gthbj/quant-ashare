@@ -6,6 +6,14 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：五个 Strategy1 Cloud Run package entrypoint 已建立，线上 job command 尚未迁移
+
+- 分支 `codex/package-entrypoints` 基于 PR #152 后的 `origin/main`，为五个现有 Strategy1 Cloud Run jobs 建立稳定 package entrypoint：`quant_ashare.strategy1.train_predict`、`quant_ashare.strategy1.prepare_matrix`、`quant_ashare.strategy1.train_candidate_task`、`quant_ashare.strategy1.select_register_predict`、`quant_ashare.strategy1.backtest_report`。
+- 旧 `scripts.strategy1_cloudrun.train_predict`、`prepare_matrix`、`train_candidate_task`、`select_register_predict`、`backtest_report` 已缩为兼容 wrapper；普通 import 下 alias 到 package 实现模块，CLI `python -m scripts.strategy1_cloudrun.*` 仍调用同一 `main()`，保持旧入口可运行。
+- 新增 `tests/strategy1/test_cloudrun_package_entrypoints.py`，用 subprocess 对五个旧/新入口分别校验 `--help` 输出一致、关键 `--dry-run` JSON plan 一致；`tests/strategy1/test_package_boundaries.py` 补 package import smoke 和 wrapper alias 检查。
+- 验证：手工五入口 old/new `--help` 与 dry-run parity 通过；`python3 -m pytest -q tests/strategy1/test_package_boundaries.py tests/strategy1/test_cloudrun_package_entrypoints.py tests/strategy1_cloudrun/test_dataset_role_routing.py tests/strategy1_cloudrun/test_dynamic_cv_folds.py` 35 passed；`python3 -m pytest -q tests/strategy1 tests/strategy1_cloudrun` 87 passed；`python3 -m compileall -q src scripts tests` 和 `git diff --check` 通过。
+- 本轮不修改 Cloud Run Job spec、不构建镜像、不部署线上 jobs、不删除旧 wrapper。线上五个 jobs 仍通过 `scripts.strategy1_cloudrun.*` command 启动；下一步应单独做 job command 迁移 PR + 镜像 smoke。
+
 ### 最新补充（2026-06-10）：项目结构重构 D3/E main 镜像已部署，promotion job 已上线 dry-run
 
 - PR #150 已合并到 `main`，merge commit `f421c83c1987d5f8eb067991e9d4f6624206306a`。

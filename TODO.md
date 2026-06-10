@@ -64,6 +64,12 @@
 - [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase D3/E
   说明：分支 `codex/strategy1-d3e-promotion-package` 已新增 owner-approved promotion job `python -m scripts.strategy1.promote_research_to_ads`，默认仅 promotion accepted research 产物，显式复制/映射到 ADS 并写 `research_promotion_manifest`；默认目标不含大体量 training panel，需 owner opt-in。PR #150 review follow-up 已明确真实写入必须传 `--execute`、`--print-sql` / 默认模式只做 review-only，promotion 不反写 acceptance/research accepted 状态，并补 source trade/NAV 窗口完整性 guard。Phase E 已把 dataset routing、acceptance、ledger、reporting/backtest 和 pipeline-control/orchestrator 实现迁入 `src/quant_ashare/strategy1/**`，旧 `scripts.strategy1_cloudrun.*` 仅保留兼容 wrapper，并补 package/import smoke 与 wrapper re-export 测试。PR #150 合并后已构建正式 main 镜像 `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`，更新五个现有 Strategy1 jobs，并新建专用 `strategy1-promote-research-to-ads-job`；promotion job help smoke 与完整参数 review-only dry-run 已成功，dry-run promotion manifest 行数确认为 0。尚未执行真实 owner-approved promotion。
 
+- [x] OQ-010 / 工程治理：为五个 Strategy1 Cloud Run jobs 建立 package entrypoint
+  说明：分支 `codex/package-entrypoints` 已新增 `quant_ashare.strategy1.train_predict`、`prepare_matrix`、`train_candidate_task`、`select_register_predict`、`backtest_report` 五个稳定 package entrypoint；旧 `scripts.strategy1_cloudrun.*` 对应文件已缩为兼容 wrapper，并在普通 import 下 alias 到 package 实现。新增 pytest 覆盖旧/新入口 `--help` 输出一致、关键 `--dry-run` JSON plan 一致，以及 wrapper alias 到同一实现模块。本轮不改 Cloud Run Job spec、不构建镜像、不删旧 wrapper。
+
+- [ ] OQ-010 / 工程治理：迁移五个 Strategy1 Cloud Run Job command 到 package entrypoint
+  说明：需在 package entrypoint 代码 PR 合并后，单独从 main 构建镜像，把五个正式 jobs 的 command args 从 `scripts.strategy1_cloudrun.*` 切到 `quant_ashare.strategy1.*`，并对五个 jobs 跑 `--help` boot smoke；通过前不得删除旧 wrapper。
+
 - [x] OQ-013 / 工程治理：决策并收敛 Strategy1 普通 runner 的 ADS 写权限
   说明：owner 已选择方案 1：接受现状但保留流程约束。五个普通 Strategy1 runner jobs 暂继续使用 `241358486859-compute@developer.gserviceaccount.com`，且该 SA 暂保留 `ashare_ads` WRITER，用于 ADS audit / 历史报告重渲染等兼容路径；不做 live IAM revoke。正式流程仍要求普通实验默认写 `ashare_research`，ADS 正式发布只走 owner-approved promotion job，显式 `--output-dataset-role ads` 仅作为历史 ADS audit / 兼容路径。
 
