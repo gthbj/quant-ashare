@@ -83,6 +83,13 @@ LAST_TRADING_DAY_BY_YEAR = {
     2025: "2025-12-31",
 }
 
+FINAL_REFIT_FIRST_TRAINING_DAY_OVERRIDES = {
+    # Strategy1 2019 panels start at the first full-history sample date.
+    # Earlier generated panels were backfilled; 2019 remains constrained by
+    # the production DWS feature availability boundary.
+    2019: "2019-04-03",
+}
+
 
 def main() -> int:
     args = parse_args()
@@ -249,7 +256,7 @@ def build_year_experiment(
     valid_start = actual_first_trading_day(valid_year)
     valid_end = label_safe_year_end(valid_year, 5)
     backtest_start = actual_first_trading_day(backtest_year)
-    final_refit_start = actual_first_trading_day(final_refit_start_year)
+    final_refit_start = final_refit_first_training_day(final_refit_start_year)
     final_refit_end = label_safe_year_end(final_refit_end_year, 5)
     return Experiment(
         experiment_id=experiment_id,
@@ -551,6 +558,10 @@ def actual_first_trading_day(year: int) -> str:
         return FIRST_TRADING_DAY_BY_YEAR[year]
     except KeyError as exc:
         raise ValueError(f"missing first trading day mapping for year {year}") from exc
+
+
+def final_refit_first_training_day(year: int) -> str:
+    return FINAL_REFIT_FIRST_TRAINING_DAY_OVERRIDES.get(year, actual_first_trading_day(year))
 
 
 def actual_last_trading_day(year: int) -> str:

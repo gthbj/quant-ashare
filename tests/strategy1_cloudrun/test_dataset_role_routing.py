@@ -401,6 +401,15 @@ def test_annual_year_plan_continuous_contract_uses_refit_run_id() -> None:
     assert plan["final_refit"]["train_end"] == "2025-12-24"
     assert plan["single_year_backtest"]["backtest_id"].endswith("__refit01")
 
+    year_2024 = build_year_experiment(
+        backtest_year=2024,
+        args=args,
+        version="v20260611_test",
+        as_of=parse_iso_date(args.as_of_date),
+        continuous_anchor_start="2021-01-04",
+    )
+    assert year_2024.raw["final_refit_train_start"] == "2019-04-03"
+
 
 def test_native_search_qa_params_cover_catalog_required_params() -> None:
     config = RunnerConfig(output_dataset_role="research")

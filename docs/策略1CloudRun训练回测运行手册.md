@@ -115,7 +115,7 @@ python -m quant_ashare.strategy1.annual_pipeline_scheduler \
 1. 输出 2021-2026 全部 `panel` / `matrix` / `candidate` / `select` / `refit` / `diagnostic_backtest` / `continuous_ledger` DAG task。
 2. `select:yYYYY` 依赖本年 11 个 `candidate:yYYYY:uNNN` 全部成功；`refit:yYYYY` 依赖本年 `select:yYYYY`；`continuous_ledger` 依赖六个 `refit:*`，不是 selection run；下一年 `panel` / `matrix` 不依赖上一年 `select`。
 3. `scheduler_lock` 明确使用 GCS generation-guarded lease lock；`state_model` 明确 GCS state JSON 必须 generation-conditioned update，不允许 blind overwrite。
-4. `stage_tokens` 显示 candidate `2 CPU / 8Gi`、prepare `8 CPU / 32Gi`、select/refit/backtest `4 CPU / 16Gi`（refit 复用现有 train job 资源），且 `simulation.peak_resource_usage` 不超过全局 `20 / 40 CPU / 160Gi`。
+4. `stage_tokens` 显示 candidate `2 CPU / 8Gi`、prepare/refit `8 CPU / 32Gi`、select/backtest `4 CPU / 16Gi`（refit 复用 train job 但需要更大内存），且 `simulation.peak_resource_usage` 不超过全局 `20 / 40 CPU / 160Gi`。
 5. `simulation.simulation_model=synchronous_waves` 表示 dry-run 每个 wave 原子完成后再排下一轮；该峰值是 DAG/resource admission 参考值，不是 live overlap 容量上限。Phase 2 真实执行必须按 Cloud Run execution 粒度统计 fanout，因为 retry / 尾部 batch 可能让同一年拆成多个 execution。
 
 sklearn native search dry-run：
