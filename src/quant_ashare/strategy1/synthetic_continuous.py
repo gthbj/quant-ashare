@@ -34,6 +34,8 @@ class YearSlice:
     source_run_id: str
     predict_start: date
     predict_end: date
+    valid_start: date | None = None
+    valid_end: date | None = None
 
 
 def main() -> int:
@@ -103,6 +105,8 @@ def load_synthetic_manifest(path: Path) -> dict[str, Any]:
             source_run_id=str(item["source_run_id"]),
             predict_start=date.fromisoformat(str(item["predict_start"])),
             predict_end=date.fromisoformat(str(item["predict_end"])),
+            valid_start=_optional_manifest_date(item, "valid_start"),
+            valid_end=_optional_manifest_date(item, "valid_end"),
         )
         for item in years_raw
     ]
@@ -118,6 +122,10 @@ def load_synthetic_manifest(path: Path) -> dict[str, Any]:
     for item in years:
         if item.predict_start > item.predict_end:
             raise ValueError(f"invalid predict window for {item.backtest_year}")
+        if bool(item.valid_start) != bool(item.valid_end):
+            raise ValueError(f"valid_start and valid_end must be provided together for {item.backtest_year}")
+        if item.valid_start and item.valid_start > item.valid_end:
+            raise ValueError(f"invalid valid window for {item.backtest_year}")
         if not item.source_run_id:
             raise ValueError(f"missing source_run_id for {item.backtest_year}")
     return {
@@ -255,19 +263,30 @@ def run_synthetic_merge(
 
 
 def canonical_manifest_sha256(manifest: dict[str, Any]) -> str:
+    def year_payload(item: YearSlice) -> dict[str, Any]:
+        payload = {
+            "backtest_year": item.backtest_year,
+            "source_run_id": item.source_run_id,
+            "predict_start": item.predict_start.isoformat(),
+            "predict_end": item.predict_end.isoformat(),
+        }
+        if item.valid_start and item.valid_end:
+            payload["valid_start"] = item.valid_start.isoformat()
+            payload["valid_end"] = item.valid_end.isoformat()
+        return payload
+
     payload = {
         "synthetic_run_id": manifest["synthetic_run_id"],
-        "years": [
-            {
-                "backtest_year": item.backtest_year,
-                "source_run_id": item.source_run_id,
-                "predict_start": item.predict_start.isoformat(),
-                "predict_end": item.predict_end.isoformat(),
-            }
-            for item in manifest["years"]
-        ],
+        "years": [year_payload(item) for item in manifest["years"]],
     }
     return hashlib.sha256(json_dumps_strict(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _optional_manifest_date(item: dict[str, Any], key: str) -> date | None:
+    value = item.get(key)
+    if value in (None, ""):
+        return None
+    return date.fromisoformat(str(value))
 
 
 def load_source_registry_rows(
@@ -324,6 +343,7 @@ def load_source_registry_rows(
                 raise RuntimeError(f"source run {source_run_id} is not a refit registry row")
             rows[source_run_id] = {
                 "source_run_id": source_run_id,
+                "source_selection_run_id": params.get("source_run_id") if params.get("refit") is True else source_run_id,
                 "source_model_id": row["model_id"],
                 "model_family": row["model_family"],
                 "horizon": int(row["horizon"]),
@@ -351,6 +371,89 @@ def load_source_registry_rows(
     multi = {run_id: count for run_id, count in duplicates.items() if count != 1}
     if missing or multi:
         raise RuntimeError(f"invalid selected source registry rows: missing={missing}, duplicate_counts={multi}")
+    missing_selection_lineage = sorted(
+        str(row["source_run_id"])
+        for row in rows.values()
+        if row.get("source_refit") and not row.get("source_selection_run_id")
+    )
+    if missing_selection_lineage:
+        raise RuntimeError(
+            "refit source registry rows must include model_params_json.source_run_id: "
+            f"{missing_selection_lineage}"
+        )
+    selection_run_ids = sorted({
+        str(row["source_selection_run_id"])
+        for row in rows.values()
+        if row.get("source_refit") and row.get("source_selection_run_id")
+    })
+    if selection_run_ids:
+        selection_windows = load_selection_valid_windows(
+            client,
+            config,
+            registry_table=registry_table,
+            selection_run_ids=selection_run_ids,
+        )
+        for row in rows.values():
+            selection_run_id = row.get("source_selection_run_id")
+            if row.get("source_refit") and selection_run_id:
+                window = selection_windows.get(str(selection_run_id))
+                if not window:
+                    raise RuntimeError(
+                        f"missing selected source valid window for refit source_run_id={row['source_run_id']} "
+                        f"source_selection_run_id={selection_run_id}"
+                    )
+                row["valid_start_date"] = window["valid_start_date"]
+                row["valid_end_date"] = window["valid_end_date"]
+    return rows
+
+
+def load_selection_valid_windows(
+    client: bigquery.Client,
+    config,
+    *,
+    registry_table: str,
+    selection_run_ids: list[str],
+) -> dict[str, dict[str, str | None]]:
+    frame = query_dataframe(
+        client,
+        f"""
+        SELECT
+          JSON_VALUE(model_params_json, '$.run_id') AS source_selection_run_id,
+          valid_start_date,
+          valid_end_date,
+          created_at
+        FROM `{registry_table}`
+        WHERE strategy_id = @strategy_id
+          AND status = 'selected'
+          AND JSON_VALUE(model_params_json, '$.run_id') IN UNNEST(@selection_run_ids)
+        ORDER BY source_selection_run_id, created_at DESC
+        """,
+        [
+            bigquery.ScalarQueryParameter("strategy_id", "STRING", config.strategy_id),
+            bigquery.ArrayQueryParameter("selection_run_ids", "STRING", selection_run_ids),
+        ],
+    )
+    rows: dict[str, dict[str, str | None]] = {}
+    duplicates: dict[str, int] = {}
+    for _, row in frame.iterrows():
+        run_id = str(row["source_selection_run_id"])
+        duplicates[run_id] = duplicates.get(run_id, 0) + 1
+        if run_id not in rows:
+            rows[run_id] = {
+                "valid_start_date": _date_str(row["valid_start_date"]),
+                "valid_end_date": _date_str(row["valid_end_date"]),
+            }
+    missing = sorted(set(selection_run_ids) - set(rows))
+    multi = {run_id: count for run_id, count in duplicates.items() if count != 1}
+    invalid = sorted(
+        run_id for run_id, window in rows.items()
+        if not window["valid_start_date"] or not window["valid_end_date"]
+    )
+    if missing or multi or invalid:
+        raise RuntimeError(
+            "invalid selected source valid windows: "
+            f"missing={missing}, duplicate_counts={multi}, invalid={invalid}"
+        )
     return rows
 
 
@@ -366,8 +469,8 @@ def build_year_slices(years: list[YearSlice], source_rows: dict[str, dict[str, A
             "selected_candidate_id": source["selected_candidate_id"],
             "predict_start": item.predict_start.isoformat(),
             "predict_end": item.predict_end.isoformat(),
-            "valid_start": source["valid_start_date"],
-            "valid_end": source["valid_end_date"],
+            "valid_start": item.valid_start.isoformat() if item.valid_start else source["valid_start_date"],
+            "valid_end": item.valid_end.isoformat() if item.valid_end else source["valid_end_date"],
         })
     return rows
 

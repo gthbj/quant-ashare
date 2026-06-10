@@ -1,10 +1,57 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
 > - PR #166 已合并并部署正式 Strategy1 runner 镜像 `sha256:e379fdccb49281ec628f389de261929d37e60906b51538132b350314ba8db9da`；五个 jobs 已更新，`strategy1-train-predict-job` 已提升到 `8 CPU / 32Gi`，六个 boot smoke（含 `refit_register_predict --help`）均成功。
 > - `v20260610_02` final refit 六年全部完成：2021/2022/2023 首轮成功，hotfix 后 2024/2025/2026 成功（executions `strategy1-train-predict-job-5s49j` / `mx272` / `d6g52`）；六年 `qa_refit_register_predict_outputs` 全部 succeeded。
-> - PR #167 已合并 synthetic continuous merge entrypoint 与 `qa_continuous_backtest_outputs`；official merge 首次执行暴露 BigQuery 分区过滤缺口（source prediction join 只有动态 manifest 窗口，不满足 `predict_date` partition filter），当前 hotfix 分支 `codex/synthetic-continuous-partition-filter` 已补静态整体窗口过滤并通过 focused tests / BigQuery dry-run。
-> - 仍禁止把年度 fresh NAV 拼成正式结果；official `2021-2026` 结果必须等 synthetic run、continuous backtest、`qa_continuous_backtest_outputs` 与 lot-aware QA 全部通过。
+> - PR #168 已合并 synthetic source prediction partition-filter hotfix；official synthetic merge 已用 `--force-replace` 成功，prediction rows=`2643406`，insert job `f8953afd-b95b-4b20-82f7-2af153bed998`；single continuous ledger 已成功，execution `strategy1-backtest-report-job-w5k24`；lot-aware QA 已通过，job `4dcfd716-6cea-4efd-b1f9-d7f195d1f004`。
+> - `qa_continuous_backtest_outputs` 发现 `QA-CONT-6` 失败：synthetic manifest 的 `valid_start/end` 被错误解析成 refit train window，而非原 selection valid window。当前分支 `codex/synthetic-continuous-valid-windows` 正在修复 valid-window lineage；修复合并后需 `--force-replace` 重跑 synthetic merge，再跑 continuous QA。
+> - 仍禁止把年度 fresh NAV 拼成正式结果；official `2021-2026` 结果必须等 `qa_continuous_backtest_outputs` 也通过后才可解释指标。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - PRD_03 synthetic continuous valid-window hotfix
+
+### 已完成工作
+
+- PR #168 已合并到 `main`（merge commit `41ef1cf`），修复 official synthetic merge 首次失败的 source prediction partition filter 缺口。
+- 从 `main@41ef1cf` 以 `--force-replace` 重跑 official synthetic merge 成功：synthetic run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`，prediction rows=`2643406`，registry rows=`1`，input manifest sha256=`bfd1e3c3e251954ae5ffa1a58102570e4c4538a92b24c9c181c7e41368877166`，resolved manifest sha256=`0be2815342ab53543dbeee84918a3723433c3cc772502677c2a7a4ec24066ef6`，insert job `f8953afd-b95b-4b20-82f7-2af153bed998`。
+- 跑 single continuous ledger 成功：Cloud Run execution `strategy1-backtest-report-job-w5k24`，backtest id `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，窗口 `2021-01-04..2026-06-09`，fresh start，`ledger_exec_v1_lot100`，skip diagnosis / tail-risk / default QA。
+- `qa_lot_aware_ledger_outputs` 已通过，job `4dcfd716-6cea-4efd-b1f9-d7f195d1f004`。
+- `qa_continuous_backtest_outputs` 暴露第二个契约缺口：`QA-CONT-6` valid 排除断言失败，因为 resolved manifest 从 refit registry 行的 `valid_start_date` / `valid_end_date` 取值，而 refit registry 中这两个字段等于 refit train window；正确 selection valid window 需要从 refit row 的 `model_params_json.source_run_id` 指向的原 selection registry 行读取。
+- 当前分支 `codex/synthetic-continuous-valid-windows` 已实现修复：refit source 通过 source selection registry 解析 valid window，manifest 显式 `valid_start/end` 可覆盖，并补单测覆盖。
+
+### 重要上下文
+
+- continuous ledger 本体已生成且 lot-aware QA 通过，但 official 指标仍需等 synthetic manifest valid-window 修复后重跑 synthetic merge，并让 `qa_continuous_backtest_outputs` 通过。
+- `qa_continuous_backtest_outputs` 是当前唯一未通过的 PRD_03 硬门；不要把年度 fresh NAV 或未过 continuous QA 的结果当正式结论。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/synthetic_continuous.py`
+- `tests/strategy1/test_synthetic_continuous.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_synthetic_continuous.py tests/strategy1/test_strategy1_catalog.py tests/strategy1/test_sql_render.py`：28 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 需合并 `codex/synthetic-continuous-valid-windows` 后，以 `--force-replace` 重跑 official synthetic merge，再跑 `qa_continuous_backtest_outputs`。
+
+### 下一步建议
+
+- 提交并合并 valid-window hotfix PR。
+- 重跑 synthetic merge；如 prediction stream 内容不变，可不重跑 continuous ledger，但必须重跑 `qa_continuous_backtest_outputs` 与结果复核。
+- 若 `qa_continuous_backtest_outputs` 通过，再查询并记录 continuous summary 指标。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - PRD_03 synthetic continuous partition filter hotfix
 
