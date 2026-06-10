@@ -12,6 +12,15 @@ Last updated: 2026-06-10
 - 新逻辑基于 `cv_panel` 里 `split_tag='train'` 的年份动态生成最多 3 个 rolling fold，并排除外部 valid 年；年度窗口会生成 `cv_2017/cv_2018/cv_2019`，旧 `2019-2023` 搜索窗口仍保持 `cv_2021/cv_2022/cv_2023` 及原边界形态。
 - 新增 `tests/strategy1_cloudrun/test_dynamic_cv_folds.py` 覆盖新旧窗口形态；`python3 -m pytest tests` 34 passed。合并后需重跑 2021 smoke 验证 CV 指标实际产出。
 
+### 最新补充（2026-06-10）：项目结构重构 Phase D1a SQL render table-role routing 已实现
+
+- 分支 `codex/strategy1-research-routing-d1a` 已实现 `docs/prd/PRD_20260610_02_项目结构重构方案.md` 的 Phase D1a：把 table role / dataset role resolver 接入 Strategy1 SQL render。
+- `src/quant_ashare/strategy1/sql_render.py` 现在可按 catalog step 的 `inputs` / `outputs` 生成 table role 替换表；默认 `dataset_role="ads"` 行为不变，显式 `dataset_role="research"` 必须同时传 `allow_future_research=True`，并只改写当前 step 相关 role，避免 `model_registry` / `acceptance_result` 等共享 ADS 源表被全局误替换。
+- `scripts/strategy1_cloudrun/sql_runner.py` 的 path / step wrapper 已透传 `dataset_role` 与 `allow_future_research`，但现有调用默认仍渲染 ADS；本轮未改 `backtest_report.py` 默认参数、未部署 Cloud Run、未创建或写入 BigQuery `ashare_research`。
+- 新增测试覆盖默认 ADS 渲染、显式 research 渲染、`ashare_meta.strategy1_experiment_run_status` per-role dataset override、字符串字面量表名替换，以及无 step 上下文的全局 research 替换歧义保护。
+- `sql/strategy1/README.md` 已同步说明 D1a 是 render-only / explicit opt-in；actual research writes、default research-first 和 promotion job 仍需后续单独 PR。
+- 验证：`python3 -m pytest tests` 38 passed；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`npx --yes @dataform/cli compile dataform` 通过；21 个 catalog step ADS / research 双渲染 smoke 通过；40 条程序化 self-review checks 通过；`python3 -m compileall -q src/quant_ashare/strategy1 scripts/strategy1_cloudrun` 与 `git diff --check` 通过。
+
 ### 最新补充（2026-06-10）：项目结构重构 Phase D0 research table contract 已实现
 
 - 分支 `codex/add-research-table-contract` 已实现 `docs/prd/PRD_20260610_02_项目结构重构方案.md` 的 Phase D0。
@@ -192,4 +201,3 @@ Last updated: 2026-06-10
 - `render_report.py` 默认展示复合年化收益，并把旧 `annual_return` 标为 `Legacy annual_return`。
 - PR #134 review follow-up 修复 `total_return = -100%` 边界：`09`、`10`、`24`、`render_report.py` 和 `replay_acceptance_gate_v3.py` 统一允许 `gross == 0` 返回复合年化 `-100%`，仅拒绝 `gross < 0`。
 - 本次未执行 BigQuery / Cloud Run；部署后只对新 run 生效，历史 run 如需复合年化需 owner 单独批准回填。
-
