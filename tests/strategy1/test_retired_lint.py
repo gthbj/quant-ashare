@@ -36,3 +36,20 @@ def test_retired_reference_linter_reports_active_scope_violations() -> None:
 
     assert len(violations) == 1
     assert violations[0].path == "src/quant_ashare/strategy1/reporting.py"
+
+
+def test_retired_reference_linter_reports_catalog_caller_violations() -> None:
+    catalog = copy.deepcopy(load_step_catalog())
+    catalog["retired_reference_lint"] = {
+        "active_scopes": [],
+        "historical_allowed_scopes": [],
+        "required_marker_for_historical_refs": [],
+        "banned_active_refs": ["scripts.strategy1_cloudrun.backtest_report"],
+    }
+    catalog["steps"]["build_candidates"]["caller"] = ["scripts.strategy1_cloudrun.backtest_report"]
+
+    violations = lint_retired_references(catalog)
+
+    assert len(violations) == 1
+    assert violations[0].path == "configs/strategy1/active_step_catalog.yml"
+    assert violations[0].line.endswith("scripts.strategy1_cloudrun.backtest_report")

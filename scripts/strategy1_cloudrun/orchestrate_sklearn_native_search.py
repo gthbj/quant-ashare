@@ -31,6 +31,11 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = REPO_ROOT / "src"
+if SRC_ROOT.exists() and str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
 from scripts.strategy1_cloudrun import __version__
 from scripts.strategy1_cloudrun.acceptance import (
     contract_sql_params,
@@ -63,12 +68,12 @@ from scripts.strategy1_cloudrun.config import (
     resolve_parallel_count,
 )
 from scripts.strategy1_cloudrun.feature_sets import PV_FIN_RISK_FEATURE_SET_ID
-from scripts.strategy1_cloudrun.orchestrate_experiments import (
+from quant_ashare.strategy1.pipeline_control import (
     build_task_fanout_steps,
     gcloud_execute_command,
     run_locked_step,
 )
-from scripts.strategy1_cloudrun.select_register_predict import (
+from quant_ashare.strategy1.select_register_predict import (
     load_candidates,
     rank_candidates,
 )
@@ -667,7 +672,7 @@ def run_topk_candidate(
             config.project,
             config.region,
             config.select_register_predict_job,
-            "scripts.strategy1_cloudrun.select_register_predict",
+            "quant_ashare.strategy1.select_register_predict",
             select_flags,
         ),
     )
@@ -691,7 +696,7 @@ def run_topk_candidate(
             config.project,
             config.region,
             config.backtest_report_job,
-            "scripts.strategy1_cloudrun.backtest_report",
+            "quant_ashare.strategy1.backtest_report",
             backtest_flags,
         ),
     )

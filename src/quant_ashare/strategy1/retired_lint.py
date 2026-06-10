@@ -37,6 +37,7 @@ def lint_retired_references(catalog: dict[str, Any] | None = None) -> list[Retir
                 if is_historical and has_marker:
                     continue
                 violations.append(RetiredReferenceViolation(rel, ref, line_no, line.strip()))
+    violations.extend(lint_catalog_callers(catalog, banned_refs))
     return violations
 
 
@@ -67,6 +68,31 @@ def matching_lines(text: str, ref: str) -> Iterable[tuple[int, str]]:
     for line_no, line in enumerate(text.splitlines(), start=1):
         if ref in line:
             yield line_no, line
+
+
+def lint_catalog_callers(catalog: dict[str, Any], banned_refs: Iterable[str]) -> list[RetiredReferenceViolation]:
+    catalog_text = (REPO_ROOT / "configs/strategy1/active_step_catalog.yml").read_text(encoding="utf-8")
+    violations: list[RetiredReferenceViolation] = []
+    for step_name, cfg in (catalog.get("steps") or {}).items():
+        if cfg.get("status") == "retired":
+            continue
+        for caller in cfg.get("caller") or []:
+            for ref in banned_refs:
+                if ref not in str(caller):
+                    continue
+                line_no = next(
+                    (line_no for line_no, line in matching_lines(catalog_text, str(caller))),
+                    0,
+                )
+                violations.append(
+                    RetiredReferenceViolation(
+                        "configs/strategy1/active_step_catalog.yml",
+                        ref,
+                        line_no,
+                        f"{step_name}.caller: {caller}",
+                    )
+                )
+    return violations
 
 
 def matches_any(path: str, patterns: Iterable[str]) -> bool:

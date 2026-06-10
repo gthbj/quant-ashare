@@ -11,10 +11,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = REPO_ROOT / "src"
+if SRC_ROOT.exists() and str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from scripts.strategy1_cloudrun import __version__
 from scripts.strategy1_cloudrun.bq_io import json_dumps_strict
@@ -26,7 +32,7 @@ from scripts.strategy1_cloudrun.config import (
     load_runner_config,
 )
 from scripts.strategy1_cloudrun.dataset_roles import output_dataset_role_cli_args
-from scripts.strategy1_cloudrun.orchestrate_experiments import (
+from quant_ashare.strategy1.pipeline_control import (
     build_task_fanout_steps,
     gcloud_execute_command,
 )
@@ -378,7 +384,7 @@ def command_plan(*, config, exp: Experiment, args: argparse.Namespace, include_b
                 config.project,
                 config.region,
                 config.backtest_report_job,
-                "scripts.strategy1_cloudrun.backtest_report",
+                "quant_ashare.strategy1.backtest_report",
                 backtest_flags,
             ),
         ))

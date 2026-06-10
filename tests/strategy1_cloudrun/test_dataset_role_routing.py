@@ -4,7 +4,7 @@ import argparse
 
 from google.cloud import bigquery
 
-from scripts.strategy1_cloudrun.backtest_report import (
+from quant_ashare.strategy1.backtest_report import (
     build_ledger_params,
     diagnosis_command,
     report_command,
@@ -23,17 +23,19 @@ from scripts.strategy1_cloudrun.dataset_roles import (
     output_dataset_role_cli_args,
     rewrite_sql_dataset_role,
 )
-from scripts.strategy1_cloudrun.orchestrate_experiments import build_chain_steps
+from quant_ashare.strategy1.pipeline_control import build_chain_steps
 from scripts.strategy1_cloudrun.orchestrate_sklearn_native_search import (
     build_search_qa_params,
     common_job_flags,
     dataset_role_query_job,
     maybe_run_next_wave,
     patch_native_acceptance,
+    run_topk_candidate,
 )
-from scripts.strategy1_cloudrun.state import OrchestratorStatusTable, status_table_ref
+from scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection import command_plan as annual_command_plan
+from scripts.strategy1_cloudrun.state import LockConfig, OrchestratorStatusTable, status_table_ref
 from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_LOT100
-from scripts.strategy1_cloudrun.train_predict import CandidateResult, write_registry
+from quant_ashare.strategy1.train_predict import CandidateResult, write_registry
 from quant_ashare.strategy1.catalog import load_step_catalog
 
 
@@ -167,6 +169,28 @@ def test_orchestrator_cloud_run_commands_propagate_default_research_output_datas
     assert "--output-dataset-role=research" in joined
 
 
+def test_orchestrator_cloud_run_commands_use_package_entrypoints() -> None:
+    args = argparse.Namespace(
+        config="configs/strategy1/cloudrun_runner_default.yml",
+        manifest="configs/strategy1/oq010_experiments_v0.json",
+        force_replace=False,
+        skip_gcs_upload=False,
+        train_mode="train_predict",
+        skip_diagnosis=False,
+        skip_qa=False,
+    )
+
+    joined = "\n".join(
+        " ".join(step.command)
+        for step in build_chain_steps(RunnerConfig(), _experiment(), args)
+    )
+
+    assert "quant_ashare.strategy1.train_predict" in joined
+    assert "quant_ashare.strategy1.backtest_report" in joined
+    assert "scripts.strategy1_cloudrun.train_predict" not in joined
+    assert "scripts.strategy1_cloudrun.backtest_report" not in joined
+
+
 def test_orchestrator_candidate_fanout_propagates_output_dataset_role() -> None:
     args = argparse.Namespace(
         config="configs/strategy1/cloudrun_runner_default.yml",
@@ -183,9 +207,15 @@ def test_orchestrator_candidate_fanout_propagates_output_dataset_role() -> None:
         config = RunnerConfig(output_dataset_role=role)
         steps = build_chain_steps(config, _experiment(), args)
         fanout_command = next(step.command for step in steps if step.step_id == "cloudrun_train_candidate_fanout")
-        joined = " ".join(fanout_command)
+        joined = "\n".join(" ".join(step.command) for step in steps)
 
-        assert "scripts.strategy1_cloudrun.train_candidate_task" in joined
+        assert "quant_ashare.strategy1.prepare_matrix" in joined
+        assert "quant_ashare.strategy1.train_candidate_task" in joined
+        assert "quant_ashare.strategy1.select_register_predict" in joined
+        assert "scripts.strategy1_cloudrun.prepare_matrix" not in joined
+        assert "scripts.strategy1_cloudrun.train_candidate_task" not in joined
+        assert "scripts.strategy1_cloudrun.select_register_predict" not in joined
+        assert fanout_command
         assert f"--output-dataset-role={role}" in joined
 
 
@@ -202,6 +232,77 @@ def test_native_search_cloud_run_flags_propagate_default_research_and_explicit_a
 
     assert "--output-dataset-role=research" in research_flags
     assert "--output-dataset-role=ads" in ads_flags
+
+
+def test_native_search_topk_commands_use_package_entrypoints(monkeypatch) -> None:
+    captured_commands: list[list[str]] = []
+
+    def fake_run_step(**kwargs: object) -> dict[str, str]:
+        step = kwargs["step"]
+        captured_commands.append(step.command)
+        return {"step_id": step.step_id, "status": "captured"}
+
+    monkeypatch.setattr("scripts.strategy1_cloudrun.orchestrate_sklearn_native_search.run_step", fake_run_step)
+    args = argparse.Namespace(
+        config="configs/strategy1/cloudrun_runner_default.yml",
+        manifest="configs/strategy1/sklearn_native_baseline_search.yml",
+        force_replace=False,
+        skip_gcs_upload=False,
+        skip_diagnosis=False,
+        skip_qa=False,
+        resume=False,
+    )
+
+    result = run_topk_candidate(
+        config=RunnerConfig(output_dataset_role="research"),
+        args=args,
+        lock_config=LockConfig(project="data-aquarium", region="asia-east2", dry_run=True),
+        scheduler_id="unit-scheduler",
+        manifest_hash_value="unit-hash",
+        search_exp=_experiment(),
+        search_id="unit_search",
+        matrix_uri="gs://unit/matrix",
+        row={"candidate_id": "candidate_a", "shortlist_rank_valid_only": 1},
+        test_reuse_wave_no=1,
+        test_reuse_approval_ref=None,
+        final_holdout_status=None,
+    )
+    joined = "\n".join(" ".join(command) for command in captured_commands)
+
+    assert result["status"] == "succeeded"
+    assert "quant_ashare.strategy1.select_register_predict" in joined
+    assert "quant_ashare.strategy1.backtest_report" in joined
+    assert "scripts.strategy1_cloudrun.select_register_predict" not in joined
+    assert "scripts.strategy1_cloudrun.backtest_report" not in joined
+
+
+def test_annual_rolling_command_plan_uses_package_entrypoints() -> None:
+    args = argparse.Namespace(
+        config="configs/strategy1/annual_rolling_lgbm_regression_v0.yml",
+        manifest="configs/strategy1/annual_rolling_lgbm_regression_v0.yml",
+        force_replace=False,
+        skip_gcs_upload=False,
+        candidate_parallelism=0,
+        skip_diagnosis=False,
+        skip_qa=False,
+    )
+
+    plan = annual_command_plan(
+        config=RunnerConfig(output_dataset_role="research"),
+        exp=_experiment(),
+        args=args,
+        include_backtest=True,
+    )
+    joined = "\n".join(" ".join(step["command"]) for step in plan)
+
+    assert "quant_ashare.strategy1.prepare_matrix" in joined
+    assert "quant_ashare.strategy1.train_candidate_task" in joined
+    assert "quant_ashare.strategy1.select_register_predict" in joined
+    assert "quant_ashare.strategy1.backtest_report" in joined
+    assert "scripts.strategy1_cloudrun.prepare_matrix" not in joined
+    assert "scripts.strategy1_cloudrun.train_candidate_task" not in joined
+    assert "scripts.strategy1_cloudrun.select_register_predict" not in joined
+    assert "scripts.strategy1_cloudrun.backtest_report" not in joined
 
 
 def test_native_search_qa_params_cover_catalog_required_params() -> None:
@@ -332,7 +433,7 @@ def test_research_registry_rows_include_explicit_contract_columns(monkeypatch) -
         captured["table_id"] = table_id
         captured["frame"] = frame
 
-    monkeypatch.setattr("scripts.strategy1_cloudrun.train_predict.load_dataframe", fake_load_dataframe)
+    monkeypatch.setattr("quant_ashare.strategy1.train_predict.load_dataframe", fake_load_dataframe)
 
     exp = Experiment(
         experiment_id="unit_exp",

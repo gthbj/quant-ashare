@@ -1,17 +1,70 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
-> - PR #153 已合并到 `main`；从 merge commit `1775099` 构建正式镜像 `strategy1-cloudrun-runner:package-entrypoints-main-1775099-20260610-01`，digest `sha256:0dce0e78256140a92d7b73bc083e028b377b9a132f9e08ccfd57d4730d7ac8b7`。
-> - 五个正式 Strategy1 jobs 已切到 package entrypoint args：`quant_ashare.strategy1.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report`，并保留原资源、SA、maxRetries、taskCount/parallelism。
-> - 五个正式 jobs 的 `--help` boot smoke 全部成功：`strategy1-train-predict-job-wdfv4`、`strategy1-prepare-matrix-job-rxc5n`、`strategy1-train-candidate-fanout-job-rltvm`、`strategy1-select-register-predict-job-sh2bz`、`strategy1-backtest-report-job-mtj4t`；日志均有 `usage:`。
-> - PR #153 临时 smoke job `strategy1-package-entrypoint-help-smoke` 已删除。代码侧 override args / catalog caller / runbook 示例迁移仍需单独 PR，旧 wrapper 暂不可删。
-> - PR #150 已合并到 `main`；D3/E main 镜像已构建并部署到五个 Strategy1 jobs，digest `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`。
-> - 五个现有 jobs 的 `--help` boot smoke 全部成功：`train-predict-job-rrjmf`、`prepare-matrix-job-7bgfl`、`train-candidate-fanout-job-jtw78`、`select-register-predict-job-p88c9`、`backtest-report-job-glntc`。
-> - 分支 `codex/package-entrypoints` 已为五个 jobs 建立 `quant_ashare.strategy1.*` package entrypoint，并用 pytest 覆盖旧/新入口 `--help` 与关键 dry-run parity；PR #153 review follow-up 已补 wrapper alias 注释和 cutover 范围约束；验证镜像 `package-entrypoints-6b1b3c7-20260610-01` 已完成五个新 package entrypoint `--help` Cloud Run smoke；正式 job command 已由后续 cutover 更新。
-> - 新建专用 promotion SA `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com` 与 Cloud Run job `strategy1-promote-research-to-ads-job`；help smoke `...-6kqd7` 与完整参数 review-only dry-run `...-4mkrv` 成功。
-> - Dry-run promotion smoke 未写 manifest：`promo_deploy_smoke_20260610_01` 在 `research_promotion_manifest` 行数为 `0`；`sql/research/03_qa_research_schema_readiness.sql` 7 条断言通过。
-> - Owner 已选择 OQ-013 方案 1：接受普通 runner compute SA 暂保留 `ashare_ads` WRITER，但保留流程约束；OQ-013 已关闭归档，未改线上 IAM。
-> - 尚未执行真实 owner-approved promotion；后续必须 owner 指定 accepted research run 后，按 runbook 先 review-only 再带 `--execute`。
+> - 分支 `codex/package-entrypoint-code-cutover` 已完成代码侧 package entrypoint cutover：`pipeline_control`、native search、annual rolling 发出的五个 Cloud Run job override args 均切到 `quant_ashare.strategy1.*`。
+> - `configs/strategy1/active_step_catalog.yml` 中 backtest/report active step caller 已切到 `quant_ashare.strategy1.backtest_report`；active runbook / 示例命令已更新到 package 入口，多实验 orchestrator 示例改为 `quant_ashare.strategy1.pipeline_control`。
+> - 五个旧 job module 路径已加入 retired-reference linter，且 linter 新增 catalog caller 检查；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过。
+> - 新增/扩展测试确认 direct、fanout、native TopK、annual rolling command plan 均不再生成旧五模块路径；`tests/strategy1` + `tests/strategy1_cloudrun` 91 passed，compileall / Dataform SQLX check / diff check / retired linter 通过。
+> - 旧 `scripts.strategy1_cloudrun.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report` wrapper 本 PR 不删除；删除需等本代码 PR 合并并完成后续验证，再同步调整 wrapper parity 测试。
+> - 仍未执行真实 owner-approved promotion；后续必须 owner 指定 accepted research run 后，按 runbook 先 review-only 再带 `--execute`。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - Strategy1 package entrypoint code-side cutover
+
+### 已完成工作
+
+- 将 `src/quant_ashare/strategy1/pipeline_control.py` 生成的五个 Cloud Run job module 从旧 `scripts.strategy1_cloudrun.*` 切到 `quant_ashare.strategy1.*`。
+- 将 `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py` 与 `orchestrate_annual_rolling_selection.py` 内部发出的 select/register/predict、backtest/report 和 annual plan command 切到 package module；两个脚本保留现有 CLI 入口。
+- 将 `configs/strategy1/active_step_catalog.yml` 的 backtest/report active step caller 切到 `quant_ashare.strategy1.backtest_report`。
+- 将 active runbook / 示例命令中的五个 job 入口与多实验 orchestrator 示例更新到 package 入口。
+- 将五个旧 job module 路径加入 retired-reference linter，并补 catalog caller 检查，避免 catalog caller 因跳过配置文件本身而漏报。
+- 更新 active tests 的入口导入到 package module，并新增 direct / fanout / native TopK / annual rolling command-plan 断言。
+
+### 重要上下文
+
+- 本 PR 不删除旧五 job wrapper；它们仍用于兼容旧 CLI/import 和 old/new parity 测试。
+- 删除旧 wrapper 前，需要先合并并验证本代码侧 cutover，再确认 active scopes 内旧五模块路径仍为 0，并同步移除或替换 wrapper parity 测试。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/pipeline_control.py`
+- `src/quant_ashare/strategy1/retired_lint.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`
+- `configs/strategy1/active_step_catalog.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `docs/策略1实验并发调度器运行手册.md`
+- `tests/strategy1/test_retired_lint.py`
+- `tests/strategy1/test_sql_render.py`
+- `tests/strategy1_cloudrun/test_dataset_role_routing.py`
+- `tests/strategy1_cloudrun/test_dynamic_cv_folds.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests/strategy1 tests/strategy1_cloudrun`：91 passed。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `git diff --check`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.pipeline_control --help`、`python3 -m scripts.strategy1_cloudrun.orchestrate_sklearn_native_search --help`、`python3 -m scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection --help`：通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 合并本代码 PR 后，如需继续收口，可单独评估删除旧五 job wrapper，并同步调整兼容性测试。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - 五个正式 Strategy1 Cloud Run jobs package entrypoint cutover
 
