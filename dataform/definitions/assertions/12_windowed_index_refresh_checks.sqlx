@@ -29,7 +29,12 @@ DECLARE p_date_to DATE DEFAULT CASE
   )
   ELSE p_requested_date_to
 END;
-DECLARE p_final_start_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_daily_current_floor_date DATE DEFAULT DATE '2019-01-01';
+DECLARE p_backfill_floor_date DATE DEFAULT DATE '1900-01-01';
+DECLARE p_write_floor_date DATE DEFAULT CASE
+  WHEN p_warehouse_mode = 'backfill' THEN p_backfill_floor_date
+  ELSE p_daily_current_floor_date
+END;
 DECLARE p_daily_current_lookback_td INT64 DEFAULT 20;
 DECLARE p_end_date_seq INT64 DEFAULT (
   SELECT trade_date_seq
@@ -55,7 +60,7 @@ DECLARE p_write_start_date DATE DEFAULT GREATEST(
       THEN p_daily_current_start_date
     ELSE COALESCE(p_date_from, p_date_to)
   END,
-  p_final_start_date
+  p_write_floor_date
 );
 DECLARE p_write_end_date DATE DEFAULT p_date_to;
 

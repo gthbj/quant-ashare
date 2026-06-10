@@ -6,6 +6,13 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：Dataform generated SQLX drift 已修复
+
+- 分支 `codex/fix-dataform-generated-drift` 已从最新 `origin/main` 重新运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件。
+- 改动只包含 `dataform/definitions/**/*.sqlx` 生成产物与项目记忆/TODO；未修改 canonical `sql/`、`dataform/action_manifest.json`、Workflows、Cloud Run 或 BigQuery 执行入口。
+- 本轮验证：`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`npx --yes @dataform/cli compile dataform > /tmp/quant_ashare_dataform_compile.json` 通过；`git diff --check` 通过。
+- 根目录 `TODO.md` 中 “工程治理：修复 Dataform generated SQLX drift” 已勾选完成。
+
 ### 最新补充（2026-06-10）：项目结构重构 Phase A-C 已实现并完成 PR #136 review follow-up
 
 - 分支 `codex/strategy1-structure-refactor` 已按 `docs/prd/PRD_20260610_02_项目结构重构方案.md` 实现 Phase A/B/C。

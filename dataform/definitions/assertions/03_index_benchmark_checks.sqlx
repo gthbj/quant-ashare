@@ -34,7 +34,7 @@ DECLARE dwd_end_date DATE DEFAULT (
     AND idx.total_mv_cny IS NOT NULL
     AND idx.pb IS NOT NULL
 );
-DECLARE p_benchmark STRING DEFAULT '000852.SH';
+DECLARE p_benchmark STRING DEFAULT '000001.SH';
 DECLARE p_window_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_window_end DATE DEFAULT DATE '2025-12-31';
 

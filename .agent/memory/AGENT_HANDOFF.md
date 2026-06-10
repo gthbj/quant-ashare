@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 分支 `codex/fix-dataform-generated-drift` 已修复 Dataform generated SQLX drift：从 canonical `sql/` 与 `dataform/action_manifest.json` 重新生成 6 个 stale `dataform/definitions/**/*.sqlx` 文件。
+> - 本轮未修改 canonical `sql/`、manifest、Workflows、Cloud Run 或 BigQuery 执行入口；只同步 generated SQLX 和项目记忆/TODO。
+> - 验证：`generate_sqlx_from_sql.py --check`、Dataform compile 和 `git diff --check` 均通过。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #136 review follow-up 已处理：retired linter 在 Python 3.11/3.12 下递归扫描 active scope，不再空跑；显式 `dataset_role="research"` 当前阶段 fail-fast，不再静默降级 ADS。
 > - Owner 已确认 PR #136 可一次性合并项目结构重构 Phase A/A2/B/C；该豁免已记录为 `DECISION-20260610-07`，后续 Phase D/E 仍需单独 PR。
 > - 已删除 PASS 型 self-review 文档，`sql/strategy1/README.md` 已说明 `audit_only` SQL 同 namespace 但执行状态以 catalog 为准，`TODO.md` 已补 Dataform generated SQLX drift cleanup 项。
@@ -90,6 +95,7 @@
 
 ## 当前交接摘要
 
+- 2026-06-10：Dataform generated SQLX drift 已在 `codex/fix-dataform-generated-drift` 单独 cleanup 分支修复；重新生成 `dataform/definitions/**/*.sqlx` 中 6 个 stale 文件，未修改 canonical `sql/` 或 `dataform/action_manifest.json`，`generate_sqlx_from_sql.py --check`、Dataform compile 和 `git diff --check` 均通过。
 - 2026-06-10：项目结构重构 PRD Phase A/A2/B/C 已在 `codex/strategy1-structure-refactor` 实现并完成 PR #136 review follow-up：新增 Strategy1 active step catalog、retired linter、table-role/dataset-role resolver 与 `src/quant_ashare/**` 包基础，active/shared SQL 已迁到 `sql/strategy1/**`；旧 `sql/ml/strategy1/**`、`sql/cloudrun/strategy1/**` 只保留 historical/audit README。当前默认仍解析/写入 `ashare_ads`，显式 `dataset_role="research"` fail-fast，不创建 `ashare_research`，后续 Phase D/E 需单独 PR。Owner 已确认 PR #136 一次性合并 Phase A/A2/B/C 的豁免，记录为 `DECISION-20260610-07`。
 - 2026-06-10：新增 Strategy1 年度滚动选参 PRD `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`；P0 固定 11 个 LightGBM regression 可选候选、B26 binary diagnostic-only reference、20 只持仓、7.5% 单票上限、biweekly 和 `ledger_exec_v1_lot100`，每年用上一整年 valid 选参数，再用最近 5 年 final refit，最终用年度预测合并后的一条连续 ledger 评价 `2021-2026`。
 - 2026-06-10：新增项目结构重构总 PRD `docs/prd/PRD_20260610_02_项目结构重构方案.md`；owner 已确认采用 `ashare_research` / `research_*` / `accepted != promoted`、`sql/strategy1/**`、`src/quant_ashare/**`、短期保留 `scripts/strategy1_cloudrun/**` wrapper，且 P0 不强制创建 `docs/retired/`。实施顺序为先做 active path catalog、防误用护栏和 table role / dataset role resolver，再迁移 Strategy1 active shared SQL（同时覆盖 `sql/ml/strategy1/**` 与 `sql/cloudrun/strategy1/**`）到 `sql/strategy1/**`，随后抽 Strategy1 package foundation，最后再分段实现 `ashare_research` / `ashare_ads` 生命周期隔离和 deeper package split。
@@ -106,6 +112,59 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-10 GPT-5 Codex - Dataform generated SQLX drift cleanup
+
+### 已完成工作
+
+- 从最新 `origin/main` 新建分支 `codex/fix-dataform-generated-drift`。
+- 运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件：
+  - `dataform/definitions/setup/01_create_meta_tables.sqlx`
+  - `dataform/definitions/dim/02_dim_stock.sqlx`
+  - `dataform/definitions/metadata/01_core_table_column_descriptions.sqlx`
+  - `dataform/definitions/assertions/01_core_smoke_checks.sqlx`
+  - `dataform/definitions/assertions/03_index_benchmark_checks.sqlx`
+  - `dataform/definitions/assertions/12_windowed_index_refresh_checks.sqlx`
+- 勾选 `TODO.md` 中的 Dataform generated SQLX drift cleanup 项，并同步 `IMPLEMENTATION_STATUS` / `AGENT_HANDOFF`。
+
+### 重要上下文
+
+- 本轮只修 generated SQLX drift；canonical `sql/` 与 `dataform/action_manifest.json` 没有改动。
+- 未运行 BigQuery、Cloud Run、Workflows 或生产 Dataform invocation。
+
+### 改动文件
+
+- `dataform/definitions/setup/01_create_meta_tables.sqlx`
+- `dataform/definitions/dim/02_dim_stock.sqlx`
+- `dataform/definitions/metadata/01_core_table_column_descriptions.sqlx`
+- `dataform/definitions/assertions/01_core_smoke_checks.sqlx`
+- `dataform/definitions/assertions/03_index_benchmark_checks.sqlx`
+- `dataform/definitions/assertions/12_windowed_index_refresh_checks.sqlx`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform > /tmp/quant_ashare_dataform_compile.json`：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 合并本 cleanup PR 后，后续修改 manifest 覆盖的 canonical SQL 时继续同时提交 generated SQLX，并保持 `--check` clean。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - 项目结构重构 Phase A-C 实现
 
