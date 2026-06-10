@@ -1,7 +1,7 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #150 已合并到 `main`；D3/E main 镜像已构建并部署到五个 Strategy1 jobs，digest `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`。
 > - 五个现有 jobs 的 `--help` boot smoke 全部成功：`train-predict-job-rrjmf`、`prepare-matrix-job-7bgfl`、`train-candidate-fanout-job-jtw78`、`select-register-predict-job-p88c9`、`backtest-report-job-glntc`。
-> - 分支 `codex/package-entrypoints` 已为五个 jobs 建立 `quant_ashare.strategy1.*` package entrypoint，并用 pytest 覆盖旧/新入口 `--help` 与关键 dry-run parity；PR #153 review follow-up 已补 wrapper alias 注释和 cutover 范围约束；本轮不改线上 job command。
+> - 分支 `codex/package-entrypoints` 已为五个 jobs 建立 `quant_ashare.strategy1.*` package entrypoint，并用 pytest 覆盖旧/新入口 `--help` 与关键 dry-run parity；PR #153 review follow-up 已补 wrapper alias 注释和 cutover 范围约束；验证镜像 `package-entrypoints-6b1b3c7-20260610-01` 已完成五个新 package entrypoint `--help` Cloud Run smoke；本轮不改线上 job command。
 > - 新建专用 promotion SA `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com` 与 Cloud Run job `strategy1-promote-research-to-ads-job`；help smoke `...-6kqd7` 与完整参数 review-only dry-run `...-4mkrv` 成功。
 > - Dry-run promotion smoke 未写 manifest：`promo_deploy_smoke_20260610_01` 在 `research_promotion_manifest` 行数为 `0`；`sql/research/03_qa_research_schema_readiness.sql` 7 条断言通过。
 > - Owner 已选择 OQ-013 方案 1：接受普通 runner compute SA 暂保留 `ashare_ads` WRITER，但保留流程约束；OQ-013 已关闭归档，未改线上 IAM。
@@ -18,6 +18,8 @@ Model: GPT-5 Codex
 - PR #153 review follow-up 已给五个 wrapper 的 `sys.modules[__name__] = _impl` alias 加注释，明确这是 legacy import / monkeypatch 兼容关键路径。
 - 新增 `tests/strategy1/test_cloudrun_package_entrypoints.py`，覆盖五个旧/新入口 `--help` 输出一致和关键 `--dry-run` JSON plan 一致。
 - 扩展 `tests/strategy1/test_package_boundaries.py` 的 package import smoke 与 wrapper alias 检查。
+- 构建验证镜像 `strategy1-cloudrun-runner:package-entrypoints-6b1b3c7-20260610-01`，digest `sha256:101eab22ac1504fc03f42392fdb2db984c23715b441955a1f7ae0316ca35c172`，Cloud Build `b906160e-1ae3-4acb-851f-bd19ac248f47`。
+- 用临时 Cloud Run job `strategy1-package-entrypoint-help-smoke` 分别跑通五个新 package entrypoint 的 `--help`：`strategy1-package-entrypoint-help-smoke-w2g7d`、`...-tcf7s`、`...-df6vr`、`...-b2lc5`、`...-vbfgg`，全部 `Completed=True`，Cloud Logging 均匹配到 `usage:`。
 
 ### 重要上下文
 
@@ -48,6 +50,7 @@ Model: GPT-5 Codex
 
 - 手工五入口 old/new `--help` smoke：通过。
 - 手工五入口 old/new 关键 `--dry-run` JSON plan parity：通过。
+- 验证镜像五入口 Cloud Run `--help` smoke：通过。
 - `python3 -m pytest -q tests/strategy1/test_package_boundaries.py tests/strategy1/test_cloudrun_package_entrypoints.py tests/strategy1_cloudrun/test_dataset_role_routing.py tests/strategy1_cloudrun/test_dynamic_cv_folds.py`：35 passed。
 - `python3 -m pytest -q tests/strategy1 tests/strategy1_cloudrun`：87 passed。
 - `python3 -m compileall -q src scripts tests`：通过。

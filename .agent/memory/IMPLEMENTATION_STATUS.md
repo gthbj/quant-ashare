@@ -13,7 +13,9 @@ Last updated: 2026-06-10
 - 新增 `tests/strategy1/test_cloudrun_package_entrypoints.py`，用 subprocess 对五个旧/新入口分别校验 `--help` 输出一致、关键 `--dry-run` JSON plan 一致；`tests/strategy1/test_package_boundaries.py` 补 package import smoke 和 wrapper alias 检查。
 - 验证：手工五入口 old/new `--help` 与 dry-run parity 通过；`python3 -m pytest -q tests/strategy1/test_package_boundaries.py tests/strategy1/test_cloudrun_package_entrypoints.py tests/strategy1_cloudrun/test_dataset_role_routing.py tests/strategy1_cloudrun/test_dynamic_cv_folds.py` 35 passed；`python3 -m pytest -q tests/strategy1 tests/strategy1_cloudrun` 87 passed；`python3 -m compileall -q src scripts tests` 和 `git diff --check` 通过。
 - PR #153 review follow-up：五个 wrapper 的 `sys.modules` alias 已补注释，避免未来误删；cutover TODO / 约束已补全为 job spec、override args、catalog caller、runbook 示例四类范围，并明确删 wrapper 前 active scopes 内旧路径 grep 必须为 0 且 retired linter 兜底。
-- 本轮不修改 Cloud Run Job spec、不构建镜像、不部署线上 jobs、不删除旧 wrapper。线上五个 jobs 仍通过 `scripts.strategy1_cloudrun.*` command 启动；下一步应单独做 job command 迁移 PR + 镜像 smoke。
+- 已从 PR #153 HEAD `6b1b3c7` 构建验证镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:package-entrypoints-6b1b3c7-20260610-01`，Cloud Build `b906160e-1ae3-4acb-851f-bd19ac248f47` succeeded，digest `sha256:101eab22ac1504fc03f42392fdb2db984c23715b441955a1f7ae0316ca35c172`。该构建使用一次性 Cloud Build config，只推固定 tag，未更新 `latest`。
+- 临时 Cloud Run job `strategy1-package-entrypoint-help-smoke` 指向上述 digest，分别 override args 跑通五个新 package entrypoint 的 `--help` smoke，execution 均 `Completed=True` 且日志存在 `usage:`：`train_predict`=`...-w2g7d`、`prepare_matrix`=`...-tcf7s`、`train_candidate_task`=`...-df6vr`、`select_register_predict`=`...-b2lc5`、`backtest_report`=`...-vbfgg`。
+- 本轮不修改正式 Cloud Run Job spec、不部署五个线上 jobs、不删除旧 wrapper。线上五个 jobs 仍通过 `scripts.strategy1_cloudrun.*` command 启动；下一步应单独做 job command 迁移 PR。
 
 ### 最新补充（2026-06-10）：项目结构重构 D3/E main 镜像已部署，promotion job 已上线 dry-run
 
