@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 from quant_ashare.strategy1.legacy_names import (
     allowed_legacy_names,
     is_legacy_name_allowed,
     legacy_name_config,
 )
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_strategy1_package_import_smoke_for_phase_e_boundaries() -> None:
@@ -31,25 +35,23 @@ def test_strategy1_package_import_smoke_for_phase_e_boundaries() -> None:
 
 def test_cloudrun_wrappers_reexport_package_implementations() -> None:
     from scripts.strategy1_cloudrun import acceptance as acceptance_wrapper
-    from scripts.strategy1_cloudrun import backtest_report as reporting_wrapper
     from scripts.strategy1_cloudrun import ledger as ledger_wrapper
     from scripts.strategy1_cloudrun import orchestrate_experiments as pipeline_wrapper
 
     assert acceptance_wrapper.load_acceptance_contract.__module__ == "quant_ashare.strategy1.acceptance"
     assert ledger_wrapper.LedgerParams.__module__ == "quant_ashare.strategy1.ledger"
-    assert reporting_wrapper.build_sql_params.__module__ == "quant_ashare.strategy1.reporting"
     assert pipeline_wrapper.build_chain_steps.__module__ == "quant_ashare.strategy1.pipeline_control"
 
 
-def test_cloudrun_job_wrappers_alias_stable_package_entrypoints() -> None:
-    for old_module, new_module in (
-        ("scripts.strategy1_cloudrun.train_predict", "quant_ashare.strategy1.train_predict"),
-        ("scripts.strategy1_cloudrun.prepare_matrix", "quant_ashare.strategy1.prepare_matrix"),
-        ("scripts.strategy1_cloudrun.train_candidate_task", "quant_ashare.strategy1.train_candidate_task"),
-        ("scripts.strategy1_cloudrun.select_register_predict", "quant_ashare.strategy1.select_register_predict"),
-        ("scripts.strategy1_cloudrun.backtest_report", "quant_ashare.strategy1.backtest_report"),
+def test_retired_cloudrun_job_wrapper_files_are_removed() -> None:
+    for rel_path in (
+        "scripts/strategy1_cloudrun/train_predict.py",
+        "scripts/strategy1_cloudrun/prepare_matrix.py",
+        "scripts/strategy1_cloudrun/train_candidate_task.py",
+        "scripts/strategy1_cloudrun/select_register_predict.py",
+        "scripts/strategy1_cloudrun/backtest_report.py",
     ):
-        assert importlib.import_module(old_module) is importlib.import_module(new_module)
+        assert not (REPO_ROOT / rel_path).exists()
 
 
 def test_legacy_name_exception_registry_keeps_audit_fields_explicit() -> None:

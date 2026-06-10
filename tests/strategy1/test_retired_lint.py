@@ -27,7 +27,7 @@ def test_retired_reference_linter_scans_recursive_active_scopes() -> None:
         for path in iter_scope_files(lint_cfg["active_scopes"], lint_cfg["historical_allowed_scopes"])
     }
 
-    assert "scripts/strategy1_cloudrun/backtest_report.py" in files
+    assert "scripts/strategy1_cloudrun/orchestrate_experiments.py" in files
     assert "src/quant_ashare/strategy1/reporting.py" in files
     assert "sql/strategy1/qa/qa_runner_outputs.sql" in files
 

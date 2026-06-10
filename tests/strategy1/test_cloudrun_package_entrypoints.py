@@ -114,13 +114,11 @@ def _run_module(module: str, args: list[str]) -> subprocess.CompletedProcess[str
         "backtest_report",
     ],
 )
-def test_old_and_package_entrypoint_help_match(entrypoint: str) -> None:
-    old = _run_module(f"scripts.strategy1_cloudrun.{entrypoint}", ["--help"])
+def test_package_entrypoint_help_smoke(entrypoint: str) -> None:
     new = _run_module(f"quant_ashare.strategy1.{entrypoint}", ["--help"])
 
-    assert old.returncode == 0, old.stderr
     assert new.returncode == 0, new.stderr
-    assert old.stdout == new.stdout
+    assert "usage:" in new.stdout
 
 
 @pytest.mark.parametrize(
@@ -133,12 +131,10 @@ def test_old_and_package_entrypoint_help_match(entrypoint: str) -> None:
         "backtest_report",
     ],
 )
-def test_old_and_package_entrypoint_dry_run_plans_match(entrypoint: str, tmp_path: Path) -> None:
+def test_package_entrypoint_dry_run_plan_is_json(entrypoint: str, tmp_path: Path) -> None:
     args = _entrypoint_args(tmp_path)[entrypoint]
 
-    old = _run_module(f"scripts.strategy1_cloudrun.{entrypoint}", args)
     new = _run_module(f"quant_ashare.strategy1.{entrypoint}", args)
 
-    assert old.returncode == 0, old.stderr
     assert new.returncode == 0, new.stderr
-    assert json.loads(old.stdout) == json.loads(new.stdout)
+    assert isinstance(json.loads(new.stdout), dict)

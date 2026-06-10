@@ -1,12 +1,71 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
-> - PR #156 已合并到 `main`，merge commit `2156bb4b5a1d40c358a738395e01c10803ffa825`；已从该 main commit 重建正式 Strategy1 runner 镜像并更新五个正式 Cloud Run jobs。
-> - 新镜像 tag `entrypoint-main-2156bb4-20260610-01`，Cloud Build `a11eca10-db4a-478f-b69c-6f8866cc5598`，digest `sha256:c84b47d8daea59d6d89dd5a1c218d6d1ee1a1195885a16c6d66a262a60f7305c`。构建使用一次性 config，只推固定 tag，未更新 `latest`。
-> - 读回确认五个 jobs 均指向新 digest，args 仍为 `quant_ashare.strategy1.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report`，SA、`maxRetries=0`、CPU/memory、fanout `taskCount=40` / `parallelism=20` 未变。
-> - 五个正式 jobs 的 `--help` boot smoke 全部成功，Cloud Logging 均有 `usage:`：`strategy1-train-predict-job-vh59r`、`strategy1-prepare-matrix-job-fjshr`、`strategy1-train-candidate-fanout-job-cpxr2`、`strategy1-select-register-predict-job-82wsq`、`strategy1-backtest-report-job-44cmd`。
-> - 旧 `scripts.strategy1_cloudrun.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report` wrapper 仍保留；下一步可单独 PR 删除 wrapper，并同步调整 old/new wrapper parity 测试。
+> - 分支 `codex/delete-strategy1-job-wrappers` 已删除五个旧 job wrapper 文件：`scripts/strategy1_cloudrun/train_predict.py`、`prepare_matrix.py`、`train_candidate_task.py`、`select_register_predict.py`、`backtest_report.py`。
+> - 本轮不改正式 Cloud Run job spec、不重建镜像；线上 jobs 和代码侧 override args 已在前序 PR 切到 `quant_ashare.strategy1.*` package entrypoint。
+> - `tests/strategy1/test_cloudrun_package_entrypoints.py` 已从 old/new wrapper parity 改为 package entrypoint `--help` smoke 与 dry-run JSON 解析；`tests/strategy1/test_package_boundaries.py` 新增旧五 wrapper 文件不存在断言。
+> - 五个旧模块路径仍保留在 `retired_reference_lint.banned_active_refs` 和 `tests/strategy1/test_retired_lint.py` 清单中，继续防止 active scopes 回流。
+> - 验证已通过：`PYTHONPATH=src python3 -m pytest -q tests/strategy1 tests/strategy1_cloudrun` 92 passed；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过；`python3 -m compileall -q src scripts tests` 通过；`git diff --check` 通过。
 > - 仍未执行真实 owner-approved promotion；后续必须 owner 指定 accepted research run 后，按 runbook 先 review-only 再带 `--execute`。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - Strategy1 retired job wrapper deletion
+
+### 已完成工作
+
+- 在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-delete-job-wrappers` 基于 `origin/main` commit `5772f30` 开分支 `codex/delete-strategy1-job-wrappers`。
+- 删除五个旧 job wrapper 文件：
+  - `scripts/strategy1_cloudrun/train_predict.py`
+  - `scripts/strategy1_cloudrun/prepare_matrix.py`
+  - `scripts/strategy1_cloudrun/train_candidate_task.py`
+  - `scripts/strategy1_cloudrun/select_register_predict.py`
+  - `scripts/strategy1_cloudrun/backtest_report.py`
+- 将 `tests/strategy1/test_cloudrun_package_entrypoints.py` 从 old/new wrapper parity 改为 package entrypoint `--help` smoke 与 dry-run JSON 解析。
+- 将 `tests/strategy1/test_package_boundaries.py` 中五个 job wrapper alias 测试替换为旧 wrapper 文件不存在断言；保留其他非 job wrapper re-export 测试。
+- 更新 `tests/strategy1/test_retired_lint.py`，避免已删除 wrapper 文件被当作 active-scope 扫描样本。
+
+### 重要上下文
+
+- 本轮不修改正式 Cloud Run job spec、不重建镜像；线上五个 jobs 已在前序部署指向 package entrypoint。
+- 五个旧模块点分路径仍保留在 retired-reference linter ban-list 和测试清单中，用于防回流。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/train_predict.py`（删除）
+- `scripts/strategy1_cloudrun/prepare_matrix.py`（删除）
+- `scripts/strategy1_cloudrun/train_candidate_task.py`（删除）
+- `scripts/strategy1_cloudrun/select_register_predict.py`（删除）
+- `scripts/strategy1_cloudrun/backtest_report.py`（删除）
+- `tests/strategy1/test_cloudrun_package_entrypoints.py`
+- `tests/strategy1/test_package_boundaries.py`
+- `tests/strategy1/test_retired_lint.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py tests/strategy1/test_cloudrun_package_entrypoints.py tests/strategy1/test_retired_lint.py tests/strategy1_cloudrun/test_dataset_role_routing.py`：41 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1 tests/strategy1_cloudrun`：92 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过，active scopes 无旧五模块路径。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提 PR。
+- 真实 owner-approved promotion 仍需 owner 指定 accepted research run 后，按 runbook 先 review-only 再带 `--execute`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - Strategy1 code-side entrypoint cutover main deploy
 
