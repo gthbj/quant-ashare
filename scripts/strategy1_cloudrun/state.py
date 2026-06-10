@@ -17,7 +17,7 @@ from google.cloud import bigquery, storage
 from scripts.strategy1_cloudrun import __version__
 from scripts.strategy1_cloudrun.bq_io import json_dumps_strict
 from scripts.strategy1_cloudrun.config import Experiment
-from scripts.strategy1_cloudrun.dataset_roles import TableResolver
+from scripts.strategy1_cloudrun.dataset_roles import DEFAULT_OUTPUT_DATASET_ROLE, TableResolver
 
 
 STATUS_TABLE = "`data-aquarium.ashare_meta.strategy1_experiment_run_status`"
@@ -62,7 +62,7 @@ def experiment_params_json(
     *,
     execution_backend: str,
     manifest_hash: str,
-    output_dataset_role: str = "ads",
+    output_dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE,
 ) -> str:
     payload = exp.to_params()
     payload["execution_backend"] = execution_backend
@@ -242,7 +242,7 @@ class OrchestratorStatusTable:
         location: str,
         *,
         dry_run: bool = False,
-        output_dataset_role: str = "ads",
+        output_dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE,
     ):
         self.project = project
         self.location = location
@@ -397,7 +397,7 @@ class OrchestratorStatusTable:
         return self._client
 
 
-def status_table_ref(project: str, output_dataset_role: str = "ads") -> str:
+def status_table_ref(project: str, output_dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE) -> str:
     return f"`{TableResolver(dataset_role=output_dataset_role, project=project).fqn('experiment_run_status')}`"
 
 

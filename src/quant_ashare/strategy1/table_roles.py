@@ -1,4 +1,4 @@
-"""Table role resolver for the current Strategy 1 ADS-compatible phase."""
+"""Table role resolver for Strategy 1 dataset roles."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from quant_ashare.strategy1.catalog import load_step_catalog
 def resolve_table_role(
     role: str,
     *,
-    dataset_role: str = "ads",
+    dataset_role: str | None = None,
     project: str | None = None,
     catalog: dict[str, Any] | None = None,
     allow_future_research: bool = False,
@@ -20,14 +20,15 @@ def resolve_table_role(
     if role not in table_roles:
         raise KeyError(f"unknown table role: {role}")
     dataset_roles = catalog.get("dataset_roles") or {}
+    dataset_role = dataset_role or catalog.get("current_dataset_role", "ads")
     if dataset_role not in dataset_roles:
         raise KeyError(f"unknown dataset role: {dataset_role}")
-    if dataset_role != "ads" and not allow_future_research:
+    dataset_cfg = dataset_roles[dataset_role]
+    if dataset_role != "ads" and not (allow_future_research or dataset_cfg.get("enabled_by_default")):
         raise ValueError(
-            f"dataset_role={dataset_role} is not enabled in the current ADS-compatible phase"
+            f"dataset_role={dataset_role} is not enabled by default"
         )
     effective_dataset_role = dataset_role
-    dataset_cfg = dataset_roles[effective_dataset_role]
     table_cfg = table_roles[role]
     table_name_key = "research_table" if effective_dataset_role == "research" else "ads_table"
     table_name = table_cfg.get(table_name_key) or table_cfg["ads_table"]

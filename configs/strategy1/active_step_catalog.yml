@@ -2,8 +2,8 @@
 # 文档维护：GPT-5 Codex（最近更新 2026-06-10）
 version: strategy1_step_catalog_v1
 project: data-aquarium
-current_dataset_role: ads
-future_dataset_role: research
+current_dataset_role: research
+previous_dataset_role: ads
 
 dataset_roles:
   ads:
@@ -13,9 +13,9 @@ dataset_roles:
   research:
     project: data-aquarium
     dataset: ashare_research
-    lifecycle: future_research_default
+    lifecycle: default_research_first
     contract_sql: sql/research/01_research_strategy1_tables.sql
-    enabled_by_default: false
+    enabled_by_default: true
 
 table_roles:
   training_panel:
@@ -85,7 +85,7 @@ steps:
     target_path: sql/strategy1/panel/build_training_panel_base.sql
     sql_path: sql/strategy1/panel/build_training_panel_base.sql
     caller: [scripts.strategy1_cloudrun.orchestrate_sklearn_native_search]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_strategy_id, p_experiment_id, p_experiment_group, p_baseline_experiment_id, p_parent_experiment_id, p_parent_run_id, p_preprocess_version, p_feature_version, p_feature_set_id, p_fin_feature_version, p_label_version, p_label_horizon, p_rebalance_frequency, p_target_holdings, p_max_single_weight, p_horizon_natural_frequency, p_train_start, p_train_end, p_valid_start, p_valid_end, p_test_start, p_test_end, p_final_holdout_start, p_final_holdout_end, p_force_replace]
     internal_params: [p_panel_end]
@@ -102,7 +102,7 @@ steps:
     target_path: sql/strategy1/panel/build_training_panel_risk_feature.sql
     sql_path: sql/strategy1/panel/build_training_panel_risk_feature.sql
     caller: [scripts.strategy1_cloudrun.orchestrate_sklearn_native_search]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_strategy_id, p_experiment_id, p_experiment_group, p_baseline_experiment_id, p_parent_experiment_id, p_parent_run_id, p_preprocess_version, p_feature_version, p_feature_set_id, p_fin_feature_version, p_market_state_version, p_market_state_ffill_max_trade_days, p_label_version, p_label_horizon, p_rebalance_frequency, p_target_holdings, p_max_single_weight, p_horizon_natural_frequency, p_train_start, p_train_end, p_valid_start, p_valid_end, p_test_start, p_test_end, p_final_holdout_start, p_final_holdout_end, p_force_replace]
     internal_params: [p_panel_end, p_fin_enabled, p_risk_enabled]
@@ -119,7 +119,7 @@ steps:
     target_path: sql/strategy1/execution/build_candidates.sql
     sql_path: sql/strategy1/execution/build_candidates.sql
     caller: [scripts.strategy1_cloudrun.backtest_report]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_label_horizon, p_rebalance_frequency, p_rebalance_anchor_start, p_predict_start, p_predict_end, p_feature_version, p_tail_risk_profile_id, p_tail_risk_ret_20d_min, p_tail_risk_drawdown_20d_min, p_tail_risk_limit_down_days_20d_min, p_tail_risk_one_word_limit_days_20d_min, p_tail_risk_total_mv_min_cny, p_tail_risk_circ_mv_min_cny, p_target_holdings, p_force_replace]
     internal_params: [p_selected_model_id]
@@ -136,7 +136,7 @@ steps:
     target_path: sql/strategy1/execution/build_portfolio_targets.sql
     sql_path: sql/strategy1/execution/build_portfolio_targets.sql
     caller: [scripts.strategy1_cloudrun.backtest_report]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_strategy_id, p_label_horizon, p_predict_start, p_predict_end, p_target_holdings, p_max_single_weight, p_initial_capital, p_force_replace]
     internal_params: []
@@ -153,7 +153,7 @@ steps:
     target_path: sql/strategy1/execution/build_order_plan.sql
     sql_path: sql/strategy1/execution/build_order_plan.sql
     caller: [scripts.strategy1_cloudrun.backtest_report]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_strategy_id, p_predict_start, p_predict_end, p_initial_capital, p_force_replace]
     internal_params: []
@@ -170,7 +170,7 @@ steps:
     target_path: sql/strategy1/reporting/build_metrics_and_report_inputs.sql
     sql_path: sql/strategy1/reporting/build_metrics_and_report_inputs.sql
     caller: [scripts.strategy1_cloudrun.backtest_report]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_experiment_id, p_experiment_group, p_baseline_experiment_id, p_parent_experiment_id, p_parent_run_id, p_rebalance_frequency, p_rebalance_anchor_start, p_target_holdings, p_max_single_weight, p_label_horizon, p_horizon_natural_frequency, p_feature_set_id, p_tail_risk_profile_id, p_market_state_version, p_execution_backend, p_ledger_version, p_ledger_executor, p_lot_size, p_min_buy_lot, p_predict_start, p_predict_end, p_initial_capital, p_cost_profile_id, p_commission_bps, p_min_commission_cny, p_stamp_tax_buy_bps, p_stamp_tax_sell_bps, p_slippage_buy_bps, p_slippage_sell_bps, p_cost_bps, p_benchmark, p_initial_state_mode, p_parent_backtest_id, p_state_as_of_date, p_resume_policy_id, p_force_replace]
     internal_params: [p_calendar_end, p_selected_model_id]
@@ -187,7 +187,7 @@ steps:
     target_path: sql/strategy1/qa/qa_runner_outputs.sql
     sql_path: sql/strategy1/qa/qa_runner_outputs.sql
     caller: [scripts.strategy1_cloudrun.backtest_report]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_experiment_id, p_rebalance_frequency, p_target_holdings, p_label_horizon, p_train_start, p_train_end, p_valid_start, p_valid_end, p_test_start, p_test_end, p_final_holdout_start, p_final_holdout_end, p_predict_start, p_predict_end, p_rebalance_anchor_start, p_max_single_weight, p_tail_risk_profile_id, p_market_state_version, p_ledger_version, p_lot_size, p_min_buy_lot, p_initial_state_mode, p_parent_backtest_id, p_state_as_of_date, p_resume_policy_id]
     internal_params: [p_calendar_end]
@@ -204,7 +204,7 @@ steps:
     target_path: sql/strategy1/qa/qa_model_diagnosis_outputs.sql
     sql_path: sql/strategy1/qa/qa_model_diagnosis_outputs.sql
     caller: [scripts.strategy1_cloudrun.backtest_report]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_train_start, p_train_end, p_valid_start, p_valid_end, p_test_start, p_test_end, p_label_horizon]
     internal_params: []
@@ -221,7 +221,7 @@ steps:
     target_path: sql/strategy1/qa/qa_tail_risk_outputs.sql
     sql_path: sql/strategy1/qa/qa_tail_risk_outputs.sql
     caller: [scripts.strategy1_cloudrun.backtest_report]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_predict_start, p_predict_end, p_tail_risk_profile_id, p_market_state_version, p_expected_summary_hash, p_expected_nav_hash]
     internal_params: []
@@ -238,7 +238,7 @@ steps:
     target_path: sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql
     sql_path: sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql
     caller: [scripts.strategy1_cloudrun.backtest_report]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_backtest_id, p_run_id, p_predict_start, p_predict_end, p_ledger_version, p_lot_size, p_min_buy_lot, p_min_buy_shares, p_resume_policy_id]
     internal_params: []
@@ -255,7 +255,7 @@ steps:
     target_path: sql/strategy1/qa/qa_sklearn_native_search_outputs.sql
     sql_path: sql/strategy1/qa/qa_sklearn_native_search_outputs.sql
     caller: [scripts.strategy1_cloudrun.orchestrate_sklearn_native_search]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_search_id, p_source_run_id, p_strategy_id, p_expected_candidate_count, p_top_k, p_test_reuse_wave_no, p_acceptance_contract_version, p_min_test_rank_ic, p_min_test_year_excess_return_vs_000852, p_min_sharpe, p_min_max_drawdown, p_required_valid_signal_status, p_final_holdout_required_after_wave, p_final_holdout_passed_status]
     internal_params: []
@@ -272,7 +272,7 @@ steps:
     target_path: sql/strategy1/qa/qa_cloudrun_python_baseline_search_outputs.sql
     sql_path: sql/strategy1/qa/qa_cloudrun_python_baseline_search_outputs.sql
     caller: [scripts.strategy1_cloudrun.orchestrate_sklearn_native_search]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_search_id, p_source_run_id, p_strategy_id, p_expected_candidate_count, p_expected_candidate_parallelism, p_expected_candidate_task_cpu, p_expected_candidate_task_memory, p_expected_model_family, p_expected_model_search_wave_no, p_top_k, p_test_reuse_wave_no, p_acceptance_gate_version, p_acceptance_contract_version, p_acceptance_contract_sha256, p_primary_benchmark_sec_code, p_valid_start_date, p_valid_end_date, p_test_start_date, p_test_end_date, p_final_holdout_start_date, p_final_holdout_end_date, p_data_end_date, p_min_valid_rank_ic, p_min_valid_top_minus_bottom_fwd_ret, p_min_test_rank_ic, p_min_test_top_minus_bottom_fwd_ret, p_min_test_year_excess_return_vs_000852, p_min_overall_excess_return_vs_000852, p_min_total_return, p_min_sharpe, p_min_calmar_ratio, p_min_max_drawdown, p_min_final_holdout_excess_return_vs_000852, p_min_final_holdout_total_return, p_min_final_holdout_trading_days, p_required_valid_signal_status, p_required_cv_confirmation_status, p_final_holdout_required_after_wave, p_final_holdout_passed_status]
     internal_params: []
@@ -289,7 +289,7 @@ steps:
     target_path: sql/strategy1/qa/qa_risk_feature_search_outputs.sql
     sql_path: sql/strategy1/qa/qa_risk_feature_search_outputs.sql
     caller: [scripts.strategy1_cloudrun.orchestrate_sklearn_native_search]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_search_id, p_source_run_id, p_strategy_id, p_expected_feature_set_id, p_expected_model_search_wave_no, p_top_k, p_test_reuse_wave_no, p_acceptance_contract_version, p_test_reuse_approval_ref, p_market_state_version, p_train_start_date, p_data_end_date, p_final_holdout_start_date, p_final_holdout_end_date, p_risk_feature_max_drawdown_target]
     internal_params: []
@@ -306,7 +306,7 @@ steps:
     target_path: sql/strategy1/acceptance/qa_acceptance_gate_v3_replay_outputs.sql
     sql_path: sql/strategy1/acceptance/qa_acceptance_gate_v3_replay_outputs.sql
     caller: [scripts.strategy1.run_acceptance_gate_v3_replay_qa]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_acceptance_gate_version, p_acceptance_contract_version, p_acceptance_contract_sha256, p_strategy_id, p_search_ids_json, p_top_k_per_search, p_primary_benchmark_sec_code, p_comparison_benchmark_sec_codes_json, p_final_holdout_enforcement, p_legacy_valid_as_cv_search_ids_json, p_full_start_date, p_full_end_date, p_valid_start_date, p_valid_end_date, p_test_start_date, p_test_end_date, p_final_holdout_start_date, p_final_holdout_end_date, p_min_valid_rank_ic, p_min_valid_top_minus_bottom_fwd_ret, p_min_test_rank_ic, p_min_test_top_minus_bottom_fwd_ret, p_min_sharpe, p_min_calmar_ratio, p_min_final_holdout_trading_days, p_allowed_score_orientations_json]
     internal_params: [p_search_ids, p_comparison_benchmark_sec_codes, p_legacy_valid_as_cv_search_ids, p_allowed_score_orientations]
@@ -323,7 +323,7 @@ steps:
     target_path: sql/strategy1/qa/qa_cloudrun_runner_outputs.sql
     sql_path: sql/strategy1/qa/qa_cloudrun_runner_outputs.sql
     caller: [manual_runbook]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_predict_start, p_predict_end, p_expected_execution_backend, p_expected_ledger_version, p_expected_ledger_executor, p_expected_executable_experiment_count, p_resolved_max_parallel_experiments, p_require_model_quality_parity_passed, p_require_task_fanout, p_candidate_task_bq_audit_window_days, p_candidate_task_max_bq_bytes, p_prediction_run_id_label]
     internal_params: []
@@ -340,7 +340,7 @@ steps:
     target_path: sql/strategy1/qa/qa_cloudrun_orchestrator_status.sql
     sql_path: sql/strategy1/qa/qa_cloudrun_orchestrator_status.sql
     caller: [manual_runbook]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_experiment_id, p_run_id, p_backtest_id, p_require_train_step, p_require_backtest_step, p_require_task_fanout, p_expected_execution_backend]
     internal_params: []
@@ -357,7 +357,7 @@ steps:
     target_path: sql/strategy1/diagnostics/model_quality_diagnostics.sql
     sql_path: sql/strategy1/diagnostics/model_quality_diagnostics.sql
     caller: [manual_runbook]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_valid_start, p_valid_end, p_test_start, p_test_end, p_target_holdings, p_label_horizon]
     internal_params: []
@@ -374,7 +374,7 @@ steps:
     target_path: sql/strategy1/qa/qa_factor_attribution_outputs.sql
     sql_path: sql/strategy1/qa/qa_factor_attribution_outputs.sql
     caller: [manual_runbook]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id]
     internal_params: [p_selected_model_path]
@@ -391,7 +391,7 @@ steps:
     target_path: sql/strategy1/qa/qa_ledger_resume_consistency.sql
     sql_path: sql/strategy1/qa/qa_ledger_resume_consistency.sql
     caller: [manual_runbook]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_cash_tolerance_cny, p_value_tolerance_cny, p_share_tolerance]
     internal_params: []
@@ -408,7 +408,7 @@ steps:
     target_path: sql/strategy1/acceptance/qa_acceptance_gate_v2_outputs.sql
     sql_path: sql/strategy1/acceptance/qa_acceptance_gate_v2_outputs.sql
     caller: [manual_runbook]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_acceptance_gate_version, p_acceptance_contract_version, p_acceptance_contract_sha256, p_strategy_id, p_required_ledger_version, p_reference_run_id, p_reference_backtest_id, p_prediction_run_id, p_full_start_date, p_full_end_date, p_valid_start_date, p_valid_end_date, p_test_start_date, p_test_end_date, p_label_version, p_expected_target_holdings, p_forbidden_target_holdings, p_hard_reject_full_period_excess_return_vs_000852, p_needs_more_evidence_full_period_excess_lower_open, p_needs_more_evidence_full_period_excess_upper_closed]
     internal_params: []
@@ -425,7 +425,7 @@ steps:
     target_path: sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql
     sql_path: sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql
     caller: [manual_runbook]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_state_as_of_date, p_resume_policy_id, p_ledger_version]
     internal_params: []
@@ -442,7 +442,7 @@ steps:
     target_path: sql/strategy1/qa/qa_cloudrun_schema_readiness.sql
     sql_path: sql/strategy1/qa/qa_cloudrun_schema_readiness.sql
     caller: [manual_runbook, scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection]
-    output_dataset_role_current: ads
+    output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: []
     internal_params: []

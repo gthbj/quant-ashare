@@ -17,11 +17,12 @@ from quant_ashare.strategy1.table_roles import resolve_table_role
 
 
 OUTPUT_DATASET_ROLE_CHOICES = ("ads", "research")
+DEFAULT_OUTPUT_DATASET_ROLE = "research"
 DEFAULT_SQL_REWRITE_EXCLUDED_ROLES = frozenset({"acceptance_result"})
 
 
 def validate_output_dataset_role(dataset_role: str | None) -> str:
-    role = dataset_role or "ads"
+    role = dataset_role or DEFAULT_OUTPUT_DATASET_ROLE
     if role not in OUTPUT_DATASET_ROLE_CHOICES:
         raise ValueError(f"unknown output_dataset_role: {role}")
     return role
@@ -33,8 +34,6 @@ def allow_future_research(dataset_role: str | None) -> bool:
 
 def output_dataset_role_cli_args(dataset_role: str | None, *, equals: bool = False) -> list[str]:
     role = validate_output_dataset_role(dataset_role)
-    if role == "ads":
-        return []
     if equals:
         return [f"--output-dataset-role={role}"]
     return ["--output-dataset-role", role]
@@ -43,7 +42,7 @@ def output_dataset_role_cli_args(dataset_role: str | None, *, equals: bool = Fal
 def table_id(
     role: str,
     *,
-    dataset_role: str = "ads",
+    dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE,
     project: str | None = None,
 ) -> str:
     dataset_role = validate_output_dataset_role(dataset_role)
@@ -56,7 +55,7 @@ def table_id(
 
 
 class TableResolver:
-    def __init__(self, *, dataset_role: str = "ads", project: str | None = None) -> None:
+    def __init__(self, *, dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE, project: str | None = None) -> None:
         self.dataset_role = validate_output_dataset_role(dataset_role)
         self.project = project
 
@@ -67,7 +66,7 @@ class TableResolver:
 def rewrite_sql_dataset_role(
     sql: str,
     *,
-    dataset_role: str = "ads",
+    dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE,
     project: str | None = None,
     role_names: Iterable[str] | None = None,
 ) -> str:

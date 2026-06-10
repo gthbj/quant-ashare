@@ -3,8 +3,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 from quant_ashare.strategy1.catalog import (
     load_step_catalog,
     repo_path,
@@ -38,17 +36,23 @@ def test_legacy_paths_resolve_to_stable_strategy1_namespace() -> None:
     assert resolved == Path.cwd() / "sql/strategy1/execution/build_candidates.sql"
 
 
-def test_table_role_resolver_stays_ads_in_current_phase() -> None:
+def test_table_role_resolver_defaults_to_research_first_and_keeps_explicit_ads() -> None:
     assert (
         resolve_table_role("model_registry")
+        == "data-aquarium.ashare_research.research_model_registry"
+    )
+    assert (
+        resolve_table_role("model_registry", dataset_role="ads")
         == "data-aquarium.ashare_ads.ads_model_registry"
     )
     assert (
-        resolve_table_role("experiment_run_status")
+        resolve_table_role("experiment_run_status", dataset_role="ads")
         == "data-aquarium.ashare_meta.strategy1_experiment_run_status"
     )
-    with pytest.raises(ValueError, match="dataset_role=research is not enabled"):
-        resolve_table_role("model_registry", dataset_role="research")
+    assert (
+        resolve_table_role("experiment_run_status")
+        == "data-aquarium.ashare_research.research_experiment_run_status"
+    )
 
 
 def test_single_output_step_partition_columns_match_output_role() -> None:
@@ -68,7 +72,7 @@ def test_step_role_contract_covers_ads_sql_references() -> None:
     catalog = load_step_catalog()
     source_to_roles: dict[str, set[str]] = {}
     for role in catalog["table_roles"]:
-        source_to_roles.setdefault(resolve_table_role(role, catalog=catalog), set()).add(role)
+        source_to_roles.setdefault(resolve_table_role(role, dataset_role="ads", catalog=catalog), set()).add(role)
 
     failures: list[str] = []
     for step_name, cfg in catalog["steps"].items():
@@ -78,7 +82,7 @@ def test_step_role_contract_covers_ads_sql_references() -> None:
         actual_sources = set(ADS_REF_RE.findall(sql_path.read_text(encoding="utf-8")))
         declared_roles = set(cfg.get("inputs") or []) | set(cfg.get("outputs") or [])
         covered_sources = {
-            resolve_table_role(role, catalog=catalog)
+            resolve_table_role(role, dataset_role="ads", catalog=catalog)
             for role in declared_roles
             if role in catalog["table_roles"]
         }

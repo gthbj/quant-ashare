@@ -75,8 +75,19 @@ def test_config_maps_legacy_training_panel_sql_to_step(tmp_path) -> None:
     assert loaded.training_panel_step == "build_training_panel_risk_feature"
 
 
-def test_default_table_role_rendering_keeps_ads_targets() -> None:
+def test_default_table_role_rendering_uses_research_first_targets() -> None:
     sql = render_sql_step("build_candidates", _backtest_params())
+
+    assert "`data-aquarium.ashare_research.research_model_registry`" in sql
+    assert "`data-aquarium.ashare_research.research_model_prediction_daily`" in sql
+    assert "`data-aquarium.ashare_research.research_stock_candidate_daily`" in sql
+    assert "data-aquarium.ashare_ads.ads_model_registry" not in sql
+    assert "data-aquarium.ashare_ads.ads_model_prediction_daily" not in sql
+    assert "data-aquarium.ashare_ads.ads_stock_candidate_daily" not in sql
+
+
+def test_explicit_ads_table_role_rendering_keeps_ads_targets() -> None:
+    sql = render_sql_step("build_candidates", _backtest_params(), dataset_role="ads")
 
     assert "`data-aquarium.ashare_ads.ads_model_registry`" in sql
     assert "`data-aquarium.ashare_ads.ads_model_prediction_daily`" in sql
@@ -84,9 +95,11 @@ def test_default_table_role_rendering_keeps_ads_targets() -> None:
     assert "data-aquarium.ashare_research" not in sql
 
 
-def test_research_table_role_rendering_requires_explicit_allow() -> None:
-    with pytest.raises(ValueError, match="dataset_role=research is not enabled"):
-        render_sql_step("build_candidates", _backtest_params(), dataset_role="research")
+def test_research_table_role_rendering_is_enabled_by_default_in_d2() -> None:
+    sql = render_sql_step("build_candidates", _backtest_params(), dataset_role="research")
+
+    assert "`data-aquarium.ashare_research.research_model_registry`" in sql
+    assert "`data-aquarium.ashare_research.research_model_prediction_daily`" in sql
 
 
 def test_research_table_role_rendering_rewrites_step_roles_only() -> None:

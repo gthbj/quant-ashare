@@ -26,6 +26,7 @@ if SRC_ROOT.exists() and str(SRC_ROOT) not in sys.path:
 
 from quant_ashare.strategy1.catalog import step_name_for_path
 from scripts.strategy1_cloudrun.dataset_roles import (
+    DEFAULT_OUTPUT_DATASET_ROLE,
     OUTPUT_DATASET_ROLE_CHOICES,
     validate_output_dataset_role,
 )
@@ -53,7 +54,7 @@ class RunnerConfig:
     artifact_base_uri: str = DEFAULT_ARTIFACT_BASE_URI
     model_artifact_base_uri: str = DEFAULT_MODEL_ARTIFACT_BASE_URI
     local_mirror_root: str = DEFAULT_LOCAL_MIRROR_ROOT
-    output_dataset_role: str = "ads"
+    output_dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE
     execution_backend: str = DEFAULT_EXECUTION_BACKEND
     train_predict_job: str = "strategy1-train-predict-job"
     prepare_matrix_job: str = "strategy1-prepare-matrix-job"

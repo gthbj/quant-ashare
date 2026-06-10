@@ -19,7 +19,7 @@ import pandas as pd
 from google.cloud import bigquery
 
 from scripts.strategy1_cloudrun.bq_io import execute_query, load_dataframe, query_dataframe
-from scripts.strategy1_cloudrun.dataset_roles import TableResolver
+from scripts.strategy1_cloudrun.dataset_roles import DEFAULT_OUTPUT_DATASET_ROLE, TableResolver
 
 ALLOWED_TAIL_RISK_PROFILES = frozenset({
     "diagnostic_only",
@@ -54,7 +54,7 @@ class LedgerParams:
     project: str
     run_id: str
     backtest_id: str
-    output_dataset_role: str = "ads"
+    output_dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE
     strategy_id: str = "ml_pv_clf_v0"
     predict_start: str = "2024-01-02"
     predict_end: str = "2025-12-31"

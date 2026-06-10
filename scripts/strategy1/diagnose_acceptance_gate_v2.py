@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Strategy 1 acceptance-gate v2 read-only diagnosis.
 
-This implements PRD_20260606_04 Phase B/C. It reads existing ADS/DWD/DWS
-artifacts, does not train, does not change predictions, and does not write ADS.
+This implements PRD_20260606_04 Phase B/C. It reads existing output/DWD/DWS
+artifacts, does not train, does not change predictions, and does not write core outputs.
 Outputs are local/GCS artifacts used to decide whether the current reference run
 is rejected, needs more evidence, or can become a future baseline candidate.
 """
@@ -36,13 +36,14 @@ from scripts.strategy1_cloudrun.bq_io import (
     write_text,
 )
 from scripts.strategy1_cloudrun.dataset_roles import (
+    DEFAULT_OUTPUT_DATASET_ROLE,
     OUTPUT_DATASET_ROLE_CHOICES,
     rewrite_sql_dataset_role,
 )
 
 
 ACCEPTANCE_GATE_VERSION = "strategy1_acceptance_gate_v2"
-OUTPUT_DATASET_ROLE = "ads"
+OUTPUT_DATASET_ROLE = DEFAULT_OUTPUT_DATASET_ROLE
 DEFAULT_CONTRACT_PATH = "configs/strategy1/model_acceptance_contract_v2.yml"
 DEFAULT_DIAGNOSIS_ID = "acceptance_gate_v2_reference_20260606_01"
 DEFAULT_REFERENCE_RUN_ID = "s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01"
@@ -94,7 +95,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eligible-benchmark-cost-bps", type=float, default=12.0)
     parser.add_argument("--artifact-base-uri", default="gs://ashare-artifacts/reports/strategy1")
     parser.add_argument("--local-mirror-root", default="reports/strategy1")
-    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
+    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default=DEFAULT_OUTPUT_DATASET_ROLE)
     parser.add_argument("--skip-gcs-upload", action="store_true")
     return parser.parse_args()
 
@@ -1479,7 +1480,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## 约束",
         "",
-        "- 本诊断只读 ADS/DWD/DWS，不训练模型、不改预测、不写 ADS。",
+        "- 本诊断只读输出表/DWD/DWS，不训练模型、不改预测、不写核心输出。",
         "- 分区表查询均显式带日期过滤。",
         "- `10/5%` 仅作 diagnostic cash control，不参与 production baseline accepted 判定。",
     ])

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Build OQ-010 experiment comparison artifacts from ADS outputs.
+"""Build OQ-010 experiment comparison artifacts from dataset-role outputs.
 
-The script reads a manifest and BigQuery ADS tables, then writes:
+The script reads a manifest and selected BigQuery output tables, then writes:
 - experiment_comparison.md
 - experiment_comparison.json
 - experiment_metrics.csv
@@ -34,6 +34,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.strategy1_cloudrun.dataset_roles import (
+    DEFAULT_OUTPUT_DATASET_ROLE,
     OUTPUT_DATASET_ROLE_CHOICES,
     rewrite_sql_dataset_role,
 )
@@ -45,9 +46,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--manifest", default="configs/strategy1/oq010_experiments_v0.json")
     p.add_argument("--comparison-id", required=True)
     p.add_argument("--output-root", default="reports/strategy1/oq010_experiment_comparison")
-    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
+    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default=DEFAULT_OUTPUT_DATASET_ROLE)
     p.add_argument("--include-planned", action="store_true",
-                   help="Include manifest rows without ADS outputs in CSV/JSON")
+                   help="Include manifest rows without selected output rows in CSV/JSON")
     return p.parse_args()
 
 
@@ -114,7 +115,7 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
-def fetch_ads_outputs(
+def fetch_output_rows(
     client: bigquery.Client,
     experiments: list[dict[str, Any]],
     *,
@@ -312,15 +313,15 @@ def main() -> None:
     manifest = load_manifest(Path(args.manifest))
     experiments = manifest.get("experiments", [])
     client = make_bq_client(args.project)
-    ads_by_experiment = fetch_ads_outputs(
+    output_by_experiment = fetch_output_rows(
         client,
         experiments,
         output_dataset_role=args.output_dataset_role,
     )
     rows = [
-        row_for_experiment(exp, ads_by_experiment.get(exp["experiment_id"]))
+        row_for_experiment(exp, output_by_experiment.get(exp["experiment_id"]))
         for exp in experiments
-        if args.include_planned or exp["experiment_id"] in ads_by_experiment
+        if args.include_planned or exp["experiment_id"] in output_by_experiment
     ]
 
     out_dir = Path(args.output_root) / args.comparison_id

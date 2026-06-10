@@ -308,6 +308,7 @@ def build_task_fanout_steps(config, exp, args, common_flags: list[str]) -> list[
                     f"--project={config.project}",
                     f"--region={config.region}",
                     f"--config={args.config}",
+                    *output_dataset_role_cli_args(config.output_dataset_role, equals=True),
                     f"--matrix-uri={matrix_uri}",
                     f"--task-index-offset={batch_start}",
                 ],

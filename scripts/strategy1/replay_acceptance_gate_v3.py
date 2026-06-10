@@ -33,6 +33,7 @@ from scripts.strategy1_cloudrun.bq_io import (
     write_text,
 )
 from scripts.strategy1_cloudrun.dataset_roles import (
+    DEFAULT_OUTPUT_DATASET_ROLE,
     OUTPUT_DATASET_ROLE_CHOICES,
     rewrite_sql_dataset_role,
 )
@@ -55,7 +56,7 @@ REQUIRED_ARTIFACTS = [
     "acceptance_gate_v3_by_benchmark.csv",
     "artifact_manifest.json",
 ]
-OUTPUT_DATASET_ROLE = "ads"
+OUTPUT_DATASET_ROLE = DEFAULT_OUTPUT_DATASET_ROLE
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-k-per-search", type=int, default=5)
     parser.add_argument("--artifact-base-uri", default="gs://ashare-artifacts/reports/strategy1")
     parser.add_argument("--local-mirror-root", default="reports/strategy1")
-    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
+    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default=DEFAULT_OUTPUT_DATASET_ROLE)
     parser.add_argument("--skip-gcs-upload", action="store_true")
     return parser.parse_args()
 

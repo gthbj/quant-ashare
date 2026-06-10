@@ -3,8 +3,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 from quant_ashare.strategy1.catalog import load_step_catalog
 from quant_ashare.strategy1.table_roles import resolve_table_role
 
@@ -162,15 +160,15 @@ def test_promotion_manifest_records_target_and_completion_fields() -> None:
     assert "promoted_at TIMESTAMP" in block
 
 
-def test_research_role_resolver_is_contract_only_in_current_phase() -> None:
-    with pytest.raises(ValueError, match="dataset_role=research is not enabled"):
+def test_research_role_resolver_is_enabled_by_default_in_d2() -> None:
+    assert (
         resolve_table_role("model_prediction_daily", dataset_role="research")
-
+        == "data-aquarium.ashare_research.research_model_prediction_daily"
+    )
     assert (
         resolve_table_role(
             "model_prediction_daily",
             dataset_role="research",
-            allow_future_research=True,
         )
         == "data-aquarium.ashare_research.research_model_prediction_daily"
     )
@@ -178,7 +176,6 @@ def test_research_role_resolver_is_contract_only_in_current_phase() -> None:
         resolve_table_role(
             "experiment_run_status",
             dataset_role="research",
-            allow_future_research=True,
         )
         == "data-aquarium.ashare_research.research_experiment_run_status"
     )
@@ -189,7 +186,7 @@ def test_research_dataset_role_points_to_d0_contract() -> None:
     research_role = catalog["dataset_roles"]["research"]
 
     assert research_role["dataset"] == "ashare_research"
-    assert research_role["enabled_by_default"] is False
+    assert research_role["enabled_by_default"] is True
     assert research_role["contract_sql"] == "sql/research/01_research_strategy1_tables.sql"
     assert (REPO_ROOT / research_role["contract_sql"]).exists()
 

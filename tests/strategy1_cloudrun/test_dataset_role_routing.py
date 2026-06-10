@@ -18,7 +18,9 @@ from scripts.strategy1_cloudrun.config import (
     apply_cli_overrides,
 )
 from scripts.strategy1_cloudrun.dataset_roles import (
+    DEFAULT_OUTPUT_DATASET_ROLE,
     TableResolver,
+    output_dataset_role_cli_args,
     rewrite_sql_dataset_role,
 )
 from scripts.strategy1_cloudrun.orchestrate_experiments import build_chain_steps
@@ -46,13 +48,22 @@ def _experiment() -> Experiment:
     )
 
 
-def test_runner_config_defaults_to_ads_and_cli_can_opt_into_research() -> None:
+def test_runner_config_defaults_to_research_and_cli_can_fallback_to_ads() -> None:
     parser = argparse.ArgumentParser()
     add_common_args(parser)
-    args = parser.parse_args(["--output-dataset-role", "research"])
+    args = parser.parse_args(["--output-dataset-role", "ads"])
 
-    assert RunnerConfig().output_dataset_role == "ads"
-    assert apply_cli_overrides(RunnerConfig(), args).output_dataset_role == "research"
+    assert DEFAULT_OUTPUT_DATASET_ROLE == "research"
+    assert RunnerConfig().output_dataset_role == "research"
+    assert apply_cli_overrides(RunnerConfig(), args).output_dataset_role == "ads"
+
+
+def test_output_dataset_role_cli_args_propagate_all_roles_explicitly() -> None:
+    assert output_dataset_role_cli_args(None) == ["--output-dataset-role", "research"]
+    assert output_dataset_role_cli_args("research") == ["--output-dataset-role", "research"]
+    assert output_dataset_role_cli_args("research", equals=True) == ["--output-dataset-role=research"]
+    assert output_dataset_role_cli_args("ads") == ["--output-dataset-role", "ads"]
+    assert output_dataset_role_cli_args("ads", equals=True) == ["--output-dataset-role=ads"]
 
 
 def test_table_resolver_and_sql_rewrite_route_research_tables() -> None:
@@ -80,8 +91,21 @@ def test_default_sql_rewrite_treats_ads_model_registry_as_registry_not_acceptanc
     assert "research_acceptance_result" not in sql
 
 
-def test_backtest_report_subcommands_propagate_output_dataset_role() -> None:
-    config = RunnerConfig(output_dataset_role="research")
+def test_backtest_report_subcommands_propagate_explicit_ads_output_dataset_role() -> None:
+    config = RunnerConfig(output_dataset_role="ads")
+    exp = _experiment()
+
+    for cmd in (
+        report_command(config, exp, skip_gcs_upload=False),
+        diagnosis_command(config, exp, skip_gcs_upload=False),
+        tail_risk_command(config, exp, skip_gcs_upload=False, search_id=None),
+    ):
+        assert "--output-dataset-role" in cmd
+        assert cmd[cmd.index("--output-dataset-role") + 1] == "ads"
+
+
+def test_backtest_report_subcommands_propagate_default_research_output_dataset_role() -> None:
+    config = RunnerConfig()
     exp = _experiment()
 
     for cmd in (
@@ -91,18 +115,6 @@ def test_backtest_report_subcommands_propagate_output_dataset_role() -> None:
     ):
         assert "--output-dataset-role" in cmd
         assert cmd[cmd.index("--output-dataset-role") + 1] == "research"
-
-
-def test_backtest_report_subcommands_omit_default_ads_output_dataset_role() -> None:
-    config = RunnerConfig()
-    exp = _experiment()
-
-    for cmd in (
-        report_command(config, exp, skip_gcs_upload=False),
-        diagnosis_command(config, exp, skip_gcs_upload=False),
-        tail_risk_command(config, exp, skip_gcs_upload=False, search_id=None),
-    ):
-        assert "--output-dataset-role" not in cmd
 
 
 def test_build_ledger_params_keeps_output_dataset_role_out_of_semantic_defaults() -> None:
@@ -119,8 +131,26 @@ def test_build_ledger_params_keeps_output_dataset_role_out_of_semantic_defaults(
     assert params.ledger_version == LEDGER_VERSION_LOT100
 
 
-def test_orchestrator_cloud_run_commands_propagate_output_dataset_role() -> None:
-    config = RunnerConfig(output_dataset_role="research")
+def test_orchestrator_cloud_run_commands_propagate_explicit_ads_output_dataset_role() -> None:
+    config = RunnerConfig(output_dataset_role="ads")
+    args = argparse.Namespace(
+        config="configs/strategy1/cloudrun_runner_default.yml",
+        manifest="configs/strategy1/oq010_experiments_v0.json",
+        force_replace=False,
+        skip_gcs_upload=False,
+        train_mode="train_predict",
+        skip_diagnosis=False,
+        skip_qa=False,
+    )
+
+    commands = [step.command for step in build_chain_steps(config, _experiment(), args)]
+    joined = "\n".join(" ".join(command) for command in commands)
+
+    assert "--output-dataset-role=ads" in joined
+
+
+def test_orchestrator_cloud_run_commands_propagate_default_research_output_dataset_role() -> None:
+    config = RunnerConfig()
     args = argparse.Namespace(
         config="configs/strategy1/cloudrun_runner_default.yml",
         manifest="configs/strategy1/oq010_experiments_v0.json",
@@ -137,25 +167,29 @@ def test_orchestrator_cloud_run_commands_propagate_output_dataset_role() -> None
     assert "--output-dataset-role=research" in joined
 
 
-def test_orchestrator_cloud_run_commands_omit_default_ads_output_dataset_role() -> None:
-    config = RunnerConfig()
+def test_orchestrator_candidate_fanout_propagates_output_dataset_role() -> None:
     args = argparse.Namespace(
         config="configs/strategy1/cloudrun_runner_default.yml",
         manifest="configs/strategy1/oq010_experiments_v0.json",
         force_replace=False,
         skip_gcs_upload=False,
-        train_mode="train_predict",
+        train_mode="task_fanout",
+        candidate_parallelism=0,
         skip_diagnosis=False,
         skip_qa=False,
     )
 
-    commands = [step.command for step in build_chain_steps(config, _experiment(), args)]
-    joined = "\n".join(" ".join(command) for command in commands)
+    for role in ("research", "ads"):
+        config = RunnerConfig(output_dataset_role=role)
+        steps = build_chain_steps(config, _experiment(), args)
+        fanout_command = next(step.command for step in steps if step.step_id == "cloudrun_train_candidate_fanout")
+        joined = " ".join(fanout_command)
 
-    assert "--output-dataset-role" not in joined
+        assert "scripts.strategy1_cloudrun.train_candidate_task" in joined
+        assert f"--output-dataset-role={role}" in joined
 
 
-def test_native_search_cloud_run_flags_omit_default_ads_output_dataset_role() -> None:
+def test_native_search_cloud_run_flags_propagate_default_research_and_explicit_ads() -> None:
     args = argparse.Namespace(
         config="configs/strategy1/cloudrun_runner_default.yml",
         manifest="configs/strategy1/sklearn_native_baseline_search.yml",
@@ -163,11 +197,11 @@ def test_native_search_cloud_run_flags_omit_default_ads_output_dataset_role() ->
         skip_gcs_upload=False,
     )
 
-    ads_flags = common_job_flags(RunnerConfig(), args, _experiment())
-    research_flags = common_job_flags(RunnerConfig(output_dataset_role="research"), args, _experiment())
+    research_flags = common_job_flags(RunnerConfig(), args, _experiment())
+    ads_flags = common_job_flags(RunnerConfig(output_dataset_role="ads"), args, _experiment())
 
-    assert not any(flag.startswith("--output-dataset-role") for flag in ads_flags)
     assert "--output-dataset-role=research" in research_flags
+    assert "--output-dataset-role=ads" in ads_flags
 
 
 def test_native_search_qa_params_cover_catalog_required_params() -> None:
@@ -197,11 +231,11 @@ def test_native_search_qa_params_cover_catalog_required_params() -> None:
     assert params["p_strategy_id"] == config.strategy_id
 
 
-def test_next_wave_command_omits_default_ads_output_dataset_role() -> None:
+def test_next_wave_command_propagates_default_research_and_explicit_ads_output_dataset_role() -> None:
     args = argparse.Namespace(
         project="data-aquarium",
         region="asia-east2",
-        output_dataset_role="ads",
+        output_dataset_role="research",
         candidate_parallelism=0,
         top_k_backtest=None,
         force_replace=False,
@@ -218,17 +252,16 @@ def test_next_wave_command_omits_default_ads_output_dataset_role() -> None:
     )
     command = result["command"]
 
-    assert "--output-dataset-role=ads" not in command
-    assert not any(part.startswith("--output-dataset-role") for part in command)
+    assert "--output-dataset-role=research" in command
 
-    args.output_dataset_role = "research"
+    args.output_dataset_role = "ads"
     result = maybe_run_next_wave(
         args=args,
         raw_manifest={"next_wave_manifest": "configs/strategy1/next_wave.yml"},
         comparison_rows=[{"native_acceptance_status": "needs_more_evidence"}],
     )
 
-    assert "--output-dataset-role=research" in result["command"]
+    assert "--output-dataset-role=ads" in result["command"]
 
 
 def test_orchestrator_status_table_routes_by_output_dataset_role() -> None:

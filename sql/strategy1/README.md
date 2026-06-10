@@ -49,13 +49,14 @@ active migration targets for new runner flows.
 
 ## Current Dataset Role
 
-当前 Phase D1 已完成显式 research routing。默认 table role 仍解析到
-current dataset role，策略产出表默认仍在 `data-aquarium.ashare_ads.*`；meta /
-orchestration role 可在 catalog 中声明 per-role dataset override，例如
-`experiment_run_status` 当前解析到 `data-aquarium.ashare_meta.*`。
+当前 Phase D2 已切换为 research-first。默认 table role 解析到
+`data-aquarium.ashare_research.research_*`；`ads` 只用于显式历史审计或后续
+owner-approved promotion target。meta / orchestration role 可在 catalog 中声明
+per-role dataset override，例如显式 ADS 模式下 `experiment_run_status` 解析到
+`data-aquarium.ashare_meta.*`。
 
-SQL render 可在显式 `dataset_role="research"` 且 `allow_future_research=True` 时
-把当前 step 的 catalog `inputs` / `outputs` 改写到
-`data-aquarium.ashare_research.research_*`，用于显式 research-mode runner、QA、
-report、diagnosis 和 acceptance。普通调用不传这些参数时行为不变；Cloud Run
-默认 research-first 和 promotion job 仍需后续单独 PR。
+SQL render 会按当前 step 的 catalog `inputs` / `outputs` 改写 run-scoped 表，
+默认写/读 research。需要回放历史 ADS 产物时显式传 `dataset_role="ads"` 或
+runner CLI 的 `--output-dataset-role ads`。无 step 上下文的全局 research 替换仍会
+fail-fast，避免 `model_registry` / `acceptance_result` 等共享 ADS 源表被误替换。
+Promotion job 仍需 Phase D3 单独实现，普通 runner 不会隐式写 ADS。

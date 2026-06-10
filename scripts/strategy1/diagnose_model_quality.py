@@ -3,7 +3,7 @@
 
 Reads model predictions, training panel, backtest results and DWS features
 from BigQuery, computes structured diagnosis artifacts, writes local/GCS
-output, and patches ads_backtest_performance_summary.metrics_json.
+output, and patches the selected backtest summary metrics_json.
 
 Usage:
     python scripts/strategy1/diagnose_model_quality.py \
@@ -51,13 +51,14 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.strategy1_cloudrun.dataset_roles import (
+    DEFAULT_OUTPUT_DATASET_ROLE,
     OUTPUT_DATASET_ROLE_CHOICES,
     rewrite_sql_dataset_role,
 )
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 DIAGNOSIS_VERSION = "strategy1_model_diagnosis_v1"
-OUTPUT_DATASET_ROLE = "ads"
+OUTPUT_DATASET_ROLE = DEFAULT_OUTPUT_DATASET_ROLE
 
 # Feature columns referenced in FR-DIAG-6
 FEATURE_COLS = [
@@ -82,7 +83,7 @@ def parse_args():
     p.add_argument("--strategy-id", default="ml_pv_clf_v0")
     p.add_argument("--artifact-base-uri", required=True, help="gs://bucket/path")
     p.add_argument("--local-mirror-root", default="reports/strategy1")
-    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
+    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default=DEFAULT_OUTPUT_DATASET_ROLE)
     p.add_argument("--skip-gcs-upload", action="store_true")
     p.add_argument("--p-target-holdings", type=int, default=5,
                    help="Current portfolio target holdings (OQ-010 default)")
@@ -1042,7 +1043,7 @@ def determine_primary_diagnosis(valid_ic: dict, test_ic: dict,
     return {"primary": "inconclusive", "confidence": "low", "evidence": evidence}
 
 
-# ── FR-DIAG-10 artifact & ADS writeback ───────────────────────────────────────
+# ── FR-DIAG-10 artifact & summary writeback ───────────────────────────────────
 def write_csv(path: Path, df: pd.DataFrame):
     df.to_csv(path, index=False, encoding="utf-8-sig")
 
@@ -1187,7 +1188,7 @@ def render_diagnosis_markdown(identity: dict, valid_ic: dict, test_ic: dict,
         lines.append("")
 
     lines.append("---\n")
-    lines.append("*本诊断基于 BigQuery ADS/DWS/DWD 数据自动生成，所有结论可追溯至 CSV/JSON artifact。*")
+    lines.append("*本诊断基于 BigQuery 输出表/DWS/DWD 数据自动生成，所有结论可追溯至 CSV/JSON artifact。*")
     return "\n".join(lines)
 
 
@@ -1289,7 +1290,7 @@ def main():
 
     # FR-DIAG-9: diagnosis conclusion
     print("诊断结论...")
-    backtest_summary = {}  # Could fetch from ADS if needed
+    backtest_summary = {}  # Could fetch from the selected output dataset if needed.
     diagnosis = determine_primary_diagnosis(
         valid_ic_summary, test_ic_summary,
         bucket_lift_all, label_horizon, funnel_summary,
@@ -1371,8 +1372,8 @@ def main():
             print(f"  ⚠ GCS 上传失败: {e}", file=sys.stderr)
             upload_status = "skipped"
 
-    # ADS writeback
-    print("回写 ADS...")
+    # Summary writeback
+    print("回写结果表...")
     write_diagnosis_status_to_ads(
         bq, args.project, args.backtest_id,
         str(diag_dir), diagnosis_status, upload_status, diagnosis_uri,

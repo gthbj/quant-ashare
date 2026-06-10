@@ -58,8 +58,11 @@
 - [x] OQ-010 / 工程治理：D2 前补 research additive migration 约定与 research readiness QA
   说明：分支 `codex/research-schema-readiness` 新增 `sql/research/02_research_strategy1_additive_migrations.sql` 和 `sql/research/03_qa_research_schema_readiness.sql`，固化 research additive migration 约定，并用 readiness QA 覆盖 15 张 research 表、关键列/类型、分区、聚簇、lifecycle 默认值、partition filter 与 `research_experiment_run_status.log_dir`。live BigQuery readiness QA 已通过。
 
-- [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D2-D3/E
-  说明：D1 收尾验收、正式 main 镜像部署和 research readiness QA PR 合并后，再做 default research-first、owner-approved promotion job，以及深层 package split / naming cleanup；Phase E 包化时同步收敛读侧 routing 的模块级全局态（当前 setter 与裸全局两种风格并存）。不得与 D1b 显式 routing 或 readiness cleanup 混做。
+- [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase D2 default research-first
+  说明：分支 `codex/default-research-first` 已把 Strategy1 runner、SQL runner、report / diagnosis / QA / acceptance / comparison / factor attribution 的默认 `output_dataset_role` 切到 `research`；catalog 当前 role 与 step `output_dataset_role_current` 同步为 `research`，resolver 默认 research 已开启。显式历史 ADS 运行改为传 `--output-dataset-role ads`；Cloud Run 子命令会始终显式下发 `--output-dataset-role=research|ads`，避免 job 镜像滚动更新期间继承错误默认值。合并后仍需用 merge/main commit 重建正式镜像并更新五个 jobs，才能让生产 jobs 采用默认 research-first。
+
+- [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D3/E
+  说明：D3 仍需 owner-approved promotion job，把 accepted research 产物显式复制/映射到 ADS 并写 append-only promotion manifest；Phase E 包化时同步收敛读侧 routing 的模块级全局态（当前 setter 与裸全局两种风格并存）。不得把 promotion 或深层 package split 混入 D2 default research-first。
 
 - [x] 工程治理：修复 Dataform generated SQLX drift
   说明：已在单独 cleanup 分支重新运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件，并新增 pytest 防复发检查；`--check`、Dataform compile、`python3 -m pytest tests` 和 `git diff --check` 已通过。

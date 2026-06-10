@@ -9,13 +9,11 @@ replay, and promotion provenance.
 Current status:
 
 - D0 defines schema contracts; D1 has passed a real explicit research-mode
-  smoke.
-- `configs/strategy1/active_step_catalog.yml` still keeps the current default
-  dataset role as `ads`.
-- Explicit research routing is supported by runner/report/QA/acceptance, but
-  Phase D2 has not switched ordinary experiments to research-first yet.
-- Phase D2 may switch normal experiments to research-first only after all
-  readers support research tables and the D1 smoke has passed.
+  smoke, and D2 switches ordinary Strategy1 execution to research-first.
+- `configs/strategy1/active_step_catalog.yml` keeps the current dataset role as
+  `research`; `ads` is now an explicit historical/promotion target.
+- Runner/report/QA/acceptance default to research outputs. Use
+  `--output-dataset-role ads` only for historical ADS audit runs.
 - Phase D3 will add the explicit owner-approved promotion job.
 
 Run manually when creating or refreshing the research contract:
@@ -35,8 +33,8 @@ Migration rules:
   columns to existing research tables. Every additive contract change must also
   be represented in `02_research_strategy1_additive_migrations.sql` with an
   idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
-- Run `03_qa_research_schema_readiness.sql` before Phase D2 research-first
-  execution and after every research contract migration.
+- Run `03_qa_research_schema_readiness.sql` after every research contract
+  migration and before rebuilding jobs that should write research by default.
 - Never use `CREATE OR REPLACE` for populated research tables unless owner has
   approved a destructive reset.
 

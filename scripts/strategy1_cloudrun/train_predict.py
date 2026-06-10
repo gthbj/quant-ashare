@@ -2,7 +2,7 @@
 """Train sklearn logistic candidates and write Strategy 1 predictions.
 
 This entrypoint is designed for Cloud Run Jobs but also supports local smoke
-and dry-run. It consumes the existing BigQuery ADS training panel built by
+and dry-run. It consumes the selected BigQuery dataset-role training panel built by
 the cataloged `build_training_panel_*` SQL under `sql/strategy1/panel/`;
 it does not rebuild DWS/PIT
 features itself.
