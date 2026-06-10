@@ -80,13 +80,24 @@ predict_date BETWEEN predict_start AND predict_end
 3. **逐年真实模型溯源**不丢失，落在两处：manifest（year → source_run_id → 该 run 的 selected model）与 synthetic registry 行的 `metrics_json`（`year_model_map`）；source run 的 registry / prediction 行只读不动。
 4. 备选（不采用）：让 `05`/`09`/`10`/`12` 支持多模型 prediction run——改动面大、污染既有单模型语义，仅当 owner 否决 synthetic 注册行时再议。
 
-### 4.5 Continuous backtest 的 QA 套件
+### 4.5 Continuous backtest 的执行模式与 QA 套件
 
-synthetic run **没有 training panel**，`10_qa_runner_outputs` 的 panel / 模型质量类断言不适用（这些已在各年度 run 各自通过）。强行跑 `10` 会假失败。P0 方案：
+synthetic run **没有 training panel，也没有真实模型 artifact**（synthetic registry 行是虚拟模型）。`backtest_report` 的**默认链路**中以下环节对 synthetic run 全部不适用，必须显式排除而不是任其假失败：
 
-- 新增专用 QA step（建议 `qa_continuous_backtest_outputs`，登记 catalog）：复用 `10` 中 ledger/NAV/订单不变式子集（现金下限、暴露上限、持仓唯一、NAV 覆盖全开市日、状态枚举、skipped 零成交），加上本 PRD §5 的合并完整性断言。
-- lot-aware ledger QA（`23`）照常执行——它只依赖 backtest 产物，不依赖 panel。
-- 备选（不推荐）：给 `10` 加 synthetic 模式参数跳过 panel 断言——污染既有 QA 的语义边界。
+| 默认环节 | 不适用原因 |
+|---|---|
+| `10_qa_runner_outputs` | panel / 模型质量类断言依赖 training panel |
+| `diagnose_model_quality.py` + `qa_model_diagnosis_outputs`（`12`） | 依赖 panel 与 selected model 的真实 artifact |
+| `analyze_tail_risk.py` + `qa_tail_risk_outputs`（`20`） | P0 范围外；如需可后续以只读方式人工补跑 |
+
+**P0 执行模式（推荐，零新 entrypoint）**：continuous backtest 通过现有 `backtest_report` 执行，显式传 `--skip-diagnosis --skip-tail-risk --skip-qa`（保留 `05-07` 候选/组合/订单、Python ledger、`09` summary 与 report 渲染），随后**外接**以下 QA：
+
+1. 新增专用 QA step（`qa_continuous_backtest_outputs`，登记 catalog）：复用 `10` 中 ledger/NAV/订单不变式子集（现金下限、暴露上限、持仓唯一、NAV 覆盖全开市日、状态枚举、skipped 零成交），加上本 PRD §5 的合并完整性断言。
+2. lot-aware ledger QA（`23`）——只依赖 backtest 产物，不依赖 panel，照常执行。
+
+备选（不推荐）：为 continuous run 新增专用 entrypoint / 给 `10`、`12` 加 synthetic 模式参数——污染既有 QA 与入口的语义边界；仅当 skip-flags 模式被 owner 否决时再议。
+
+实现 PR 必须额外验证：`09` 的 SQL 引用了 training panel（signal monitor 类派生字段）——synthetic run 下 panel 为空时 `09` 必须正常完成且不触发断言，panel 派生字段允许为空并在报告中注明；若 `09` 对空 panel 不健壮，则 synthetic 模式下跳过 signal monitor 写入并记录原因。
 
 ## 5. 合并完整性 QA
 
@@ -117,7 +128,7 @@ synthetic run **没有 training panel**，`10_qa_runner_outputs` 的 panel / 模
 - `rebalance_anchor_start='2021-01-04'`，`biweekly`，`ledger_exec_v1_lot100`，成本 profile 沿用现行口径。
 - prediction 源 = synthetic continuous run（含 §4.4 的 synthetic selected 注册行）。
 - backtest id 按 PRD_20260610_04 §6.3：`bt_s1_annual_roll_continuous_2021_2026_n20_w075_vYYYYMMDD_NN`（彩排版加 `rehearsal`）。
-- 跑完执行 §4.5 的 `qa_continuous_backtest_outputs` + lot-aware ledger QA + 本 PRD 合并 QA（不跑 `10` 的 panel/模型质量断言）；报告必须把年度 diagnostic、彩排 continuous、official continuous 三类结果分开呈现。
+- 按 §4.5 执行模式运行（`backtest_report --skip-diagnosis --skip-tail-risk --skip-qa` + 外接 `qa_continuous_backtest_outputs` / `23` / 合并 QA；`10`、`12`、`20` 与模型诊断对 synthetic run 一律不执行）；报告必须把年度 diagnostic、彩排 continuous、official continuous 三类结果分开呈现。
 
 ## 8. 验收标准
 

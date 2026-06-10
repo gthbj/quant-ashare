@@ -91,7 +91,7 @@ label embargo 规则不变：`label_horizon=5` 的训练样本必须保证未来
 
 输入：
 - 该年 select 阶段输出的 `selected_candidate_id` 与模型参数（候选网格固定为这一个）。
-- 该年既有 BigQuery panel（按 run_id 读取）。
+- `source_panel_run_id`：该年 **selection run 的 run_id**——panel 行落库在 selection run 名下，refit run 是新 run_id，按自身 run_id 查 panel 会得到零行。读 panel 一律用 `source_panel_run_id`，写 registry / prediction / artifact 一律用 refit run_id，两者不得混用。
 - resolved plan 的 `final_refit` 窗口。
 
 动作：
@@ -115,7 +115,7 @@ s1_annual_roll_y{year}_..._{version}__refit01
 ```
 
 - refit run 的 registry 只有 1 行，`status='selected'`；保持"每 run 一个 selected"的查询语义（比 selection run 的 11 行更干净，规避既有的 registry 误读问题）。
-- 溯源字段（registry 列或 `metrics_json`）：`selected_candidate_id`、`source_run_id`（selection run）、`refit_train_start/end`、`refit=true`。
+- 溯源字段（registry 列或 `metrics_json`）：`selected_candidate_id`、`source_run_id`（selection run）、`source_panel_run_id`（panel 读取来源，当前等于 `source_run_id`，显式分立以防未来 panel 与 selection run 解耦）、`refit_train_start/end`、`refit=true`。
 - prediction 行写在 refit run_id 下；原 selection run 的 11 行 registry 与 prediction 全部保留为 audit，不删除不修改。
 - 年度 diagnostic backtest 与后续 continuous manifest 一律引用 refit run_id。
 
@@ -142,8 +142,9 @@ select:yYYYY -> refit:yYYYY -> diagnostic_backtest:yYYYY
 1. refit model 的 `train_start_date/train_end_date` == resolved plan 的 `final_refit` 窗口（逐年）。
 2. refit run prediction 完整覆盖该年 test/predict 窗口（行数 > 0 且日期边界吻合）。
 3. refit registry 行含 `selected_candidate_id` 与 `source_run_id` 溯源且非空。
-4. refit 使用的 panel 日期覆盖 ⊇ refit 窗口。
+4. panel 覆盖断言按 `source_panel_run_id` 查询：该 run 名下 panel 行的日期覆盖 ⊇ refit 窗口（§5.1 的前置断言同口径）。
 5. refit run 存在独立 preprocess artifact，且 `preprocess_stats.json` 的 `fit_start/fit_end` == refit 窗口；禁止引用 selection matrix 的 `preprocess.joblib`（artifact 路径归属断言）。
+6. refit registry 行的 `source_panel_run_id` 非空，且等于该年 selection run 的 run_id（与 resolved plan 对账）。
 
 ## 6. 重跑范围
 
