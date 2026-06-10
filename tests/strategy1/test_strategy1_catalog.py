@@ -31,8 +31,25 @@ def test_table_role_resolver_stays_ads_in_current_phase() -> None:
         resolve_table_role("model_registry")
         == "data-aquarium.ashare_ads.ads_model_registry"
     )
+    assert (
+        resolve_table_role("experiment_run_status")
+        == "data-aquarium.ashare_meta.strategy1_experiment_run_status"
+    )
     with pytest.raises(ValueError, match="dataset_role=research is not enabled"):
         resolve_table_role("model_registry", dataset_role="research")
+
+
+def test_single_output_step_partition_columns_match_output_role() -> None:
+    catalog = load_step_catalog()
+    table_roles = catalog["table_roles"]
+
+    for step_name, cfg in catalog["steps"].items():
+        outputs = cfg.get("outputs") or []
+        if len(outputs) != 1:
+            continue
+        step_partition_columns = cfg.get("partition_columns") or []
+        role_partition_columns = table_roles[outputs[0]].get("partition_columns") or []
+        assert step_partition_columns == role_partition_columns, step_name
 
 
 def test_catalog_classifies_sql_16_to_25_individually() -> None:

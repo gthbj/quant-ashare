@@ -6,6 +6,16 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：项目结构重构 Phase D0 research table contract 已实现
+
+- 分支 `codex/add-research-table-contract` 已实现 `docs/prd/PRD_20260610_02_项目结构重构方案.md` 的 Phase D0。
+- 新增 `sql/research/01_research_strategy1_tables.sql` 与 `sql/research/README.md`，定义 `data-aquarium.ashare_research` 的 Strategy1 research 表契约：训练面板、模型注册、预测、候选池、组合目标、订单计划、回测成交/持仓/NAV/ledger state/summary、信号监控、acceptance result、experiment run status 和 append-only promotion manifest。
+- `sql/00_create_datasets.sql` 已新增 `ashare_research` schema contract；`configs/strategy1/active_step_catalog.yml` 已记录 research contract SQL，并校准 `model_prediction_daily` / `order_plan_daily` 的分区列元数据。
+- 新增 `tests/strategy1/test_research_contract.py`，校验 catalog 中每个 `research_table` 都有 DDL、表名使用 `research_*`、分区列与 DDL 一致，且默认 `dataset_role="research"` 仍 fail-fast，只有 `allow_future_research=True` 才可解析 contract target。
+- PR #140 review follow-up 已处理：`experiment_run_status` 当前侧通过 `ads_dataset: ashare_meta` 解析到既有 meta 状态表；`resolve_table_role` 支持 per-role dataset/project override；`build_order_plan.partition_columns` 已与 `order_plan_daily` 的 `rebalance_date` 对齐，并新增 step 输出分区一致性测试。
+- 本轮不创建实际 BigQuery dataset / table，不切 runner 默认写入，不迁移历史 ADS，不实现 promotion job，也不改 Cloud Run / Workflows。
+- 验证：`python3 -m pytest tests` 32 passed；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`npx --yes @dataform/cli compile dataform` 通过；`(cat sql/00_create_datasets.sql; cat sql/research/01_research_strategy1_tables.sql) | bq query --dry_run --use_legacy_sql=false --location=asia-east2` 通过；`git diff --check` 通过。
+
 ### 最新补充（2026-06-10）：OQ-005 Cloud Run Job IAM bootstrap TODO 已收口
 
 - 复核确认 PR #126 `fix(orchestration): grant workflow runtime job override IAM` 已于 2026-06-09 合并到 `main`，merge commit `54fe077bb656f23b5ff9384f348e49b7a5259e94`。
