@@ -31,7 +31,7 @@ def render_sql_file(
     step: str | None = None,
     catalog: dict[str, Any] | None = None,
     strict: bool = False,
-    dataset_role: str = "ads",
+    dataset_role: str | None = None,
     project: str | None = None,
     allow_future_research: bool = False,
     rewrite_table_roles: bool = True,
@@ -59,7 +59,7 @@ def render_sql_step(
     params: dict[str, Any],
     *,
     catalog: dict[str, Any] | None = None,
-    dataset_role: str = "ads",
+    dataset_role: str | None = None,
     project: str | None = None,
     allow_future_research: bool = False,
     rewrite_table_roles: bool = True,
@@ -105,18 +105,20 @@ def render_step_table_roles(
     *,
     step_cfg: dict[str, Any] | None,
     catalog: dict[str, Any] | None = None,
-    dataset_role: str = "ads",
+    dataset_role: str | None = None,
     project: str | None = None,
     allow_future_research: bool = False,
 ) -> str:
-    if step_cfg is None and dataset_role != "ads":
+    catalog = catalog or load_step_catalog()
+    effective_dataset_role = dataset_role or catalog.get("current_dataset_role", "ads")
+    if step_cfg is None and effective_dataset_role != "ads":
         raise ValueError(
             "dataset_role research rendering requires a catalog step/path "
             "to avoid ambiguous table-role replacements"
         )
     replacements = table_role_replacements(
         catalog=catalog,
-        dataset_role=dataset_role,
+        dataset_role=effective_dataset_role,
         project=project,
         allow_future_research=allow_future_research,
         role_names=_table_roles_for_step(step_cfg) if step_cfg else None,
@@ -127,12 +129,13 @@ def render_step_table_roles(
 def table_role_replacements(
     *,
     catalog: dict[str, Any] | None = None,
-    dataset_role: str = "ads",
+    dataset_role: str | None = None,
     project: str | None = None,
     allow_future_research: bool = False,
     role_names: list[str] | tuple[str, ...] | set[str] | None = None,
 ) -> dict[str, str]:
     catalog = catalog or load_step_catalog()
+    effective_dataset_role = dataset_role or catalog.get("current_dataset_role", "ads")
     table_roles = catalog.get("table_roles") or {}
     selected_roles = role_names if role_names is not None else table_roles.keys()
     replacements: dict[str, str] = {}
@@ -142,7 +145,7 @@ def table_role_replacements(
         source = resolve_table_role(role, dataset_role="ads", catalog=catalog)
         target = resolve_table_role(
             role,
-            dataset_role=dataset_role,
+            dataset_role=effective_dataset_role,
             project=project,
             catalog=catalog,
             allow_future_research=allow_future_research,

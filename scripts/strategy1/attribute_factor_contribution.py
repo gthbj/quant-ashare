@@ -51,13 +51,14 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.strategy1_cloudrun.dataset_roles import (
+    DEFAULT_OUTPUT_DATASET_ROLE,
     OUTPUT_DATASET_ROLE_CHOICES,
     rewrite_sql_dataset_role,
 )
 
 
 ATTRIBUTION_VERSION = "strategy1_factor_attribution_v1"
-OUTPUT_DATASET_ROLE = "ads"
+OUTPUT_DATASET_ROLE = DEFAULT_OUTPUT_DATASET_ROLE
 REQUIRED_ARTIFACTS = [
     "factor_attribution.md",
     "factor_attribution_summary.json",
@@ -153,7 +154,7 @@ def parse_args():
     p.add_argument("--strategy-id", default="ml_pv_clf_v0")
     p.add_argument("--artifact-base-uri", required=True, help="gs://bucket/path")
     p.add_argument("--local-mirror-root", default="reports/strategy1")
-    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
+    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default=DEFAULT_OUTPUT_DATASET_ROLE)
     p.add_argument("--skip-gcs-upload", action="store_true")
     p.add_argument("--p-label-horizon", type=int, default=None)
     p.add_argument("--start-date", default=None, help="Analysis start date; defaults to summary.start_date")

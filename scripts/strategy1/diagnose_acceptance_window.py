@@ -2,10 +2,10 @@
 """Strategy 1 acceptance-window preflight diagnosis.
 
 This is the Phase B0 read-only diagnostic from
-`PRD_20260606_03_策略1风险特征入模与候选增强.md`. It reads existing ADS
+`PRD_20260606_03_策略1风险特征入模与候选增强.md`. It reads existing output
 backtest/model artifacts, re-cuts the historical BQML reference to the 2025 test
 window, summarizes already rejected Python candidates, and writes local/GCS
-artifacts. It must not train models, rerun the SQL runner, or write ADS tables.
+artifacts. It must not train models, rerun the SQL runner, or write core tables.
 """
 
 from __future__ import annotations
@@ -36,13 +36,14 @@ from scripts.strategy1_cloudrun.bq_io import (
     write_text,
 )
 from scripts.strategy1_cloudrun.dataset_roles import (
+    DEFAULT_OUTPUT_DATASET_ROLE,
     OUTPUT_DATASET_ROLE_CHOICES,
     rewrite_sql_dataset_role,
 )
 
 
 DEFAULT_DIAGNOSIS_ID = "riskfeat_acceptance_window_20260606_01"
-OUTPUT_DATASET_ROLE = "ads"
+OUTPUT_DATASET_ROLE = DEFAULT_OUTPUT_DATASET_ROLE
 DEFAULT_BQML_BACKTEST_ID = "bt_s1_bqml_baseline_pvfq_n30_bw_h5_v20260604_01"
 DEFAULT_SEARCH_IDS = [
     "sklearn_native_pvfq_n30_bw_h5_20260605_01",
@@ -73,7 +74,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--python-same-side-threshold", type=float, default=0.80)
     parser.add_argument("--artifact-base-uri", default="gs://ashare-artifacts/reports/strategy1")
     parser.add_argument("--local-mirror-root", default="reports/strategy1")
-    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
+    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default=DEFAULT_OUTPUT_DATASET_ROLE)
     parser.add_argument("--skip-gcs-upload", action="store_true")
     return parser.parse_args()
 
@@ -453,7 +454,7 @@ def build_diagnosis(
         "python_failed_risk_drawdown_target_count": failed_risk_dd,
         "same_side_checks": same_side_checks,
         "notes": [
-            "This diagnostic is read-only and uses existing ADS/GCS artifacts.",
+            "This diagnostic is read-only and uses existing output/GCS artifacts.",
             "BQML historical reference is not retrained or rerun.",
             "retired BQML/SQL runner is not executed.",
         ],
@@ -528,9 +529,9 @@ def render_markdown(diagnosis: dict[str, Any], candidates: pd.DataFrame) -> str:
         "",
         "## 约束",
         "",
-        "- 本诊断只读 ADS / 已有 artifact，不训练模型。",
+        "- 本诊断只读输出表 / 已有 artifact，不训练模型。",
         "- 不重跑 BQML，不执行已退役 Strategy1 SQL runner。",
-        "- BigQuery 读取 `ads_backtest_nav_daily` 时显式使用 `trade_date BETWEEN ...` 分区过滤。",
+        "- BigQuery 读取回测 NAV 表时显式使用 `trade_date BETWEEN ...` 分区过滤。",
     ])
     return "\n".join(lines) + "\n"
 

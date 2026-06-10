@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Strategy 1 backtest report renderer (v2 — Chinese report with attribution).
 
-Reads metrics from BigQuery ADS tables, renders Chinese Markdown + HTML report,
+Reads metrics from the selected BigQuery dataset role, renders Chinese Markdown + HTML report,
 generates CSV attachments (trades/positions/NAV/benchmark), evidence pack JSON,
 optional AI diagnosis, and PNG charts. Uploads to GCS or writes local mirror.
 
@@ -49,6 +49,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.strategy1_cloudrun.dataset_roles import (
+    DEFAULT_OUTPUT_DATASET_ROLE,
     OUTPUT_DATASET_ROLE_CHOICES,
     rewrite_sql_dataset_role,
 )
@@ -87,7 +88,7 @@ DIAGNOSIS_THRESHOLDS = {
 }
 
 COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
-OUTPUT_DATASET_ROLE = "ads"
+OUTPUT_DATASET_ROLE = DEFAULT_OUTPUT_DATASET_ROLE
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -102,7 +103,7 @@ def parse_args():
     p.add_argument("--strategy-id", default="ml_pv_clf_v0")
     p.add_argument("--artifact-base-uri", required=True, help="gs://bucket/path")
     p.add_argument("--local-mirror-root", default="reports/strategy1")
-    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
+    p.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default=DEFAULT_OUTPUT_DATASET_ROLE)
     p.add_argument("--skip-gcs-upload", action="store_true",
                    help="Skip GCS upload; write local-only artifacts (no report_uri)")
     p.add_argument("--ai-analysis-mode", default="auto",
@@ -202,7 +203,7 @@ def fetch_nav(client: bigquery.Client, project: str, backtest_id: str,
             if chunk.drop(columns=["trade_date"]).drop_duplicates().shape[0] > 1:
                 raise SystemExit(
                     f"NAV table has inconsistent duplicates for trade_date={dt} "
-                    f"(backtest_id={backtest_id}). Fix ADS data before rendering."
+                    f"(backtest_id={backtest_id}). Fix output data before rendering."
                 )
         df = df.drop_duplicates("trade_date", keep="first")
     return df
@@ -1960,8 +1961,8 @@ def main():
             print(f"  ⚠ GCS 上传失败: {e}", file=sys.stderr)
             upload_status = "skipped"
 
-    # 10. Write back to ADS
-    print("回写 ADS...")
+    # 10. Write back to the selected output dataset role.
+    print("回写结果表...")
     write_report_status_to_ads(bq, args.project, args.backtest_id,
                                str(report_dir), upload_status, report_uri, metrics_ext)
 

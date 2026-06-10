@@ -19,13 +19,14 @@ from quant_ashare.strategy1.sql_render import (
     render_sql_step as render_step_sql,
     render_value,
 )
+from scripts.strategy1_cloudrun.dataset_roles import DEFAULT_OUTPUT_DATASET_ROLE
 
 
 def render_sql(
     script_path: str | Path,
     params: dict[str, Any],
     *,
-    dataset_role: str = "ads",
+    dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE,
     allow_future_research: bool = False,
 ) -> str:
     """Compatibility renderer for path callers.
@@ -49,7 +50,7 @@ def run_sql_script(
     params: dict[str, Any],
     *,
     dry_run: bool = False,
-    dataset_role: str = "ads",
+    dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE,
     allow_future_research: bool = False,
 ) -> str:
     sql = render_sql_file(
@@ -71,7 +72,7 @@ def render_sql_step(
     step: str,
     params: dict[str, Any],
     *,
-    dataset_role: str = "ads",
+    dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE,
     allow_future_research: bool = False,
 ) -> str:
     return render_step_sql(
@@ -93,7 +94,7 @@ def run_sql_step(
     params: dict[str, Any],
     *,
     dry_run: bool = False,
-    dataset_role: str = "ads",
+    dataset_role: str = DEFAULT_OUTPUT_DATASET_ROLE,
     allow_future_research: bool = False,
 ) -> str:
     sql = render_step_sql(

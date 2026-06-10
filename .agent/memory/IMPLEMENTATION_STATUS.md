@@ -6,6 +6,16 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：项目结构重构 Phase D2 default research-first 已实现
+
+- 分支 `codex/default-research-first` 在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-default-research-first` 基于 PR #147 合并后的 `origin/main` 实现 Phase D2。
+- Strategy1 默认输出 dataset role 已从 `ads` 切到 `research`：`RunnerConfig`、`configs/strategy1/cloudrun_runner_default.yml`、`configs/strategy1/annual_rolling_lgbm_regression_v0.yml`、SQL runner、report / diagnosis / tail-risk / acceptance / comparison / factor attribution 脚本默认均使用 `research`。
+- `configs/strategy1/active_step_catalog.yml` 已把 `current_dataset_role` 和所有 active step 的 `output_dataset_role_current` 同步为 `research`，`research.enabled_by_default=true`；`resolve_table_role()` 与 SQL render 的裸默认跟随 catalog 当前 role。
+- 显式历史 ADS fallback 保留：传 `--output-dataset-role ads` 时解析到 `ashare_ads` / `ashare_meta`；Cloud Run 子命令 / next-wave / orchestrator command / candidate fanout task 会始终显式下发 `--output-dataset-role=research|ads`，避免 job 镜像滚动更新期间继承错误默认值。
+- 本轮不实现 owner-approved promotion job，不把普通 runner 隐式写入 ADS；D3 仍需单独实现 promotion manifest / ADS copy。
+- 当前仅完成代码和本地验证，未用该分支重建或部署正式 Cloud Run jobs；合并后必须用 merge/main commit 重建正式 runner 镜像并更新五个 Strategy1 jobs。
+- 验证：`python3 -m pytest -q tests` 69 passed；`tests/strategy1_cloudrun/test_dataset_role_routing.py` 19 passed；Dataform generated SQLX `--check` 通过；Dataform compile 通过；`compileall`、`git diff --check` 和 42 条程序化 self-review invariant 均通过；普通 orchestrator / sklearn native search / annual rolling dry-run 中 9 条 `train_candidate_task` 命令均含 `--output-dataset-role=research`；live BigQuery `sql/research/03_qa_research_schema_readiness.sql` 7 条断言全部 successful。
+
 ### 最新补充（2026-06-10）：D1 正式 main 镜像已部署，research readiness QA 已补齐
 
 - PR #146 已合并到 `main`，merge commit `bca0e791abb57b3fb7efaa01b46e7444ac15cfb2`。

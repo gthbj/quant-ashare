@@ -1,11 +1,80 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
-> - 分支 `codex/strategy1-research-d1-smoke` 在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-research-d1-smoke` 完成项目结构重构 Phase D1 收尾验收。
-> - 已部署 `ashare_research` DDL、给 runtime SA 补写权限、重建并部署 Strategy1 Cloud Run jobs 到 D1 smoke 镜像 `sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`。
-> - research-mode smoke `sklearn_native_research_d1_smoke_20260610_04` 全段 succeeded；research 表写入和 lifecycle 默认值正确，registry 显式列已补齐，ADS 同 run/backtest 零污染。
-> - 本轮修复 `log_dir` DDL、search QA `p_strategy_id`、heartbeat terminal status 覆盖、QA-POOL-5 valid/test window 和 research registry 契约列；`python3 -m pytest -q tests` 63 passed，Dataform check/compile、compileall、`git diff --check` 均通过。正式合并后需用 merge/main commit 重建 runner 镜像替换临时 smoke digest。
-> - PR #146 review Low follow-up 已补 TODO：D2 前实现 research additive migration 约定与 research readiness QA；QA-POOL-5 双窗口修复会影响 ADS 模式未来 QA 结论，已按知会处理。
+> - 分支 `codex/default-research-first` 在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-default-research-first` 实现项目结构重构 Phase D2 default research-first。
+> - `RunnerConfig`、默认 YAML、SQL runner、report / diagnosis / tail-risk / acceptance / comparison / factor attribution 默认 role 已切到 `research`；catalog 当前 role 与 step `output_dataset_role_current` 已同步为 `research`，resolver / SQL render 裸默认跟随 catalog。
+> - 显式 ADS fallback 保留：`--output-dataset-role ads` / `dataset_role="ads"` 会解析到 `ashare_ads` 与 `ashare_meta` status；Cloud Run 子命令和 candidate fanout task 始终显式下发 `--output-dataset-role=research|ads`，避免 job 镜像滚动更新期间继承错误默认值。
+> - 本轮不实现 promotion，不隐式写 ADS；合并后必须用 merge/main commit 重建正式 runner 镜像并更新五个 Strategy1 Cloud Run jobs，生产 jobs 才会真正默认 research-first。
+> - 验证：`python3 -m pytest -q tests` 69 passed、dataset-role tests 19 passed、Dataform generated check/compile、compileall、`git diff --check`、42 条程序化 self-review invariant 均通过；普通 orchestrator / sklearn native search / annual rolling dry-run 中 9 条 `train_candidate_task` 命令均含 `--output-dataset-role=research`；live research readiness QA 7 条断言 successful。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - 项目结构重构 Phase D2 default research-first
+
+### 已完成工作
+
+- 将 Strategy1 默认 `output_dataset_role` 从 `ads` 切为 `research`。
+- 更新 `RunnerConfig`、默认 Cloud Run 配置、年度滚动配置、SQL runner、report、model diagnosis、tail-risk、acceptance v2/window/v3 replay、comparison 和 factor attribution 的默认 role。
+- 更新 `configs/strategy1/active_step_catalog.yml`：`current_dataset_role=research`、`previous_dataset_role=ads`、`research.enabled_by_default=true`，并把 step 级 `output_dataset_role_current` 同步为 `research`。
+- `resolve_table_role()` 与 SQL render 的裸默认现在跟随 catalog 当前 role；显式 `dataset_role="ads"` 保留 ADS / meta status 回放路径。
+- Cloud Run command helper 改为始终显式下发 `--output-dataset-role=research|ads`，candidate fanout task 也显式下发 role，避免子 job 在镜像滚动更新期间继承错误默认值。
+
+### 重要上下文
+
+- 本轮只做 D2 default research-first，不实现 owner-approved promotion job，不把普通 runner 隐式写 ADS。
+- PR 合并后仍需从 merge/main commit 重建正式 runner 镜像并更新五个 Strategy1 Cloud Run jobs；当前生产 jobs 仍跑 PR #147 后部署的 main 镜像。
+- D3 需单独实现 promotion manifest / ADS copy；Phase E 仍需收敛读侧 routing 模块级全局态。
+
+### 改动文件
+
+- `configs/strategy1/active_step_catalog.yml`
+- `configs/strategy1/cloudrun_runner_default.yml`
+- `configs/strategy1/annual_rolling_lgbm_regression_v0.yml`
+- `src/quant_ashare/strategy1/sql_render.py`
+- `src/quant_ashare/strategy1/table_roles.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/dataset_roles.py`
+- `scripts/strategy1_cloudrun/sql_runner.py`
+- `scripts/strategy1_cloudrun/ledger.py`
+- `scripts/strategy1_cloudrun/state.py`
+- `scripts/strategy1/*.py` 相关 report / diagnosis / acceptance / comparison 脚本
+- `tests/strategy1/**`
+- `tests/strategy1_cloudrun/test_dataset_role_routing.py`
+- `sql/research/README.md`
+- `sql/strategy1/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests` -> 69 passed（Python / SSL environment warnings only）。
+- `python3 -m pytest -q tests/strategy1_cloudrun/test_dataset_role_routing.py` -> 19 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过。
+- `npx --yes @dataform/cli compile dataform` 通过。
+- `python3 -m compileall -q src scripts/strategy1 scripts/strategy1_cloudrun` 通过。
+- `git diff --check` 通过。
+- Programmatic smoke / self-review 42 条 invariant 全部通过：覆盖默认 research、显式 ADS fallback、candidate fanout 显式 role flag、catalog current role、renderer 默认、测试覆盖、文档、TODO 和记忆状态。
+- 普通 orchestrator、sklearn native search、annual rolling dry-run 共 9 条 `train_candidate_task` 命令均显式包含 `--output-dataset-role=research`。
+- Live BigQuery `bq query --use_legacy_sql=false --location=asia-east2 < sql/research/03_qa_research_schema_readiness.sql` 通过，7 条 `QA-RESEARCH-SCHEMA-*` assertion successful。
+
+### 阻塞项
+
+- 无代码阻塞；PR #148 已创建为 draft，待 review 后再转正式 / 合并。
+
+### 下一步建议
+
+- PR review 通过后再转正式 / 合并。
+- PR 合并后从 merge/main commit 重建正式 runner 镜像并更新五个 Strategy1 Cloud Run jobs。
+- D3 promotion job 和 Phase E 包化继续单独 PR。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - 项目结构重构 Phase D1 收尾 research smoke
 

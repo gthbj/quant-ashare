@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Strategy 1 tail-risk and maximum-drawdown diagnostics.
 
-This P0 diagnostic is intentionally read-only with respect to ADS. It reads
-backtest outputs and risk features, writes local/GCS artifacts, and verifies
-pre/post ADS hashes for the current run/backtest.
+This P0 diagnostic is intentionally read-only with respect to the selected
+output dataset role. It reads backtest outputs and risk features, writes
+local/GCS artifacts, and verifies pre/post output hashes for the current
+run/backtest.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from scripts.strategy1_cloudrun.bq_io import (
     write_text,
 )
 from scripts.strategy1_cloudrun.dataset_roles import (
+    DEFAULT_OUTPUT_DATASET_ROLE,
     OUTPUT_DATASET_ROLE_CHOICES,
     rewrite_sql_dataset_role,
 )
@@ -43,7 +45,7 @@ from scripts.strategy1_cloudrun.dataset_roles import (
 
 TAIL_RISK_VERSION = "strategy1_tail_risk_v1"
 TAIL_RISK_PROFILE_ID = "diagnostic_only"
-OUTPUT_DATASET_ROLE = "ads"
+OUTPUT_DATASET_ROLE = DEFAULT_OUTPUT_DATASET_ROLE
 REQUIRED_ARTIFACTS = [
     "max_drawdown_windows.csv",
     "max_drawdown_windows.json",
@@ -101,7 +103,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-drawdown-top-k", type=int, default=5)
     parser.add_argument("--artifact-base-uri", required=True)
     parser.add_argument("--local-mirror-root", default="reports/strategy1")
-    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default="ads")
+    parser.add_argument("--output-dataset-role", choices=OUTPUT_DATASET_ROLE_CHOICES, default=DEFAULT_OUTPUT_DATASET_ROLE)
     parser.add_argument("--skip-gcs-upload", action="store_true")
     return parser.parse_args()
 
@@ -1498,7 +1500,7 @@ def render_tail_risk_markdown(
         f"- 诊断版本: `{summary['tail_risk_diagnosis_version']}`",
         f"- 诊断 profile: `{summary['tail_risk_profile_id']}`",
         f"- 市场状态版本: `{summary.get('market_state_version')}`",
-        f"- ADS 只读校验: `{summary['ads_readonly_guard_status']}`",
+        f"- 输出表只读校验: `{summary['ads_readonly_guard_status']}`",
         "",
         "## 最大回撤",
         "",
