@@ -1,11 +1,104 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
-> - 分支 `codex/strategy1-d3e-promotion-package` 已实现项目结构重构 Phase D3/E，并按 PR #150 review follow-up 加固：promotion 不再反写 `acceptance_status/research_status=accepted`，CLI 真实写 ADS 必须传 `--execute`，source trade/NAV 有窗口完整性 guard。
-> - Phase E 已把 dataset routing、acceptance、ledger、reporting/backtest、pipeline-control/orchestrator 实现迁入 `src/quant_ashare/strategy1/**`；旧 `scripts.strategy1_cloudrun.*` 对应文件保留为短 wrapper，Cloud Run entrypoint 名称暂不迁移。
-> - `docs/策略1ResearchPromotion运行手册.md` 已说明 `--print-sql` review-only、失败 attempt 不写 manifest 成功行、`--allow-unaccepted` 不涂改验收状态；DECISION-20260610-11 已记录 D3/E 同 PR 交付的一次性边界豁免。
-> - 验证：`python3 -m pytest -q tests` 79 passed；compileall、Dataform generated SQLX `--check`、Dataform compile、`git diff --check`、promotion CLI dry-run / print-sql review-only、BigQuery dry-run 和 55 条程序化 self-review invariant 均通过。
-> - 尚未执行真实 promotion，也未部署专用 promotion Cloud Run job；合并后若要线上使用，需要按 runbook 部署/运行 owner-approved promotion。
+> - PR #150 已合并到 `main`；D3/E main 镜像已构建并部署到五个 Strategy1 jobs，digest `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`。
+> - 五个现有 jobs 的 `--help` boot smoke 全部成功：`train-predict-job-rrjmf`、`prepare-matrix-job-7bgfl`、`train-candidate-fanout-job-jtw78`、`select-register-predict-job-p88c9`、`backtest-report-job-glntc`。
+> - 新建专用 promotion SA `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com` 与 Cloud Run job `strategy1-promote-research-to-ads-job`；help smoke `...-6kqd7` 与完整参数 review-only dry-run `...-4mkrv` 成功。
+> - Dry-run promotion smoke 未写 manifest：`promo_deploy_smoke_20260610_01` 在 `research_promotion_manifest` 行数为 `0`；`sql/research/03_qa_research_schema_readiness.sql` 7 条断言通过。
+> - PR #151 review follow-up 已实证 IAM 收敛仍有开放决策：五个普通 runner jobs 仍用 compute SA 且该 SA 有 `ashare_ads` WRITER；已登记 OQ-013 / TODO，未改线上 IAM。
+> - 尚未执行真实 owner-approved promotion；后续必须 owner 指定 accepted research run 后，按 runbook 先 review-only 再带 `--execute`。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - PR #151 review follow-up IAM 收敛留痕
+
+### 已完成工作
+
+- 复核 PR #151 review 指出的 IAM 收敛缺口：五个普通 Strategy1 runner jobs 仍使用 `241358486859-compute@developer.gserviceaccount.com`。
+- 复核 `ashare_ads` dataset access，确认该 compute SA 仍具备 WRITER；promotion 专用 SA 也具备 WRITER。
+- 新增 OQ-013 / TODO，记录普通 runner ADS 写权限的 owner 决策点：接受现状、收回并为 ADS audit 特批、或按表级 / 专用 SA 收窄。
+- 更新 `KNOWN_CONSTRAINTS.md`，明确在 OQ-013 决策前不要直接 revoke 普通 runner ADS 写权限，避免破坏 ADS audit / 历史报告重渲染回写路径。
+
+### 重要上下文
+
+- 本轮没有修改线上 IAM、Cloud Run job spec、BigQuery table 或 dataset。
+- 当前流程边界仍成立：普通实验默认 research-first，正式发布 ADS 必须走 owner-approved promotion job；但 IAM 层硬隔离尚未闭合。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `gcloud run jobs describe` 确认五个普通 Strategy1 runner jobs 的 service account 均为 `241358486859-compute@developer.gserviceaccount.com`。
+- `bq show --format=json data-aquarium:ashare_ads` 确认 `241358486859-compute@developer.gserviceaccount.com` 仍有 WRITER access。
+
+### 阻塞项
+
+- OQ-013 需要 owner 决策后才能调整 live IAM。
+
+### 下一步建议
+
+- 在 owner 选择 IAM 收敛方案前，不要直接 revoke 普通 runner 的 `ashare_ads` 写权限。
+- 若选择收窄权限，先设计 ADS audit / 历史报告重渲染的特批路径，再执行 live IAM 变更和 smoke。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+## 2026-06-10 GPT-5 Codex - D3/E main 镜像部署与 promotion job dry-run
+
+### 已完成工作
+
+- 从 `origin/main` merge commit `f421c83c1987d5f8eb067991e9d4f6624206306a` 创建 detached 部署 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-d3e-main-deploy`。
+- 构建正式 Strategy1 runner 镜像 `research-d3e-main-f421c83-20260610-01`；Cloud Build id `e6b385e7-c386-40be-8adb-e00fc48045c1`，digest `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`。
+- 将五个现有 Strategy1 jobs 更新到该 digest：`strategy1-train-predict-job`、`strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。
+- 新建 promotion 专用 service account `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com`，授予 project `roles/bigquery.jobUser`，以及 `ashare_research` / `ashare_ads` dataset WRITER。
+- 新建 promotion 专用 Cloud Run job `strategy1-promote-research-to-ads-job`，使用同一 digest，command 为 `python -m scripts.strategy1.promote_research_to_ads`，SA 为 `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com`。
+
+### 重要上下文
+
+- 普通五个 Strategy1 runner jobs 仍使用原 compute SA 和旧 wrapper command；本轮只更新 image digest，没有迁移 Cloud Run entrypoint。
+- Promotion job 已部署但只做 review-only dry-run，没有执行真实 promotion，没有写 ADS，也没有写 manifest。
+- 真实 promotion 仍必须由 owner 指定 accepted research run/backtest/model 和 approval metadata 后，按 runbook 先 review-only，再显式加 `--execute`。
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 本地 targeted tests：`python3 -m pytest -q tests/strategy1/test_promotion.py tests/strategy1/test_package_boundaries.py tests/strategy1_cloudrun/test_dataset_role_routing.py`，29 passed。
+- `python3 -m compileall -q src scripts`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- 五个 existing jobs `--help` boot smoke 成功：`strategy1-train-predict-job-rrjmf`、`strategy1-prepare-matrix-job-7bgfl`、`strategy1-train-candidate-fanout-job-jtw78`、`strategy1-select-register-predict-job-p88c9`、`strategy1-backtest-report-job-glntc`。
+- Promotion job `--help` boot smoke：`strategy1-promote-research-to-ads-job-6kqd7` succeeded。
+- Promotion job 完整参数 review-only dry-run：`strategy1-promote-research-to-ads-job-4mkrv` succeeded，日志包含 review-only 提示。
+- BigQuery 反向确认：`research_promotion_manifest` 中 `promotion_id='promo_deploy_smoke_20260610_01'` 行数为 `0`。
+- `bq query --project_id=data-aquarium --location=asia-east2 --use_legacy_sql=false < sql/research/03_qa_research_schema_readiness.sql`：7 条断言全部 successful。
+
+### 阻塞项
+
+- 无部署阻塞。真实 promotion 仍待 owner 指定具体 accepted research source 和 approval。
+
+### 下一步建议
+
+- 若需要首次真实 promotion，先用 `strategy1-promote-research-to-ads-job` 对 owner 指定 run 跑 review-only dry-run，确认 SQL/target tables/window 后再加 `--execute`。
+- Cloud Run entrypoint 从 `scripts.strategy1_cloudrun.*` 迁到 package module 仍需单独 PR 和镜像 smoke。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - PR #150 review follow-up
 
