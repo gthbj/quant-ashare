@@ -1,11 +1,70 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
-> - PR #162 已合并进 `main`（merge commit `ce795e5`），三个正式化 PRD 已在主线；旧 PRD worktree / 分支已清理。
-> - PR #163 已合并进 `main`（merge commit `f0ba555`），PRD_04 代码侧修复已进入主线：ADS additive migration `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql` 补 `run_id` / `created_date`；`09` summary INSERT 写 `p_run_id` / `CURRENT_DATE()`；`qa_runner_outputs` 和 `qa_cloudrun_schema_readiness` 加防复发断言。
-> - 新增 focused pytest `tests/strategy1/test_backtest_summary_identity_contract.py`，锁住 migration、`09` INSERT、runner QA、schema readiness 四处契约。
-> - Live 收尾已完成：执行 ADS migration 后 `qa_cloudrun_schema_readiness` 4 条 assertion 全过；显式 6 个 annual rolling `backtest_id` 回填 affected rows=6；复核 `null_run_id=0`、`null_created_date=0`、`run_id_mismatch=0`、`created_date_mismatch=0`，`created_date=2026-06-10` 可查 6 行，time-travel hash 确认非目标字段未变。
-> - PRD_04 前置已完成，可以进入 PRD_02 final refit / PRD_03 continuous 实现；仍禁止 promotion、隐式写 ADS 或拼接年度 NAV。
+> - PRD_04 前置已完成并已 live 回填；当前分支 `codex/strategy1-final-refit` 完成 PRD_02 final refit 代码侧实现，待 PR review / merge / 镜像重建 / 六年 refit 重跑。
+> - 新增 `quant_ashare.strategy1.refit_register_predict`：读取 selection run 的 selected registry 与 `source_panel_run_id` panel，按 resolved final-refit 窗口重新 fit preprocessor、训练 selected candidate 单模型、写独立 `__refit01` registry / prediction / artifact。
+> - Annual resolved plan 已生成可执行 `cloudrun_refit_register_predict` step；scheduler DAG 已改为 `select -> refit -> diagnostic_backtest`，continuous 依赖 refit runs；年度 diagnostic backtest 使用 refit backtest id 并跳过默认 diagnosis / tail-risk / QA。
+> - 新增 `qa_refit_register_predict_outputs.sql` 与 catalog 登记，断言 source/refit registry、panel 覆盖、prediction 边界、lineage 和 preprocess artifact 归属。
+> - 验证完成：全量 pytest 108 passed，Dataform `--check`、retired linter、compileall、`git diff --check`、BigQuery QA dry-run 均通过。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - PRD_02 annual rolling final refit implementation
+
+### 已完成工作
+
+- 新增 package entrypoint `src/quant_ashare/strategy1/refit_register_predict.py`，实现年度滚动 selected candidate final refit：读 selection registry、读 `source_panel_run_id` 面板、重新 fit preprocessor、训练单模型、写 refit registry / prediction / artifact。
+- 扩展 `train_predict.write_registry` 的 `model_params_json` lineage 白名单，写出 `source_panel_run_id`、`refit`、`refit_train_start/end`、`preprocess_fit_start/end`。
+- 新增 `sql/strategy1/qa/qa_refit_register_predict_outputs.sql` 并登记 `configs/strategy1/active_step_catalog.yml`，覆盖 refit 硬门 QA。
+- 更新 `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`：每年 plan 插入 `cloudrun_refit_register_predict`，root / yearly continuous metadata 指向 refit prediction run，年度 diagnostic backtest 指向 `__refit01` backtest。
+- 更新 `quant_ashare.strategy1.annual_pipeline_scheduler`：新增 `refit` stage，continuous 依赖改为 refit runs。
+- 更新 runbook 与测试，覆盖 package entrypoint、annual command plan、scheduler DAG 和 catalog/package boundary。
+
+### 重要上下文
+
+- 本轮只完成代码侧实现，不部署镜像、不执行 Cloud Run、不写 BigQuery research/ADS 产物；六年 refit 重跑仍待合并后用新镜像执行。
+- refit 当前复用现有 `strategy1-train-predict-job`，资源 token 记录为 `4 CPU / 16Gi`；这是比 PRD 建议 `2 CPU / 8Gi` 更保守的现有 job envelope，不新增 job spec。
+- 年度 diagnostic backtest 仍只作 diagnostic，正式结果必须等 PRD_03 synthetic continuous merge + single continuous ledger。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/refit_register_predict.py`
+- `src/quant_ashare/strategy1/train_predict.py`
+- `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`
+- `sql/strategy1/qa/qa_refit_register_predict_outputs.sql`
+- `configs/strategy1/active_step_catalog.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `tests/strategy1/test_annual_pipeline_scheduler.py`
+- `tests/strategy1/test_cloudrun_package_entrypoints.py`
+- `tests/strategy1/test_package_boundaries.py`
+- `tests/strategy1_cloudrun/test_dataset_role_routing.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests`：108 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `git diff --check`：通过。
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_refit_register_predict_outputs.sql`：通过。
+- annual orchestrator / scheduler dry-run 复核：plan 顺序包含 `cloudrun_refit_register_predict`，scheduler `continuous_ledger` 依赖 `refit:*`。
+
+### 阻塞项
+
+- 无代码侧阻塞；上线前仍需 PR 合并后重建 Strategy1 runner 镜像。
+
+### 下一步建议
+
+- 合并 PRD_02 代码 PR 后，重建并部署五个 Strategy1 runner jobs 镜像，至少做 refit entrypoint boot smoke。
+- 继续实现 PRD_03 synthetic continuous merge / QA；PRD_02 refit 六年重跑完成后再跑正式 continuous ledger。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - PRD_04 research summary identity implementation and live backfill
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 from pathlib import Path
@@ -36,6 +37,26 @@ def _entrypoint_args(tmp_path: Path) -> dict[str, list[str]]:
         encoding="utf-8",
     )
 
+    refit_exp = {
+        "experiment_id": "annual_roll_unit__final_refit",
+        "run_id": "unit_run__refit01",
+        "prediction_run_id": "unit_run__refit01",
+        "backtest_id": "unit_bt__refit01",
+        "parent_experiment_id": "annual_roll_unit",
+        "parent_run_id": "unit_run",
+        "train_start": "2021-01-04",
+        "train_end": "2025-12-24",
+        "valid_start": "2021-01-04",
+        "valid_end": "2025-12-24",
+        "test_start": "2026-01-05",
+        "test_end": "2026-06-09",
+        "predict_start": "2026-01-05",
+        "predict_end": "2026-06-09",
+    }
+    refit_exp_b64 = base64.urlsafe_b64encode(
+        json.dumps(refit_exp, sort_keys=True).encode("utf-8")
+    ).decode("ascii")
+
     return {
         "train_predict": [
             "--dry-run",
@@ -69,6 +90,20 @@ def _entrypoint_args(tmp_path: Path) -> dict[str, list[str]]:
             "gs://unit/matrix",
             "--matrix-local-dir",
             str(matrix_dir),
+            "--skip-gcs-upload",
+        ],
+        "refit_register_predict": [
+            "--dry-run",
+            "--experiment-json",
+            refit_exp_b64,
+            "--source-run-id",
+            "unit_run",
+            "--source-panel-run-id",
+            "unit_run",
+            "--refit-train-start",
+            "2021-01-04",
+            "--refit-train-end",
+            "2025-12-24",
             "--skip-gcs-upload",
         ],
         "backtest_report": [
@@ -111,6 +146,7 @@ def _run_module(module: str, args: list[str]) -> subprocess.CompletedProcess[str
         "prepare_matrix",
         "train_candidate_task",
         "select_register_predict",
+        "refit_register_predict",
         "backtest_report",
     ],
 )
@@ -128,6 +164,7 @@ def test_package_entrypoint_help_smoke(entrypoint: str) -> None:
         "prepare_matrix",
         "train_candidate_task",
         "select_register_predict",
+        "refit_register_predict",
         "backtest_report",
     ],
 )

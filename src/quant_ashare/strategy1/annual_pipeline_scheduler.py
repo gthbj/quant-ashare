@@ -29,6 +29,7 @@ from scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection import (
     build_year_experiment,
     command_plan,
     continuous_backtest_id_for,
+    final_refit_experiment,
     parse_iso_date,
     validate_config,
 )
@@ -45,6 +46,7 @@ STAGE_PANEL = "panel"
 STAGE_MATRIX = "matrix"
 STAGE_CANDIDATE = "candidate"
 STAGE_SELECT = "select"
+STAGE_REFIT = "refit"
 STAGE_DIAGNOSTIC_BACKTEST = "diagnostic_backtest"
 STAGE_CONTINUOUS_LEDGER = "continuous_ledger"
 
@@ -103,6 +105,8 @@ class SchedulerLimits:
         if stage == STAGE_MATRIX:
             return self.active_prepare_jobs
         if stage == STAGE_SELECT:
+            return self.active_select_jobs
+        if stage == STAGE_REFIT:
             return self.active_select_jobs
         if stage == STAGE_DIAGNOSTIC_BACKTEST:
             return self.active_backtest_jobs
@@ -370,7 +374,7 @@ def build_scheduler_plan(*, config, args: argparse.Namespace) -> dict[str, Any]:
         },
         "continuous_ledger": {
             "backtest_id": continuous_backtest_id,
-            "prediction_run_ids": [exp.prediction_run_id for exp in experiments],
+            "prediction_run_ids": [final_refit_experiment(exp).prediction_run_id for exp in experiments],
             "prediction_merge_required": True,
             "fresh_segment_stitching_allowed": False,
             "resume_segment_allowed_if_qa_passed": True,
@@ -392,6 +396,7 @@ def default_stage_tokens(config) -> dict[str, ResourceTokens]:
             candidate_slots=1,
         ),
         STAGE_SELECT: ResourceTokens(cpu=DEFAULT_SELECT_CPU, memory_gib=DEFAULT_SELECT_MEMORY_GIB),
+        STAGE_REFIT: ResourceTokens(cpu=DEFAULT_SELECT_CPU, memory_gib=DEFAULT_SELECT_MEMORY_GIB),
         STAGE_DIAGNOSTIC_BACKTEST: ResourceTokens(cpu=DEFAULT_BACKTEST_CPU, memory_gib=DEFAULT_BACKTEST_MEMORY_GIB),
         STAGE_CONTINUOUS_LEDGER: ResourceTokens(cpu=DEFAULT_BACKTEST_CPU, memory_gib=DEFAULT_BACKTEST_MEMORY_GIB),
     }
@@ -423,7 +428,7 @@ def build_pipeline_tasks(
     stage_tokens: dict[str, ResourceTokens],
 ) -> list[PipelineTask]:
     tasks: list[PipelineTask] = []
-    select_task_ids: list[str] = []
+    refit_task_ids: list[str] = []
     include_backtest = not args.skip_yearly_diagnostic_backtest
     for exp in experiments:
         year = int(exp.raw["backtest_year"])
@@ -484,14 +489,27 @@ def build_pipeline_tasks(
             matrix_id=matrix_id,
             matrix_uri=matrix_uri,
         ))
-        select_task_ids.append(select_id)
+        refit_id = task_id(STAGE_REFIT, year)
+        refit_step = by_step["cloudrun_refit_register_predict"]
+        tasks.append(PipelineTask(
+            task_id=refit_id,
+            stage=STAGE_REFIT,
+            year=year,
+            dependencies=(select_id,),
+            tokens=stage_tokens[STAGE_REFIT],
+            command=tuple(refit_step["command"]),
+            job_name=refit_step.get("job_name"),
+            matrix_id=matrix_id,
+            matrix_uri=matrix_uri,
+        ))
+        refit_task_ids.append(refit_id)
         if include_backtest:
             backtest_step = by_step["cloudrun_backtest_report"]
             tasks.append(PipelineTask(
                 task_id=task_id(STAGE_DIAGNOSTIC_BACKTEST, year),
                 stage=STAGE_DIAGNOSTIC_BACKTEST,
                 year=year,
-                dependencies=(select_id,),
+                dependencies=(refit_id,),
                 tokens=stage_tokens[STAGE_DIAGNOSTIC_BACKTEST],
                 command=tuple(backtest_step["command"]),
                 job_name=backtest_step.get("job_name"),
@@ -501,7 +519,7 @@ def build_pipeline_tasks(
         task_id=STAGE_CONTINUOUS_LEDGER,
         stage=STAGE_CONTINUOUS_LEDGER,
         year=None,
-        dependencies=tuple(select_task_ids),
+        dependencies=tuple(refit_task_ids),
         tokens=stage_tokens[STAGE_CONTINUOUS_LEDGER],
         artifact_uri=continuous_backtest_id,
     ))
@@ -535,10 +553,11 @@ def task_priority(task: PipelineTask) -> tuple[int, int, int]:
     stage_priority = {
         STAGE_CANDIDATE: 10,
         STAGE_SELECT: 20,
-        STAGE_PANEL: 30,
-        STAGE_MATRIX: 40,
-        STAGE_DIAGNOSTIC_BACKTEST: 50,
-        STAGE_CONTINUOUS_LEDGER: 60,
+        STAGE_REFIT: 30,
+        STAGE_PANEL: 40,
+        STAGE_MATRIX: 50,
+        STAGE_DIAGNOSTIC_BACKTEST: 60,
+        STAGE_CONTINUOUS_LEDGER: 70,
     }
     return (
         stage_priority[task.stage],
