@@ -521,13 +521,9 @@ def evaluate_cv_folds(
             "cv_confirmation_status": "missing",
             "cv_fold_count": 0,
         }
-    folds = [
-        ("cv_2021", "2019-04-03", "2020-12-31", "2021-01-01", "2021-12-31"),
-        ("cv_2022", "2019-04-03", "2021-12-31", "2022-01-01", "2022-12-31"),
-        ("cv_2023", "2019-04-03", "2022-12-31", "2023-01-01", "2023-12-31"),
-    ]
     panel = cv_panel.copy()
     panel["trade_date"] = pd.to_datetime(panel["trade_date"])
+    folds = dynamic_cv_folds(panel)
     all_dates = sorted(panel["trade_date"].dropna().unique())
     rows = []
     for fold_id, train_start, train_end, eval_start, eval_end in folds:
@@ -587,6 +583,42 @@ def evaluate_cv_folds(
         ]),
         "cv_fold_metrics": rows,
     }
+
+
+def dynamic_cv_folds(
+    panel: pd.DataFrame,
+    *,
+    max_folds: int = 3,
+    min_train_years: int = 2,
+) -> list[tuple[str, str, str, str, str]]:
+    train_panel = panel
+    if "split_tag" in panel.columns:
+        train_panel = panel.loc[panel["split_tag"].eq("train")]
+    train_panel = train_panel.loc[train_panel["trade_date"].notna()].copy()
+    if train_panel.empty:
+        return []
+
+    train_panel["trade_date"] = pd.to_datetime(train_panel["trade_date"])
+    years = sorted(int(year) for year in train_panel["trade_date"].dt.year.dropna().unique())
+    eval_years = years[min_train_years:][-max_folds:]
+    if not eval_years:
+        return []
+
+    train_start = pd.Timestamp(train_panel["trade_date"].min()).date().isoformat()
+    folds = []
+    for eval_year in eval_years:
+        prior_dates = train_panel.loc[train_panel["trade_date"].dt.year < eval_year, "trade_date"]
+        eval_dates = train_panel.loc[train_panel["trade_date"].dt.year == eval_year, "trade_date"]
+        if prior_dates.empty or eval_dates.empty:
+            continue
+        folds.append((
+            f"cv_{eval_year}",
+            train_start,
+            pd.Timestamp(prior_dates.max()).date().isoformat(),
+            pd.Timestamp(eval_dates.min()).date().isoformat(),
+            pd.Timestamp(eval_dates.max()).date().isoformat(),
+        ))
+    return folds
 
 
 def safe_metric(value: Any) -> float:
