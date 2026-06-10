@@ -31,6 +31,15 @@ def allow_future_research(dataset_role: str | None) -> bool:
     return validate_output_dataset_role(dataset_role) == "research"
 
 
+def output_dataset_role_cli_args(dataset_role: str | None, *, equals: bool = False) -> list[str]:
+    role = validate_output_dataset_role(dataset_role)
+    if role == "ads":
+        return []
+    if equals:
+        return [f"--output-dataset-role={role}"]
+    return ["--output-dataset-role", role]
+
+
 def table_id(
     role: str,
     *,

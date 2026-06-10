@@ -21,7 +21,7 @@ from scripts.strategy1_cloudrun.config import (
 )
 from scripts.strategy1_cloudrun.ledger import LedgerParams, run_ledger
 from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_FLOAT, LEDGER_VERSION_LOT100
-from scripts.strategy1_cloudrun.dataset_roles import allow_future_research
+from scripts.strategy1_cloudrun.dataset_roles import allow_future_research, output_dataset_role_cli_args
 from scripts.strategy1_cloudrun.sql_runner import resolve_sql_step_path, run_sql_step
 
 
@@ -260,7 +260,7 @@ def report_command(config, exp: Experiment, skip_gcs_upload: bool) -> list[str]:
         "--run-id", exp.run_id,
         "--prediction-run-id", exp.prediction_run_id,
         "--backtest-id", exp.backtest_id,
-        "--output-dataset-role", config.output_dataset_role,
+        *output_dataset_role_cli_args(config.output_dataset_role),
         "--artifact-base-uri", config.artifact_base_uri,
         "--local-mirror-root", "reports/strategy1",
     ]
@@ -276,7 +276,7 @@ def diagnosis_command(config, exp: Experiment, skip_gcs_upload: bool) -> list[st
         "--run-id", exp.run_id,
         "--prediction-run-id", exp.prediction_run_id,
         "--backtest-id", exp.backtest_id,
-        "--output-dataset-role", config.output_dataset_role,
+        *output_dataset_role_cli_args(config.output_dataset_role),
         "--artifact-base-uri", config.artifact_base_uri,
         "--local-mirror-root", "reports/strategy1",
         "--p-target-holdings", str(exp.target_holdings),
@@ -295,7 +295,7 @@ def tail_risk_command(config, exp: Experiment, skip_gcs_upload: bool, search_id:
         "--run-id", exp.run_id,
         "--prediction-run-id", exp.prediction_run_id,
         "--backtest-id", exp.backtest_id,
-        "--output-dataset-role", config.output_dataset_role,
+        *output_dataset_role_cli_args(config.output_dataset_role),
         "--feature-version", exp.feature_version,
         "--artifact-base-uri", config.artifact_base_uri,
         "--local-mirror-root", "reports/strategy1",

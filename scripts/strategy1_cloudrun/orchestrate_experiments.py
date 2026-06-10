@@ -27,6 +27,7 @@ from scripts.strategy1_cloudrun.config import (
     resolve_parallel_count,
 )
 from scripts.strategy1_cloudrun.bq_io import join_gs_uri
+from scripts.strategy1_cloudrun.dataset_roles import output_dataset_role_cli_args
 from scripts.strategy1_cloudrun.state import (
     GcsLeaseLock,
     LockConfig,
@@ -207,7 +208,7 @@ def build_chain_steps(config, exp, args) -> list[StepStateSpec]:
         f"--region={config.region}",
         f"--config={args.config}",
         f"--manifest={args.manifest}",
-        f"--output-dataset-role={config.output_dataset_role}",
+        *output_dataset_role_cli_args(config.output_dataset_role, equals=True),
         f"--experiment-id={exp.experiment_id}",
         f"--experiment-json={experiment_to_b64(exp)}",
     ]

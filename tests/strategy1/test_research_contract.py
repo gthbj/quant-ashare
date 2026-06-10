@@ -74,6 +74,28 @@ def test_acceptance_contract_separates_acceptance_from_promotion() -> None:
     assert "promotion_manifest_id STRING" in block
 
 
+def test_research_lifecycle_columns_have_explicit_defaults() -> None:
+    tables = _research_tables()
+    research_status_tables = []
+    promotion_lifecycle_tables = []
+
+    for table in tables:
+        block = _table_block(table)
+        if "research_status STRING" in block:
+            research_status_tables.append(table)
+            assert "research_status STRING DEFAULT 'candidate'" in block, table
+        if table != "research_promotion_manifest" and "promotion_status STRING" in block:
+            promotion_lifecycle_tables.append(table)
+            assert "promotion_status STRING DEFAULT 'not_promoted'" in block, table
+
+    assert research_status_tables
+    assert promotion_lifecycle_tables
+
+    manifest_block = _table_block("research_promotion_manifest")
+    assert "promotion_status STRING DEFAULT 'planned'" in manifest_block
+    assert "not_promoted/promoted/deprecated" in _table_block("research_acceptance_result")
+
+
 def test_promotion_manifest_records_target_and_completion_fields() -> None:
     block = _table_block("research_promotion_manifest")
 

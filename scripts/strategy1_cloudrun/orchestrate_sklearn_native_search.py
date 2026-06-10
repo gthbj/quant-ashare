@@ -72,7 +72,11 @@ from scripts.strategy1_cloudrun.select_register_predict import (
     load_candidates,
     rank_candidates,
 )
-from scripts.strategy1_cloudrun.dataset_roles import allow_future_research, rewrite_sql_dataset_role
+from scripts.strategy1_cloudrun.dataset_roles import (
+    allow_future_research,
+    output_dataset_role_cli_args,
+    rewrite_sql_dataset_role,
+)
 from scripts.strategy1_cloudrun.sql_runner import run_sql_step
 from scripts.strategy1_cloudrun.state import (
     LockConfig,
@@ -476,7 +480,7 @@ def maybe_run_next_wave(
         f"--region={args.region}" if args.region else None,
         f"--config={next_manifest}",
         f"--manifest={next_manifest}",
-        f"--output-dataset-role={args.output_dataset_role}",
+        *output_dataset_role_cli_args(args.output_dataset_role, equals=True),
         f"--candidate-parallelism={args.candidate_parallelism}",
         f"--top-k-backtest={args.top_k_backtest}" if args.top_k_backtest else None,
     ]
@@ -541,7 +545,7 @@ def common_job_flags(config, args, exp: Experiment) -> list[str]:
         f"--region={config.region}",
         f"--config={args.config}",
         f"--manifest={args.manifest}",
-        f"--output-dataset-role={config.output_dataset_role}",
+        *output_dataset_role_cli_args(config.output_dataset_role, equals=True),
         f"--experiment-id={exp.experiment_id}",
         f"--experiment-json={experiment_to_b64(exp)}",
     ]

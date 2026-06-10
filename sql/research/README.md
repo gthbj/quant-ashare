@@ -14,9 +14,10 @@ Current status:
   dataset role as `ads`.
 - `resolve_table_role(..., dataset_role="research")` must continue to fail
   unless the caller explicitly passes `allow_future_research=True`.
-- Phase D1 will add explicit research routing for runner/report/QA/acceptance.
+- Phase D1b adds explicit research routing for runner/report/QA/acceptance, but
+  the real research-mode smoke is still a separate D1 acceptance step.
 - Phase D2 may switch normal experiments to research-first only after all
-  readers support research tables.
+  readers support research tables and the D1 smoke has passed.
 - Phase D3 will add the explicit owner-approved promotion job.
 
 Run manually only when owner approves creating the research contract:
@@ -29,7 +30,9 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/research/01_research
 Naming rules:
 
 - All research tables use the `research_*` prefix.
-- Research rows are run-scoped and unpromoted by default.
+- Research rows are run-scoped and unpromoted by default; ordinary research
+  outputs default to `research_status='candidate'` and
+  `promotion_status='not_promoted'`.
 - `accepted` means acceptance gate passed inside research; it is not the same
   as `promoted`.
 - `ashare_ads` remains the target for owner-approved promoted outputs only.

@@ -2710,3 +2710,41 @@ PR #136 的四个边界已在同一分支内完成交叉验证：catalog、stric
 ### 相关文件
 
 `docs/prd/PRD_20260610_02_项目结构重构方案.md`, `configs/strategy1/active_step_catalog.yml`, `src/quant_ashare/strategy1/**`, `sql/strategy1/**`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260610-08: Strategy1 research lifecycle 默认值与 D1 收尾验收门槛
+
+日期: 2026-06-10
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+项目结构重构 Phase D0/D1b 已定义并接入 `ashare_research` research 表族。PR #143 review 指出，如果 D1b 写入 research 表时 `research_status` / `promotion_status` 默认为 NULL，后续 D3 promotion 若按 `promotion_status='not_promoted'` 过滤会静默漏行；同时 Phase D1 的真实 research-mode smoke 仍未完成，不能直接把后续 TODO 跳到 D2/D3。
+
+### 决策
+
+1. 普通 research 输出表的 lifecycle 默认值固定为 `research_status='candidate'`、`promotion_status='not_promoted'`。
+2. `research_promotion_manifest.promotion_status` 表达 promotion job 自身流程状态，默认值为 `planned`，不使用 `not_promoted`。
+3. Phase D2 default research-first 之前必须先完成 D1 收尾验收：部署 D0 DDL、重建并部署 Strategy1 Cloud Run jobs、给 runtime service account 补 `ashare_research` 写权限，并跑通一次显式 research-mode smoke，覆盖 report / diagnosis / QA / acceptance。
+4. 默认 ADS 模式下不得为了记录默认值而向旧 Cloud Run job 镜像下发 `--output-dataset-role=ads`；只有显式 research 模式才下发该 flag。
+
+### 理由
+
+显式默认值能让 D1b 期间产生的 research 行在 D3 promotion 过滤中保持可见，避免用 NULL 代表未 promotion 的隐式语义。D1 收尾 smoke 是 PRD Phase D 的真实验收要求，必须覆盖 BigQuery 对象、IAM 和已部署镜像三类单测无法验证的外部状态。默认 ADS 不下发新增 flag 可以保持合并后对旧镜像的兼容，research 模式本来就需要新镜像和新表契约。
+
+### 影响
+
+1. `sql/research/01_research_strategy1_tables.sql` 必须为相关 lifecycle 字段声明 BigQuery DEFAULT，并由 pytest 防回退。
+2. D2/D3 前不得把 D1b 单测 / dry-run 视为 research-mode 生产验收。
+3. Cloud Run orchestrator / 子命令构造必须区分默认 ADS 与显式 research；后续新增子命令也应复用同一 helper。
+
+### 备选方案
+
+- 约定 NULL 视同 `not_promoted`：不采用。原因是 SQL 过滤容易漏掉 NULL，且 promotion 逻辑会更难审计。
+- D1b 合并后强制立刻重建所有镜像再跑默认 ADS：不作为唯一保障。原因是默认 ADS 路径可通过不下发新增 flag 与旧镜像兼容，减少部署耦合。
+
+### 相关文件
+
+`sql/research/01_research_strategy1_tables.sql`, `scripts/strategy1_cloudrun/dataset_roles.py`, `tests/strategy1/test_research_contract.py`, `tests/strategy1_cloudrun/test_dataset_role_routing.py`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
