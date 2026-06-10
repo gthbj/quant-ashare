@@ -6,6 +6,12 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：OQ-005 Cloud Run Job IAM bootstrap TODO 已收口
+
+- 复核确认 PR #126 `fix(orchestration): grant workflow runtime job override IAM` 已于 2026-06-09 合并到 `main`，merge commit `54fe077bb656f23b5ff9384f348e49b7a5259e94`。
+- `orchestration/workflows/bootstrap_scheduler_iam.sh` 已包含 runtime SA 所需的 project-level `roles/run.viewer`、job-level `roles/run.jobsExecutorWithOverrides`，并移除旧 job-level `roles/run.invoker`。
+- 本轮只清理过期状态：根目录 `TODO.md` 中 “OQ-005：合并 2026-06-09 scheduled ODS run 暴露的 Cloud Run Job IAM bootstrap 修正” 已勾选完成；未修改 Workflows、IAM bootstrap 脚本、Cloud Run、BigQuery 或生产配置。
+
 ### 最新补充（2026-06-10）：Dataform generated SQLX drift 已修复
 
 - 分支 `codex/fix-dataform-generated-drift` 已从最新 `origin/main` 重新运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件。

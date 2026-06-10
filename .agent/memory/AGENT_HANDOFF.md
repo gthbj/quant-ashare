@@ -1,4 +1,9 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - OQ-005 Cloud Run Job IAM bootstrap TODO 已收口：PR #126 已合并到 `main`，`bootstrap_scheduler_iam.sh` 已固化 `roles/run.jobsExecutorWithOverrides`、`roles/run.viewer` 并移除旧 job-level `run.invoker`。
+> - 本轮只清理过期状态，勾选 `TODO.md` 对应项并同步 `IMPLEMENTATION_STATUS` / `AGENT_HANDOFF`；未修改 Workflows、IAM bootstrap 脚本、Cloud Run、BigQuery 或生产配置。
+> - 验证：复核 PR #126 merge commit `54fe077bb656f23b5ff9384f348e49b7a5259e94`，并确认 `origin/main` 当前 bootstrap 脚本仍包含正确 IAM 绑定。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 分支 `codex/fix-dataform-generated-drift` 已修复 Dataform generated SQLX drift：从 canonical `sql/` 与 `dataform/action_manifest.json` 重新生成 6 个 stale `dataform/definitions/**/*.sqlx` 文件。
 > - PR review 的 Low 防复发建议已处理：新增 `tests/dataform/test_generated_sqlx.py`，直接调用 `generate_sqlx_from_sql.py --check`，让 pytest 暴露后续 generated SQLX drift。
 > - 本轮未修改 canonical `sql/`、manifest、Workflows、Cloud Run 或 BigQuery 执行入口；只同步 generated SQLX、测试和项目记忆/TODO。
@@ -96,6 +101,7 @@
 
 ## 当前交接摘要
 
+- 2026-06-10：OQ-005 Cloud Run Job IAM bootstrap TODO 已收口；PR #126 已合并到 `main`，`orchestration/workflows/bootstrap_scheduler_iam.sh` 已固化 runtime SA 的 job-level `roles/run.jobsExecutorWithOverrides`、project-level `roles/run.viewer` 并移除旧 job-level `roles/run.invoker`；本轮只清理过期 TODO / 记忆状态，不改运行代码。
 - 2026-06-10：Dataform generated SQLX drift 已在 `codex/fix-dataform-generated-drift` 单独 cleanup 分支修复；重新生成 `dataform/definitions/**/*.sqlx` 中 6 个 stale 文件，并新增 `tests/dataform/test_generated_sqlx.py` 直接调用 `generate_sqlx_from_sql.py --check` 防复发；未修改 canonical `sql/` 或 `dataform/action_manifest.json`，`python3 -m pytest tests` 25 passed，`--check`、Dataform compile 和 `git diff --check` 均通过。
 - 2026-06-10：项目结构重构 PRD Phase A/A2/B/C 已在 `codex/strategy1-structure-refactor` 实现并完成 PR #136 review follow-up：新增 Strategy1 active step catalog、retired linter、table-role/dataset-role resolver 与 `src/quant_ashare/**` 包基础，active/shared SQL 已迁到 `sql/strategy1/**`；旧 `sql/ml/strategy1/**`、`sql/cloudrun/strategy1/**` 只保留 historical/audit README。当前默认仍解析/写入 `ashare_ads`，显式 `dataset_role="research"` fail-fast，不创建 `ashare_research`，后续 Phase D/E 需单独 PR。Owner 已确认 PR #136 一次性合并 Phase A/A2/B/C 的豁免，记录为 `DECISION-20260610-07`。
 - 2026-06-10：新增 Strategy1 年度滚动选参 PRD `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`；P0 固定 11 个 LightGBM regression 可选候选、B26 binary diagnostic-only reference、20 只持仓、7.5% 单票上限、biweekly 和 `ledger_exec_v1_lot100`，每年用上一整年 valid 选参数，再用最近 5 年 final refit，最终用年度预测合并后的一条连续 ledger 评价 `2021-2026`。
@@ -113,6 +119,47 @@
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+## 2026-06-10 GPT-5 Codex - OQ-005 IAM bootstrap TODO 收口
+
+### 已完成工作
+
+- 复核 [PR #126](https://github.com/gthbj/quant-ashare/pull/126) 已合并到 `main`，merge commit 为 `54fe077bb656f23b5ff9384f348e49b7a5259e94`。
+- 复核 `orchestration/workflows/bootstrap_scheduler_iam.sh` 已包含 Workflows runtime SA 所需的 `roles/run.viewer` 与 `roles/run.jobsExecutorWithOverrides`，并移除旧 job-level `roles/run.invoker`。
+- 将 `TODO.md` 中 “OQ-005：合并 2026-06-09 scheduled ODS run 暴露的 Cloud Run Job IAM bootstrap 修正” 勾选完成。
+- 同步更新 `IMPLEMENTATION_STATUS` 与 `AGENT_HANDOFF`，说明该项是过期 TODO 清理，不是新增运行逻辑。
+
+### 重要上下文
+
+- 本轮未修改 `orchestration/workflows/bootstrap_scheduler_iam.sh`；代码修复已由 PR #126 进入 `main`。
+- 仍未关闭 OQ-005；剩余主要是 cutover 后短观察窗记录和少量非阻断运维收尾。
+
+### 改动文件
+
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `gh pr view 126 --json number,title,state,mergedAt,url,mergeCommit,headRefName,baseRefName`：确认 PR #126 为 `MERGED`。
+- `git grep` / `git show origin/main:orchestration/workflows/bootstrap_scheduler_iam.sh`：确认 `roles/run.viewer`、`roles/run.jobsExecutorWithOverrides` 和移除旧 job-level `roles/run.invoker` 的 bootstrap 口径仍在 `main`。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 继续处理 OQ-005 cutover 后短观察窗记录；该项完成后再判断 OQ-005 是否可以正式收口。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - Dataform generated SQLX drift cleanup
 
