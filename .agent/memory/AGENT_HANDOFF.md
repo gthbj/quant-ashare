@@ -1,12 +1,76 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #150 已合并到 `main`；D3/E main 镜像已构建并部署到五个 Strategy1 jobs，digest `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`。
 > - 五个现有 jobs 的 `--help` boot smoke 全部成功：`train-predict-job-rrjmf`、`prepare-matrix-job-7bgfl`、`train-candidate-fanout-job-jtw78`、`select-register-predict-job-p88c9`、`backtest-report-job-glntc`。
+> - 分支 `codex/package-entrypoints` 已为五个 jobs 建立 `quant_ashare.strategy1.*` package entrypoint，并用 pytest 覆盖旧/新入口 `--help` 与关键 dry-run parity；PR #153 review follow-up 已补 wrapper alias 注释和 cutover 范围约束；验证镜像 `package-entrypoints-6b1b3c7-20260610-01` 已完成五个新 package entrypoint `--help` Cloud Run smoke；本轮不改线上 job command。
 > - 新建专用 promotion SA `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com` 与 Cloud Run job `strategy1-promote-research-to-ads-job`；help smoke `...-6kqd7` 与完整参数 review-only dry-run `...-4mkrv` 成功。
 > - Dry-run promotion smoke 未写 manifest：`promo_deploy_smoke_20260610_01` 在 `research_promotion_manifest` 行数为 `0`；`sql/research/03_qa_research_schema_readiness.sql` 7 条断言通过。
 > - Owner 已选择 OQ-013 方案 1：接受普通 runner compute SA 暂保留 `ashare_ads` WRITER，但保留流程约束；OQ-013 已关闭归档，未改线上 IAM。
 > - 尚未执行真实 owner-approved promotion；后续必须 owner 指定 accepted research run 后，按 runbook 先 review-only 再带 `--execute`。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - 五个 Strategy1 Cloud Run package entrypoint
+
+### 已完成工作
+
+- 新增五个稳定 package entrypoint：`quant_ashare.strategy1.train_predict`、`quant_ashare.strategy1.prepare_matrix`、`quant_ashare.strategy1.train_candidate_task`、`quant_ashare.strategy1.select_register_predict`、`quant_ashare.strategy1.backtest_report`。
+- 将旧 `scripts.strategy1_cloudrun.train_predict`、`prepare_matrix`、`train_candidate_task`、`select_register_predict`、`backtest_report` 缩为兼容 wrapper；普通 import 下 alias 到 package 实现模块，CLI 运行仍调用同一 `main()`。
+- PR #153 review follow-up 已给五个 wrapper 的 `sys.modules[__name__] = _impl` alias 加注释，明确这是 legacy import / monkeypatch 兼容关键路径。
+- 新增 `tests/strategy1/test_cloudrun_package_entrypoints.py`，覆盖五个旧/新入口 `--help` 输出一致和关键 `--dry-run` JSON plan 一致。
+- 扩展 `tests/strategy1/test_package_boundaries.py` 的 package import smoke 与 wrapper alias 检查。
+- 构建验证镜像 `strategy1-cloudrun-runner:package-entrypoints-6b1b3c7-20260610-01`，digest `sha256:101eab22ac1504fc03f42392fdb2db984c23715b441955a1f7ae0316ca35c172`，Cloud Build `b906160e-1ae3-4acb-851f-bd19ac248f47`。
+- 用临时 Cloud Run job `strategy1-package-entrypoint-help-smoke` 分别跑通五个新 package entrypoint 的 `--help`：`strategy1-package-entrypoint-help-smoke-w2g7d`、`...-tcf7s`、`...-df6vr`、`...-b2lc5`、`...-vbfgg`，全部 `Completed=True`，Cloud Logging 均匹配到 `usage:`。
+
+### 重要上下文
+
+- 本轮是代码入口准备，不修改正式 Cloud Run Job command，不构建镜像，不部署线上 jobs，不删除旧 wrapper。
+- 线上五个 jobs 仍通过 `scripts.strategy1_cloudrun.*` command 启动；后续迁到 `quant_ashare.strategy1.*` 必须单独 PR、构建镜像并做五 job boot smoke。
+- Cutover PR 范围不能只改 job spec；还必须同步 orchestrator / pipeline-control / native search / annual rolling 的 Cloud Run override args、catalog `caller` 字段和 active runbook / 示例命令。删除旧 wrapper 前，active scopes 内五个旧模块路径 grep 必须为 0，并应把旧模块路径纳入 retired-reference linter 防回流。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/train_predict.py`
+- `src/quant_ashare/strategy1/prepare_matrix.py`
+- `src/quant_ashare/strategy1/train_candidate_task.py`
+- `src/quant_ashare/strategy1/select_register_predict.py`
+- `src/quant_ashare/strategy1/backtest_report.py`
+- `scripts/strategy1_cloudrun/train_predict.py`
+- `scripts/strategy1_cloudrun/prepare_matrix.py`
+- `scripts/strategy1_cloudrun/train_candidate_task.py`
+- `scripts/strategy1_cloudrun/select_register_predict.py`
+- `scripts/strategy1_cloudrun/backtest_report.py`
+- `tests/strategy1/test_cloudrun_package_entrypoints.py`
+- `tests/strategy1/test_package_boundaries.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 手工五入口 old/new `--help` smoke：通过。
+- 手工五入口 old/new 关键 `--dry-run` JSON plan parity：通过。
+- 验证镜像五入口 Cloud Run `--help` smoke：通过。
+- `python3 -m pytest -q tests/strategy1/test_package_boundaries.py tests/strategy1/test_cloudrun_package_entrypoints.py tests/strategy1_cloudrun/test_dataset_role_routing.py tests/strategy1_cloudrun/test_dynamic_cv_folds.py`：35 passed。
+- `python3 -m pytest -q tests/strategy1 tests/strategy1_cloudrun`：87 passed。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无代码阻塞。生产 job command 尚未迁移。
+
+### 下一步建议
+
+- 合并代码入口 PR 后，单独构建 main 镜像，把五个正式 Cloud Run jobs 的 command args、override args、catalog caller 和 active runbook / 示例命令迁到 `quant_ashare.strategy1.*`，并跑五 job boot smoke。
+- 旧 wrapper 只能在正式 job command 迁移且 smoke 通过后再考虑删除。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - OQ-013 IAM 收敛决策记录
 
