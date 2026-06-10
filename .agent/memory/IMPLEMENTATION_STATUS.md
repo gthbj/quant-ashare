@@ -6,7 +6,7 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
-### 最新补充（2026-06-11）：PRD_02 final refit 与 PRD_03 official continuous 执行层已完成
+### 最新补充（2026-06-11）：年度滚动正式化全流程执行完成
 
 - PR #166 已合并到 `main`（merge commit `7b2bd67`），修复 PRD_02 首轮 refit 暴露的 2024+ 问题：2019 final-refit 起点显式 override 为 `2019-04-03`，scheduler / runbook refit 资源口径改为 `8 CPU / 32Gi`。
 - 已从 `main@7b2bd67` 构建并部署正式 Strategy1 runner 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:e379fdccb49281ec628f389de261929d37e60906b51538132b350314ba8db9da`；五个正式 jobs 均已更新到该 digest，`strategy1-train-predict-job` 已提升为 `8 CPU / 32Gi`，读回确认 package args / SA / `maxRetries=0` / fanout `taskCount=40, parallelism=20` 保持预期。六个 boot smoke 全部 Completed=True 且 Cloud Logging 匹配 `usage:`：`strategy1-train-predict-job-cpmm4`、`strategy1-prepare-matrix-job-2gfdq`、`strategy1-train-candidate-fanout-job-hx8w8`、`strategy1-select-register-predict-job-b9h7x`、`strategy1-backtest-report-job-7827f`、`strategy1-train-predict-job-ksf82`（`refit_register_predict --help` override）。
@@ -17,7 +17,10 @@ Last updated: 2026-06-11
 - PR #169 已合并 valid-window lineage hotfix（merge commit `d0f9e4d`）：refit source 的 valid window 改为从 `model_params_json.source_run_id` 指向的原 selection registry 行读取，而不是使用 refit registry 中等于 train window 的 `valid_start_date` / `valid_end_date`。
 - 从 `main@d0f9e4d` 以 `--force-replace` 重跑 official synthetic merge 成功：synthetic run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`，registry rows=`1`，prediction rows=`2643406`，input manifest sha256=`bfd1e3c3e251954ae5ffa1a58102570e4c4538a92b24c9c181c7e41368877166`，resolved manifest sha256=`2062d93544dd7c2bd12566f42da0ad3c973b5c6a63f00f4cd1c72a3a5269ba97`，insert job `f566b4dd-14b8-4419-8225-4747adcb045a`。
 - Single continuous ledger 已生成成功：Cloud Run execution `strategy1-backtest-report-job-w5k24`，窗口 `2021-01-04..2026-06-09`，fresh start，`ledger_exec_v1_lot100`，skip diagnosis / tail-risk / default QA；`qa_lot_aware_ledger_outputs` 已通过，job `4dcfd716-6cea-4efd-b1f9-d7f195d1f004`。
-- `qa_continuous_backtest_outputs` 第一次复跑又暴露 `QA-CONT-6` scope bug：SQL 把所有 target prediction date 与所有 year slice 的 valid window 交叉检查，导致跨年度误伤；分支 `codex/synthetic-continuous-qa-valid-scope` 已把该断言收窄为同一 manifest year slice 的 predict window。使用修正后 SQL 对 official run 执行 continuous QA 已通过，job `843cfc18-054a-4910-b303-61e47f82f249`；`qa_lot_aware_ledger_outputs` 复跑也通过，job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`。本分支合并后 PRD_03 执行层闭环，下一步是查询并解释 single continuous ledger 指标。
+- PR #170 已合并 `QA-CONT-6` scope 修复（merge commit `d105f9f`）：valid 排除断言只检查同一 manifest year slice 的 predict window。Official continuous QA 已通过，job `843cfc18-054a-4910-b303-61e47f82f249`；`qa_lot_aware_ledger_outputs` 复跑也通过，job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`。
+- Official single continuous summary（正式口径，非年度拼接）：backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，total_return=`0.5012920494620134`，compound_annual_return=`0.08110633748103813`，max_drawdown=`-0.45925758365200664`，information_ratio=`0.3510127136837824`，return_period_count=`1313`。Output row counts: prediction `2643406`、NAV `1314`、ledger_state `1314`、signal_monitor `1314`、candidate `279625`、order `4822`、trade `4820`、position `21536`。
+- Rehearsal pre-refit continuous 已补跑并通过 QA（diagnostic only）：synthetic run `s1_annual_roll_synth_continuous_rehearsal_2021_2026_n20_w075_v20260610_02`，input sha256=`d2908798e8b07ad126ca433f798b9f5187b8d2677726d8a1e4d35ef26d4d5699`，resolved sha256=`f3ebdba79deb10a05e9ad1cf50d7a6c9353172ddef6b66b6215a677e80812410`，merge insert job `36465e3e-90b6-43d6-b538-350f102311ac`，backtest execution `strategy1-backtest-report-job-s88hz`，continuous QA `ae56421b-e316-492e-be5b-48584c7917c5`，lot-aware QA `3a98e8d0-5ace-4a74-8170-36ac71e68ca9`；summary total_return=`0.2857702525025081`，compound_annual_return=`0.04942495234912747`，max_drawdown=`-0.3845969073500922`，information_ratio=`0.16428853419676318`。
+- 本轮未执行 promotion，未写 ADS（PRD_04 additive migration 除外），未删除或修改 selection run 历史数据；年度 fresh diagnostic backtest 是 optional，本轮未重跑，最终评价只使用 single continuous ledger。
 
 ### 最新补充（2026-06-11）：PRD_02 final refit 已合并部署，首轮重跑暴露 2024+ hotfix
 

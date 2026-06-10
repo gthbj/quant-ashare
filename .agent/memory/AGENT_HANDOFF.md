@@ -1,11 +1,56 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
 > - PR #166 已合并并部署正式 Strategy1 runner 镜像 `sha256:e379fdccb49281ec628f389de261929d37e60906b51538132b350314ba8db9da`；五个 jobs 已更新，`strategy1-train-predict-job` 已提升到 `8 CPU / 32Gi`，六个 boot smoke（含 `refit_register_predict --help`）均成功。
 > - `v20260610_02` final refit 六年全部完成：2021/2022/2023 首轮成功，hotfix 后 2024/2025/2026 成功（executions `strategy1-train-predict-job-5s49j` / `mx272` / `d6g52`）；六年 `qa_refit_register_predict_outputs` 全部 succeeded。
-> - PR #169 已合并 valid-window lineage hotfix；official synthetic merge 已再次 `--force-replace` 成功，prediction rows=`2643406`，insert job `f566b4dd-14b8-4419-8225-4747adcb045a`，resolved manifest sha256=`2062d93544dd7c2bd12566f42da0ad3c973b5c6a63f00f4cd1c72a3a5269ba97`。
-> - 当前分支 `codex/synthetic-continuous-qa-valid-scope` 修复 `QA-CONT-6` 的跨年度误匹配：valid 排除只检查同一个 year slice 的 predict window。修复后 `qa_continuous_backtest_outputs` 已通过，job `843cfc18-054a-4910-b303-61e47f82f249`；lot-aware QA 复跑也通过，job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`。
-> - PRD_03 official synthetic continuous 硬门已实质通过；本分支合并后可查询并解释 single continuous ledger 指标，仍禁止把年度 fresh NAV 拼成正式结果。
+> - PRD_03 official continuous 已闭环：PR #170 合并后 `qa_continuous_backtest_outputs` 通过（job `843cfc18-054a-4910-b303-61e47f82f249`），lot-aware QA 通过（job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`）；official synthetic merge latest insert job `f566b4dd-14b8-4419-8225-4747adcb045a`，resolved manifest sha256=`2062d93544dd7c2bd12566f42da0ad3c973b5c6a63f00f4cd1c72a3a5269ba97`。
+> - Official single continuous summary（非年度拼接）：`bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，`2021-01-04..2026-06-09`，total_return=`0.5012920495`，compound_annual_return=`0.0811063375`，max_drawdown=`-0.4592575837`，IR=`0.3510127137`。
+> - Rehearsal pre-refit continuous 也已补跑并通过 QA：merge insert job `36465e3e-90b6-43d6-b538-350f102311ac`，backtest execution `strategy1-backtest-report-job-s88hz`，continuous QA `ae56421b-e316-492e-be5b-48584c7917c5`，lot-aware QA `3a98e8d0-5ace-4a74-8170-36ac71e68ca9`；年度 fresh diagnostic backtest 为可选项，本轮未重跑。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - Annual rolling official continuous results
+
+### 已完成工作
+
+- PR #170 已合并到 `main`（merge commit `d105f9f`），修复 `QA-CONT-6` 跨年度误匹配；PRD_03 official continuous QA 口径进入主线。
+- Official synthetic continuous 已在 `main@d0f9e4d` 后以 `--force-replace` 重跑成功：run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`，model `synth_s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`，manifest URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02/model_id=synth_s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02/synthetic_continuous/manifest.json`，input sha256=`bfd1e3c3e251954ae5ffa1a58102570e4c4538a92b24c9c181c7e41368877166`，resolved sha256=`2062d93544dd7c2bd12566f42da0ad3c973b5c6a63f00f4cd1c72a3a5269ba97`，prediction rows=`2643406`，insert job `f566b4dd-14b8-4419-8225-4747adcb045a`。
+- Official continuous ledger 已成功：Cloud Run execution `strategy1-backtest-report-job-w5k24`，backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，fresh start，`2021-01-04..2026-06-09`，`ledger_exec_v1_lot100`，biweekly，target holdings 20，max weight 7.5%。
+- Official QA 全部通过：`qa_continuous_backtest_outputs` job `843cfc18-054a-4910-b303-61e47f82f249`；`qa_lot_aware_ledger_outputs` job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`。
+- Rehearsal pre-refit continuous 已补跑（diagnostic only）：synthetic run `s1_annual_roll_synth_continuous_rehearsal_2021_2026_n20_w075_v20260610_02`，manifest URI `gs://ashare-artifacts/models/strategy1/ml_pv_clf_v0/run_id=s1_annual_roll_synth_continuous_rehearsal_2021_2026_n20_w075_v20260610_02/model_id=synth_s1_annual_roll_synth_continuous_rehearsal_2021_2026_n20_w075_v20260610_02/synthetic_continuous/manifest.json`，input sha256=`d2908798e8b07ad126ca433f798b9f5187b8d2677726d8a1e4d35ef26d4d5699`，resolved sha256=`f3ebdba79deb10a05e9ad1cf50d7a6c9353172ddef6b66b6215a677e80812410`，prediction rows=`2643406`，insert job `36465e3e-90b6-43d6-b538-350f102311ac`；continuous backtest execution `strategy1-backtest-report-job-s88hz`；QA jobs `ae56421b-e316-492e-be5b-48584c7917c5` / `3a98e8d0-5ace-4a74-8170-36ac71e68ca9`。
+
+### 重要上下文
+
+- Official continuous summary（正式口径，不能用年度 fresh NAV 拼接替代）：total_return=`0.5012920494620134`，compound_annual_return=`0.08110633748103813`，annual_return=`0.10393379031649487`，annual_vol=`0.2273481486583799`，sharpe=`0.4571569679798399`，compound_sharpe=`0.35674949613471857`，max_drawdown=`-0.45925758365200664`，excess_return=`0.3466780784898209`，information_ratio=`0.3510127136837824`，turnover_annual=`37.6911874509589`，total_economic_cost_cny=`16695.7950538`。
+- Rehearsal pre-refit continuous summary（diagnostic only）：total_return=`0.2857702525025081`，compound_annual_return=`0.04942495234912747`，annual_return=`0.06926784540786153`，annual_vol=`0.20478557532530298`，sharpe=`0.3382457250606113`，compound_sharpe=`0.2413497741265012`，max_drawdown=`-0.3845969073500922`，excess_return=`0.13115628153031555`，information_ratio=`0.16428853419676318`，turnover_annual=`30.586732030821928`。
+- Official output row counts: prediction `2643406` / NAV `1314` / ledger_state `1314` / signal_monitor `1314` / candidate `279625` / order `4822` / trade `4820` / position `21536`。
+- 年度 fresh diagnostic backtest 是 Phase 3 optional，本轮未重跑；最终评价只使用 single continuous ledger。
+- 本轮没有 promotion，没有 ADS 写入（除 PRD_04 已完成的 additive migration），没有删除或修改 selection run 历史数据。
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- PR #170 合并前：29 passed、Dataform `--check`、retired lint、compileall、BigQuery dry-run、live continuous QA、live lot-aware QA、`git diff --check` 均通过。
+- Official continuous live QA: `qa_continuous_backtest_outputs` job `843cfc18-054a-4910-b303-61e47f82f249`；`qa_lot_aware_ledger_outputs` job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`。
+- Rehearsal live QA: `qa_continuous_backtest_outputs` job `ae56421b-e316-492e-be5b-48584c7917c5`；`qa_lot_aware_ledger_outputs` job `3a98e8d0-5ace-4a74-8170-36ac71e68ca9`。
+
+### 阻塞项
+
+- 无执行阻塞；是否基于 official continuous 结果继续做策略改进或 accepted baseline 决策，需后续 owner 决策。
+
+### 下一步建议
+
+- 如需推进 OQ-010 accepted baseline，基于 official continuous 结果做特征/风控/候选空间复盘；不要把本结果直接标记 accepted。
+- 清理本轮临时 worktree / 本地分支前，确认本记录 PR 已合并。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - PRD_03 continuous QA scope hotfix
 
