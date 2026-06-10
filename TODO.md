@@ -49,8 +49,14 @@
 - [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase D1b runner research routing
   说明：分支 `codex/strategy1-research-routing-d1b` 已新增显式 `output_dataset_role` CLI/config 接线，并让 Cloud Run Python runner、ledger、orchestrator status、report / diagnosis / QA / acceptance / comparison / factor attribution 在显式 `research` 模式下按 resolver 读取或写入 `ashare_research.research_*`；默认 ADS 子命令不下发 `--output-dataset-role=ads`，保持旧 Cloud Run 镜像兼容；research DDL lifecycle 默认值已明确为 `research_status='candidate'`、`promotion_status='not_promoted'`。本阶段未部署 BigQuery / Cloud Run，未切 default research-first，未实现 promotion。
 
-- [ ] OQ-010 / 工程治理：完成项目结构重构 PRD Phase D1 收尾验收
-  说明：进入 D2 前必须部署 `sql/00_create_datasets.sql` + `sql/research/01_research_strategy1_tables.sql`，重建并部署 Strategy1 Cloud Run job 镜像，给 runtime service account 补 `ashare_research` 写权限，跑一次显式 research-mode smoke（search 或 backtest）并覆盖 report / diagnosis / QA / acceptance；验收需确认 research 表有写入、lifecycle 默认值正确、ADS run-scoped 表没有被 research run 污染。现有 `qa_cloudrun_schema_readiness` 是 ADS-only，research smoke 前需补充或运行 research readiness 检查。
+- [x] OQ-010 / 工程治理：完成项目结构重构 PRD Phase D1 收尾验收
+  说明：已在独立 worktree `codex/strategy1-research-d1-smoke` 部署 D0 research DDL、给 runtime SA 补 `ashare_research` 写权限、重建并部署 Strategy1 Cloud Run jobs 到 D1 smoke 镜像 `sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`，并跑通显式 research-mode smoke `sklearn_native_research_d1_smoke_20260610_04`。验收确认 research 表写入、lifecycle 默认值正确、registry 显式 `run_id/search_id/created_date/acceptance_status` 写出、report / diagnosis / QA / acceptance 链路通过，且 ADS run-scoped 表同 run/backtest 零污染。
+
+- [ ] OQ-010 / 工程治理：D1 收尾合并后重建正式 main 镜像并部署
+  说明：D1 smoke 为了真实验收临时把五个 Strategy1 Cloud Run jobs 指到 D1 worktree 构建镜像 `sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`；正式 PR 合并后应以 merge/main commit 重建 runner 镜像并更新 jobs，避免长期运行未合并分支镜像。
+
+- [ ] OQ-010 / 工程治理：D2 前补 research additive migration 约定与 research readiness QA
+  说明：D1 smoke 已用带外 `ALTER TABLE` 给既有 `research_experiment_run_status` 补 `log_dir`，证明 `CREATE TABLE IF NOT EXISTS` 契约不会自动传播新增列；D2 default research-first 前应补 research 表 additive migration 约定，并实现 research 版 schema/readiness QA，避免 research schema drift 重演 ADS 漂移问题。
 
 - [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D2-D3/E
   说明：D1 收尾验收通过后，再做 default research-first、owner-approved promotion job，以及深层 package split / naming cleanup；Phase E 包化时同步收敛读侧 routing 的模块级全局态（当前 setter 与裸全局两种风格并存）。不得与 D1b 显式 routing 混做。

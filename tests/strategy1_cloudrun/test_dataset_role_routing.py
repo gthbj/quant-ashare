@@ -10,6 +10,7 @@ from scripts.strategy1_cloudrun.backtest_report import (
     report_command,
     tail_risk_command,
 )
+from scripts.strategy1_cloudrun.acceptance import load_acceptance_contract
 from scripts.strategy1_cloudrun.config import (
     Experiment,
     RunnerConfig,
@@ -22,12 +23,16 @@ from scripts.strategy1_cloudrun.dataset_roles import (
 )
 from scripts.strategy1_cloudrun.orchestrate_experiments import build_chain_steps
 from scripts.strategy1_cloudrun.orchestrate_sklearn_native_search import (
+    build_search_qa_params,
     common_job_flags,
     dataset_role_query_job,
     maybe_run_next_wave,
+    patch_native_acceptance,
 )
 from scripts.strategy1_cloudrun.state import OrchestratorStatusTable, status_table_ref
 from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_LOT100
+from scripts.strategy1_cloudrun.train_predict import CandidateResult, write_registry
+from quant_ashare.strategy1.catalog import load_step_catalog
 
 
 def _experiment() -> Experiment:
@@ -165,6 +170,33 @@ def test_native_search_cloud_run_flags_omit_default_ads_output_dataset_role() ->
     assert "--output-dataset-role=research" in research_flags
 
 
+def test_native_search_qa_params_cover_catalog_required_params() -> None:
+    config = RunnerConfig(output_dataset_role="research")
+    args = argparse.Namespace(candidate_parallelism=5)
+    contract = load_acceptance_contract(config.acceptance_contract_path)
+    params = build_search_qa_params(
+        config=config,
+        args=args,
+        search_exp=_experiment(),
+        search_id="sklearn_native_unit",
+        top_k=1,
+        test_reuse_wave_no=1,
+        expected_model_family="logistic_regression",
+        expected_model_search_wave_no=1,
+        contract=contract,
+    )
+    catalog = load_step_catalog()
+
+    for step_name in (
+        "qa_sklearn_native_search_outputs",
+        "qa_cloudrun_python_baseline_search_outputs",
+    ):
+        required = set(catalog["steps"][step_name]["required_params"])
+        assert required <= set(params), step_name
+
+    assert params["p_strategy_id"] == config.strategy_id
+
+
 def test_next_wave_command_omits_default_ads_output_dataset_role() -> None:
     args = argparse.Namespace(
         project="data-aquarium",
@@ -234,10 +266,12 @@ class _FakeClient:
     def __init__(self) -> None:
         self.project = "data-aquarium"
         self.sql = ""
+        self.queries: list[str] = []
         self.job_config = None
 
     def query(self, sql: str, job_config: bigquery.QueryJobConfig) -> _FakeQueryJob:
         self.sql = sql
+        self.queries.append(sql)
         self.job_config = job_config
         return _FakeQueryJob()
 
@@ -256,6 +290,92 @@ def test_native_search_query_helper_rewrites_research_sql() -> None:
     assert "data-aquarium.ashare_research.research_backtest_performance_summary" in client.sql
     assert "data-aquarium.ashare_ads.ads_backtest_performance_summary" not in client.sql
     assert client.job_config.query_parameters[0].name == "bid"
+
+
+def test_research_registry_rows_include_explicit_contract_columns(monkeypatch) -> None:
+    captured = {}
+
+    def fake_load_dataframe(client: object, frame: object, table_id: str) -> None:
+        captured["table_id"] = table_id
+        captured["frame"] = frame
+
+    monkeypatch.setattr("scripts.strategy1_cloudrun.train_predict.load_dataframe", fake_load_dataframe)
+
+    exp = Experiment(
+        experiment_id="unit_exp",
+        run_id="unit_run",
+        prediction_run_id="unit_run",
+        backtest_id="unit_bt",
+        experiment_group="unit_group",
+        test_start="2025-01-02",
+        test_end="2025-06-30",
+        final_holdout_start=None,
+        final_holdout_end=None,
+    )
+    candidate = CandidateResult(
+        candidate_id="l2_c_0_1",
+        model=object(),
+        score_orientation="reverse_probability",
+        orientation_reason="unit",
+        raw_valid_scores=[],
+        oriented_valid_scores=[],
+        metrics={
+            "model_family": "logistic_regression",
+            "search_id": "unit_search",
+            "native_acceptance_status": "pending_top5_backtest",
+        },
+        model_params={"C": 0.1},
+    )
+
+    write_registry(
+        _FakeClient(),
+        RunnerConfig(output_dataset_role="research"),
+        exp,
+        [candidate],
+        candidate,
+        "unit_model",
+        "gs://unit/model",
+        force_replace=False,
+    )
+
+    frame = captured["frame"]
+    row = frame.iloc[0].to_dict()
+    assert captured["table_id"] == "data-aquarium.ashare_research.research_model_registry"
+    assert row["run_id"] == "unit_run"
+    assert row["search_id"] == "unit_search"
+    assert row["experiment_id"] == "unit_exp"
+    assert row["experiment_group"] == "unit_group"
+    assert row["created_date"] is not None
+    assert row["promotion_status"] == "not_promoted"
+    assert row["acceptance_status"] == "pending_top5_backtest"
+
+
+def test_research_native_acceptance_patch_updates_registry_status_column() -> None:
+    client = _FakeClient()
+
+    patch_native_acceptance(
+        client,
+        RunnerConfig(output_dataset_role="research"),
+        {
+            "run_id": "unit_run",
+            "model_id": "unit_model",
+            "backtest_id": "unit_bt",
+            "candidate_id": "l2_c_0_1",
+            "shortlist_rank_valid_only": 1,
+        },
+        "rejected",
+        "unit_reason",
+        {
+            "acceptance_contract_version": "model_acceptance_contract_v3",
+            "acceptance_gate_version": "strategy1_acceptance_gate_v3",
+            "acceptance_contract_sha256": "abc",
+        },
+    )
+
+    registry_sql = client.queries[0]
+    assert "data-aquarium.ashare_research.research_model_registry" in registry_sql
+    assert "reg.acceptance_status = @status" in registry_sql
+    assert "data-aquarium.ashare_ads.ads_model_registry" not in registry_sql
 
 
 def test_acceptance_diagnostic_query_helpers_rewrite_research_sql(monkeypatch) -> None:

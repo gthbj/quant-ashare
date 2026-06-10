@@ -17,6 +17,7 @@ CREATE_TABLE_RE = re.compile(
     r"CREATE TABLE IF NOT EXISTS `data-aquarium\.ashare_research\.(research_[A-Za-z0-9_]+)`"
 )
 PARTITION_RE = re.compile(r"PARTITION BY DATE_TRUNC\(([A-Za-z0-9_]+), MONTH\)")
+DDL_COLUMN_RE = re.compile(r"^\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:ARRAY<[^>]+>|[A-Z]+)", re.MULTILINE)
 
 
 def _research_sql() -> str:
@@ -94,6 +95,50 @@ def test_research_lifecycle_columns_have_explicit_defaults() -> None:
     manifest_block = _table_block("research_promotion_manifest")
     assert "promotion_status STRING DEFAULT 'planned'" in manifest_block
     assert "not_promoted/promoted/deprecated" in _table_block("research_acceptance_result")
+
+
+def test_research_status_contract_covers_runtime_upsert_columns() -> None:
+    block = _table_block("research_experiment_run_status")
+    actual_columns = set(DDL_COLUMN_RE.findall(block))
+    runtime_upsert_columns = {
+        "experiment_id",
+        "run_id",
+        "prediction_run_id",
+        "backtest_id",
+        "stage_id",
+        "experiment_group",
+        "experiment_type",
+        "step_id",
+        "step_display_name",
+        "status",
+        "status_reason",
+        "started_at",
+        "finished_at",
+        "created_at",
+        "updated_at",
+        "job_id",
+        "attempt",
+        "force_replace",
+        "lock_key",
+        "lock_owner",
+        "lock_acquired_at",
+        "lock_expires_at",
+        "last_heartbeat_at",
+        "artifact_uri",
+        "report_uri",
+        "diagnosis_uri",
+        "diagnosis_status",
+        "qa_status",
+        "manifest_path",
+        "manifest_hash",
+        "params_json",
+        "runner_version",
+        "scheduler_instance_id",
+        "log_dir",
+        "error_message",
+    }
+
+    assert runtime_upsert_columns <= actual_columns
 
 
 def test_promotion_manifest_records_target_and_completion_fields() -> None:

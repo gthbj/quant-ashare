@@ -462,6 +462,11 @@ def run_locked_step(
         daemon=True,
     )
     terminal_status_written = False
+    def stop_heartbeat() -> None:
+        heartbeat_stop.set()
+        if heartbeat_thread.is_alive():
+            heartbeat_thread.join()
+
     try:
         status_table.upsert(
             exp, step, status="running", scheduler_id=scheduler_id,
@@ -482,6 +487,7 @@ def run_locked_step(
             "stderr_tail": start_proc.stderr[-4000:],
         }
         if start_proc.returncode != 0 or not execution_id:
+            stop_heartbeat()
             status_table.upsert(
                 exp, step, status="failed", scheduler_id=scheduler_id,
                 manifest_path=args.manifest, manifest_hash=manifest_hash_value,
@@ -492,6 +498,7 @@ def run_locked_step(
             raise RuntimeError(json.dumps(start_result, ensure_ascii=False))
         if not lock.record_execution(execution_id=execution_id, job_name=step.job_name):
             cancel_cloud_run_execution(config.project, config.region, execution_id)
+            stop_heartbeat()
             status_table.upsert(
                 exp, step, status="failed", scheduler_id=scheduler_id,
                 manifest_path=args.manifest, manifest_hash=manifest_hash_value,
@@ -524,6 +531,7 @@ def run_locked_step(
             "start_stderr_tail": start_proc.stderr[-4000:],
         }
         if execution_state != "succeeded":
+            stop_heartbeat()
             status_table.upsert(
                 exp, step, status="failed", scheduler_id=scheduler_id,
                 manifest_path=args.manifest, manifest_hash=manifest_hash_value,
@@ -532,6 +540,7 @@ def run_locked_step(
             )
             terminal_status_written = True
             raise RuntimeError(json.dumps(result, ensure_ascii=False))
+        stop_heartbeat()
         status_table.upsert(
             exp, step, status="succeeded", scheduler_id=scheduler_id,
             manifest_path=args.manifest, manifest_hash=manifest_hash_value,
@@ -543,6 +552,7 @@ def run_locked_step(
         return result
     except Exception as exc:
         if not terminal_status_written:
+            stop_heartbeat()
             status_table.upsert(
                 exp, step, status="failed", scheduler_id=scheduler_id,
                 manifest_path=args.manifest, manifest_hash=manifest_hash_value,
@@ -551,9 +561,7 @@ def run_locked_step(
             )
         raise
     finally:
-        heartbeat_stop.set()
-        if heartbeat_thread.is_alive():
-            heartbeat_thread.join()
+        stop_heartbeat()
         lock.release()
 
 
