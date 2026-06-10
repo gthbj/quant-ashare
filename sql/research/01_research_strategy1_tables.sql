@@ -406,6 +406,7 @@ CREATE TABLE IF NOT EXISTS `data-aquarium.ashare_research.research_experiment_ru
   preprocess_artifact_uri STRING OPTIONS(description = '预处理 artifact GCS URI'),
   feature_snapshot_uri STRING OPTIONS(description = '训练或预测数据快照 GCS URI'),
   max_parallel_experiments INT64 OPTIONS(description = 'owner 设置或 resolved 后的实验并发数'),
+  log_dir STRING OPTIONS(description = '本地调度日志目录路径'),
   error_message STRING OPTIONS(description = '脱敏错误摘要')
 )
 PARTITION BY DATE_TRUNC(updated_date, MONTH)

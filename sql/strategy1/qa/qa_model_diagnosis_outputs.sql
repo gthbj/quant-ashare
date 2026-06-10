@@ -209,10 +209,16 @@ ASSERT (
        FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
        WHERE tp.run_id = p_prediction_run_id AND tp.split_tag IN ('valid', 'test')
          AND tp.horizon = p_label_horizon
-         AND tp.trade_date BETWEEN p_valid_start AND p_test_end) AS panel_rows,
+         AND (
+           tp.trade_date BETWEEN p_valid_start AND p_valid_end
+           OR tp.trade_date BETWEEN p_test_start AND p_test_end
+         )) AS panel_rows,
       (SELECT COUNT(*)
        FROM `data-aquarium.ashare_dws.dws_stock_sample_daily` AS s
-       WHERE s.trade_date BETWEEN p_valid_start AND p_test_end
+       WHERE (
+           s.trade_date BETWEEN p_valid_start AND p_valid_end
+           OR s.trade_date BETWEEN p_test_start AND p_test_end
+         )
          AND s.split_tag IN ('valid', 'test')
          AND COALESCE(s.in_universe_default, FALSE)
          AND COALESCE(s.has_full_history_60d, FALSE)
@@ -228,7 +234,10 @@ ASSERT (
             FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
             WHERE tp.run_id = p_prediction_run_id
               AND tp.horizon = p_label_horizon
-              AND tp.trade_date BETWEEN p_valid_start AND p_test_end
+              AND (
+                tp.trade_date BETWEEN p_valid_start AND p_valid_end
+                OR tp.trade_date BETWEEN p_test_start AND p_test_end
+              )
             LIMIT 1)) AS legacy_trainable
   )
 ) AS 'QA-POOL-5: valid/test prediction panel rows must be >= DWS horizon-aware legacy trainable rows';

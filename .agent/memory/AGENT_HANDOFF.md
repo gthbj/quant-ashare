@@ -1,10 +1,66 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
-> - 分支 `codex/annual-rolling-exec-impl` 在独立 worktree `/Users/fisher/Desktop/git/quant-ashare-annual-rolling-exec` 实现年度滚动执行 P0 工程骨架。
-> - 已新增 ADS ledger state additive migration、Cloud Run schema readiness QA + catalog step、年度滚动 11 候选 config，以及 `orchestrate_annual_rolling_selection.py` resolved payload/dry-run wrapper。
-> - wrapper 会生成 2021-2026 年度 experiment-json、matrix URI、Cloud Run command plan、B26 diagnostic-only reference 标记和连续 ledger backtest id；当前非 dry-run fail-fast，避免误把年度 fresh-run 拼接当正式结果。
-> - 本地 review follow-up 已处理；`python3 -m pytest tests` 58 passed。未运行 BigQuery、Cloud Run 或 Dataform；后续先执行 schema readiness QA 和 orchestrator dry-run，再决定是否跑 2021 smoke / 2021-2026 live。
+> - 分支 `codex/strategy1-research-d1-smoke` 在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-research-d1-smoke` 完成项目结构重构 Phase D1 收尾验收。
+> - 已部署 `ashare_research` DDL、给 runtime SA 补写权限、重建并部署 Strategy1 Cloud Run jobs 到 D1 smoke 镜像 `sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`。
+> - research-mode smoke `sklearn_native_research_d1_smoke_20260610_04` 全段 succeeded；research 表写入和 lifecycle 默认值正确，registry 显式列已补齐，ADS 同 run/backtest 零污染。
+> - 本轮修复 `log_dir` DDL、search QA `p_strategy_id`、heartbeat terminal status 覆盖、QA-POOL-5 valid/test window 和 research registry 契约列；`python3 -m pytest -q tests` 63 passed，Dataform check/compile、compileall、`git diff --check` 均通过。正式合并后需用 merge/main commit 重建 runner 镜像替换临时 smoke digest。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - 项目结构重构 Phase D1 收尾 research smoke
+
+### 已完成工作
+
+- 部署 `sql/00_create_datasets.sql` 与 `sql/research/01_research_strategy1_tables.sql`，确认 `ashare_research` 15 张表存在。
+- 给 runtime service account `241358486859-compute@developer.gserviceaccount.com` 补 `ashare_research` dataset 写权限。
+- 修复 D1 smoke 暴露的运行问题：`research_experiment_run_status.log_dir` 缺列、search QA 参数缺 `p_strategy_id`、heartbeat 覆盖 terminal status、`QA-POOL-5` 把 valid/test gap 算入 DWS legacy 行数、research registry 显式契约列未写出。
+- 重建并部署 Strategy1 Cloud Run jobs 到 D1 smoke 镜像 digest `sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`。
+- 跑通显式 research-mode smoke `sklearn_native_research_d1_smoke_20260610_04`，覆盖 prepare、5 候选 fanout、select/register/predict、Top-1 backtest/report、diagnosis、tail-risk、acceptance patch 和 search-level QA。
+
+### 重要上下文
+
+- 本轮只验证显式 `--output-dataset-role=research`，没有切 default research-first，也没有实现 promotion。
+- Research 验收行数：training panel `2,742,853`、prediction `502,501`、candidate `61,620`、target `135`、order `157`、trade `203`、position `570`、NAV `117`、ledger state `117`、summary `1`、registry `1`；lifecycle bad count 全部为 `0`。
+- ADS 污染检查同一 run/backtest 在 ADS run-scoped 表均为 `0` 行。
+- 当前五个 Strategy1 Cloud Run jobs 指向 D1 smoke 验证镜像；正式 PR 合并后应以 merge/main commit 重建并部署 runner 镜像，避免长期运行未合并分支镜像。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/orchestrate_experiments.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `scripts/strategy1_cloudrun/train_predict.py`
+- `sql/research/01_research_strategy1_tables.sql`
+- `sql/strategy1/qa/qa_model_diagnosis_outputs.sql`
+- `tests/strategy1/test_research_contract.py`
+- `tests/strategy1/test_sql_render.py`
+- `tests/strategy1_cloudrun/test_dataset_role_routing.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests` -> 63 passed（4 个 Python / SSL 环境 warning）。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过。
+- `npx --yes @dataform/cli compile dataform` 通过。
+- `python3 -m compileall scripts/strategy1_cloudrun/orchestrate_experiments.py scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py scripts/strategy1_cloudrun/train_predict.py sql src` 通过。
+- `git diff --check` 通过。
+- BigQuery / Cloud Run research-mode smoke `sklearn_native_research_d1_smoke_20260610_04` 通过，ADS 污染检查为 0。
+
+### 阻塞项
+
+- 无代码阻塞；尚未 commit / push / open PR。
+
+### 下一步建议
+
+- 提 PR 前复核 diff 并提交。
+- 合并后用 merge/main commit 重建正式 runner 镜像并更新五个 Strategy1 Cloud Run jobs。
+- D1 合并后再进入 D2 default research-first 或 D3 owner-approved promotion job。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - Strategy1 年度滚动执行 P0 工程骨架
 

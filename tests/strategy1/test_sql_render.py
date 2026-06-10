@@ -173,3 +173,14 @@ def test_lot_aware_qa_params_include_min_buy_shares() -> None:
 
     assert "DECLARE p_min_buy_shares INT64 DEFAULT 100;" in rendered
     assert LEDGER_VERSION_LOT100 in rendered
+
+
+def test_model_diagnosis_pool_qa_uses_explicit_valid_test_windows() -> None:
+    sql = repo_path("sql/strategy1/qa/qa_model_diagnosis_outputs.sql").read_text(encoding="utf-8")
+    pool5 = sql.split("-- QA-POOL-5:", 1)[1].split("-- QA-POOL-6:", 1)[0]
+
+    assert "tp.trade_date BETWEEN p_valid_start AND p_valid_end" in pool5
+    assert "tp.trade_date BETWEEN p_test_start AND p_test_end" in pool5
+    assert "s.trade_date BETWEEN p_valid_start AND p_valid_end" in pool5
+    assert "s.trade_date BETWEEN p_test_start AND p_test_end" in pool5
+    assert "s.trade_date BETWEEN p_valid_start AND p_test_end" not in pool5

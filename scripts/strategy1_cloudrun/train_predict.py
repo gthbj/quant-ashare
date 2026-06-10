@@ -980,7 +980,7 @@ def write_registry(
         metrics_json["selected_candidate_id"] = selected.candidate_id
         metrics_json["execution_backend"] = config.execution_backend
         metrics_json["tail_risk_profile_id"] = experiment.tail_risk_profile_id
-        rows.append({
+        row = {
             "model_id": model_id,
             "strategy_id": config.strategy_id,
             "model_family": str(candidate.metrics.get("model_family") or "logistic_regression"),
@@ -998,7 +998,23 @@ def write_registry(
             "git_commit": git_commit,
             "status": "selected" if is_selected else "candidate",
             "created_at": now,
-        })
+        }
+        if config.output_dataset_role == "research":
+            row.update({
+                "run_id": experiment.run_id,
+                "search_id": candidate.metrics.get("search_id"),
+                "experiment_id": experiment.experiment_id,
+                "experiment_group": experiment.experiment_group,
+                "test_start_date": experiment.test_start,
+                "test_end_date": experiment.test_end,
+                "final_holdout_start_date": experiment.final_holdout_start,
+                "final_holdout_end_date": experiment.final_holdout_end,
+                "artifact_uri": selected_artifact_uri if is_selected else None,
+                "acceptance_status": candidate.metrics.get("native_acceptance_status"),
+                "promotion_status": "not_promoted",
+                "created_date": now.date(),
+            })
+        rows.append(row)
     load_dataframe(client, pd.DataFrame(rows), model_registry)
 
 

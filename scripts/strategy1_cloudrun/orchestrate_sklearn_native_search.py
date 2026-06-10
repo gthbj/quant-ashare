@@ -345,30 +345,17 @@ def main() -> int:
             if search_id.startswith("sklearn_native_")
             else "qa_cloudrun_python_baseline_search_outputs"
         )
-        qa_params = {
-            "p_search_id": search_id,
-            "p_source_run_id": search_exp.run_id,
-            "p_expected_candidate_count": len(config.candidate_grid),
-            "p_expected_candidate_parallelism": resolve_parallel_count(
-                len(config.candidate_grid),
-                args.candidate_parallelism,
-            ),
-            "p_expected_candidate_task_cpu": config.candidate_task_cpu,
-            "p_expected_candidate_task_memory": config.candidate_task_memory,
-            "p_expected_model_family": expected_model_family,
-            "p_expected_model_search_wave_no": expected_model_search_wave_no,
-            "p_top_k": top_k,
-            "p_test_reuse_wave_no": test_reuse_wave_no,
-            "p_acceptance_contract_version": contract_version(contract),
-            "p_valid_start_date": search_exp.valid_start,
-            "p_valid_end_date": search_exp.valid_end,
-            "p_test_start_date": search_exp.test_start,
-            "p_test_end_date": search_exp.test_end,
-            "p_final_holdout_start_date": search_exp.final_holdout_start,
-            "p_final_holdout_end_date": search_exp.final_holdout_end,
-            "p_data_end_date": search_exp.final_holdout_end or search_exp.predict_end,
-        }
-        qa_params.update(contract_sql_params(contract))
+        qa_params = build_search_qa_params(
+            config=config,
+            args=args,
+            search_exp=search_exp,
+            search_id=search_id,
+            top_k=top_k,
+            test_reuse_wave_no=test_reuse_wave_no,
+            expected_model_family=expected_model_family,
+            expected_model_search_wave_no=expected_model_search_wave_no,
+            contract=contract,
+        )
         run_sql_step(
             client,
             qa_step,
@@ -504,6 +491,46 @@ def maybe_run_next_wave(
         "returncode": completed.returncode,
         "status": "succeeded" if completed.returncode == 0 else "failed",
     }
+
+
+def build_search_qa_params(
+    *,
+    config,
+    args: argparse.Namespace,
+    search_exp: Experiment,
+    search_id: str,
+    top_k: int,
+    test_reuse_wave_no: int,
+    expected_model_family: str,
+    expected_model_search_wave_no: int,
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    params = {
+        "p_search_id": search_id,
+        "p_source_run_id": search_exp.run_id,
+        "p_strategy_id": config.strategy_id,
+        "p_expected_candidate_count": len(config.candidate_grid),
+        "p_expected_candidate_parallelism": resolve_parallel_count(
+            len(config.candidate_grid),
+            args.candidate_parallelism,
+        ),
+        "p_expected_candidate_task_cpu": config.candidate_task_cpu,
+        "p_expected_candidate_task_memory": config.candidate_task_memory,
+        "p_expected_model_family": expected_model_family,
+        "p_expected_model_search_wave_no": expected_model_search_wave_no,
+        "p_top_k": top_k,
+        "p_test_reuse_wave_no": test_reuse_wave_no,
+        "p_acceptance_contract_version": contract_version(contract),
+        "p_valid_start_date": search_exp.valid_start,
+        "p_valid_end_date": search_exp.valid_end,
+        "p_test_start_date": search_exp.test_start,
+        "p_test_end_date": search_exp.test_end,
+        "p_final_holdout_start_date": search_exp.final_holdout_start,
+        "p_final_holdout_end_date": search_exp.final_holdout_end,
+        "p_data_end_date": search_exp.final_holdout_end or search_exp.predict_end,
+    }
+    params.update(contract_sql_params(contract))
+    return params
 
 
 def build_training_panel_params(exp: Experiment, *, force_replace: bool) -> dict[str, Any]:
@@ -1832,13 +1859,18 @@ def patch_native_acceptance(
             safe_int_or_none(derived.get("v3_relative_gate_evaluated_benchmark_count")),
         ),
     ]
+    registry_column_updates = (
+        ",\n            reg.acceptance_status = @status"
+        if getattr(config, "output_dataset_role", "ads") == "research"
+        else ""
+    )
     dataset_role_query_job(
         client,
         config,
-        """
+        f"""
         UPDATE `data-aquarium.ashare_ads.ads_model_registry` AS reg
         SET reg.metrics_json = TO_JSON_STRING(JSON_SET(
-          PARSE_JSON(COALESCE(reg.metrics_json, '{}'), wide_number_mode => 'round'),
+          PARSE_JSON(COALESCE(reg.metrics_json, '{{}}'), wide_number_mode => 'round'),
           '$.native_acceptance_status', @status,
           '$.native_acceptance_reason', @reason,
           '$.acceptance_contract_version', @acceptance_contract_version,
@@ -1872,6 +1904,7 @@ def patch_native_acceptance(
           '$.v3_passed_benchmark_count', @v3_passed_benchmark_count,
           '$.v3_relative_gate_evaluated_benchmark_count', @v3_relative_gate_evaluated_benchmark_count
         ))
+            {registry_column_updates}
         WHERE reg.model_id = @model_id
           AND reg.status = 'selected'
         """,

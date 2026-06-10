@@ -6,6 +6,16 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：项目结构重构 Phase D1 收尾 research smoke 已通过
+
+- 分支 `codex/strategy1-research-d1-smoke` 在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-research-d1-smoke` 基于最新 `origin/main` 完成 D1 收尾验收。
+- 已部署 D0 research DDL：`sql/00_create_datasets.sql` 与 `sql/research/01_research_strategy1_tables.sql`；`ashare_research` 当前包含 15 张 research 表，runtime service account `241358486859-compute@developer.gserviceaccount.com` 已具备 dataset 写权限。
+- 本轮修复 D1 smoke 暴露的问题：`research_experiment_run_status` 补 `log_dir` 字段；search QA 参数补 `p_strategy_id`；orchestrator heartbeat 在写 terminal status 前停止，避免覆盖 failed/succeeded；`qa_model_diagnosis_outputs` 的 `QA-POOL-5` 改为按显式 valid/test 窗口比较，避免把 valid/test 中间 gap 算入 DWS legacy 行数；research registry 在显式 research 模式下写出 `run_id/search_id/experiment_id/created_date/acceptance_status` 等契约列。
+- 已重建并部署 Strategy1 Cloud Run jobs 到 D1 smoke 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`，随后跑通 research-mode smoke `sklearn_native_research_d1_smoke_20260610_04`：prepare、5 候选 fanout、select/register/predict、Top-1 backtest/report、diagnosis、tail-risk、acceptance patch 和 search-level QA 均 succeeded。
+- 验收查询确认 research 表写入完整且 lifecycle 默认值正确：training panel `2,742,853` 行、prediction `502,501` 行、candidate `61,620` 行、target `135` 行、order `157` 行、trade `203` 行、position `570` 行、NAV `117` 行、ledger state `117` 行、summary `1` 行、registry `1` 行；所有 lifecycle bad count 为 `0`。ADS 侧同一 run/backtest 在 training panel、registry、prediction、candidate、target、order、trade、position、NAV、ledger state、summary 均为 `0` 行。
+- 当前五个 Strategy1 Cloud Run jobs 仍指向 D1 smoke 验证镜像 digest；正式合并后应以 merge/main commit 重新构建部署，避免长期运行未合并分支镜像。
+- 验证：`python3 -m pytest -q tests` 63 passed；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`npx --yes @dataform/cli compile dataform` 通过；`compileall` 与 `git diff --check` 通过；真实 BigQuery / Cloud Run D1 research smoke 通过。
+
 ### 最新补充（2026-06-10）：年度滚动执行 P0 工程骨架已实现
 
 - 分支 `codex/annual-rolling-exec-impl` 在独立 worktree `/Users/fisher/Desktop/git/quant-ashare-annual-rolling-exec` 基于 `origin/main` 实现年度滚动执行 P0 工程骨架。
