@@ -19,6 +19,16 @@ Last updated: 2026-06-10
 - 本轮补测：`pytest tests/strategy1 tests/strategy1_cloudrun tests/pipeline_control` 24 passed；catalog validate、retired linter、active step render smoke、compileall、CLI dry-run/help 和 `git diff --check` 均通过。
 - `scripts/dataform/generate_sqlx_from_sql.py --check` 仍失败，但本分支相对 `origin/main` 没有 `dataform/` diff；失败项是现有 generated SQLX stale/missing 文件，不由本次 Strategy1 SQL 迁移引入。
 
+### 最新补充（2026-06-10）：Strategy1 年度滚动选参 PRD 已新增
+
+- 新增 `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`，定义年度 walk-forward 参数选择、上一整年 valid、选中参数 final refit 和连续 ledger 回测方案。
+- PRD 固定 P0 为 `strategy1_pv_fin_risk_v0_20260606`、`20` 只持仓、`7.5%` 单票上限、`biweekly`、`ledger_exec_v1_lot100`，先只搜索 11 个预先冻结的 LightGBM regression 可选候选；B26 binary 只作为 diagnostic-only reference，不参与 `selected_candidate_id`。
+- 年度窗口固定为：`2015-2019 train / 2020 valid / 2016-2020 final refit / 2021 backtest`，随后逐年滚动到 `2020-2024 train / 2025 valid / 2021-2025 final refit / 2026 backtest`。
+- valid 选参门采用 owner 确认口径：`valid_rank_ic > 0`、`valid_top_minus_bottom > 0`、五指数任一 valid 超额收益 `> 0`、valid 最大回撤 `>= -33.33%`、`valid_sharpe >= 0.3`、`valid_calmar >= 0.3`、五指数任一 `valid_excess_calmar_ratio > 0.3`；不要求 `valid_total_return > 0`。
+- PRD 明确 valid 年不能作为同年最终样本外成绩；年度预测可分年生成，但最终评价必须来自一条连续 ledger，不能拼接每年 fresh-run。
+- PR #137 review follow-up 已补充：删除 `valid_total_return > 0` 的理由改为避免重复硬门，不表示允许负收益候选通过；label embargo 删除错误的 `final refit /` 措辞；B26 binary 明确为 diagnostic-only reference。
+- 本轮只写 PRD、决策和项目记忆/TODO；未改 runner、SQL、BigQuery、Cloud Run 或 Dataform。
+
 ### 最新补充（2026-06-10）：项目结构重构总 PRD 已新增
 
 - 新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`，定义 `quant-ashare` 后续工程结构重构方案。
