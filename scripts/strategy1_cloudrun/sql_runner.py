@@ -21,14 +21,26 @@ from quant_ashare.strategy1.sql_render import (
 )
 
 
-def render_sql(script_path: str | Path, params: dict[str, Any]) -> str:
+def render_sql(
+    script_path: str | Path,
+    params: dict[str, Any],
+    *,
+    dataset_role: str = "ads",
+    allow_future_research: bool = False,
+) -> str:
     """Compatibility renderer for path callers.
 
     New active runners should call ``render_sql_step`` / ``run_sql_step`` so the
     catalog can enforce required parameters.
     """
 
-    return render_sql_file(script_path, params, strict=False)
+    return render_sql_file(
+        script_path,
+        params,
+        strict=False,
+        dataset_role=dataset_role,
+        allow_future_research=allow_future_research,
+    )
 
 
 def run_sql_script(
@@ -37,8 +49,16 @@ def run_sql_script(
     params: dict[str, Any],
     *,
     dry_run: bool = False,
+    dataset_role: str = "ads",
+    allow_future_research: bool = False,
 ) -> str:
-    sql = render_sql_file(script_path, params, strict=False)
+    sql = render_sql_file(
+        script_path,
+        params,
+        strict=False,
+        dataset_role=dataset_role,
+        allow_future_research=allow_future_research,
+    )
     job_config = bigquery.QueryJobConfig(dry_run=dry_run, use_query_cache=False)
     job = client.query(sql, job_config=job_config)
     if dry_run:
@@ -47,8 +67,19 @@ def run_sql_script(
     return job.job_id
 
 
-def render_sql_step(step: str, params: dict[str, Any]) -> str:
-    return render_step_sql(step, params)
+def render_sql_step(
+    step: str,
+    params: dict[str, Any],
+    *,
+    dataset_role: str = "ads",
+    allow_future_research: bool = False,
+) -> str:
+    return render_step_sql(
+        step,
+        params,
+        dataset_role=dataset_role,
+        allow_future_research=allow_future_research,
+    )
 
 
 def resolve_sql_step_path(step: str) -> Path:
@@ -62,8 +93,15 @@ def run_sql_step(
     params: dict[str, Any],
     *,
     dry_run: bool = False,
+    dataset_role: str = "ads",
+    allow_future_research: bool = False,
 ) -> str:
-    sql = render_step_sql(step, params)
+    sql = render_step_sql(
+        step,
+        params,
+        dataset_role=dataset_role,
+        allow_future_research=allow_future_research,
+    )
     job_config = bigquery.QueryJobConfig(dry_run=dry_run, use_query_cache=False)
     job = client.query(sql, job_config=job_config)
     if dry_run:

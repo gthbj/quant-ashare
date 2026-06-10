@@ -49,9 +49,13 @@ active migration targets for new runner flows.
 
 ## Current Dataset Role
 
-当前 Phase A-C 只建立 resolver 和 catalog；默认 table role 解析到
-current dataset role。策略产出表默认仍在 `data-aquarium.ashare_ads.*`；
-meta / orchestration role 可在 catalog 中声明 per-role dataset override，例如
-`experiment_run_status` 当前解析到 `data-aquarium.ashare_meta.*`。显式请求
-`dataset_role="research"` 会 fail-fast，直到后续 research routing PR 单独放开。
-后续 research-first 和 promotion job 需要单独 PR。
+当前 Phase D1a 只把 table role resolver 接入 SQL render。默认 table role 仍解析到
+current dataset role，策略产出表默认仍在 `data-aquarium.ashare_ads.*`；meta /
+orchestration role 可在 catalog 中声明 per-role dataset override，例如
+`experiment_run_status` 当前解析到 `data-aquarium.ashare_meta.*`。
+
+SQL render 可在显式 `dataset_role="research"` 且 `allow_future_research=True` 时
+把当前 step 的 catalog `inputs` / `outputs` 改写到
+`data-aquarium.ashare_research.research_*`，用于 contract / dry-run / 后续 runner
+接线验证。普通调用不传这些参数时行为不变；实际 Cloud Run 默认写 research、
+research-first 和 promotion job 仍需后续单独 PR。
