@@ -44,7 +44,7 @@
   说明：下一阶段再做 `ashare_research` 物理表契约、可选 research routing、default research-first、explicit promotion job，以及深层 package split / naming cleanup；不得与本轮 SQL 命名空间迁移混做。
 
 - [x] 工程治理：修复 Dataform generated SQLX drift
-  说明：已在单独 cleanup 分支重新运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件；`--check`、Dataform compile 和 `git diff --check` 已通过。
+  说明：已在单独 cleanup 分支重新运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件，并新增 pytest 防复发检查；`--check`、Dataform compile、`python3 -m pytest tests` 和 `git diff --check` 已通过。
 
 - [ ] OQ-005：如真实运行暴露 stale-lock 边界，再为 `ashare-pipeline-control` 的 stale-lock reclaim 增加 Workflows execution liveness 检查
 
