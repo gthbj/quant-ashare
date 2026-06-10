@@ -6,6 +6,19 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：项目结构重构 D3/E main 镜像已部署，promotion job 已上线 dry-run
+
+- PR #150 已合并到 `main`，merge commit `f421c83c1987d5f8eb067991e9d4f6624206306a`。
+- 已从合并后的 `origin/main` 新建 detached 部署 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-d3e-main-deploy`，用 Cloud Build 构建正式 Strategy1 runner 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:research-d3e-main-f421c83-20260610-01`，build id `e6b385e7-c386-40be-8adb-e00fc48045c1`，digest 为 `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`。
+- 五个现有 Strategy1 Cloud Run jobs 已更新到该 immutable digest：`strategy1-train-predict-job`、`strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`；读回确认 command/args、CPU/memory、taskCount/parallelism、SA 和 maxRetries 保持预期。
+- 只读 boot smoke 全部成功：`strategy1-train-predict-job-rrjmf`、`strategy1-prepare-matrix-job-7bgfl`、`strategy1-train-candidate-fanout-job-jtw78`、`strategy1-select-register-predict-job-p88c9`、`strategy1-backtest-report-job-glntc`。这些 execution 均用 `--help` 覆盖 args，不写 BigQuery。
+- 新建专用 service account `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com`，授予 project `roles/bigquery.jobUser`，并在 `ashare_research` / `ashare_ads` dataset 授予 WRITER；普通五个 runner jobs 仍使用原 compute SA，未改 command。
+- 新建 promotion 专用 Cloud Run job `strategy1-promote-research-to-ads-job`，使用同一 D3/E digest，command 为 `python -m scripts.strategy1.promote_research_to_ads`，SA 为 `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com`，`taskCount=1`、`cpu=1`、`memory=2Gi`、`maxRetries=0`。
+- Promotion job boot smoke `strategy1-promote-research-to-ads-job-6kqd7` 成功；完整参数 review-only dry-run `strategy1-promote-research-to-ads-job-4mkrv` 成功，日志包含 `Review-only mode. Re-run with --execute to write ADS and promotion manifest.`。验收查询确认 `promotion_id='promo_deploy_smoke_20260610_01'` 在 `research_promotion_manifest` 行数为 `0`，未写 ADS / manifest。
+- 部署后复跑 live BigQuery `sql/research/03_qa_research_schema_readiness.sql` 通过，7 条 `QA-RESEARCH-SCHEMA-*` assertion successful。
+- PR #151 review follow-up 已确认 IAM 收敛仍有开放决策：五个普通 runner jobs 使用的 compute SA 仍具备 `ashare_ads` WRITER；本轮只登记为 OQ-013 / TODO 和约束说明，未修改线上 IAM。
+- 本轮仍未执行真实 owner-approved promotion；后续只有 owner 明确批准具体 accepted research run 后，才按 runbook 先 review-only 再带 `--execute` promotion。
+
 ### 最新补充（2026-06-10）：项目结构重构 Phase D3/E promotion job 与包化已实现
 
 - 分支 `codex/strategy1-d3e-promotion-package` 在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-d3e-promotion-package` 基于 PR #149 合并后的 `origin/main` 实现 Phase D3/E。
