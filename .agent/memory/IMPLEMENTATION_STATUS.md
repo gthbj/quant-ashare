@@ -6,6 +6,14 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：Strategy1 package entrypoint 代码侧 cutover 已随 main 镜像部署
+
+- PR #156 已合并到 `main`，merge commit `2156bb4b5a1d40c358a738395e01c10803ffa825`。由于 orchestrator / search 会从镜像内代码生成 Cloud Run override args，合并后已从该 `origin/main` commit 重建正式 Strategy1 runner 镜像。
+- 本次构建使用一次性 Cloud Build config，只推固定 tag `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:entrypoint-main-2156bb4-20260610-01`，未更新 `latest`；Cloud Build `a11eca10-db4a-478f-b69c-6f8866cc5598` succeeded，digest 为 `sha256:c84b47d8daea59d6d89dd5a1c218d6d1ee1a1195885a16c6d66a262a60f7305c`。
+- 五个正式 Strategy1 Cloud Run jobs 已更新到上述 immutable digest：`strategy1-train-predict-job`、`strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`。读回确认 job args 仍为 `quant_ashare.strategy1.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report`，SA 仍为 `241358486859-compute@developer.gserviceaccount.com`，`maxRetries=0`，CPU/memory 与 fanout `taskCount=40`、`parallelism=20` 保持不变。
+- 五个正式 jobs 的 `--help` boot smoke 均成功，Cloud Logging 均匹配到对应 `usage:`：`strategy1-train-predict-job-vh59r`、`strategy1-prepare-matrix-job-fjshr`、`strategy1-train-candidate-fanout-job-cpxr2`（smoke 覆盖为单 task）、`strategy1-select-register-predict-job-82wsq`、`strategy1-backtest-report-job-44cmd`。
+- 这次完成的是代码侧 cutover 合并后的 main 镜像部署闭环；旧 `scripts.strategy1_cloudrun.*` wrapper 仍保留为兼容层，后续删除需单独 PR，并同步调整 old/new wrapper parity 测试。
+
 ### 最新补充（2026-06-10）：Strategy1 legacy job entrypoint active-scope guard 已补强
 
 - 分支 `codex/entrypoint-active-scope-guard` 在 PR #155 合并后的 `origin/main` 上补强代码侧 cutover 护栏。
