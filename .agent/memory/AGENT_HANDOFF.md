@@ -1,4 +1,11 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 新增 `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`。
+> - PRD 定义年度 walk-forward 参数选择：上一整年 valid 选择参数，选中参数在最近 5 年 final refit，再回测下一年；2021-2026 结果必须用年度预测合并后的一条连续 ledger 评价。
+> - P0 固定 feature set、20 只、7.5% 单票上限、biweekly 和 `ledger_exec_v1_lot100`，只搜索 12 个冻结 LightGBM 参数候选。
+> - valid 选参门按 owner 确认口径写入：去掉 `valid_total_return > 0`，最大回撤线为 `>= -33.33%`，五指数任一超额收益 `> 0`，五指数任一 Excess Calmar Ratio `> 0.3`。
+> - 本轮只写方案和同步 `.agent/memory/IMPLEMENTATION_STATUS.md`、`.agent/memory/AGENT_HANDOFF.md`、`.agent/memory/DECISION_LOG.md`、`TODO.md`；未改代码、SQL、BigQuery、Cloud Run 或 Dataform。
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 新增 `docs/prd/PRD_20260610_02_项目结构重构方案.md`，作为 `quant-ashare` 项目结构重构总 PRD。
 > - Owner 已确认关键决策：采用 `ashare_research` dataset、`research_*` 表名前缀、`accepted != promoted`、先 table-role abstraction 后 research-first、`sql/strategy1/**` 目标 SQL 命名空间、`src/quant_ashare/**` Python 包根、短期保留 `scripts/strategy1_cloudrun/**` wrapper，且 P0 不强制创建 `docs/retired/`。
 > - PRD 已改为已确认口径；新实验、候选、诊断和 acceptance replay 目标态默认写 research，`ashare_ads` 只承载 owner promotion 后的正式产物。
@@ -73,19 +80,70 @@
 
 ## 当前交接摘要
 
+- 2026-06-10：新增 Strategy1 年度滚动选参 PRD `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`；P0 固定 12 个 LightGBM 参数候选、20 只持仓、7.5% 单票上限、biweekly 和 `ledger_exec_v1_lot100`，每年用上一整年 valid 选参数，再用最近 5 年 final refit，最终用年度预测合并后的一条连续 ledger 评价 `2021-2026`。
 - 2026-06-10：新增项目结构重构总 PRD `docs/prd/PRD_20260610_02_项目结构重构方案.md`；owner 已确认采用 `ashare_research` / `research_*` / `accepted != promoted`、`sql/strategy1/**`、`src/quant_ashare/**`、短期保留 `scripts/strategy1_cloudrun/**` wrapper，且 P0 不强制创建 `docs/retired/`。实施顺序为先做 active path catalog、防误用护栏和 table role / dataset role resolver，再迁移 Strategy1 active shared SQL（同时覆盖 `sql/ml/strategy1/**` 与 `sql/cloudrun/strategy1/**`）到 `sql/strategy1/**`，随后抽 Strategy1 package foundation，最后再分段实现 `ashare_research` / `ashare_ads` 生命周期隔离和 deeper package split。
 - 2026-06-10：新增 Strategy1 回测复合年化收益 PRD，范围为 summary / report / v3 gate 的复利年化字段口径；本 PR 不改代码、不跑 BigQuery / Cloud Run。
 - OQ-005 当前状态：`ashare-ods-ingestion-daily`（`0 20 * * *`）与 `ashare-pipeline-alert-checker`（`0 * * * *`）两个 Scheduler job 已是唯一生产调度入口，ODS parent -> warehouse child、alert checker、manual full rebuild dry-run 都已有 live smoke 证据。
 - OQ-005 代码边界：`orchestration/workflows/**` 是唯一现行调度实现面；`orchestration/composer/**` 只保留历史快照，不再接受新的生产逻辑或运维 runbook 变更；旧 Composer-era 补跑 helper `scripts/pipeline/run_warehouse_refresh.py` 已删除。
 - Strategy1 当前状态：`v3` acceptance gate replay/QA 已 contract-driven 收口并通过；旧 BQML-only `02-04`、SQL ledger fallback `08` / `--use-bq-ledger` 和旧 `run_oq010_experiments.py` 已在 PR #131 分支退役删除；当前没有 accepted Python baseline，OQ-010 仍然 open；R14 长训练补数已越过历史 backfill 日期下限和 `dim_stock` 生命周期问题，但 2015 年重跑又暴露 core smoke 2019 全表下限误杀，需合并部署 `codex/fix-historical-backfill-core-smoke` 后再重跑 2015 年窗口。
 - OQ-012 当前状态：schema contract / repair tooling / QA 都已具备，当前 BigQuery 读层无 mismatch 报警；剩余是 owner 是否把该问题正式关闭或保留防复发工程项。
-- 下一步：owner review 复合年化 PRD 后，单独实现 summary schema、`09_build_metrics_and_report_inputs.sql`、report/evidence pack、v3 acceptance 和 QA。
+- 下一步：owner review 年度滚动选参 PRD 后，若认可，先实现 2021 单年度 smoke，再跑完整 2021-2026 annual walk-forward 参数选择与连续 ledger 对比。
+
 
 # Agent 交接（Agent Handoff）
 
 本文件只保留当前交接摘要和最近 3 条交接。更早内容已归档到 `archive/AGENT_HANDOFF_2026-06.md`。
 
 > **语言约定（2026-06-01 起）**：新增交接条目一律用中文撰写；更早的英文条目保留在 archive 中，不再放回当前文件。
+
+
+## 2026-06-10 GPT-5 Codex - Strategy1 年度滚动选参 PRD
+
+### 已完成工作
+
+- 新增 `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`。
+- PRD 定义年度 walk-forward 参数选择方案：用上一整年 valid 选择参数和方向，再用选中参数在最近 5 年 final refit，预测并回测下一年。
+- 年度窗口固定为 `2021` 至 `2026`：从 `2015-2019 train / 2020 valid / 2016-2020 final refit / 2021 backtest` 开始逐年滚动。
+- P0 固定 feature set、股票池、成本、`20` 只持仓、`7.5%` 单票上限、`biweekly` 和 Cloud Run Python `ledger_exec_v1_lot100`，只搜索 12 个预先冻结的 LightGBM 参数候选。
+- valid 选参门按 owner 确认口径写入：`valid_rank_ic > 0`、`valid_top_minus_bottom > 0`、五指数任一 valid 超额收益 `> 0`、valid 最大回撤 `>= -33.33%`、`valid_sharpe >= 0.3`、`valid_calmar >= 0.3`、五指数任一 `valid_excess_calmar_ratio > 0.3`，且不要求 `valid_total_return > 0`。
+- PRD 明确年度预测可分年生成，但最终评价必须来自一条连续 ledger，不能拼接每年 fresh-run。
+- 同步更新 `IMPLEMENTATION_STATUS`、`AGENT_HANDOFF`、`DECISION_LOG` 和 `TODO`。
+
+### 重要上下文
+
+- 本轮是 PRD-only，不改 runner、不改 SQL、不运行 BigQuery / Cloud Run / Dataform。
+- 该方案和刚完成的固定 R14 annual walk-forward 不同：固定 R14 只验证一个参数；本文要求每年从固定候选池中重新选参数。
+- valid 年只用于选择下一年参数，不能作为同年最终样本外成绩。
+- 候选池必须先冻结并生成 hash；如果后续新增候选，必须新开 experiment version。
+
+### 改动文件
+
+- `docs/prd/PRD_20260610_03_策略1年度滚动选参.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 未执行。此次为 PRD 与项目记忆更新。
+
+### 阻塞项
+
+- 无代码阻塞。
+
+### 下一步建议
+
+- owner review PRD。若认可，先实现 `2021` 单年度 smoke，再扩展到完整 `2021-2026` annual walk-forward 参数选择和连续 ledger 对比。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
+
+Model: GPT-5 Codex
 
 ## 2026-06-10 GPT-5 Codex - 项目结构重构总 PRD
 
