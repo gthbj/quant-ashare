@@ -6,6 +6,13 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：Strategy1 legacy job entrypoint active-scope guard 已补强
+
+- 分支 `codex/entrypoint-active-scope-guard` 在 PR #155 合并后的 `origin/main` 上补强代码侧 cutover 护栏。
+- `tests/strategy1/test_retired_lint.py` 新增显式清单 `scripts.strategy1_cloudrun.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report`，断言这五个旧 job module 必须保留在 `retired_reference_lint.banned_active_refs` 中，并直接扫描 non-historical active scopes 确认零命中。
+- 该测试沿用 retired linter 的 historical exception 语义：`sql/ml/strategy1/README.md` 等 historical/audit 文档不作为 active 违规，active 代码、脚本、SQL、catalog caller 和 runbook 继续被 linter 守卫。
+- 本地验证：`python3 -m pytest -q tests/strategy1/test_retired_lint.py` 5 passed；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过。
+
 ### 最新补充（2026-06-10）：Strategy1 package entrypoint 代码侧 cutover 已实现
 
 - 分支 `codex/package-entrypoint-code-cutover` 基于 PR #154 合并后的 `origin/main`，同步代码侧仍硬编码旧五 job module 的 active 调用点。

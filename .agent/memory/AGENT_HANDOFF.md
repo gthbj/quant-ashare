@@ -1,12 +1,57 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
-> - 分支 `codex/package-entrypoint-code-cutover` 已完成代码侧 package entrypoint cutover：`pipeline_control`、native search、annual rolling 发出的五个 Cloud Run job override args 均切到 `quant_ashare.strategy1.*`。
-> - `configs/strategy1/active_step_catalog.yml` 中 backtest/report active step caller 已切到 `quant_ashare.strategy1.backtest_report`；active runbook / 示例命令已更新到 package 入口，多实验 orchestrator 示例改为 `quant_ashare.strategy1.pipeline_control`。
-> - 五个旧 job module 路径已加入 retired-reference linter，且 linter 新增 catalog caller 检查；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过。
-> - 新增/扩展测试确认 direct、fanout、native TopK、annual rolling command plan 均不再生成旧五模块路径；`tests/strategy1` + `tests/strategy1_cloudrun` 91 passed，compileall / Dataform SQLX check / diff check / retired linter 通过。
+> - 分支 `codex/entrypoint-active-scope-guard` 已在 #155 合并后的 main 上补强代码侧 cutover 护栏：`tests/strategy1/test_retired_lint.py` 显式固定五个旧 job module 清单。
+> - 新测试断言 `scripts.strategy1_cloudrun.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report` 必须在 `retired_reference_lint.banned_active_refs` 中，并扫描 non-historical active scopes 确认零命中。
+> - 测试沿用 retired linter 的 historical exception 语义，避免把 `sql/ml/strategy1/README.md` 等 historical/audit 文档误判为 active 违规。
+> - 验证：`python3 -m pytest -q tests/strategy1/test_retired_lint.py` 5 passed；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过。
 > - 旧 `scripts.strategy1_cloudrun.train_predict` / `prepare_matrix` / `train_candidate_task` / `select_register_predict` / `backtest_report` wrapper 本 PR 不删除；删除需等本代码 PR 合并并完成后续验证，再同步调整 wrapper parity 测试。
 > - 仍未执行真实 owner-approved promotion；后续必须 owner 指定 accepted research run 后，按 runbook 先 review-only 再带 `--execute`。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - Strategy1 legacy job entrypoint active-scope guard
+
+### 已完成工作
+
+- 在 `tests/strategy1/test_retired_lint.py` 新增 `LEGACY_JOB_ENTRYPOINT_MODULES`，显式列出五个旧 job module：
+  - `scripts.strategy1_cloudrun.train_predict`
+  - `scripts.strategy1_cloudrun.prepare_matrix`
+  - `scripts.strategy1_cloudrun.train_candidate_task`
+  - `scripts.strategy1_cloudrun.select_register_predict`
+  - `scripts.strategy1_cloudrun.backtest_report`
+- 新增测试 `test_legacy_cloudrun_job_entrypoints_are_banned_from_active_scopes`，同时断言：
+  - 五个旧入口路径必须存在于 `retired_reference_lint.banned_active_refs`。
+  - non-historical active scopes 中不得再出现这些旧入口路径。
+- 测试复用 retired linter 的 historical scope 语义，避免 historical/audit 文档中的旧路径说明误报。
+
+### 重要上下文
+
+- 本轮只补测试护栏，不改运行路径、不删 wrapper、不改 Cloud Run job spec。
+
+### 改动文件
+
+- `tests/strategy1/test_retired_lint.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests/strategy1/test_retired_lint.py`：5 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 可作为小 PR 合入；后续若删除旧 wrapper，需要同步调整 wrapper parity 测试。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - Strategy1 package entrypoint code-side cutover
 
