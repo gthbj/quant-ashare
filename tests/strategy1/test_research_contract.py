@@ -11,6 +11,8 @@ from quant_ashare.strategy1.table_roles import resolve_table_role
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESEARCH_CONTRACT_SQL = REPO_ROOT / "sql/research/01_research_strategy1_tables.sql"
+RESEARCH_MIGRATION_SQL = REPO_ROOT / "sql/research/02_research_strategy1_additive_migrations.sql"
+RESEARCH_READINESS_SQL = REPO_ROOT / "sql/research/03_qa_research_schema_readiness.sql"
 
 
 CREATE_TABLE_RE = re.compile(
@@ -18,10 +20,19 @@ CREATE_TABLE_RE = re.compile(
 )
 PARTITION_RE = re.compile(r"PARTITION BY DATE_TRUNC\(([A-Za-z0-9_]+), MONTH\)")
 DDL_COLUMN_RE = re.compile(r"^\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:ARRAY<[^>]+>|[A-Z]+)", re.MULTILINE)
+ALTER_LOG_DIR_RE = re.compile(
+    r"ALTER\s+TABLE\s+`data-aquarium\.ashare_research\.research_experiment_run_status`"
+    r"\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+log_dir\s+STRING",
+    re.IGNORECASE,
+)
 
 
 def _research_sql() -> str:
     return RESEARCH_CONTRACT_SQL.read_text(encoding="utf-8")
+
+
+def _research_readiness_sql() -> str:
+    return RESEARCH_READINESS_SQL.read_text(encoding="utf-8")
 
 
 def _research_tables() -> set[str]:
@@ -181,3 +192,39 @@ def test_research_dataset_role_points_to_d0_contract() -> None:
     assert research_role["enabled_by_default"] is False
     assert research_role["contract_sql"] == "sql/research/01_research_strategy1_tables.sql"
     assert (REPO_ROOT / research_role["contract_sql"]).exists()
+
+
+def test_research_additive_migration_propagates_runtime_log_dir() -> None:
+    contract_block = _table_block("research_experiment_run_status")
+    migration_sql = RESEARCH_MIGRATION_SQL.read_text(encoding="utf-8")
+
+    assert "log_dir STRING" in contract_block
+    assert ALTER_LOG_DIR_RE.search(migration_sql)
+    assert "CREATE OR REPLACE" not in migration_sql.upper()
+
+
+def test_research_schema_readiness_is_cataloged_and_covers_all_tables() -> None:
+    catalog = load_step_catalog()
+    step = catalog["steps"]["qa_research_schema_readiness"]
+    readiness_sql = _research_readiness_sql()
+
+    assert step["sql_path"] == "sql/research/03_qa_research_schema_readiness.sql"
+    assert step["execution_mode"] == "manual_schema_readiness_qa"
+    assert (REPO_ROOT / step["sql_path"]).exists()
+
+    readiness_tables = set(re.findall(r"'(research_[A-Za-z0-9_]+)'", readiness_sql))
+    assert _research_tables() <= readiness_tables
+    assert "data-aquarium`.ashare_research.INFORMATION_SCHEMA" in readiness_sql
+
+
+def test_research_schema_readiness_checks_lifecycle_defaults_and_log_dir() -> None:
+    readiness_sql = _research_readiness_sql()
+
+    assert "expected_defaults" in readiness_sql
+    assert "\"'candidate'\"" in readiness_sql
+    assert "\"'not_promoted'\"" in readiness_sql
+    assert "\"'planned'\"" in readiness_sql
+    assert "STRUCT('research_experiment_run_status', 'log_dir', 'STRING')" in readiness_sql
+    assert "QA-RESEARCH-SCHEMA-7" in readiness_sql
+    assert "require_partition_filter" in readiness_sql
+    assert "clustering_ordinal_position" in readiness_sql

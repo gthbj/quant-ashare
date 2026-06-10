@@ -451,6 +451,23 @@ steps:
     outputs: []
     partition_columns: []
 
+  qa_research_schema_readiness:
+    stable_name: qa_research_schema_readiness
+    status: active
+    execution_mode: manual_schema_readiness_qa
+    current_path: sql/research/03_qa_research_schema_readiness.sql
+    target_path: sql/research/03_qa_research_schema_readiness.sql
+    sql_path: sql/research/03_qa_research_schema_readiness.sql
+    caller: [manual_runbook]
+    output_dataset_role_current: research
+    output_dataset_role_target: research
+    required_params: []
+    internal_params: []
+    optional_params: {}
+    inputs: []
+    outputs: []
+    partition_columns: []
+
 retired_reference_lint:
   banned_active_refs:
     - sql/ml/strategy1/02_train_bqml_logistic_candidates.sql

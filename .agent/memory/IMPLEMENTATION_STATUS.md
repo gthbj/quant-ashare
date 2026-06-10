@@ -6,6 +6,17 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：D1 正式 main 镜像已部署，research readiness QA 已补齐
+
+- PR #146 已合并到 `main`，merge commit `bca0e791abb57b3fb7efaa01b46e7444ac15cfb2`。
+- 已从合并后的 `origin/main` 新建部署 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-research-d1-main-deploy`，用 Cloud Build 构建正式 Strategy1 runner 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:research-d1-main-bca0e79-20260610-01`，digest 为 `sha256:c0ae9b2ec72b1299a08db66eb02881d0d3156735c14f08193d60e4388c9cc357`。
+- 五个 Strategy1 Cloud Run jobs 已更新到该 immutable digest：`strategy1-train-predict-job`、`strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`；读回确认资源、SA、args、taskCount/parallelism 未被改乱。只读 boot smoke execution `strategy1-backtest-report-job-8krjt` 成功，验证镜像可启动。
+- 分支 `codex/research-schema-readiness` 新增 research additive migration 与 readiness QA：`sql/research/02_research_strategy1_additive_migrations.sql` 用 idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 固化 `research_experiment_run_status.log_dir`；`sql/research/03_qa_research_schema_readiness.sql` 覆盖 15 张 research 表、关键列/类型、分区、聚簇、lifecycle DEFAULT、partition filter 与 `log_dir`。
+- `configs/strategy1/active_step_catalog.yml` 已登记 `qa_research_schema_readiness`；`sql/research/README.md` 与 `sql/README.md` 已写明执行顺序 `01 contract -> 02 additive migrations -> 03 readiness QA`，并明确 `CREATE TABLE IF NOT EXISTS` 不会传播既有表新增列。
+- live BigQuery 验证：`02_research_strategy1_additive_migrations.sql` 已执行为 no-op（`log_dir` 已存在），`03_qa_research_schema_readiness.sql` 7 条断言全部 successful。
+- 本地验证：`python3 -m pytest -q tests` 66 passed（4 个 Python / SSL 环境 warning）；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`npx --yes @dataform/cli compile dataform` 通过；`compileall` 与 `git diff --check` 通过。
+- D2 default research-first 的直接前置 now 是：合并本 research readiness PR 后，再单独开 D2 PR 切默认写入；promotion job 仍留 D3。
+
 ### 最新补充（2026-06-10）：项目结构重构 Phase D1 收尾 research smoke 已通过
 
 - 分支 `codex/strategy1-research-d1-smoke` 在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-research-d1-smoke` 基于最新 `origin/main` 完成 D1 收尾验收。
