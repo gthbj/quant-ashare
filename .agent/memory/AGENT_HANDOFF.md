@@ -1,3 +1,67 @@
+> 当前交接补充（2026-06-11，GPT-5 Codex）
+> - PR #162 已合并进 `main`（merge commit `ce795e5`），三个正式化 PRD 已在主线；旧 PRD worktree / 分支已清理。
+> - 分支 `codex/prd04-research-summary-fix` 已实现 PRD_04 代码侧修复：ADS additive migration `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql` 补 `run_id` / `created_date`；`09` summary INSERT 写 `p_run_id` / `CURRENT_DATE()`；`qa_runner_outputs` 和 `qa_cloudrun_schema_readiness` 加防复发断言。
+> - 新增 focused pytest `tests/strategy1/test_backtest_summary_identity_contract.py`，锁住 migration、`09` INSERT、runner QA、schema readiness 四处契约。
+> - 验证已通过：full pytest 105 passed、Dataform check、retired lint、ADS migration dry-run、compileall、diff check。
+> - 后续硬顺序：PRD_04 PR 合并后先执行 live ADS migration、schema readiness QA、6 行 research summary 回填与复核；完成后才能进入 PRD_02 final refit / PRD_03 continuous 的任何重跑。
+
+Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - PRD_04 research summary identity implementation
+
+### 已完成工作
+
+- 合并 PR #162 到 `main`，并确认 `PRD_20260611_02/03/04` 三个文件已在 `origin/main@ce795e5`。
+- 清理已合并的旧 PRD worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-refit-prds`，删除本地和远端 `claude/prd-refit-continuous-summary` 分支。
+- 新建工作树 `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd04-summary-fix`，分支 `codex/prd04-research-summary-fix`。
+- 新增 ADS additive migration `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql`，为 `ads_backtest_performance_summary` 补 `run_id STRING` 与 `created_date DATE`。
+- 修复 `sql/strategy1/reporting/build_metrics_and_report_inputs.sql`：summary INSERT 列清单与 SELECT 显式写入 `run_id=p_run_id`、`created_date=CURRENT_DATE()`。
+- 修复 `sql/strategy1/qa/qa_runner_outputs.sql`：新增 summary row 的 `run_id=p_run_id` 与 `created_date IS NOT NULL` 断言。
+- 修复 `sql/strategy1/qa/qa_cloudrun_schema_readiness.sql`：ADS summary required columns 增加 `run_id` / `created_date`，失败信息指向新 migration。
+- 新增 `tests/strategy1/test_backtest_summary_identity_contract.py`，防止上述契约漂移。
+
+### 重要上下文
+
+- 本轮还未执行 live ADS migration、research summary 回填或 live readiness QA；这些必须在 PRD_04 PR 合并后执行。
+- catalog 的 `backtest_summary.partition_columns=[created_date]` 继续代表 research 表语义；本轮不把 ADS summary 改成分区表，避免扩大 migration 面。
+- Phase 1 ADS 写入例外只限 additive migration；普通 runner / 后续重跑仍必须默认 research-first。
+
+### 改动文件
+
+- `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql`
+- `sql/strategy1/reporting/build_metrics_and_report_inputs.sql`
+- `sql/strategy1/qa/qa_runner_outputs.sql`
+- `sql/strategy1/qa/qa_cloudrun_schema_readiness.sql`
+- `tests/strategy1/test_backtest_summary_identity_contract.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests`：105 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql`：通过。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 开 PRD_04 修复 PR，自审后合并。
+- 合并后执行 `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql` live migration，复跑 `qa_cloudrun_schema_readiness`，再执行 6 行 research summary 回填与 NOT NULL 复核。
+- live 修复完成后再进入 PRD_02 final refit / PRD_03 synthetic continuous 实现与重跑。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
 > 当前交接补充（2026-06-11，Claude Fable 5）
 > - 分支 `claude/prd-refit-continuous-summary` 新增三个 PRD，收口 2021-2026 首轮年度滚动实跑暴露的三类问题：`PRD_20260611_02`（final refit 方法论修正）、`PRD_20260611_03`（synthetic continuous prediction + 正式 continuous ledger）、`PRD_20260611_04`（research summary `created_date`/`run_id` 落库修复，简短）。
 > - 关键依赖关系已写入 PRD：04 的修复必须先于任何重跑；02 与 03 的代码实现可并行（03 的 merge 输入参数化为 manifest，彩排用 pre-refit 预测），只有 03 的正式执行依赖 02 的六年 refit 重跑。

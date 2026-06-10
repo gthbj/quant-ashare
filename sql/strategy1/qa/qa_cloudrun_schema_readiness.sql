@@ -49,13 +49,15 @@ SET required_columns = ARRAY<STRUCT<table_name STRING, column_name STRING, data_
   STRUCT('ads_backtest_ledger_state_daily', 'run_id', 'STRING'),
   STRUCT('ads_backtest_ledger_state_daily', 'created_at', 'TIMESTAMP'),
   STRUCT('ads_backtest_performance_summary', 'backtest_id', 'STRING'),
+  STRUCT('ads_backtest_performance_summary', 'run_id', 'STRING'),
   STRUCT('ads_backtest_performance_summary', 'benchmark_sec_code', 'STRING'),
   STRUCT('ads_backtest_performance_summary', 'excess_return', 'FLOAT64'),
   STRUCT('ads_backtest_performance_summary', 'metrics_json', 'STRING'),
   STRUCT('ads_backtest_performance_summary', 'compound_annual_return', 'FLOAT64'),
   STRUCT('ads_backtest_performance_summary', 'return_period_count', 'INT64'),
   STRUCT('ads_backtest_performance_summary', 'annualization_target_period_count', 'INT64'),
-  STRUCT('ads_backtest_performance_summary', 'annualization_method', 'STRING')
+  STRUCT('ads_backtest_performance_summary', 'annualization_method', 'STRING'),
+  STRUCT('ads_backtest_performance_summary', 'created_date', 'DATE')
 ];
 
 ASSERT (
@@ -71,7 +73,7 @@ ASSERT (
     ON col.table_name = req.table_name
    AND col.column_name = req.column_name
    AND col.data_type = req.data_type
-) AS 'QA-SCHEMA-2: required Cloud Run ADS columns or types are missing; apply the additive ADS migrations before launching the job';
+) AS 'QA-SCHEMA-2: required Cloud Run ADS columns or types are missing; apply the additive ADS migrations, including sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql, before launching the job';
 
 ASSERT (
   SELECT COUNT(*) = 4

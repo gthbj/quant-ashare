@@ -211,6 +211,14 @@ ASSERT (
 ) AS 'QA-EXP-1: summary metrics_json must contain OQ-010 experiment identity and parameters';
 
 ASSERT (
+  SELECT COUNT(*) = 1
+    AND LOGICAL_AND(bs.run_id = p_run_id)
+    AND LOGICAL_AND(bs.created_date IS NOT NULL)
+  FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
+  WHERE bs.backtest_id = p_backtest_id
+) AS 'QA-SUMMARY-1: summary row must include run_id and non-null created_date';
+
+ASSERT (
   SELECT COUNT(*) = 0
   FROM (
     SELECT
