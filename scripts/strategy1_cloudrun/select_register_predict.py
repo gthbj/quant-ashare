@@ -16,6 +16,7 @@ from quant_ashare.strategy1.select_register_predict import *  # noqa: E402,F401,
 from quant_ashare.strategy1.select_register_predict import main  # noqa: E402
 
 if __name__ != "__main__":
+    # Keep legacy imports and monkeypatches bound to the package implementation.
     sys.modules[__name__] = _impl
 
 

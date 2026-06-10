@@ -1,7 +1,7 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
 > - PR #150 已合并到 `main`；D3/E main 镜像已构建并部署到五个 Strategy1 jobs，digest `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`。
 > - 五个现有 jobs 的 `--help` boot smoke 全部成功：`train-predict-job-rrjmf`、`prepare-matrix-job-7bgfl`、`train-candidate-fanout-job-jtw78`、`select-register-predict-job-p88c9`、`backtest-report-job-glntc`。
-> - 分支 `codex/package-entrypoints` 已为五个 jobs 建立 `quant_ashare.strategy1.*` package entrypoint，并用 pytest 覆盖旧/新入口 `--help` 与关键 dry-run parity；本轮不改线上 job command。
+> - 分支 `codex/package-entrypoints` 已为五个 jobs 建立 `quant_ashare.strategy1.*` package entrypoint，并用 pytest 覆盖旧/新入口 `--help` 与关键 dry-run parity；PR #153 review follow-up 已补 wrapper alias 注释和 cutover 范围约束；本轮不改线上 job command。
 > - 新建专用 promotion SA `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com` 与 Cloud Run job `strategy1-promote-research-to-ads-job`；help smoke `...-6kqd7` 与完整参数 review-only dry-run `...-4mkrv` 成功。
 > - Dry-run promotion smoke 未写 manifest：`promo_deploy_smoke_20260610_01` 在 `research_promotion_manifest` 行数为 `0`；`sql/research/03_qa_research_schema_readiness.sql` 7 条断言通过。
 > - Owner 已选择 OQ-013 方案 1：接受普通 runner compute SA 暂保留 `ashare_ads` WRITER，但保留流程约束；OQ-013 已关闭归档，未改线上 IAM。
@@ -15,6 +15,7 @@ Model: GPT-5 Codex
 
 - 新增五个稳定 package entrypoint：`quant_ashare.strategy1.train_predict`、`quant_ashare.strategy1.prepare_matrix`、`quant_ashare.strategy1.train_candidate_task`、`quant_ashare.strategy1.select_register_predict`、`quant_ashare.strategy1.backtest_report`。
 - 将旧 `scripts.strategy1_cloudrun.train_predict`、`prepare_matrix`、`train_candidate_task`、`select_register_predict`、`backtest_report` 缩为兼容 wrapper；普通 import 下 alias 到 package 实现模块，CLI 运行仍调用同一 `main()`。
+- PR #153 review follow-up 已给五个 wrapper 的 `sys.modules[__name__] = _impl` alias 加注释，明确这是 legacy import / monkeypatch 兼容关键路径。
 - 新增 `tests/strategy1/test_cloudrun_package_entrypoints.py`，覆盖五个旧/新入口 `--help` 输出一致和关键 `--dry-run` JSON plan 一致。
 - 扩展 `tests/strategy1/test_package_boundaries.py` 的 package import smoke 与 wrapper alias 检查。
 
@@ -22,6 +23,7 @@ Model: GPT-5 Codex
 
 - 本轮是代码入口准备，不修改正式 Cloud Run Job command，不构建镜像，不部署线上 jobs，不删除旧 wrapper。
 - 线上五个 jobs 仍通过 `scripts.strategy1_cloudrun.*` command 启动；后续迁到 `quant_ashare.strategy1.*` 必须单独 PR、构建镜像并做五 job boot smoke。
+- Cutover PR 范围不能只改 job spec；还必须同步 orchestrator / pipeline-control / native search / annual rolling 的 Cloud Run override args、catalog `caller` 字段和 active runbook / 示例命令。删除旧 wrapper 前，active scopes 内五个旧模块路径 grep 必须为 0，并应把旧模块路径纳入 retired-reference linter 防回流。
 
 ### 改动文件
 
@@ -57,7 +59,7 @@ Model: GPT-5 Codex
 
 ### 下一步建议
 
-- 合并代码入口 PR 后，单独构建 main 镜像，把五个正式 Cloud Run jobs 的 command args 迁到 `quant_ashare.strategy1.*`，并跑五 job boot smoke。
+- 合并代码入口 PR 后，单独构建 main 镜像，把五个正式 Cloud Run jobs 的 command args、override args、catalog caller 和 active runbook / 示例命令迁到 `quant_ashare.strategy1.*`，并跑五 job boot smoke。
 - 旧 wrapper 只能在正式 job command 迁移且 smoke 通过后再考虑删除。
 
 ### 已更新记忆文件

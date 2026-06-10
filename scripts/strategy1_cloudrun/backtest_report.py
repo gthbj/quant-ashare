@@ -16,6 +16,7 @@ from quant_ashare.strategy1.backtest_report import *  # noqa: E402,F401,F403
 from quant_ashare.strategy1.backtest_report import main  # noqa: E402
 
 if __name__ != "__main__":
+    # Keep legacy imports and monkeypatches bound to the package implementation.
     sys.modules[__name__] = _impl
 
 
