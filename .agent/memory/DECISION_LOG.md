@@ -2632,3 +2632,39 @@ Agent ID: Codex
 ### 相关文件
 
 `docs/prd/PRD_20260610_02_项目结构重构方案.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260610-06: PR #136 一次性合并项目结构重构 Phase A/A2/B/C
+
+日期: 2026-06-10
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+`DECISION-20260610-05` 与 `docs/prd/PRD_20260610_02_项目结构重构方案.md` 默认要求后续 PR-A / PR-A2 / PR-B / PR-C / PR-D 按顺序拆分。PR #136 已在一个分支中同时实现 active catalog、table role / dataset role resolver、Strategy1 SQL namespace migration 和 Python package foundation。PR review 指出该范围与默认拆分要求冲突，owner 已在 review follow-up 中明确确认本 PR 可作为一次性豁免继续整改。
+
+### 决策
+
+1. PR #136 允许一次性合并项目结构重构 Phase A / A2 / B / C 的实现边界。
+2. 本豁免仅适用于 PR #136，不改变 `DECISION-20260610-05` 的后续默认拆分原则。
+3. 后续 Phase D0 / D1 / D2 / D3、Cloud Run entrypoint migration、deeper package split 和 naming cleanup 仍必须单独 PR，不得直接默认写入 `ashare_research`。
+
+### 理由
+
+PR #136 的四个边界已在同一分支内完成交叉验证：catalog、strict render、SQL path resolver、wrapper 调用和 package install 彼此依赖，继续硬拆会增加返工和路径漂移风险。保留一次性豁免记录，可以让当前 PR 合理收口，同时不让后续 agent 误以为拆分原则已被整体废弃。
+
+### 影响
+
+1. PR #136 review follow-up 需要在同一 PR 中修复 linter 扫描、research role fail-fast、audit-only 文档说明、ledger 校验披露和 Dataform drift TODO。
+2. 后续涉及 `ashare_research` 物理表、research-first 默认行为或 promotion job 的 PR 必须重新按 PRD 拆分并单独验证。
+
+### 备选方案
+
+- 拆分 PR #136 为多个新 PR：不采用。原因是 owner 已确认本 PR 可继续整改，且当前改动已完成端到端验证。
+- 把本次合并范围当作以后默认模式：不采用。原因是 Phase D/E 会改变写入 dataset 和 promotion 生命周期，风险明显高于路径/catalog 基础重构。
+
+### 相关文件
+
+`docs/prd/PRD_20260610_02_项目结构重构方案.md`, `configs/strategy1/active_step_catalog.yml`, `src/quant_ashare/strategy1/**`, `sql/strategy1/**`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`

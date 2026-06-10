@@ -19,8 +19,14 @@ def resolve_table_role(
     table_roles = catalog.get("table_roles") or {}
     if role not in table_roles:
         raise KeyError(f"unknown table role: {role}")
-    effective_dataset_role = dataset_role if allow_future_research else "ads"
     dataset_roles = catalog.get("dataset_roles") or {}
+    if dataset_role not in dataset_roles:
+        raise KeyError(f"unknown dataset role: {dataset_role}")
+    if dataset_role != "ads" and not allow_future_research:
+        raise ValueError(
+            f"dataset_role={dataset_role} is not enabled in the current ADS-compatible phase"
+        )
+    effective_dataset_role = dataset_role
     dataset_cfg = dataset_roles[effective_dataset_role]
     table_cfg = table_roles[role]
     table_name_key = "research_table" if effective_dataset_role == "research" else "ads_table"
@@ -35,4 +41,3 @@ def table_role_config(role: str, catalog: dict[str, Any] | None = None) -> dict[
     if role not in table_roles:
         raise KeyError(f"unknown table role: {role}")
     return table_roles[role]
-

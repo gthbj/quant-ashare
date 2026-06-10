@@ -29,9 +29,27 @@ catalog step name 调用。
 | `qa_cloudrun_python_baseline_search_outputs` | `sql/strategy1/qa/qa_cloudrun_python_baseline_search_outputs.sql` |
 | `qa_risk_feature_search_outputs` | `sql/strategy1/qa/qa_risk_feature_search_outputs.sql` |
 | `qa_acceptance_gate_v3_replay_outputs` | `sql/strategy1/acceptance/qa_acceptance_gate_v3_replay_outputs.sql` |
+| `qa_cloudrun_runner_outputs` | `sql/strategy1/qa/qa_cloudrun_runner_outputs.sql` |
+| `qa_cloudrun_orchestrator_status` | `sql/strategy1/qa/qa_cloudrun_orchestrator_status.sql` |
+| `qa_cloudrun_ledger_resume_outputs` | `sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql` |
+
+## Audit-Only Steps
+
+Some historical diagnostic and replay SQL files live under this namespace so their
+stable paths are discoverable, but their execution status is controlled by
+`configs/strategy1/active_step_catalog.yml`. Files marked `audit_only` are not
+active migration targets for new runner flows.
+
+| Step | SQL |
+|---|---|
+| `model_quality_diagnostics` | `sql/strategy1/diagnostics/model_quality_diagnostics.sql` |
+| `qa_factor_attribution_outputs` | `sql/strategy1/qa/qa_factor_attribution_outputs.sql` |
+| `qa_ledger_resume_consistency` | `sql/strategy1/qa/qa_ledger_resume_consistency.sql` |
+| `qa_acceptance_gate_v2_outputs` | `sql/strategy1/acceptance/qa_acceptance_gate_v2_outputs.sql` |
 
 ## Current Dataset Role
 
-当前 Phase A-C 只建立 resolver 和 catalog；所有 table role 仍解析到
-`data-aquarium.ashare_ads.*`，不创建、不写入 `ashare_research`。后续 research-first
-和 promotion job 需要单独 PR。
+当前 Phase A-C 只建立 resolver 和 catalog；默认 table role 解析到
+`data-aquarium.ashare_ads.*`，不创建、不写入 `ashare_research`。显式请求
+`dataset_role="research"` 会 fail-fast，直到后续 research contract / routing PR
+单独放开。后续 research-first 和 promotion job 需要单独 PR。

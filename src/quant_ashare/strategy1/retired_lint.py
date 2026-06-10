@@ -43,7 +43,7 @@ def lint_retired_references(catalog: dict[str, Any] | None = None) -> list[Retir
 def iter_scope_files(active_scopes: Iterable[str], historical_scopes: Iterable[str]) -> Iterable[Path]:
     seen: set[Path] = set()
     for pattern in [*active_scopes, *historical_scopes]:
-        for path in REPO_ROOT.glob(pattern):
+        for path in REPO_ROOT.glob(file_glob_pattern(pattern)):
             if path.is_dir():
                 continue
             if path in seen or ".git" in path.parts:
@@ -53,6 +53,14 @@ def iter_scope_files(active_scopes: Iterable[str], historical_scopes: Iterable[s
                 continue
             seen.add(path)
             yield path
+
+
+def file_glob_pattern(pattern: str) -> str:
+    if pattern == "**":
+        return "**/*"
+    if pattern.endswith("/**"):
+        return f"{pattern}/*"
+    return pattern
 
 
 def matching_lines(text: str, ref: str) -> Iterable[tuple[int, str]]:

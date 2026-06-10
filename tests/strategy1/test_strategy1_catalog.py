@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from quant_ashare.strategy1.catalog import (
     load_step_catalog,
     resolve_step_path,
@@ -26,9 +28,11 @@ def test_legacy_paths_resolve_to_stable_strategy1_namespace() -> None:
 
 def test_table_role_resolver_stays_ads_in_current_phase() -> None:
     assert (
-        resolve_table_role("model_registry", dataset_role="research")
+        resolve_table_role("model_registry")
         == "data-aquarium.ashare_ads.ads_model_registry"
     )
+    with pytest.raises(ValueError, match="dataset_role=research is not enabled"):
+        resolve_table_role("model_registry", dataset_role="research")
 
 
 def test_catalog_classifies_sql_16_to_25_individually() -> None:
@@ -38,4 +42,3 @@ def test_catalog_classifies_sql_16_to_25_individually() -> None:
     assert steps["qa_cloudrun_runner_outputs"]["status"] == "active"
     assert steps["qa_acceptance_gate_v2_outputs"]["status"] == "audit_only"
     assert steps["qa_cloudrun_ledger_resume_outputs"]["execution_mode"] == "manual_resume_qa"
-
