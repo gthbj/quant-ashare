@@ -6,6 +6,17 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：项目结构重构 Phase D2 default research-first 已部署并验收
+
+- PR #148 已合并到 `main`，merge commit `13bf0b512b5def2b2ef51c42e504f439f87a4dcf`。
+- 已从合并后的 `origin/main` 新建部署 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-d2-main-deploy`，用 Cloud Build 构建正式 Strategy1 runner 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner:research-d2-main-13bf0b5-20260610-01`，build id `e874d1bf-faad-4262-bacd-33cf01551425`，digest 为 `sha256:92c348536776cbcd8fb4f09def63509f0f1dfdf2f13f54d472dc078582b410f0`。
+- 五个 Strategy1 Cloud Run jobs 已更新到该 immutable digest：`strategy1-train-predict-job`、`strategy1-prepare-matrix-job`、`strategy1-train-candidate-fanout-job`、`strategy1-select-register-predict-job`、`strategy1-backtest-report-job`；读回确认 image、SA、command/args、CPU/memory、taskCount/parallelism 保持预期。
+- 只读 boot smoke execution `strategy1-backtest-report-job-7g2mj` 成功；Cloud Run args 未传 `--output-dataset-role`，stdout plan 显示默认 `output_dataset_role=research`。
+- 真实默认 research-first smoke execution `strategy1-backtest-report-job-2xr6f` 成功，run/backtest 为 `s1_default_research_d2_smoke_20260610_03` / `bt_s1_default_research_d2_smoke_20260610_03`。本次未传 `--output-dataset-role`，复用 D1 research prediction run `s1_sklearn_native_research_d1_smoke_20260610_04__l2_c_0_1`，覆盖连续 2025H1 窗口；report、runner QA、lot-aware ledger QA、model diagnosis QA、tail-risk diagnosis 与 tail-risk QA 全部 succeeded，日志中各 catalog step 均为 `dataset_role=research`。
+- 验收查询确认 research 表写入完整且 ADS 同 run/backtest 零污染：candidate `61,620` 行、target `135` 行、order `157` 行、trade `203` 行、position `570` 行、NAV `117` 行、ledger state `117` 行、summary `1` 行、signal monitor `117` 行；ADS candidate/target/order/trade/NAV/summary 均为 `0` 行。summary `promotion_status='not_promoted'`，metrics_json 记录 D2 smoke experiment id、prediction run、weekly 调仓、5 只持仓与 market state。
+- live BigQuery `sql/research/03_qa_research_schema_readiness.sql` 在 D2 部署后复跑通过，7 条 `QA-RESEARCH-SCHEMA-*` assertion successful。
+- D2 的默认 research-first 已从代码、main 镜像、五个 jobs 和真实 research 写入 smoke 四层闭环；下一步保持 D3 promotion job 与 Phase E 包化为独立后续工作。
+
 ### 最新补充（2026-06-10）：项目结构重构 Phase D2 default research-first 已实现
 
 - 分支 `codex/default-research-first` 在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-default-research-first` 基于 PR #147 合并后的 `origin/main` 实现 Phase D2。

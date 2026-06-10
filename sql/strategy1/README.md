@@ -59,4 +59,7 @@ SQL render 会按当前 step 的 catalog `inputs` / `outputs` 改写 run-scoped 
 默认写/读 research。需要回放历史 ADS 产物时显式传 `dataset_role="ads"` 或
 runner CLI 的 `--output-dataset-role ads`。无 step 上下文的全局 research 替换仍会
 fail-fast，避免 `model_registry` / `acceptance_result` 等共享 ADS 源表被误替换。
+兼容入口 `run_sql_script` / `render_sql` 若收到未登记 catalog 的 SQL 路径，在默认
+research 模式下会拒绝渲染；临时 ADS 审计脚本需显式传 `dataset_role="ads"`，active
+research SQL 应先登记 catalog step。
 Promotion job 仍需 Phase D3 单独实现，普通 runner 不会隐式写 ADS。

@@ -59,7 +59,7 @@
   说明：分支 `codex/research-schema-readiness` 新增 `sql/research/02_research_strategy1_additive_migrations.sql` 和 `sql/research/03_qa_research_schema_readiness.sql`，固化 research additive migration 约定，并用 readiness QA 覆盖 15 张 research 表、关键列/类型、分区、聚簇、lifecycle 默认值、partition filter 与 `research_experiment_run_status.log_dir`。live BigQuery readiness QA 已通过。
 
 - [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase D2 default research-first
-  说明：分支 `codex/default-research-first` 已把 Strategy1 runner、SQL runner、report / diagnosis / QA / acceptance / comparison / factor attribution 的默认 `output_dataset_role` 切到 `research`；catalog 当前 role 与 step `output_dataset_role_current` 同步为 `research`，resolver 默认 research 已开启。显式历史 ADS 运行改为传 `--output-dataset-role ads`；Cloud Run 子命令会始终显式下发 `--output-dataset-role=research|ads`，避免 job 镜像滚动更新期间继承错误默认值。合并后仍需用 merge/main commit 重建正式镜像并更新五个 jobs，才能让生产 jobs 采用默认 research-first。
+  说明：PR #148 已合并到 `main`，merge commit `13bf0b5`。已从 merge 后 `origin/main` 重建正式 runner 镜像 `sha256:92c348536776cbcd8fb4f09def63509f0f1dfdf2f13f54d472dc078582b410f0`，并把五个 Strategy1 Cloud Run jobs 更新到该 immutable digest；真实默认 research-first smoke execution `strategy1-backtest-report-job-2xr6f` 成功，未传 `--output-dataset-role`，run/backtest `s1_default_research_d2_smoke_20260610_03` / `bt_s1_default_research_d2_smoke_20260610_03` 写入 research candidate/target/order/trade/position/NAV/ledger state/summary/signal monitor，ADS 同 run/backtest 零污染。D2 已从代码、正式镜像、job spec 和真实写入 smoke 闭环。
 
 - [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D3/E
   说明：D3 仍需 owner-approved promotion job，把 accepted research 产物显式复制/映射到 ADS 并写 append-only promotion manifest；Phase E 包化时同步收敛读侧 routing 的模块级全局态（当前 setter 与裸全局两种风格并存）。不得把 promotion 或深层 package split 混入 D2 default research-first。
