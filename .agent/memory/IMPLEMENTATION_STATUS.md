@@ -14,6 +14,7 @@ Last updated: 2026-06-10
 - 已重建并部署 Strategy1 Cloud Run jobs 到 D1 smoke 镜像 `asia-east2-docker.pkg.dev/data-aquarium/quant-ashare/strategy1-cloudrun-runner@sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`，随后跑通 research-mode smoke `sklearn_native_research_d1_smoke_20260610_04`：prepare、5 候选 fanout、select/register/predict、Top-1 backtest/report、diagnosis、tail-risk、acceptance patch 和 search-level QA 均 succeeded。
 - 验收查询确认 research 表写入完整且 lifecycle 默认值正确：training panel `2,742,853` 行、prediction `502,501` 行、candidate `61,620` 行、target `135` 行、order `157` 行、trade `203` 行、position `570` 行、NAV `117` 行、ledger state `117` 行、summary `1` 行、registry `1` 行；所有 lifecycle bad count 为 `0`。ADS 侧同一 run/backtest 在 training panel、registry、prediction、candidate、target、order、trade、position、NAV、ledger state、summary 均为 `0` 行。
 - 当前五个 Strategy1 Cloud Run jobs 仍指向 D1 smoke 验证镜像 digest；正式合并后应以 merge/main commit 重新构建部署，避免长期运行未合并分支镜像。
+- PR #146 review Low follow-up 已登记：D2 default research-first 前需补 research additive migration 约定与 research 版 schema/readiness QA；`QA-POOL-5` 双窗口修复会同时影响 ADS 模式，未来复跑历史组合时 QA 结论可能改变，属于已知行为变更。
 - 验证：`python3 -m pytest -q tests` 63 passed；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`npx --yes @dataform/cli compile dataform` 通过；`compileall` 与 `git diff --check` 通过；真实 BigQuery / Cloud Run D1 research smoke 通过。
 
 ### 最新补充（2026-06-10）：年度滚动执行 P0 工程骨架已实现

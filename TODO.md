@@ -55,6 +55,9 @@
 - [ ] OQ-010 / 工程治理：D1 收尾合并后重建正式 main 镜像并部署
   说明：D1 smoke 为了真实验收临时把五个 Strategy1 Cloud Run jobs 指到 D1 worktree 构建镜像 `sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`；正式 PR 合并后应以 merge/main commit 重建 runner 镜像并更新 jobs，避免长期运行未合并分支镜像。
 
+- [ ] OQ-010 / 工程治理：D2 前补 research additive migration 约定与 research readiness QA
+  说明：D1 smoke 已用带外 `ALTER TABLE` 给既有 `research_experiment_run_status` 补 `log_dir`，证明 `CREATE TABLE IF NOT EXISTS` 契约不会自动传播新增列；D2 default research-first 前应补 research 表 additive migration 约定，并实现 research 版 schema/readiness QA，避免 research schema drift 重演 ADS 漂移问题。
+
 - [ ] OQ-010 / 工程治理：后续单独实现项目结构重构 PRD Phase D2-D3/E
   说明：D1 收尾验收通过后，再做 default research-first、owner-approved promotion job，以及深层 package split / naming cleanup；Phase E 包化时同步收敛读侧 routing 的模块级全局态（当前 setter 与裸全局两种风格并存）。不得与 D1b 显式 routing 混做。
 

@@ -3,6 +3,7 @@
 > - 已部署 `ashare_research` DDL、给 runtime SA 补写权限、重建并部署 Strategy1 Cloud Run jobs 到 D1 smoke 镜像 `sha256:7ef5601980f1b202654b504a52c96e33c09f95d009ebdcf455b002e4913571f9`。
 > - research-mode smoke `sklearn_native_research_d1_smoke_20260610_04` 全段 succeeded；research 表写入和 lifecycle 默认值正确，registry 显式列已补齐，ADS 同 run/backtest 零污染。
 > - 本轮修复 `log_dir` DDL、search QA `p_strategy_id`、heartbeat terminal status 覆盖、QA-POOL-5 valid/test window 和 research registry 契约列；`python3 -m pytest -q tests` 63 passed，Dataform check/compile、compileall、`git diff --check` 均通过。正式合并后需用 merge/main commit 重建 runner 镜像替换临时 smoke digest。
+> - PR #146 review Low follow-up 已补 TODO：D2 前实现 research additive migration 约定与 research readiness QA；QA-POOL-5 双窗口修复会影响 ADS 模式未来 QA 结论，已按知会处理。
 
 Model: GPT-5 Codex
 
@@ -22,6 +23,7 @@ Model: GPT-5 Codex
 - Research 验收行数：training panel `2,742,853`、prediction `502,501`、candidate `61,620`、target `135`、order `157`、trade `203`、position `570`、NAV `117`、ledger state `117`、summary `1`、registry `1`；lifecycle bad count 全部为 `0`。
 - ADS 污染检查同一 run/backtest 在 ADS run-scoped 表均为 `0` 行。
 - 当前五个 Strategy1 Cloud Run jobs 指向 D1 smoke 验证镜像；正式 PR 合并后应以 merge/main commit 重建并部署 runner 镜像，避免长期运行未合并分支镜像。
+- PR #146 review Low follow-up 已登记到 TODO：D2 default research-first 前补 research additive migration 约定和 research schema/readiness QA；`QA-POOL-5` 双窗口修复对 ADS 模式同样生效，未来复跑历史组合时 QA 结论可能翻转。
 
 ### 改动文件
 
