@@ -1,6 +1,7 @@
-## 当前交接摘要
-
-2026-06-10：分支 `codex/fix-dynamic-cv-folds` 修复 Strategy1 Cloud Run Python CV fold 硬编码问题。`scripts/strategy1_cloudrun/train_predict.py` 现在基于 `cv_panel` 中 `split_tag='train'` 的年份动态生成最多 3 个滚动 CV fold，排除外部 valid 年；新增 `tests/strategy1_cloudrun/test_dynamic_cv_folds.py` 覆盖 `2015-2019 -> cv_2017/2018/2019` 与旧 `2019-2023 -> cv_2021/2022/2023` 形态。未运行测试。
+> 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 分支 `codex/fix-dynamic-cv-folds` 修复 Strategy1 Cloud Run Python CV fold 硬编码问题：`train_predict.py` 现在基于 `cv_panel` 中 `split_tag='train'` 的年份动态生成最多 3 个 rolling fold，并排除外部 valid 年。
+> - 新增 `tests/strategy1_cloudrun/test_dynamic_cv_folds.py` 覆盖年度滚动选参窗口 `2015-2019 -> cv_2017/cv_2018/cv_2019`，以及旧窗口完整边界 `2019-04-03..2023-12-31 -> cv_2021/cv_2022/cv_2023`。
+> - 验证：`python3 -m pytest tests` 34 passed。
 
 > 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 分支 `codex/add-research-table-contract` 已实现项目结构重构 Phase D0：新增 `ashare_research` schema contract、`sql/research/01_research_strategy1_tables.sql`、research README 和 catalog contract metadata。
@@ -1136,7 +1137,7 @@ Run ID: doc-only
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 
-## 交接条目
+## 2026-06-10 - Strategy1 年度滚动选参动态 CV fold 修复
 
 日期: 2026-06-10
 Agent ID: Codex
@@ -1148,7 +1149,7 @@ Run ID: n/a
 
 ### 已完成工作
 - 修复 Strategy1 Cloud Run Python CV fold 硬编码 `2021/2022/2023` 的问题，改为基于当前 `cv_panel` 的 train 年份动态生成最多 3 个 rolling fold。
-- 新增单元测试覆盖年度滚动选参窗口 `2015-2019 train + 2020 valid` 应生成 `cv_2017/cv_2018/cv_2019`，以及旧搜索窗口仍保持 `cv_2021/cv_2022/cv_2023`。
+- 新增单元测试覆盖年度滚动选参窗口 `2015-2019 train + 2020 valid` 应生成 `cv_2017/cv_2018/cv_2019`，以及旧搜索窗口完整边界仍保持 `2019-04-03..2023-12-31 -> cv_2021/cv_2022/cv_2023`。
 
 ### 重要上下文
 - 2021 annual-selection smoke 暴露 `cv_fold_count=0`，原因是 CV panel 实际覆盖 `2015-2020`，但旧代码固定寻找 `2021/2022/2023` eval 年。
@@ -1162,7 +1163,7 @@ Run ID: n/a
 - `.agent/memory/AGENT_HANDOFF.md`
 
 ### 测试 / 验证
-- 未运行测试；owner 未要求执行测试。
+- `python3 -m pytest tests` 34 passed。
 
 ### 阻塞项
 - 无。

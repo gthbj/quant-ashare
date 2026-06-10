@@ -6,6 +6,12 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：年度滚动选参动态 CV fold 已修复
+
+- 分支 `codex/fix-dynamic-cv-folds` 修复 Strategy1 Cloud Run Python CV fold 生成逻辑。旧代码在 `evaluate_cv_folds` 中硬编码 `cv_2021/cv_2022/cv_2023`，导致 `2015-2019 train + 2020 valid` 年度滚动选参 smoke 的 `cv_panel` 虽有 1,707,710 行但 `cv_fold_count=0`。
+- 新逻辑基于 `cv_panel` 里 `split_tag='train'` 的年份动态生成最多 3 个 rolling fold，并排除外部 valid 年；年度窗口会生成 `cv_2017/cv_2018/cv_2019`，旧 `2019-2023` 搜索窗口仍保持 `cv_2021/cv_2022/cv_2023` 及原边界形态。
+- 新增 `tests/strategy1_cloudrun/test_dynamic_cv_folds.py` 覆盖新旧窗口形态；`python3 -m pytest tests` 34 passed。合并后需重跑 2021 smoke 验证 CV 指标实际产出。
+
 ### 最新补充（2026-06-10）：项目结构重构 Phase D0 research table contract 已实现
 
 - 分支 `codex/add-research-table-contract` 已实现 `docs/prd/PRD_20260610_02_项目结构重构方案.md` 的 Phase D0。
@@ -187,4 +193,3 @@ Last updated: 2026-06-10
 - PR #134 review follow-up 修复 `total_return = -100%` 边界：`09`、`10`、`24`、`render_report.py` 和 `replay_acceptance_gate_v3.py` 统一允许 `gross == 0` 返回复合年化 `-100%`，仅拒绝 `gross < 0`。
 - 本次未执行 BigQuery / Cloud Run；部署后只对新 run 生效，历史 run 如需复合年化需 owner 单独批准回填。
 
-最新执行备注（2026-06-10 / OQ-010 年度滚动选参 CV）：分支 `codex/fix-dynamic-cv-folds` 修复 Strategy1 Cloud Run Python CV fold 生成逻辑。旧代码在 `evaluate_cv_folds` 中硬编码 `cv_2021/cv_2022/cv_2023`，导致 `2015-2019 train + 2020 valid` 年度滚动选参 smoke 的 `cv_panel` 虽有 1,707,710 行但 `cv_fold_count=0`。新逻辑基于 `cv_panel` 里 `split_tag='train'` 的年份动态生成最多 3 个 rolling fold，并排除外部 valid 年；新增单元测试覆盖新旧窗口形态。未运行测试；合并后需重跑 2021 smoke 验证 CV 指标实际产出。
