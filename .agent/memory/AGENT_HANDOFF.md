@@ -1,11 +1,80 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
-> - PR #148 已合并到 `main`，merge commit `13bf0b512b5def2b2ef51c42e504f439f87a4dcf`；已从合并后的 main 构建正式 Strategy1 runner 镜像 `sha256:92c348536776cbcd8fb4f09def63509f0f1dfdf2f13f54d472dc078582b410f0`。
-> - 五个 Strategy1 Cloud Run jobs 已更新到该 immutable digest，读回确认 image、SA、command/args、CPU/memory、taskCount/parallelism 保持预期。
-> - 默认 research-first 真实 smoke `strategy1-backtest-report-job-2xr6f` 成功；入口未传 `--output-dataset-role`，各 catalog step 均记录 `dataset_role=research`，run/backtest `s1_default_research_d2_smoke_20260610_03` / `bt_s1_default_research_d2_smoke_20260610_03` 写入 research 表。
-> - 验收查询：research candidate/target/order/trade/position/NAV/ledger state/summary/signal monitor 分别为 `61,620/135/157/203/570/117/117/1/117` 行；ADS 同 run/backtest candidate/target/order/trade/NAV/summary 均为 `0`。D2 default research-first 已完成代码、镜像、job spec 和真实写入闭环。
-> - 后续仍保持 D3 owner-approved promotion job 与 Phase E 包化为独立 PR；不得把普通 research run 隐式 promotion 到 ADS。
+> - 分支 `codex/strategy1-d3e-promotion-package` 已实现项目结构重构 Phase D3/E：新增 owner-approved promotion job `python -m scripts.strategy1.promote_research_to_ads`，默认只 promotion accepted research，写 ADS 前防重复，写 `research_promotion_manifest`，并默认不复制 training panel。
+> - Phase E 已把 dataset routing、acceptance、ledger、reporting/backtest、pipeline-control/orchestrator 实现迁入 `src/quant_ashare/strategy1/**`；旧 `scripts.strategy1_cloudrun.*` 对应文件保留为短 wrapper，Cloud Run entrypoint 名称暂不迁移。
+> - 新增 `docs/策略1ResearchPromotion运行手册.md`、promotion/package tests，并把 retired-reference linter active scope 扩展到 `src/**`。
+> - 验证：`python3 -m pytest -q tests` 77 passed；compileall、Dataform generated SQLX `--check`、Dataform compile、`git diff --check`、promotion CLI dry-run、BigQuery dry-run 和 41 条程序化 self-review invariant 均通过。
+> - 尚未执行真实 promotion，也未部署专用 promotion Cloud Run job；合并后若要线上使用，需要按 runbook 部署/运行 owner-approved promotion。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - 项目结构重构 Phase D3/E promotion 与包化
+
+### 已完成工作
+
+- 新增 D3 promotion package：`src/quant_ashare/strategy1/promotion.py`，生成并执行 owner-approved research-to-ADS BigQuery promotion script。
+- 新增 CLI：`scripts/strategy1/promote_research_to_ads.py`，支持 `--dry-run` / `--print-sql`、显式 approval metadata、source run/backtest/model、date window、`--force-replace` 和 `--allow-unaccepted`。
+- Promotion 默认复制 publishable outputs：model registry、prediction、candidate、portfolio target、order plan、backtest trade/position/NAV/ledger state/summary、signal monitor；training panel 默认不复制，只能显式 opt-in。
+- Promotion SQL 默认要求 accepted research，ADS 目标已有行时 fail-fast，成功后更新 research lifecycle 并写 `research_promotion_manifest`。
+- Phase E 包化：把 `acceptance`、`ledger`、`backtest_report`、`orchestrate_experiments` 实现迁入 `src/quant_ashare/strategy1/{acceptance,ledger,reporting,pipeline_control}.py`；旧 `scripts.strategy1_cloudrun.*` 文件只保留兼容 wrapper。
+- Dataset role helper 迁入 `src/quant_ashare/strategy1/dataset_roles.py`；旧 `scripts.strategy1_cloudrun.dataset_roles` re-export package API。
+- 新增 `src/quant_ashare/strategy1/legacy_names.py`，并把 retired-reference linter active scope 扩展到 `src/**`。
+- 新增 `docs/策略1ResearchPromotion运行手册.md`，更新 `sql/research/README.md`。
+
+### 重要上下文
+
+- 本轮没有执行真实 promotion，没有部署专用 promotion Cloud Run job，也没有迁移 Cloud Run job command；旧 `python -m scripts.strategy1_cloudrun.backtest_report` 和 `python -m scripts.strategy1_cloudrun.orchestrate_experiments` 仍是兼容入口。
+- 上线 promotion 前，应给 owner-approved promotion identity 配置 research 读写、ADS 写和 manifest 写权限；普通 experiment runner 不应因此获得常规 ADS 写权限。
+- `accepted != promoted` 仍是硬边界；`--allow-unaccepted` 只是显式 owner override 开关，默认关闭。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/promotion.py`
+- `scripts/strategy1/promote_research_to_ads.py`
+- `src/quant_ashare/strategy1/dataset_roles.py`
+- `src/quant_ashare/strategy1/{acceptance,ledger,reporting,pipeline_control,legacy_names}.py`
+- `scripts/strategy1_cloudrun/{dataset_roles,acceptance,ledger,backtest_report,orchestrate_experiments}.py`
+- `configs/strategy1/active_step_catalog.yml`
+- `tests/strategy1/test_promotion.py`
+- `tests/strategy1/test_package_boundaries.py`
+- `tests/strategy1/test_retired_lint.py`
+- `docs/策略1ResearchPromotion运行手册.md`
+- `sql/research/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests`：77 passed。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform`：通过，35 actions。
+- `git diff --check`：通过。
+- `python3 -m scripts.strategy1.promote_research_to_ads ... --dry-run`：成功输出 promotion plan。
+- BigQuery client dry-run 对 generated promotion script 返回 `dry_run=True`。
+- 旧 wrapper help smoke：`python3 -m scripts.strategy1_cloudrun.backtest_report --help`、`python3 -m scripts.strategy1_cloudrun.orchestrate_experiments --help`、`python3 -m scripts.strategy1.promote_research_to_ads --help` 均可启动。
+- 41 条程序化 self-review invariant 全部 PASS。
+
+### 阻塞项
+
+- 无代码阻塞。真实 promotion / promotion Cloud Run job 部署未在本轮执行。
+
+### 下一步建议
+
+- 开 PR review；合并后如需线上 promotion，基于 main 构建/部署 owner-approved promotion job，或按 `docs/策略1ResearchPromotion运行手册.md` 手工执行一次 accepted research promotion dry-run 后再 execute。
+- Cloud Run entrypoint 从 `scripts.strategy1_cloudrun.*` 迁到 package module 仍需单独 PR 和镜像 smoke。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - 项目结构重构 Phase D2 main 镜像部署与默认 research smoke
 

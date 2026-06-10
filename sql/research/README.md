@@ -14,7 +14,8 @@ Current status:
   `research`; `ads` is now an explicit historical/promotion target.
 - Runner/report/QA/acceptance default to research outputs. Use
   `--output-dataset-role ads` only for historical ADS audit runs.
-- Phase D3 will add the explicit owner-approved promotion job.
+- Phase D3 adds the explicit owner-approved promotion job:
+  `python -m scripts.strategy1.promote_research_to_ads`.
 
 Run manually when creating or refreshing the research contract:
 
@@ -46,4 +47,7 @@ Naming rules:
   `promotion_status='not_promoted'`.
 - `accepted` means acceptance gate passed inside research; it is not the same
   as `promoted`.
+- `promoted` requires a successful row in `research_promotion_manifest`; the
+  promotion job also marks promoted research rows with
+  `promotion_status='promoted'`.
 - `ashare_ads` remains the target for owner-approved promoted outputs only.

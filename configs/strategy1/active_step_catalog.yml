@@ -477,6 +477,7 @@ retired_reference_lint:
     - --use-bq-ledger
     - scripts/strategy1/run_oq010_experiments.py
   active_scopes:
+    - src/**
     - scripts/**
     - sql/**
     - configs/**

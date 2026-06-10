@@ -2828,3 +2828,44 @@ Research-first 可以把探索性实验、诊断和 acceptance replay 与正式 
 ### 相关文件
 
 `configs/strategy1/active_step_catalog.yml`, `configs/strategy1/cloudrun_runner_default.yml`, `configs/strategy1/annual_rolling_lgbm_regression_v0.yml`, `src/quant_ashare/strategy1/table_roles.py`, `src/quant_ashare/strategy1/sql_render.py`, `scripts/strategy1_cloudrun/dataset_roles.py`, `scripts/strategy1_cloudrun/config.py`, `tests/strategy1_cloudrun/test_dataset_role_routing.py`, `tests/strategy1/test_sql_render.py`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260610-11: Strategy1 promotion 必须显式 owner-approved，Phase E 领域逻辑迁入 package
+
+日期: 2026-06-10
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+Phase D2 已把普通 Strategy1 实验默认写入 `ashare_research`，ADS 只能作为历史 audit 或后续 promotion target。进入 Phase D3/E 后，需要把 accepted research 产物发布到 ADS 的路径做成显式、可审计、owner-approved 的 job，同时把仍留在 `scripts.strategy1_cloudrun` 的领域逻辑迁入稳定 package namespace，避免新的结构继续扩大临时 wrapper 命名空间。
+
+### 决策
+
+1. Research 到 ADS 的正式发布只通过 `quant_ashare.strategy1.promotion` / `python -m scripts.strategy1.promote_research_to_ads`，普通 runner/report/QA/acceptance 不得隐式写 ADS。
+2. Promotion 必须显式记录 `promotion_id`、source run/backtest/model、date window、approval metadata、acceptance contract version/hash、target ADS tables 和 `promotion_code_version`。
+3. Promotion 默认只允许 accepted research；若要绕过必须显式传 `--allow-unaccepted`。ADS 目标已有行时默认 fail-fast；覆盖必须显式传 `--force-replace`。
+4. 默认 promotion 目标包含 publishable outputs：registry、prediction、candidate、portfolio target、order plan、backtest trade/position/NAV/ledger state/summary 和 signal monitor；大体量 training panel 默认不复制，只有 owner opt-in 时复制。
+5. Phase E 将 dataset routing、acceptance、ledger、reporting/backtest 和 pipeline-control/orchestrator 实现迁入 `src/quant_ashare/strategy1/**`；旧 `scripts.strategy1_cloudrun.*` 文件保留为兼容 wrapper，Cloud Run entrypoint 迁移另行验证。
+6. Retired-reference linter 的 active scopes 扩展到 `src/**`，防止 package 迁移后新代码绕过 historical/audit 引用护栏。
+
+### 理由
+
+Promotion 是 research 与正式 ADS 之间的治理边界，必须可审计、可重复 review，并防止普通实验副作用污染 ADS。Training panel 体量大且不是最小正式产物，默认不发布能降低成本和误复制风险。先迁 package 实现但保留旧 wrapper，可以满足 Phase E 的代码边界收敛，同时避免未经镜像 smoke 就修改 Cloud Run command。
+
+### 影响
+
+1. 上线使用 promotion 前，需要给 promotion job / owner-approved service account 配置 research 读写、ADS 写和 manifest 写权限；普通 experiment runner 不应因此获得常规 ADS 写权限。
+2. 任何新增 Strategy1 领域逻辑应优先落在 `src/quant_ashare/strategy1/**`，旧 `scripts.strategy1_cloudrun/**` 只作为兼容入口。
+3. 后续若迁移 Cloud Run command 到 package module，必须单独 PR 并附镜像构建和 smoke / dry-run 证据。
+
+### 备选方案
+
+- 让 acceptance 通过后自动写 ADS：不采用。原因是 accepted 不等于 promoted，缺少 owner approval 和 manifest 审计。
+- 默认复制 training panel：不采用。原因是训练面板体量大且不是最小正式产物；需要时可显式 opt-in。
+- 直接删除旧 Cloud Run wrapper：不采用。原因是 entrypoint 变更需要单独镜像和 Cloud Run smoke。
+
+### 相关文件
+
+`src/quant_ashare/strategy1/promotion.py`, `scripts/strategy1/promote_research_to_ads.py`, `docs/策略1ResearchPromotion运行手册.md`, `src/quant_ashare/strategy1/{dataset_roles,acceptance,ledger,reporting,pipeline_control,legacy_names}.py`, `scripts/strategy1_cloudrun/{dataset_roles,acceptance,ledger,backtest_report,orchestrate_experiments}.py`, `configs/strategy1/active_step_catalog.yml`, `tests/strategy1/test_promotion.py`, `tests/strategy1/test_package_boundaries.py`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`

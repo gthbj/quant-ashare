@@ -6,6 +6,17 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：项目结构重构 Phase D3/E promotion job 与包化已实现
+
+- 分支 `codex/strategy1-d3e-promotion-package` 在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-d3e-promotion-package` 基于 PR #149 合并后的 `origin/main` 实现 Phase D3/E。
+- D3：新增 `src/quant_ashare/strategy1/promotion.py` 和 CLI `scripts/strategy1/promote_research_to_ads.py`。Promotion 需要显式 `promotion_id`、source run/backtest/model、date window、`approval_ref`、`approved_by`、acceptance contract version/hash；默认要求 source research 已 accepted，只有显式 `--allow-unaccepted` 才绕过；ADS 目标已有行时 fail-fast，只有显式 `--force-replace` 才清理覆盖。
+- Promotion 默认复制 publishable research outputs 到 ADS：model registry、prediction、candidate、portfolio target、order plan、backtest trade/position/NAV/ledger state/summary 和 signal monitor；大体量 training panel 默认不复制，需 `--include-training-panel` 或显式 `--target-role training_panel`。写入后更新 research lifecycle，并向 `research_promotion_manifest` 写 `promotion_status='succeeded'`、`target_ads_tables`、approval metadata 和 promotion code version。
+- Phase E：把 dataset routing helper、acceptance、ledger、reporting/backtest 和 pipeline-control/orchestrator 实现迁入 `src/quant_ashare/strategy1/**`；`scripts.strategy1_cloudrun.dataset_roles`、`acceptance`、`ledger`、`backtest_report`、`orchestrate_experiments` 改为短兼容 wrapper，Cloud Run entrypoint 名称暂不迁移。
+- 新增 `src/quant_ashare/strategy1/legacy_names.py` 读取 catalog 的 `allowed_legacy_names`，并将 retired-reference linter active scope 扩展到 `src/**`，防止 Phase E 后新包路径绕过历史引用护栏。
+- 新增运行手册 `docs/策略1ResearchPromotion运行手册.md`，明确 ordinary runner 不得隐式 promotion、promotion IAM 边界、dry-run/execute 命令、training panel opt-in 和验证口径。
+- 验证：`python3 -m pytest -q tests` 77 passed；`python3 -m compileall -q src scripts tests` 通过；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` 通过；`npx --yes @dataform/cli compile dataform` 通过（35 actions）；`git diff --check` 通过；promotion CLI dry-run 成功；BigQuery client dry-run 对 promotion script 返回 `dry_run=True`；41 条程序化 self-review invariant 全部通过。
+- 本轮未执行真实 promotion、未部署专用 promotion Cloud Run job、未修改已有 Cloud Run job entrypoint；后续合并后如要线上使用，需要基于 main 镜像/环境部署 owner-approved promotion job 或按 runbook 手工执行。
+
 ### 最新补充（2026-06-10）：项目结构重构 Phase D2 default research-first 已部署并验收
 
 - PR #148 已合并到 `main`，merge commit `13bf0b512b5def2b2ef51c42e504f439f87a4dcf`。
