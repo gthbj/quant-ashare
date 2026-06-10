@@ -20,7 +20,7 @@
 
 
 - [ ] OQ-010：按 `PRD_20260611_04` 修复 research summary `created_date`/`run_id` 落库
-  说明：`09` summary INSERT 列清单补 `run_id`/`created_date`，ADS additive 补列对齐 schema，回填现有 6 行（需 owner 批准），`qa_runner_outputs` 加 NOT NULL 断言。必须先于 final refit / continuous 任何重跑执行。
+  说明：代码侧修复已在分支 `codex/prd04-research-summary-fix` 完成：`09` summary INSERT 列清单补 `run_id`/`created_date`，ADS additive migration `sql/ads/04_alter_strategy1_backtest_summary_identity_columns.sql` 补列对齐 schema，`qa_runner_outputs` / `qa_cloudrun_schema_readiness` 加防复发断言。合并后仍需 live 执行 ADS migration、schema readiness QA、现有 6 行 research summary 回填与 NOT NULL 复核；该项必须先于 final refit / continuous 任何重跑完成。
 
 - [ ] OQ-010：按 `PRD_20260611_02` 实现年度滚动 final refit 并六年重跑
   说明：valid 选参后用最近 5 年 refit selected candidate——复用既有 BigQuery panel（经 `source_panel_run_id` 读 selection run panel），重新 fit preprocessor，不消费冻结 matrix transformed arrays；独立 refit run_id + 溯源契约 + 训练窗口 QA 硬门；2021-2026 从 select 之后重跑（refit + predict + 可选年度 diagnostic），不重跑 panel/matrix/fanout。

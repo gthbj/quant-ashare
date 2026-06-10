@@ -139,12 +139,12 @@ WHERE t.backtest_id = p_backtest_id
 
 -- 汇总绩效
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_performance_summary`
-(backtest_id, strategy_id, model_id, start_date, end_date,
+(backtest_id, strategy_id, model_id, run_id, start_date, end_date,
  total_return, annual_return, compound_annual_return, return_period_count,
  annualization_target_period_count, annualization_method,
  annual_vol, sharpe, max_drawdown,
  turnover_annual, benchmark_sec_code, excess_return, information_ratio,
- cost_bps, metrics_json, created_at)
+ cost_bps, metrics_json, created_date, created_at)
 WITH nav_data AS (
   SELECT n.trade_date, n.nav, n.daily_return,
          COALESCE(n.benchmark_return, 0) AS bench_ret,
@@ -190,7 +190,7 @@ annualized AS (
   FROM agg AS a
 )
 SELECT
-  p_backtest_id, p_strategy_id, p_selected_model_id,
+  p_backtest_id, p_strategy_id, p_selected_model_id, p_run_id,
   a.start_date, a.end_date,
   a.final_nav - 1.0,
   a.annual_return,
@@ -302,6 +302,7 @@ SELECT
     -- OQ-010 成本分解（从 trade 表汇总：commission + stamp_tax + slippage = economic_cost）
     cs.total_commission_cny, cs.total_tax_cny, cs.total_slippage_cny, cs.total_economic_cost_cny
   )),
+  CURRENT_DATE(),
   CURRENT_TIMESTAMP()
 FROM annualized AS a, drawdown AS dd, sell_stats AS ss, cost_stats AS cs;
 
