@@ -3,10 +3,59 @@
 > - 五个现有 jobs 的 `--help` boot smoke 全部成功：`train-predict-job-rrjmf`、`prepare-matrix-job-7bgfl`、`train-candidate-fanout-job-jtw78`、`select-register-predict-job-p88c9`、`backtest-report-job-glntc`。
 > - 新建专用 promotion SA `strategy1-promotion-runner@data-aquarium.iam.gserviceaccount.com` 与 Cloud Run job `strategy1-promote-research-to-ads-job`；help smoke `...-6kqd7` 与完整参数 review-only dry-run `...-4mkrv` 成功。
 > - Dry-run promotion smoke 未写 manifest：`promo_deploy_smoke_20260610_01` 在 `research_promotion_manifest` 行数为 `0`；`sql/research/03_qa_research_schema_readiness.sql` 7 条断言通过。
-> - PR #151 review follow-up 已实证 IAM 收敛仍有开放决策：五个普通 runner jobs 仍用 compute SA 且该 SA 有 `ashare_ads` WRITER；已登记 OQ-013 / TODO，未改线上 IAM。
+> - Owner 已选择 OQ-013 方案 1：接受普通 runner compute SA 暂保留 `ashare_ads` WRITER，但保留流程约束；OQ-013 已关闭归档，未改线上 IAM。
 > - 尚未执行真实 owner-approved promotion；后续必须 owner 指定 accepted research run 后，按 runbook 先 review-only 再带 `--execute`。
 
 Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - OQ-013 IAM 收敛决策记录
+
+### 已完成工作
+
+- 记录 owner 对 OQ-013 的选择：采用方案 1，接受现状但保留流程约束。
+- 将 `TODO.md` 中 OQ-013 勾选完成。
+- 将 OQ-013 从 `OPEN_QUESTIONS.md` 移出并归档到 `archive/CLOSED_QUESTIONS.md`。
+- 追加 `DECISION-20260610-12`，明确普通 runner compute SA 暂保留 `ashare_ads` WRITER，但普通新实验不得以 ADS 为默认写入路径。
+- 更新 `KNOWN_CONSTRAINTS.md` 和 `IMPLEMENTATION_STATUS.md`，说明本轮不修改线上 IAM。
+
+### 重要上下文
+
+- 本决策不改变 D2/D3 的流程边界：普通实验默认 research-first，ADS 正式发布只走 owner-approved promotion job。
+- 显式 `--output-dataset-role ads` / `dataset_role="ads"` 仅保留为历史 ADS audit / 兼容路径。
+- 后续若要做 IAM 硬隔离，需要新的 owner 决策，并先设计 ADS audit / 历史报告重渲染替代路径。
+
+### 改动文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/archive/CLOSED_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 本轮为文档 / 记忆决策记录；未改代码、SQL、BigQuery、Cloud Run 或 IAM。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 继续按 promotion runbook 等待 owner 指定 accepted research run 后执行首次真实 promotion。
+- Cloud Run entrypoint 从 wrapper 迁到 package module 仍需单独 PR 和镜像 smoke。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/archive/CLOSED_QUESTIONS.md`
+- `.agent/memory/DECISION_LOG.md`
+- `TODO.md`
 
 ## 2026-06-10 GPT-5 Codex - PR #151 review follow-up IAM 收敛留痕
 

@@ -64,8 +64,8 @@
 - [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase D3/E
   说明：分支 `codex/strategy1-d3e-promotion-package` 已新增 owner-approved promotion job `python -m scripts.strategy1.promote_research_to_ads`，默认仅 promotion accepted research 产物，显式复制/映射到 ADS 并写 `research_promotion_manifest`；默认目标不含大体量 training panel，需 owner opt-in。PR #150 review follow-up 已明确真实写入必须传 `--execute`、`--print-sql` / 默认模式只做 review-only，promotion 不反写 acceptance/research accepted 状态，并补 source trade/NAV 窗口完整性 guard。Phase E 已把 dataset routing、acceptance、ledger、reporting/backtest 和 pipeline-control/orchestrator 实现迁入 `src/quant_ashare/strategy1/**`，旧 `scripts.strategy1_cloudrun.*` 仅保留兼容 wrapper，并补 package/import smoke 与 wrapper re-export 测试。PR #150 合并后已构建正式 main 镜像 `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`，更新五个现有 Strategy1 jobs，并新建专用 `strategy1-promote-research-to-ads-job`；promotion job help smoke 与完整参数 review-only dry-run 已成功，dry-run promotion manifest 行数确认为 0。尚未执行真实 owner-approved promotion。
 
-- [ ] OQ-013 / 工程治理：决策并收敛 Strategy1 普通 runner 的 ADS 写权限
-  说明：PR #151 review follow-up 已实证五个普通 Strategy1 runner jobs 仍使用 `241358486859-compute@developer.gserviceaccount.com`，且 `ashare_ads` dataset 仍授予该 SA WRITER；显式 `--output-dataset-role ads` 仍可绕过 promotion job 直接写 ADS。不能直接 revoke，因为 ADS audit / 历史报告重渲染仍可能需要回写 summary `metrics_json`。需 owner 在三种方案中决策：接受现状但保留流程约束、收回普通 runner ADS WRITER 并为 audit 做特批路径、或按表级 / 专用 SA 收窄 ADS 写权限。
+- [x] OQ-013 / 工程治理：决策并收敛 Strategy1 普通 runner 的 ADS 写权限
+  说明：owner 已选择方案 1：接受现状但保留流程约束。五个普通 Strategy1 runner jobs 暂继续使用 `241358486859-compute@developer.gserviceaccount.com`，且该 SA 暂保留 `ashare_ads` WRITER，用于 ADS audit / 历史报告重渲染等兼容路径；不做 live IAM revoke。正式流程仍要求普通实验默认写 `ashare_research`，ADS 正式发布只走 owner-approved promotion job，显式 `--output-dataset-role ads` 仅作为历史 ADS audit / 兼容路径。
 
 - [x] 工程治理：修复 Dataform generated SQLX drift
   说明：已在单独 cleanup 分支重新运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件，并新增 pytest 防复发检查；`--check`、Dataform compile、`python3 -m pytest tests` 和 `git diff --check` 已通过。
