@@ -16,7 +16,7 @@
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
 
 - [ ] OQ-010：实现年度滚动选参回测实验
-  说明：`docs/prd/PRD_20260610_03_策略1年度滚动选参.md` 已定义年度 walk-forward 参数选择方案；`docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md` 已补执行工程化方案。2021 单年度 Cloud Run smoke 已在正式 jobs 上闭环，CV fold 修复已实证为 11/11 候选 `cv_fold_count=3`，select/register/predict 与 backtest/report 均成功。分支 `codex/annual-rolling-exec-impl` 已实现 ADS additive migration、schema readiness QA、annual rolling 11 候选 config 和 resolved payload dry-run wrapper；下一步先运行 readiness QA 和 dry-run 审核，再扩展完整 `2021-2026` 年度滚动，并用连续 ledger 评价，不拼接年度 fresh-run。
+  说明：`docs/prd/PRD_20260610_03_策略1年度滚动选参.md` 已定义年度 walk-forward 参数选择方案；`docs/prd/PRD_20260610_04_策略1年度滚动执行工程化.md` 已补执行工程化方案。2021 单年度 Cloud Run smoke 已在正式 jobs 上闭环，CV fold 修复已实证为 11/11 候选 `cv_fold_count=3`，select/register/predict 与 backtest/report 均成功；另有旧 `f57ff0a` 镜像时代的 2021 历史 smoke 证据，确认 11/11 candidate 成功和 `cv_fold_count=3`，但不代表当前线上状态。annual rolling resolved plan 已把 `build_training_panel_risk_feature` 作为每年第一步显式纳入；下一步扩展完整 `2021-2026` 年度滚动，并用连续 ledger 评价，不拼接年度 fresh-run。
 
 
 - [x] OQ-010：实现回测复合年化收益字段

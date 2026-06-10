@@ -10,6 +10,7 @@ matrix URIs and gcloud commands from the frozen annual rolling candidate config.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
 from datetime import date, datetime, timedelta
@@ -32,6 +33,7 @@ from scripts.strategy1_cloudrun.config import (
     load_runner_config,
 )
 from scripts.strategy1_cloudrun.dataset_roles import output_dataset_role_cli_args
+from scripts.strategy1_cloudrun.training_panel import build_training_panel_params
 from quant_ashare.strategy1.pipeline_control import (
     build_task_fanout_steps,
     gcloud_execute_command,
@@ -364,7 +366,8 @@ def command_plan(*, config, exp: Experiment, args: argparse.Namespace, include_b
         candidate_parallelism=args.candidate_parallelism,
         candidate_parallelism_from_cli=args.candidate_parallelism not in (None, 0),
     )
-    steps = build_task_fanout_steps(config, exp, task_args, common_flags)
+    steps = [training_panel_step(config, exp, args)]
+    steps.extend(build_task_fanout_steps(config, exp, task_args, common_flags))
     if include_backtest:
         backtest_flags = [
             *common_flags,
@@ -394,9 +397,34 @@ def command_plan(*, config, exp: Experiment, args: argparse.Namespace, include_b
             "display_name": step.display_name,
             "job_name": step.job_name,
             "command": step.command,
+            **({"sql_step": step.sql_step, "params": step.params} if getattr(step, "sql_step", None) else {}),
         }
         for step in steps
     ]
+
+
+def training_panel_step(config, exp: Experiment, args: argparse.Namespace) -> SimpleNamespace:
+    params = build_training_panel_params(exp, force_replace=args.force_replace)
+    encoded = base64.urlsafe_b64encode(
+        json_dumps_strict(params, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).decode("ascii")
+    return SimpleNamespace(
+        step_id="build_training_panel",
+        display_name="Build annual rolling training panel",
+        job_name=None,
+        sql_step=config.training_panel_step,
+        params=params,
+        command=[
+            sys.executable,
+            "-m",
+            "quant_ashare.strategy1.sql_runner",
+            f"--project={config.project}",
+            f"--region={config.region}",
+            f"--step={config.training_panel_step}",
+            f"--params-json-b64={encoded}",
+            *output_dataset_role_cli_args(config.output_dataset_role, equals=True),
+        ],
+    )
 
 
 def continuous_backtest_id_for(

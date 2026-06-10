@@ -70,6 +70,28 @@ python -m quant_ashare.strategy1.pipeline_control \
 2. `--candidate-parallelism 0` 表示候选 work unit 默认全并发；若 owner 显式传 `N > 0`，orchestrator 按 N 个 task 一批分批执行。
 3. candidate task 命令只读取 `matrix_uri`，不直接查询 BigQuery 训练面板。
 
+年度滚动选参 dry-run：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/annual_rolling_lgbm_regression_v0.yml \
+  --manifest configs/strategy1/annual_rolling_lgbm_regression_v0.yml \
+  --start-year 2021 \
+  --end-year 2026 \
+  --run-version vYYYYMMDD_NN \
+  --include-yearly-backtest-commands \
+  --dry-run
+```
+
+期望：
+
+1. 每个年度 plan 的第一步必须是 `build_training_panel`，`sql_step=build_training_panel_risk_feature`。
+2. `build_training_panel` 命令使用 `python -m quant_ashare.strategy1.sql_runner` 执行 catalog SQL step，并显式带 `--output-dataset-role=research`。
+3. 后续顺序必须是 `cloudrun_prepare_matrix`、`cloudrun_train_candidate_fanout`、`cloudrun_select_register_predict`，若传 `--include-yearly-backtest-commands` 再追加 `cloudrun_backtest_report`。
+4. 年度 fresh-run backtest 只作 diagnostic；正式 `2021-2026` 结果仍必须来自单一 continuous ledger 或经过 resume-continuous QA 的 segment ledger。
+
 sklearn native search dry-run：
 
 ```bash

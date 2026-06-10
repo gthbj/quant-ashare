@@ -288,13 +288,36 @@ def test_annual_rolling_command_plan_uses_package_entrypoints() -> None:
     )
 
     plan = annual_command_plan(
-        config=RunnerConfig(output_dataset_role="research"),
+        config=RunnerConfig(
+            output_dataset_role="research",
+            training_panel_step="build_training_panel_risk_feature",
+        ),
         exp=_experiment(),
         args=args,
         include_backtest=True,
     )
     joined = "\n".join(" ".join(step["command"]) for step in plan)
 
+    assert [step["step_id"] for step in plan[:4]] == [
+        "build_training_panel",
+        "cloudrun_prepare_matrix",
+        "cloudrun_train_candidate_fanout",
+        "cloudrun_select_register_predict",
+    ]
+    assert plan[0]["sql_step"] == "build_training_panel_risk_feature"
+    assert plan[0]["params"]["p_run_id"] == "unit_run"
+    assert plan[0]["params"]["p_feature_set_id"] == _experiment().feature_set_id
+    assert "quant_ashare.strategy1.sql_runner" in joined
+    assert "scripts.strategy1_cloudrun.sql_runner" not in joined
+    assert "--step=build_training_panel_risk_feature" in joined
+    assert "--output-dataset-role=research" in joined
+    catalog = load_step_catalog()
+    assert "scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection" not in (
+        catalog["steps"]["build_training_panel_base"]["caller"]
+    )
+    assert "scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection" in (
+        catalog["steps"]["build_training_panel_risk_feature"]["caller"]
+    )
     assert "quant_ashare.strategy1.prepare_matrix" in joined
     assert "quant_ashare.strategy1.train_candidate_task" in joined
     assert "quant_ashare.strategy1.select_register_predict" in joined

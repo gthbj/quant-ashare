@@ -1,4 +1,75 @@
 > 当前交接补充（2026-06-10，GPT-5 Codex）
+> - 分支 `codex/annual-training-panel-plan` 从最新 `origin/main@d8ac505` 新开，未复用旧 annual worktree 的脏改。
+> - annual rolling resolved plan 已显式把 `build_training_panel_risk_feature` 放到每年第一步，命令通过 `python -m quant_ashare.strategy1.sql_runner` 运行 catalog SQL step，后面才是 prepare/fanout/select/backtest。
+> - 旧 `/Users/fisher/Desktop/git/quant-ashare-annual-rolling-exec` 中的 2021 后续 smoke 只作为历史证据记录：它发生在 `main@f57ff0a` / 旧 runner image 时代，不代表当前线上 package entrypoint 状态。
+> - 本轮不修改 Cloud Run job spec、不重建镜像、不执行 BigQuery / Cloud Run 写入；下一步是 PR 合并后按新 plan 跑完整 `2021-2026` 年度滚动并用 continuous ledger 评价。
+
+Model: GPT-5 Codex
+
+## 2026-06-10 GPT-5 Codex - Annual rolling training panel plan
+
+### 已完成工作
+
+- 从 `origin/main@d8ac505` 新建干净 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-annual-training-panel-plan`，分支 `codex/annual-training-panel-plan`。
+- 新增 `scripts/strategy1_cloudrun/training_panel.py`，把 training panel SQL 参数生成逻辑从 native search 中抽为共享 helper。
+- 新增 package CLI `quant_ashare.strategy1.sql_runner`：`--step` + `--params-json-b64` 执行 catalog SQL step，支持 `--output-dataset-role` 和 `--dry-run`；`scripts.strategy1_cloudrun.sql_runner` 只保留兼容 re-export。
+- 修改 `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`：年度 command plan 第一项固定为 `build_training_panel`，使用 `build_training_panel_risk_feature`，后续才进入 prepare matrix、candidate fanout、select/register/predict 和可选 yearly diagnostic backtest/report。
+- 更新 `configs/strategy1/active_step_catalog.yml`，把 `build_training_panel_risk_feature` caller 补充为 annual rolling orchestrator。
+- 更新运行手册、TODO 和实现状态；旧 annual worktree 的 2021 后续 smoke 仅作为历史证据记录，未原样搬运。
+
+### 重要上下文
+
+- 旧 annual worktree `/Users/fisher/Desktop/git/quant-ashare-annual-rolling-exec` 仍落后最新 main 且有 3 个脏记忆/TODO 文件；本轮不继续把它作为开发源。
+- 历史 smoke 证据发生在 `main@f57ff0a` / 旧 runner image 时代，只证明当时 2021 单年链路可跑，不代表当前线上部署状态。
+- 本 PR 不修改线上 Cloud Run job spec、不重建镜像、不执行真实 BigQuery / Cloud Run 写入。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`
+- `scripts/strategy1_cloudrun/orchestrate_sklearn_native_search.py`
+- `src/quant_ashare/strategy1/sql_runner.py`
+- `src/quant_ashare/strategy1/reporting.py`
+- `scripts/strategy1_cloudrun/sql_runner.py`
+- `scripts/strategy1_cloudrun/training_panel.py`
+- `configs/strategy1/active_step_catalog.yml`
+- `tests/strategy1_cloudrun/test_dataset_role_routing.py`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `TODO.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1_cloudrun/test_dataset_role_routing.py::test_annual_rolling_command_plan_uses_package_entrypoints`：通过。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1_cloudrun/test_dataset_role_routing.py tests/strategy1/test_retired_lint.py`：27 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1_cloudrun`：35 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1_cloudrun tests/strategy1/test_sql_render.py tests/strategy1/test_research_contract.py tests/strategy1/test_retired_lint.py`：64 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1_cloudrun tests/strategy1/test_sql_render.py tests/strategy1/test_research_contract.py tests/strategy1/test_retired_lint.py tests/strategy1/test_package_boundaries.py`：68 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.sql_runner --help`：通过。
+- `PYTHONPATH=src python3 - <<'PY' ...`：确认 `scripts.strategy1_cloudrun.sql_runner.run_sql_step` re-export 到 package implementation。
+- `PYTHONPATH=src python3 -m scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection --start-year 2021 --end-year 2021 --run-version vunit --include-yearly-backtest-commands --dry-run`：输出 5 步，第一步为 `build_training_panel` / `build_training_panel_risk_feature`，命令使用 `quant_ashare.strategy1.sql_runner`，不再使用 `scripts.strategy1_cloudrun.sql_runner`。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提 PR。
+- PR 合并后再清理旧 annual worktree；清理前不要恢复其脏记忆/TODO 改动。
+- 按新 plan 执行完整 `2021-2026` 年度滚动，并用 continuous ledger 评价，不拼接年度 fresh-run。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+> 当前交接补充（2026-06-10，GPT-5 Codex）
 > - 旧分支 `codex/remove-composer-refresh-helper` 已确认 PR #129 合并且本地改动过时；重复 PRD 暂存和冲突编号记忆改动未沿用。
 > - 旧分支本地脏改动已保存在 `stash@{0}`，随后清理本地/远端旧分支，并从最新 `origin/main` 新开 `codex/record-dependency-install-convention`。
 > - 已追加 `DECISION-20260610-13`：本项目执行过程中若缺失必要本机 / 运行依赖，Agent 可直接安装最小必要依赖并继续任务，无需再次询问。

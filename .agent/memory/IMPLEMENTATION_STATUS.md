@@ -6,6 +6,15 @@ Last updated: 2026-06-10
 
 ## 当前状态
 
+### 最新补充（2026-06-10）：年度滚动 resolved plan 已显式纳入 training panel build
+
+- 分支 `codex/annual-training-panel-plan` 基于 `origin/main` commit `d8ac505`，修复 annual rolling orchestrator 的 plan 缺口：每个年度 command plan 第一项现在是 `build_training_panel`，执行 catalog step `build_training_panel_risk_feature`，后续才是 prepare matrix、candidate fanout、select/register/predict 和可选 yearly diagnostic backtest/report。
+- 新增 package entrypoint `quant_ashare.strategy1.sql_runner` CLI，可用 `--step` + `--params-json-b64` 执行 catalog SQL step；annual plan 通过该 CLI 生成可直接运行的本地 BigQuery SQL 命令，并显式传 `--output-dataset-role=research`。`scripts.strategy1_cloudrun.sql_runner` 仅保留兼容 re-export。
+- 抽出 `scripts/strategy1_cloudrun/training_panel.py`，让 native search 与 annual rolling 共用同一套 training panel SQL 参数生成逻辑，避免窗口字段漂移。
+- `configs/strategy1/active_step_catalog.yml` 已把 `build_training_panel_risk_feature` 的 caller 补充为同时覆盖 annual rolling orchestrator。
+- 旧 worktree `/Users/fisher/Desktop/git/quant-ashare-annual-rolling-exec` 中的 2021 后续 smoke 记录只作为历史证据保留：它发生在旧 `main@f57ff0a` / 旧 runner image 时代，确认 `s1_annual_roll_y2021_train2015_2019_valid2020_n20_w075_v20260610_01` 的 11/11 candidate 成功、`cv_fold_count=3`、select/register/predict 与 backtest/report 成功；但不代表当前 package entrypoint / wrapper 删除后的线上部署状态。
+- 本轮不修改 Cloud Run job spec、不重建镜像、不执行 BigQuery 或 Cloud Run 写入；完整 `2021-2026` 年度滚动仍需后续按最新 plan 执行并用 continuous ledger 评价。
+
 ### 最新补充（2026-06-10）：缺失本机/运行依赖可直接安装的 owner 约定已记录
 
 - 从已清理的旧 `codex/remove-composer-refresh-helper` 分支中只保留仍有效的 owner 约定：本项目执行过程中如缺失必要本机 / 运行依赖，Agent 可直接安装最小必要依赖并继续任务。
