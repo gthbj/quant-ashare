@@ -192,6 +192,58 @@ def test_transfer_coefficients_report_full_universe_and_membership_coverage() ->
     assert row["official_cash_weight"] == 0.6
 
 
+def test_execution_diagnostics_crosscheck_nav_cash_and_fill_status() -> None:
+    nav = pd.DataFrame(
+        {
+            "trade_date": [date(2021, 1, 11), date(2021, 1, 12)],
+            "cash_cny": [60.0, 20.0],
+            "net_value_cny": [100.0, 100.0],
+        }
+    )
+    positions = pd.DataFrame(
+        {
+            "trade_date": [date(2021, 1, 11), date(2021, 1, 12), date(2021, 1, 12)],
+            "sec_code": ["a", "a", "b"],
+            "weight": [0.4, 0.5, 0.3],
+        }
+    )
+    trades = pd.DataFrame(
+        {
+            "trade_date": [date(2021, 1, 11), date(2021, 1, 11), date(2021, 1, 12)],
+            "side": ["BUY", "BUY", "SELL"],
+            "fill_status": ["BUY_SKIPPED_BELOW_LOT", "FILLED", "FILLED"],
+            "turnover_cny": [0.0, 10.0, 5.0],
+        }
+    )
+    tc = pd.DataFrame(
+        [
+            {
+                "signal_date": date(2021, 1, 8),
+                "exec_date": date(2021, 1, 11),
+                "realized_target_overlap_rate": 0.25,
+                "realized_nonzero": 1,
+                "official_cash_weight": 0.6,
+            }
+        ]
+    )
+
+    out = analysis.compute_execution_diagnostics(
+        nav=nav,
+        positions=positions,
+        trades=trades,
+        transfer_coefficients=tc,
+    )
+
+    assert out["cash_summary"]["diff_gt_1e9_days"] == 0
+    assert out["cash_summary"]["max_cash_weight_abs_diff"] < 1e-12
+    assert out["worst_transfer"]["exec_date"] == date(2021, 1, 11)
+    worst = out["worst_fill_summary"]
+    skipped = worst[
+        (worst["side"] == "BUY") & (worst["fill_status"] == "BUY_SKIPPED_BELOW_LOT")
+    ]
+    assert int(skipped.iloc[0]["order_count"]) == 1
+
+
 def test_report_contains_preregistered_rules_and_no_score_reversal_instruction() -> None:
     cfg = analysis.AnalysisConfig(
         project="data-aquarium",

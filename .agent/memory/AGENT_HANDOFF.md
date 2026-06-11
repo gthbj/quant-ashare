@@ -13,7 +13,8 @@ Model: GPT-5 Codex
 > - 分支 `codex/signal-ic-transfer-analysis` 已完成 PRD_20260611_09 信号 IC 分解与组合转换效率分析：新增只读脚本 `scripts/strategy1/analyze_signal_ic_decomposition.py`、兼容入口 `scripts/strategy1/analyze_transfer_ladder.py`、报告 `docs/分析-策略1信号IC分解与转换效率-20260611.md` 与四份结果 CSV。
 > - 全程 BigQuery 只读：读取 official synthetic prediction run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`、official backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`、DWS labels/features/market state、DWD price/index 和 research target/position；未写 `ashare_research` / ADS / promotion。
 > - 关键结论：5d raw rank IC=`0.040908`、NW t=`5.586351`，2021-2026 年度 IC 全正；市值中性后 IC 保留 `90.52%`，行业 snapshot 参考保留 `88.20%`。L0 score-weighted long/short no-cost Sharpe=`2.800047`（20bps 后 `1.807056`）；新增 L0.5 top-decile long-only IR=`0.509749`，L1/L2/L3 long-only IR 约 `0.491`/`0.544`/`0.486`。
-> - Review follow-up 修正了旧 TC 伪迹：TC 改为 full prediction universe 域，平均 `TC_target=0.712888`、`TC_realized=0.628765`；target 与 score-weighted Top20 名字重合率均值/最小值均 `100%`，L3-L2 IR 差仅 `-0.058363`，等权替代分数权重不是优先瓶颈。真实执行缺口来自持仓覆盖率/现金路径：realized/target 覆盖率均值 `81.51%`、最小 `5%`，official 现金权重均值 `29.07%`。
+> - Review follow-up 修正了旧 TC 伪迹：TC 改为 full prediction universe 域，平均 `TC_target=0.712888`、`TC_realized=0.628765`；target 与 score-weighted Top20 名字重合率均值/最小值均 `100%`，L3-L2 IR 差仅 `-0.058363`，等权替代分数权重不是优先瓶颈。真实执行缺口来自持仓覆盖率/现金路径：realized/target 覆盖率均值 `81.51%`、最小 `5%`，TC 行内 `official_cash_weight` 均值 `29.07%`。
+> - 现金交叉核验已做实：NAV 表 `cash_cny/net_value_cny` 与 `1-sum(position.weight)` 最大差 `2.22e-16`、差异天数 `0`，NAV 现金权重均值 `29.36%`，现金 >50% 交易日 `265` 天。全周期 `BUY_SKIPPED_BELOW_LOT=690`，最低覆盖执行日 `2021-12-27` 的 20 个 BUY 全部 `BUY_SKIPPED_BELOW_LOT`，指向小资金 + 100 股整手约束造成的结构性现金拖累，而不是测量伪迹。
 > - L3 paper 与 official daily_return corr=`0.913059`，但 paper CAGR 比 official 高 `2.90pp`、MaxDD 比 official 差 `12.30pp`；报告已声明 paper ladder 只作转换效率上界/分解，不等同正式回测。OQ-010 路线决策仍留 owner，本轮不 accepted、不 promotion。
 >
 > Model: GPT-5 Codex
@@ -106,7 +107,8 @@ Model: GPT-5 Codex
 - Part A 结果：5d raw rank IC=`0.040908`，NW t=`5.586351`；年度 5d IC 全正（2021=`0.030861`、2022=`0.027927`、2023=`0.016943`、2024=`0.064402`、2025=`0.055560`、2026 YTD=`0.062493`）；市值中性后 IC=`0.037032`，保留 raw `90.52%`；snapshot 行业参考中性后 IC=`0.036080`，保留 `88.20%`。
 - Regime / bucket：risk_off IC=`0.030273` 但 NW t=`1.189055`，risk_on IC=`0.058193`；top/bottom decile 5d spread=`0.7486pp`，short-side contribution share=`52.51%`，未超过 60% 阈值。
 - Part B：L0 score-weighted long/short no-cost annual Sharpe=`2.800047`，20bps 成本后 `1.807056`；L0.5 top-decile long-only IR=`0.509749`，L1/L2/L3 long-only IR 分别约 `0.491` / `0.544` / `0.486`。L3-L2 IR 差=`-0.058363`，L1-L2 IR 差=`-0.053236`，宽度从 top decile 收到 Top50/Top20 没有形成第二个悬崖。
-- Review follow-up 修正旧 TC 伪迹：非零并集相关会退化为对等权常数向量求相关，不能解释为 `TC≈0`。现改用 full prediction universe 域并补 membership 诊断：平均 `TC_target=0.712888`、`TC_realized=0.628765`；target 与 score-weighted Top20 名字重合率均值/最小值均 `100%`，说明目标组合成员资格忠实于信号，等权替代分数权重不是优先瓶颈。执行层缺口用 realized/target 覆盖率与现金解释：覆盖率均值 `81.51%`、最小 `5%`，official 现金权重均值 `29.07%`。
+- Review follow-up 修正旧 TC 伪迹：非零并集相关会退化为对等权常数向量求相关，不能解释为 `TC≈0`。现改用 full prediction universe 域并补 membership 诊断：平均 `TC_target=0.712888`、`TC_realized=0.628765`；target 与 score-weighted Top20 名字重合率均值/最小值均 `100%`，说明目标组合成员资格忠实于信号，等权替代分数权重不是优先瓶颈。执行层缺口用 realized/target 覆盖率与现金解释：覆盖率均值 `81.51%`、最小 `5%`，TC 行内 `official_cash_weight` 均值 `29.07%`。
+- 交叉核验确认 official 现金不是 join 伪迹：NAV `cash_cny/net_value_cny` 与 `1-sum(position.weight)` 最大差 `2.22e-16`，差异天数 `0`；NAV 现金权重均值 `29.36%`，现金 >50% 交易日 `265` 天。全周期 `BUY_SKIPPED_BELOW_LOT=690`；最低覆盖执行日 `2021-12-27` 的 20 个 BUY 全部为 `BUY_SKIPPED_BELOW_LOT`。
 - L3 paper 与 official daily_return corr=`0.913059`，但 paper CAGR 比 official 高 `2.90pp`、MaxDD 比 official 差 `12.30pp`；报告明确 paper ladder 只用于转换效率上界/分解，不等同 official ledger。
 - 全程 BigQuery 只读，未写任何 dataset，未改 run/backtest，未 accepted，未 promotion。OQ-010 路线决策仍留 owner。
 
@@ -140,7 +142,7 @@ Model: GPT-5 Codex
 
 ### 下一步建议
 
-- 基于 PRD_09 结果，下一步优先讨论组合转换方向：是否设计 long/short 或 beta-hedged research prototype、是否将 score-weighted Top20 作为对照、以及如何处理 actual holdings 与 score implied weights 的 TC 接近 0 问题。
+- 基于 PRD_09 结果，下一步优先讨论组合转换方向：long-only 相对多空的约束损耗、真实 ledger 的 100 股整手 / 小资金现金拖累、以及是否需要把 target 名字忠实但实际持仓覆盖不足的问题纳入后续组合/执行层改造；等权 Top20 和 Top50 扩宽暂非优先瓶颈。
 - 不建议把本次 paper ladder 数值当正式回测结果；任何策略默认/accepted/promotion 仍需独立 PRD、真实 ledger 与 QA。
 
 ### 已更新记忆文件

@@ -142,12 +142,13 @@ def main(argv: list[str] | None = None) -> int:
     base = fetch_signal_base(client, cfg)
     validate_signal_base(base, cfg)
 
-    print("Fetching official NAV/benchmark/calendar/positions...", flush=True)
+    print("Fetching official NAV/benchmark/calendar/positions/trades...", flush=True)
     nav = fetch_official_nav(client, cfg)
     benchmark = fetch_benchmark(client, cfg)
     calendar = fetch_calendar(client, cfg)
     official_targets = fetch_official_targets(client, cfg)
     official_positions = fetch_official_positions(client, cfg)
+    official_trades = fetch_official_trades(client, cfg)
 
     print("Computing IC decomposition...", flush=True)
     daily_ic, ic_summary = compute_ic_outputs(base)
@@ -174,10 +175,16 @@ def main(argv: list[str] | None = None) -> int:
         official_positions=official_positions,
         calendar=calendar,
     )
+    execution_diagnostics = compute_execution_diagnostics(
+        nav=nav,
+        positions=official_positions,
+        trades=official_trades,
+        transfer_coefficients=transfer_coefficients,
+    )
     transfer_results = append_official_identity_check(transfer_results, l3_daily, nav)
 
-    write_outputs(cfg, daily_ic, ic_summary, transfer_results, transfer_coefficients)
-    print_summary(ic_summary, transfer_results, transfer_coefficients)
+    write_outputs(cfg, daily_ic, ic_summary, transfer_results, transfer_coefficients, execution_diagnostics)
+    print_summary(ic_summary, transfer_results, transfer_coefficients, execution_diagnostics)
     return 0
 
 
@@ -304,7 +311,7 @@ def fetch_benchmark(client: bigquery.Client, cfg: AnalysisConfig) -> pd.DataFram
 
 def fetch_official_nav(client: bigquery.Client, cfg: AnalysisConfig) -> pd.DataFrame:
     sql = f"""
-    SELECT trade_date, nav, daily_return
+    SELECT trade_date, nav, daily_return, cash_cny, net_value_cny
     FROM `{cfg.project}.ashare_research.research_backtest_nav_daily`
     WHERE backtest_id = @backtest_id
       AND trade_date BETWEEN @start_date AND @end_date
@@ -361,6 +368,35 @@ def fetch_official_positions(client: bigquery.Client, cfg: AnalysisConfig) -> pd
             bigquery.ScalarQueryParameter("end_date", "DATE", cfg.end_date),
         ],
         labels={"step": "signal_ic_positions_read", "mode": "readonly"},
+    )
+
+
+def fetch_official_trades(client: bigquery.Client, cfg: AnalysisConfig) -> pd.DataFrame:
+    sql = f"""
+    SELECT
+      trade_date,
+      sec_code,
+      side,
+      planned_shares,
+      filled_shares,
+      fill_price,
+      turnover_cny,
+      cash_effect_cny,
+      fill_status
+    FROM `{cfg.project}.ashare_research.research_backtest_trade_daily`
+    WHERE backtest_id = @backtest_id
+      AND trade_date BETWEEN @start_date AND @end_date
+    ORDER BY trade_date, side, fill_status, sec_code
+    """
+    return query_dataframe(
+        client,
+        sql,
+        [
+            bigquery.ScalarQueryParameter("backtest_id", "STRING", cfg.backtest_id),
+            bigquery.ScalarQueryParameter("start_date", "DATE", cfg.start_date),
+            bigquery.ScalarQueryParameter("end_date", "DATE", cfg.end_date),
+        ],
+        labels={"step": "signal_ic_trades_read", "mode": "readonly"},
     )
 
 
@@ -1026,6 +1062,90 @@ def safe_divide(numerator: float, denominator: float) -> float:
     return float(numerator / denominator)
 
 
+def compute_execution_diagnostics(
+    *,
+    nav: pd.DataFrame,
+    positions: pd.DataFrame,
+    trades: pd.DataFrame,
+    transfer_coefficients: pd.DataFrame,
+) -> dict[str, Any]:
+    nav_frame = nav.copy()
+    if nav_frame.empty or "cash_cny" not in nav_frame.columns or "net_value_cny" not in nav_frame.columns:
+        return {}
+    nav_frame["trade_date"] = pd.to_datetime(nav_frame["trade_date"]).dt.date
+    nav_frame["nav_cash_weight"] = nav_frame["cash_cny"].astype(float) / nav_frame["net_value_cny"].astype(float)
+
+    pos = positions.copy()
+    if pos.empty:
+        pos_sum = pd.DataFrame(columns=["trade_date", "position_weight_sum", "position_count"])
+    else:
+        pos["trade_date"] = pd.to_datetime(pos["trade_date"]).dt.date
+        pos_sum = (
+            pos.groupby("trade_date", as_index=False)
+            .agg(position_weight_sum=("weight", "sum"), position_count=("sec_code", "nunique"))
+        )
+
+    joined = nav_frame.merge(pos_sum, on="trade_date", how="left")
+    joined["position_weight_sum"] = joined["position_weight_sum"].fillna(0.0).astype(float)
+    joined["position_count"] = joined["position_count"].fillna(0).astype(int)
+    joined["implied_cash_weight"] = 1.0 - joined["position_weight_sum"]
+    joined["cash_weight_abs_diff"] = (joined["implied_cash_weight"] - joined["nav_cash_weight"]).abs()
+
+    cash_summary = {
+        "day_count": int(len(joined)),
+        "avg_nav_cash_weight": float(joined["nav_cash_weight"].mean()),
+        "avg_implied_cash_weight": float(joined["implied_cash_weight"].mean()),
+        "max_cash_weight_abs_diff": float(joined["cash_weight_abs_diff"].max()),
+        "avg_cash_weight_abs_diff": float(joined["cash_weight_abs_diff"].mean()),
+        "diff_gt_1e9_days": int((joined["cash_weight_abs_diff"] > 1e-9).sum()),
+        "min_position_count": int(joined["position_count"].min()),
+        "avg_position_count": float(joined["position_count"].mean()),
+        "max_nav_cash_weight": float(joined["nav_cash_weight"].max()),
+        "cash_gt_50pct_days": int((joined["nav_cash_weight"] > 0.5).sum()),
+    }
+
+    trades_frame = trades.copy()
+    if not trades_frame.empty:
+        trades_frame["trade_date"] = pd.to_datetime(trades_frame["trade_date"]).dt.date
+    fill_summary = summarize_fill_status(trades_frame)
+
+    worst = worst_transfer_row(transfer_coefficients)
+    worst_fill_summary = pd.DataFrame()
+    if worst and not trades_frame.empty and worst.get("exec_date") is not None:
+        worst_date = pd.Timestamp(worst["exec_date"]).date()
+        worst_fill_summary = summarize_fill_status(trades_frame[trades_frame["trade_date"] == worst_date])
+
+    return {
+        "cash_summary": cash_summary,
+        "worst_transfer": worst,
+        "fill_summary": fill_summary,
+        "worst_fill_summary": worst_fill_summary,
+    }
+
+
+def summarize_fill_status(trades: pd.DataFrame) -> pd.DataFrame:
+    if trades.empty:
+        return pd.DataFrame(columns=["side", "fill_status", "order_count", "date_count", "turnover_cny"])
+    grouped = (
+        trades.groupby(["side", "fill_status"], as_index=False)
+        .agg(
+            order_count=("fill_status", "size"),
+            date_count=("trade_date", "nunique"),
+            turnover_cny=("turnover_cny", "sum"),
+        )
+        .sort_values(["side", "fill_status"])
+        .reset_index(drop=True)
+    )
+    return grouped
+
+
+def worst_transfer_row(transfer_coefficients: pd.DataFrame) -> dict[str, Any] | None:
+    if transfer_coefficients.empty or "realized_target_overlap_rate" not in transfer_coefficients.columns:
+        return None
+    idx = transfer_coefficients["realized_target_overlap_rate"].astype(float).idxmin()
+    return transfer_coefficients.loc[idx].to_dict()
+
+
 def append_official_identity_check(
     transfer_results: pd.DataFrame,
     l3_daily: pd.DataFrame,
@@ -1060,6 +1180,7 @@ def write_outputs(
     ic_summary: pd.DataFrame,
     transfer_results: pd.DataFrame,
     transfer_coefficients: pd.DataFrame,
+    execution_diagnostics: dict[str, Any],
 ) -> None:
     for path, df in [
         (cfg.daily_ic_csv, daily_ic),
@@ -1072,7 +1193,7 @@ def write_outputs(
     if not cfg.skip_report:
         cfg.report_md.parent.mkdir(parents=True, exist_ok=True)
         cfg.report_md.write_text(
-            build_report(cfg, ic_summary, transfer_results, transfer_coefficients),
+            build_report(cfg, ic_summary, transfer_results, transfer_coefficients, execution_diagnostics),
             encoding="utf-8",
         )
 
@@ -1082,12 +1203,16 @@ def build_report(
     ic_summary: pd.DataFrame,
     transfer_results: pd.DataFrame,
     transfer_coefficients: pd.DataFrame,
+    execution_diagnostics: dict[str, Any] | None = None,
 ) -> str:
     best_l0 = top_row(transfer_results[transfer_results["level"] == "L0"], "absolute_sharpe_or_contract_sharpe")
     l3_check = transfer_results[
         (transfer_results["level"] == "L3") & (transfer_results["cost_bps"] == 0.0)
     ]
     tc_summary = transfer_coefficients.mean(numeric_only=True).to_dict() if not transfer_coefficients.empty else {}
+    execution_diagnostics = execution_diagnostics or {}
+    cash_summary = execution_diagnostics.get("cash_summary", {})
+    worst_transfer = execution_diagnostics.get("worst_transfer") or {}
     raw_5d = summary_value(ic_summary, "A5_horizon", "5d", "mean_rank_ic")
     size_neutral = summary_value(ic_summary, "A2_size_neutral", "log_circ_mv", "mean_rank_ic")
     industry_neutral = summary_value(
@@ -1143,6 +1268,7 @@ def build_report(
             f"- L0.5（top decile long-only score-weighted）IR = {fmt_float(level_metric(transfer_results, 'L0.5', 'information_ratio_vs_000852'))}，L1 Top50 IR = {fmt_float(level_metric(transfer_results, 'L1', 'information_ratio_vs_000852'))}，L2 Top20 IR = {fmt_float(level_metric(transfer_results, 'L2', 'information_ratio_vs_000852'))}。宽度从 top decile 收到 Top50/Top20 没有形成第二个悬崖；主要落差在 L0 多空到 long-only 之间。",
             f"- Official target 与 score-weighted Top20 的名字重合率均值 = {fmt_pct(tc_summary.get('target_ideal_overlap_rate'))}，最小值 = {fmt_pct(transfer_min(transfer_coefficients, 'target_ideal_overlap_rate'))}；L3-L2 IR 差 = {fmt_float(level_metric_delta(transfer_results, 'L3', 'L2', 'information_ratio_vs_000852'))}。按预登记规则，目标组合成员资格忠实于信号，等权替代分数权重不是优先瓶颈。",
             f"- 执行层诊断：实际持仓相对 target 的覆盖率均值 = {fmt_pct(tc_summary.get('realized_target_overlap_rate'))}，最小值 = {fmt_pct(transfer_min(transfer_coefficients, 'realized_target_overlap_rate'))}；official 现金权重均值 = {fmt_pct(tc_summary.get('official_cash_weight'))}。真实缺口应按持仓覆盖率/现金路径解释，而不是用退化的非零并集相关系数。",
+            f"- 现金交叉核验：NAV `cash_cny/net_value_cny` 与 `1-sum(position.weight)` 最大差 = {fmt_sci(cash_summary.get('max_cash_weight_abs_diff'))}，差异天数 = {fmt_int(cash_summary.get('diff_gt_1e9_days'))}；这说明 official 现金权重不是 join 伪迹。全周期 `BUY_SKIPPED_BELOW_LOT` 共 {fill_status_count(execution_diagnostics, 'BUY', 'BUY_SKIPPED_BELOW_LOT')} 笔，最低覆盖执行日的 BUY 全部被 `BUY_SKIPPED_BELOW_LOT` 拦截，指向小资金 + 100 股整手约束造成的结构性现金拖累。",
             "",
             "## IC 分解摘要",
             "",
@@ -1164,6 +1290,24 @@ def build_report(
             f"- realized/target 名字覆盖率均值: {fmt_pct(tc_summary.get('realized_target_overlap_rate'))}",
             f"- official 实际持仓数均值: {fmt_float(tc_summary.get('realized_nonzero'))}",
             f"- official 现金权重均值: {fmt_pct(tc_summary.get('official_cash_weight'))}",
+            "",
+            "## 执行层现金交叉核验",
+            "",
+            f"- NAV 现金权重均值: {fmt_pct(cash_summary.get('avg_nav_cash_weight'))}",
+            f"- position 隐含现金权重均值: {fmt_pct(cash_summary.get('avg_implied_cash_weight'))}",
+            f"- NAV 现金 vs position 隐含现金最大绝对差: {fmt_sci(cash_summary.get('max_cash_weight_abs_diff'))}",
+            f"- 差异 > 1e-9 的交易日数: {fmt_int(cash_summary.get('diff_gt_1e9_days'))}",
+            f"- 平均持仓数: {fmt_float(cash_summary.get('avg_position_count'))}；最小持仓数: {fmt_int(cash_summary.get('min_position_count'))}",
+            f"- 现金权重 > 50% 的交易日数: {fmt_int(cash_summary.get('cash_gt_50pct_days'))}",
+            f"- 最低 realized/target 覆盖执行日: `{iso_date(worst_transfer.get('exec_date'))}`，对应 signal date `{iso_date(worst_transfer.get('signal_date'))}`，覆盖率 {fmt_pct(worst_transfer.get('realized_target_overlap_rate'))}，实际持仓数 {fmt_int(worst_transfer.get('realized_nonzero'))}，现金权重 {fmt_pct(worst_transfer.get('official_cash_weight'))}。",
+            "",
+            "全周期 fill_status 汇总：",
+            "",
+            markdown_table(compact_fill_status_table(execution_diagnostics.get("fill_summary", pd.DataFrame()))),
+            "",
+            "最低覆盖执行日 fill_status 汇总：",
+            "",
+            markdown_table(compact_fill_status_table(execution_diagnostics.get("worst_fill_summary", pd.DataFrame()))),
             "",
             "## L3 恒等/偏差校验",
             "",
@@ -1335,6 +1479,17 @@ def compact_transfer_table(results: pd.DataFrame) -> pd.DataFrame:
     return results[cols].copy()
 
 
+def compact_fill_status_table(fill_summary: pd.DataFrame) -> pd.DataFrame:
+    if fill_summary.empty:
+        return pd.DataFrame()
+    cols = ["side", "fill_status", "order_count", "date_count", "turnover_cny"]
+    present = [c for c in cols if c in fill_summary.columns]
+    out = fill_summary[present].copy()
+    if "turnover_cny" in out.columns:
+        out["turnover_cny"] = out["turnover_cny"].map(lambda x: round(float(x), 2))
+    return out
+
+
 def markdown_table(df: pd.DataFrame) -> str:
     if df.empty:
         return "_无数据_"
@@ -1352,7 +1507,12 @@ def markdown_table(df: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def print_summary(ic_summary: pd.DataFrame, transfer_results: pd.DataFrame, tc: pd.DataFrame) -> None:
+def print_summary(
+    ic_summary: pd.DataFrame,
+    transfer_results: pd.DataFrame,
+    tc: pd.DataFrame,
+    execution_diagnostics: dict[str, Any] | None = None,
+) -> None:
     print("\nIC summary:")
     print(compact_ic_table(ic_summary).to_string(index=False))
     print("\nTransfer ladder:")
@@ -1360,6 +1520,23 @@ def print_summary(ic_summary: pd.DataFrame, transfer_results: pd.DataFrame, tc: 
     if not tc.empty:
         print("\nTC mean:")
         print(tc[["tc_target", "tc_realized"]].mean(numeric_only=True).to_string())
+    execution_diagnostics = execution_diagnostics or {}
+    cash_summary = execution_diagnostics.get("cash_summary", {})
+    if cash_summary:
+        print("\nExecution cash cross-check:")
+        print(
+            pd.DataFrame(
+                [
+                    {
+                        "avg_nav_cash_weight": cash_summary.get("avg_nav_cash_weight"),
+                        "avg_implied_cash_weight": cash_summary.get("avg_implied_cash_weight"),
+                        "max_cash_weight_abs_diff": cash_summary.get("max_cash_weight_abs_diff"),
+                        "diff_gt_1e9_days": cash_summary.get("diff_gt_1e9_days"),
+                        "cash_gt_50pct_days": cash_summary.get("cash_gt_50pct_days"),
+                    }
+                ]
+            ).to_string(index=False)
+        )
 
 
 def top_row(df: pd.DataFrame, field: str) -> dict[str, Any] | None:
@@ -1375,6 +1552,18 @@ def fmt_float(value: Any) -> str:
     return f"{float(value):.6f}"
 
 
+def fmt_sci(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    return f"{float(value):.3e}"
+
+
+def fmt_int(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    return str(int(value))
+
+
 def fmt_pct(value: Any) -> str:
     if value is None or pd.isna(value):
         return ""
@@ -1385,6 +1574,18 @@ def iso_date(value: Any) -> str | None:
     if value is None or pd.isna(value):
         return None
     return pd.Timestamp(value).date().isoformat()
+
+
+def fill_status_count(execution_diagnostics: dict[str, Any], side: str, fill_status: str) -> str:
+    fill_summary = execution_diagnostics.get("fill_summary", pd.DataFrame())
+    if fill_summary.empty:
+        return ""
+    row = fill_summary[
+        (fill_summary["side"] == side) & (fill_summary["fill_status"] == fill_status)
+    ]
+    if row.empty:
+        return "0"
+    return fmt_int(row.iloc[0]["order_count"])
 
 
 if __name__ == "__main__":
