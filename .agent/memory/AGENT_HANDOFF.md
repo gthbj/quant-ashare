@@ -1,11 +1,65 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
-> - 当前分支 `codex/fix-annual-refit-dedicated-panel` 正在处理 OQ-014：annual resolved plan 已新增 `build_refit_training_panel` step，final refit 的 `source_panel_run_id` 改为 refit run_id，不再读取 selection panel。
-> - Pipeline scheduler 已新增 `refit_panel:yYYYY` stage，DAG 为 `select -> refit_panel -> refit -> diagnostic/continuous`。
-> - Refit 窗口实际起点改为 `max(nominal_start, 2019-04-03)`；2021-2024 不是名义完整五年 refit，结果解释必须带 effective-window caveat。
-> - BigQuery 覆盖审计显示该 effective floor 下 2021-2026 六年当前均无 labeled sample open-day gap；PRD_02、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、TODO 和 DECISION-20260611-01 已同步。
-> - 合并后仍需重建 runner 镜像，并重跑 2021-2026 dedicated refit panel / refit / synthetic continuous；旧 official continuous 不得直接升级 accepted baseline 或 promotion source。
+> - PR #173 已合并到 `main@f1abf46`，dedicated refit panel + `effective_refit_train_start=max(nominal_start, 2019-04-03)` 口径进入主线。
+> - 已从 `main@f1abf46` 构建并部署正式 runner digest `sha256:4768d25f49de4bb1e8084476d6f1fe1542ed86750823751fa104738eb0947699`，五个 Strategy1 jobs 的 boot smoke 全过。
+> - 2021-2026 dedicated refit panel、final refit、refit QA、synthetic continuous merge、official continuous ledger、continuous QA 均已重跑通过。
+> - 最新 official continuous（effective-window）指标：compound_annual_return=`0.12036528993503204`，max_drawdown=`-0.4548151193656952`，information_ratio=`0.5420201365046585`，return_period_count=`1313`。
+> - OQ-014 仍开放：本结果不能描述为 2021-2024 名义完整五年 refit；是否接受 effective-window 结果进入 baseline 评估，仍需 owner 决策。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - Annual final refit dedicated panel rerun
+
+### 已完成工作
+
+- PR #173 已合并到 `main`，merge commit `f1abf46`，annual plan / scheduler 已正式切到 `select -> build_refit_training_panel -> refit`。
+- 从 `main@f1abf46` 构建并部署正式镜像 `strategy1-cloudrun-runner@sha256:4768d25f49de4bb1e8084476d6f1fe1542ed86750823751fa104738eb0947699`；五个正式 Strategy1 jobs 已更新，`latest` tag 未改。
+- 六个 boot smoke 全部成功：`strategy1-train-predict-job-f5bs7`、`strategy1-prepare-matrix-job-s7bww`、`strategy1-train-candidate-fanout-job-w925b`、`strategy1-select-register-predict-job-w66fd`、`strategy1-backtest-report-job-whbxz`、`strategy1-train-predict-job-jtx7r`（`refit_register_predict --help`）。
+- 2021-2026 dedicated refit panels 已重建成功，BigQuery jobs：`a967f6fe-9382-4a27-a18c-be3bd7e2fd4a`、`d69aeb3c-bc63-47d1-bd07-e89c224cf37c`、`00bf60cf-f0e5-4688-aa1b-c2bd9a9f8d27`、`41ed2c12-5d24-49a7-a81b-dab91fc1e6fc`、`b75ee22c-662b-4413-9e7e-5538f7d487a8`、`0c5a0656-407d-4c1e-9c99-3eeef5e09ab9`。
+- 六年 final refit 全部成功，Cloud Run executions：`strategy1-train-predict-job-t4vq7`、`strategy1-train-predict-job-bmdw6`、`strategy1-train-predict-job-jjblp`、`strategy1-train-predict-job-zwg82`、`strategy1-train-predict-job-9zm2h`、`strategy1-train-predict-job-qvc78`。
+- 六年 `qa_refit_register_predict_outputs` 全部通过：`27b9ffcc-4ecc-433b-b830-110551d08d0b`、`03213822-637a-4b37-92e3-2dc6d179faaa`、`e5136216-1e9f-4b51-80ba-cc9c93c2cc15`、`ca85715d-94f7-4c5d-bcef-cb44aff62253`、`df3e1750-9952-424b-94c3-af2d5403ac21`、`52f6ae15-9dec-4cc1-a0de-bffac8ed4d89`。
+- Official synthetic continuous 以同一 run id `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02` 重写成功，insert job `d2f9beea-a58f-4650-82d2-07b135174ee9`，prediction rows=`2643406`，resolved manifest sha256=`2062d93544dd7c2bd12566f42da0ad3c973b5c6a63f00f4cd1c72a3a5269ba97`。
+- Official continuous ledger 重跑成功，execution `strategy1-backtest-report-job-mq5d8`；continuous QA `fcd75906-ec42-454e-92e1-9b47d19a5727` 与 lot-aware QA `95dcee06-e912-481a-9c02-aafb14a823c5` 均通过。
+
+### 重要上下文
+
+- Effective-window official continuous summary：total_return=`0.8079208887460085`，compound_annual_return=`0.12036528993503204`，max_drawdown=`-0.4548151193656952`，information_ratio=`0.5420201365046585`，turnover_annual=`38.4823484768493`，total_economic_cost_cny=`17041.911125399998`。
+- 输出行数：prediction `2643406`、NAV `1314`、ledger_state `1314`、signal_monitor `1314`、candidate `279625`、order `4806`、trade `4776`、position `21401`、summary `1`。
+- `research_promotion_manifest` 行数为 `0`，ADS registry / prediction / summary 对同 synthetic run/backtest 均为 `0`。本轮没有 promotion、没有 ADS 写入。
+- 本轮结果是 current DWS coverage 下的 effective-window refit。2021-2024 不得表述为名义完整五年 refit；是否可进入 baseline 评估仍由 OQ-014 owner 决策。
+
+### 改动文件
+
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- PR #173 合并前：focused pytest 32 passed；full pytest 122 passed；retired lint、Dataform generated SQLX `--check`、compileall、`git diff --check` 均通过。
+- 部署后六个 Cloud Run `--help` boot smoke 均 Completed=True。
+- 六年 `qa_refit_register_predict_outputs` 均通过。
+- Official continuous `qa_continuous_backtest_outputs` 与 `qa_lot_aware_ledger_outputs` 均通过。
+- BigQuery 审计确认 research outputs 存在、promotion manifest 为 0、ADS 同 synthetic run/backtest 为 0。
+
+### 阻塞项
+
+- 无执行阻塞。OQ-014 仍需 owner 方法论决策。
+
+### 下一步建议
+
+- 决定 OQ-014：接受 effective-window annual result 进入下一轮策略评估，或投入 DWS/lookback 修复后追求 true pre-2019 五年窗口。
+- 若接受 effective-window 口径，再基于最新 official continuous 指标决定是否推进 accepted baseline 方案；仍不得直接 promotion。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - Annual final refit dedicated panel implementation
 

@@ -89,8 +89,8 @@ python -m scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection \
 
 1. 每个年度 plan 的第一步必须是 `build_training_panel`，`sql_step=build_training_panel_risk_feature`。
 2. `build_training_panel` 命令使用 `python -m quant_ashare.strategy1.sql_runner` 执行 catalog SQL step，并显式带 `--output-dataset-role=research`。
-3. 后续顺序必须是 `cloudrun_prepare_matrix`、`cloudrun_train_candidate_fanout`、`cloudrun_select_register_predict`、`cloudrun_refit_register_predict`，若传 `--include-yearly-backtest-commands` 再追加 `cloudrun_backtest_report`。
-4. `cloudrun_refit_register_predict` 使用 `quant_ashare.strategy1.refit_register_predict`，读取 selection run 的 selected registry 与 `source_panel_run_id`，写入独立 `__refit01` run。
+3. 后续顺序必须是 `cloudrun_prepare_matrix`、`cloudrun_train_candidate_fanout`、`cloudrun_select_register_predict`、`build_refit_training_panel`、`cloudrun_refit_register_predict`，若传 `--include-yearly-backtest-commands` 再追加 `cloudrun_backtest_report`。
+4. `build_refit_training_panel` 必须使用独立 `__refit01` run_id 写 dedicated refit panel；`cloudrun_refit_register_predict` 使用 `quant_ashare.strategy1.refit_register_predict`，通过 `source_run_id` 读取 selection run 的 selected registry lineage，通过 `source_panel_run_id=__refit01` 读取 dedicated refit panel，并写入同一个独立 `__refit01` run。
 5. 年度 fresh-run backtest 只作 diagnostic，且应引用 refit run；正式 `2021-2026` 结果仍必须来自单一 continuous ledger 或经过 resume-continuous QA 的 segment ledger。
 
 年度滚动 synthetic continuous merge 与 official continuous ledger：
