@@ -111,3 +111,19 @@ def test_markdown_table_does_not_require_optional_tabulate() -> None:
 
     assert "| a | b |" in table
     assert "0.123457" in table
+
+
+def test_report_display_columns_keep_detailed_metric_fields() -> None:
+    required = {
+        "annual_vol",
+        "benchmark_total_return",
+        "excess_return_vs_000852",
+        "max_drawdown_peak_date",
+        "max_drawdown_trough_date",
+        "crunch_strategy_return",
+        "crunch_000852_return",
+        "return_period_count",
+        "nav_row_count",
+    }
+
+    assert required <= set(sim.REPORT_DISPLAY_COLUMNS)

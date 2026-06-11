@@ -25,7 +25,7 @@ Model: GPT-5 Codex
 > - 已完成 Strategy1 暴露管理 NAV 级上限仿真（纯 BigQuery 只读 + 本地 pandas）：新增 `scripts/strategy1/simulate_exposure_overlay_upper_bound.py`、报告 `docs/分析-策略1暴露管理上限仿真-20260611.md`、结果矩阵 `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv`。
 > - 恒等校验通过：`e(t)==1` 复现 official continuous baseline CAGR `0.12036528993503293`、MaxDD `-0.45481511936569563`、Calmar `0.26464663290635421`、contract Sharpe `0.5285475500566128`；crunch excess vs `000852.SH`=`-0.19329880132544719`，与 PR #179 对比表一致。
 > - 最优无摩擦 exposure 变体为 `two_state_biweekly_elow0_cost0bps`：CAGR `0.12130091898447448`、MaxDD `-0.297527701723727`、Calmar `0.4076962188116182`、contract Sharpe `0.6005994875878142`、平均暴露 `0.8873668188736682`、切换 `24` 次。
-> - 按预登记判据，Calmar `<0.5`，建议真实 exposure ledger 工程缓做/降优先级；所有 exposure 变体 contract Sharpe 最高仅 `0.6006 < 0.70`，v3 双门仍不可达。未写任何 BigQuery dataset、未改默认 profile、未 accepted、未 promotion，OQ-010 路线决策仍留给 owner。
+> - 按预登记判据，Calmar `<0.5`，建议真实 exposure ledger 工程缓做/降优先级；所有 exposure 变体 contract Sharpe 最高仅 `0.6006 < 0.70`，v3 双门仍不可达。报告 follow-up 已把 Markdown 结果表扩展为 25 列详细矩阵并补字段说明；未写任何 BigQuery dataset、未改默认 profile、未 accepted、未 promotion，OQ-010 路线决策仍留给 owner。
 
 Model: GPT-5 Codex
 
@@ -163,7 +163,7 @@ Model: GPT-5 Codex
 
 - 新增 `scripts/strategy1/simulate_exposure_overlay_upper_bound.py`，对 official continuous baseline NAV 做本地 pandas 暴露缩放上限仿真；BigQuery 查询全为只读，不写 `ashare_research` / ADS / promotion 相关表。
 - 新增 `docs/分析-策略1暴露管理上限仿真-20260611.md`，按预登记判据报告方法、局限、恒等校验、完整矩阵摘要和结论。
-- 新增结果 CSV `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv`，包含 identity + `e_low` / 状态机 / 生效时点 / 成本档共 49 行结果。
+- 新增结果 CSV `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv`，包含 identity + `e_low` / 状态机 / 生效时点 / 成本档共 49 行结果；review follow-up 后 Markdown 报告也展示同一 25 列详细结果矩阵和字段说明。
 - 新增 `tests/strategy1/test_exposure_overlay_upper_bound.py`，覆盖 PIT 信号、三态迟滞、biweekly 调仓约束、成本扣减、identity metric 复现和 markdown 表输出。
 
 ### 重要上下文
@@ -186,7 +186,7 @@ Model: GPT-5 Codex
 ### 测试 / 验证
 
 - Live read-only simulation：`Identity check passed`，market state / NAV / benchmark SSE 开市日覆盖一致，`is_risk_off` 无 NULL。
-- Focused pytest：`tests/strategy1/test_exposure_overlay_upper_bound.py` 通过。
+- Focused pytest：`tests/strategy1/test_exposure_overlay_upper_bound.py` 通过，含 detailed report column guard。
 - `py_compile` / `compileall`、retired linter、Dataform generated SQLX check、`git diff --check` 通过。
 
 ### 阻塞项

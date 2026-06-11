@@ -45,6 +45,62 @@ EXPECTED_BASELINE = {
     "crunch_excess_return_vs_000852": -0.1932988013254472,
 }
 
+REPORT_DISPLAY_COLUMNS = [
+    "variant_id",
+    "state_machine",
+    "timing",
+    "e_low",
+    "transaction_cost_bps",
+    "total_return",
+    "compound_annual_return",
+    "annual_vol",
+    "contract_sharpe",
+    "max_drawdown",
+    "calmar_ratio",
+    "benchmark_total_return",
+    "excess_return_vs_000852",
+    "information_ratio",
+    "max_drawdown_peak_date",
+    "max_drawdown_trough_date",
+    "crunch_strategy_return",
+    "crunch_000852_return",
+    "crunch_excess_return_vs_000852",
+    "average_exposure",
+    "exposure_lt_1_day_ratio",
+    "exposure_switch_count",
+    "cumulative_cost_drag_pp",
+    "return_period_count",
+    "nav_row_count",
+]
+
+COLUMN_DESCRIPTIONS = [
+    ("variant_id", "仿真变体 id；baseline_identity 为恒等校验行。"),
+    ("state_machine", "暴露状态机：identity / two_state / hysteresis。"),
+    ("timing", "暴露调整频率：daily 每日可调，biweekly 仅双周调仓日可调。"),
+    ("e_low", "risk-off 目标暴露；1.0 表示满仓，0.0 表示空仓现金。"),
+    ("transaction_cost_bps", "每次暴露变化成本，按 abs(delta exposure) * bps 扣减。"),
+    ("total_return", "窗口总收益，按模拟 NAV 复利。"),
+    ("compound_annual_return", "复合年化收益，按非空日收益期数 annualize。"),
+    ("annual_vol", "日收益样本标准差 * sqrt(252)。"),
+    ("contract_sharpe", "v3 contract 口径：compound_annual_return / annual_vol。"),
+    ("max_drawdown", "模拟 NAV 最大回撤。"),
+    ("calmar_ratio", "compound_annual_return / abs(max_drawdown)。"),
+    ("benchmark_total_return", "000852.SH 同窗口总收益，来自 dwd_index_eod pct_chg / 100。"),
+    ("excess_return_vs_000852", "策略 total_return - benchmark_total_return。"),
+    ("information_ratio", "年化日超额均值 / 年化日超额跟踪误差。"),
+    ("max_drawdown_peak_date", "最大回撤起点峰值日期。"),
+    ("max_drawdown_trough_date", "最大回撤谷底日期。"),
+    ("crunch_strategy_return", "2024-01-01 至 2024-02-07 策略收益。"),
+    ("crunch_000852_return", "同 crunch 段 000852.SH 收益。"),
+    ("crunch_excess_return_vs_000852", "crunch_strategy_return - crunch_000852_return。"),
+    ("average_exposure", "窗口内平均目标暴露。"),
+    ("exposure_lt_1_day_ratio", "目标暴露小于 1.0 的开市日占比。"),
+    ("exposure_switch_count", "目标暴露变化次数，作为 whipsaw 计数。"),
+    ("cumulative_cost_drag_pp", "累计成本拖累，百分点。"),
+    ("return_period_count", "用于年化的非空日收益期数。"),
+    ("nav_row_count", "NAV / 开市日行数。"),
+]
+
 
 @dataclass(frozen=True)
 class Variant:
@@ -504,26 +560,14 @@ def build_report(result: pd.DataFrame, args: argparse.Namespace, output_csv: Pat
     max_variant_contract_sharpe = float(result[~result["is_identity"]]["contract_sharpe"].max())
     verdict = verdict_for_calmar(float(best_zero["calmar_ratio"]))
     matrix = result.drop(columns=["is_identity"]).copy()
-    display_cols = [
-        "variant_id",
-        "compound_annual_return",
-        "max_drawdown",
-        "calmar_ratio",
-        "contract_sharpe",
-        "information_ratio",
-        "crunch_excess_return_vs_000852",
-        "average_exposure",
-        "exposure_lt_1_day_ratio",
-        "exposure_switch_count",
-        "cumulative_cost_drag_pp",
-    ]
-    matrix_md = markdown_table(matrix[display_cols])
+    matrix_md = markdown_table(matrix[REPORT_DISPLAY_COLUMNS])
     top_zero = (
         result[(~result["is_identity"]) & (result["transaction_cost_bps"] == 0)]
         .sort_values("calmar_ratio", ascending=False)
-        .head(10)[display_cols]
+        .head(10)[REPORT_DISPLAY_COLUMNS]
     )
     top_zero_md = markdown_table(top_zero)
+    column_descriptions_md = markdown_table(pd.DataFrame(COLUMN_DESCRIPTIONS, columns=["column", "description"]))
     return f"""> 文档维护：GPT-5 Codex（最近更新 2026-06-11）
 
 # 分析：策略1暴露管理上限仿真（NAV 级离线估计）
@@ -563,7 +607,7 @@ def build_report(result: pd.DataFrame, args: argparse.Namespace, output_csv: Pat
 - market state / NAV / benchmark 均按 SSE 开市日逐日对齐，`is_risk_off` 无 NULL。
 - baseline crunch excess vs `{args.benchmark_sec_code}` = `{baseline['crunch_excess_return_vs_000852']:.17g}`，与 PR #179 对比表一致。
 - 表中 `information_ratio` 与 `excess_return_vs_000852` 按本任务指定的 `dwd_index_eod.pct_chg / 100` 重算；不复用 summary 表 legacy benchmark_return。
-- 完整 CSV：`{output_csv.as_posix()}`
+- Markdown 表与完整 CSV 使用同一详细列集；CSV：`{output_csv.as_posix()}`
 
 ## 结论
 
@@ -579,6 +623,10 @@ def build_report(result: pd.DataFrame, args: argparse.Namespace, output_csv: Pat
 按预登记判据：**{verdict}**
 
 所有 exposure 变体的最高 contract Sharpe 为 `{max_variant_contract_sharpe:.4f}`，仍低于 v3 gate `0.70`。即使暴露管理达到本次无摩擦上界，v3 双门仍不可达，主要缺口仍在 alpha 质量或信号/组合构造。
+
+## 数据列说明
+
+{column_descriptions_md}
 
 ## Top 10 无摩擦变体
 
