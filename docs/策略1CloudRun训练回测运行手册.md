@@ -565,6 +565,57 @@ python -m quant_ashare.strategy1.pipeline_control \
 3. P2 v0 动作固定为 `skip_new_buys`：risk-off 次日允许卖出和 pending sell 继续处理，但所有 BUY 侧新增/加仓订单写 `BUY_SKIPPED_MARKET_RISK_OFF`，不成交、不候补。
 4. `tail_risk/market_risk_off_dates.csv` 记录 risk-off 日期、触发原因和关键指标；`10` / `20` QA 会校验 risk-off 执行日没有真实 BUY 成交。
 
+## 7.4 Tail-risk overlay continuous A/B
+
+年度 final-refit + synthetic continuous 基线完成后，可用专用入口在同一条 synthetic prediction 流上跑 P1 / P2 / P1+P2 三组 portfolio-only continuous A/B：
+
+```bash
+python -m quant_ashare.strategy1.tail_risk_overlay_ab \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/cloudrun_runner_default.yml \
+  --run-version vYYYYMMDD_NN \
+  --dry-run
+```
+
+执行前先跑 research readiness QA 和 overlay preflight：
+
+```bash
+bq query --use_legacy_sql=false --location=asia-east2 < sql/research/03_qa_research_schema_readiness.sql
+```
+
+```bash
+python -m quant_ashare.strategy1.tail_risk_overlay_ab \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/cloudrun_runner_default.yml \
+  --run-version vYYYYMMDD_NN \
+  --preflight-only
+```
+
+真实执行三组 arm：
+
+```bash
+python -m quant_ashare.strategy1.tail_risk_overlay_ab \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/cloudrun_runner_default.yml \
+  --run-version vYYYYMMDD_NN \
+  --execute-cloud-run \
+  --parallel-arms \
+  --wait
+```
+
+执行语义：
+
+1. 默认自动发现最新 refit-backed synthetic continuous selected registry row；也可显式传 `--prediction-run-id`、`--synthetic-model-id`、`--manifest-sha256` 和 `--baseline-backtest-id` 固定输入。
+2. 三组 arm 分别使用 `individual_risk_guard_v0`、`market_risk_off_v0`、`individual_and_market_risk_guard_v0`，全部写 `ashare_research`，不 promotion、不改默认 `diagnostic_only`。
+3. 每个 arm 通过正式 `strategy1-backtest-report-job` 运行 `quant_ashare.strategy1.backtest_report`，并显式传 `--skip-diagnosis --skip-tail-risk --skip-qa`；这里跳过的是诊断/默认 QA，不影响 profile-driven guard。
+4. 三个 arm 写不同 run/backtest id，可用 `--parallel-arms` 并发提交；默认不传时按 A1 → A2 → A3 串行。
+5. Runner 对每个 arm 跑 `qa_continuous_backtest_outputs` 与 `qa_lot_aware_ledger_outputs`，三臂完成后跑 `qa_tail_risk_overlay_ab_outputs` 汇总 guard 生效性和对比表。
+6. `qa_tail_risk_overlay_ab_outputs` 的 preflight 会额外验证 full-window market-state coverage、top20 rebalance prediction 的 tail-risk 必需字段可用性，以及 `000852.SH` 在 2024-01-01 至 2024-02-07 crunch 段的逐开市日覆盖。
+7. 最终对比表包含 CAGR / MaxDD / Calmar / contract Sharpe / IR / 回撤 peak-trough 日期 / 年化换手 / risk-off 期现金占比均值与峰值 / `BUY_SKIPPED` 逐年 JSON / crunch 段策略 vs `000852.SH` 超额。
+
 ## 8. QA
 
 Cloud Run smoke 后执行：
@@ -577,6 +628,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_lot_
 bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_cloudrun_orchestrator_status.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_sklearn_native_search_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_tail_risk_outputs.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_tail_risk_overlay_ab_outputs.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/11_market_state_checks.sql
 ```
 
