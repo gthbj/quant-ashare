@@ -50,8 +50,8 @@
 - [ ] OQ-010：按 R14 长训练窗口 PRD 做覆盖审计
   说明：`docs/prd/PRD_20260609_01_策略1R14长训练回测.md` 已定义固定 R14 方法、`2015-04-01 ~ 2019-12-31` 名义训练窗口和 `2020-2022` 的 `10` 只 / `20` 只双组合 diagnostic backtest；`2023-01 ~ 2026-06-09` 追加回测视 P0 结果和 owner 决策而定，若追加也跑两个组合。PR #130 已修复显式 `backfill` 历史窗口下限，PR #132 已修复 `dim_stock` 历史生命周期；2015 年重跑后又暴露 core smoke 仍用 2019 作为全表存在下限，分支 `codex/fix-historical-backfill-core-smoke` 已修复，待合并部署后重新触发 2015 年补数。
 
-- [ ] OQ-012：决定是否正式关闭 schema mismatch 问题
-  说明：schema contract、repair/validate 脚本和 `sql/qa/06_ods_parquet_schema_checks.sql` 都已具备，当前 BigQuery 读层没有 mismatch 暴露；剩余是 owner 决定归档关闭，还是保留防复发工程项。
+- [x] OQ-012：正式关闭 schema mismatch 问题
+  说明：owner 已确认归档关闭。schema contract、repair/validate 脚本和 `sql/qa/06_ods_parquet_schema_checks.sql` 都已具备；2026-06-05 P0 与 all 范围只读复核通过，当前 BigQuery 读层没有 mismatch 暴露。防复发规则继续保留在 `KNOWN_CONSTRAINTS.md`：新增/修复 ODS Parquet 必须按 schema contract 显式 cast 并跑 QA，历史 raw 修复默认走 GCS 原 Parquet schema-preserving rewrite。
 
 ## P1 — 后续优化
 

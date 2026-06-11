@@ -3028,3 +3028,41 @@ PR #173 已合并并完成 live 重跑：2021-2026 dedicated refit panel、final
 ### 相关文件
 
 `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/archive/CLOSED_QUESTIONS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260611-03: 关闭 OQ-012 ODS Parquet schema mismatch
+
+日期: 2026-06-11
+状态: active
+负责人: owner
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+OQ-012 记录了 10 张 ODS 外部表历史上暴露的 Parquet schema mismatch：`ods_tushare_stk_limit` 属当前 P0 源表，其余 `daily_info/dividend/fina_audit/limit_list_d/margin/margin_detail/moneyflow/stk_rewards/sz_daily_info` 属 P1/P2/P3 扩展表。实现侧已经具备 schema contract、repair / validate 脚本和 `sql/qa/06_ods_parquet_schema_checks.sql`。2026-06-05 只读复核中，`06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过，`ods_tushare_stk_limit` 2019+ 可读行数为 10,662,140，当前 BigQuery 读层未再暴露 mismatch。
+
+### 决策
+
+1. 正式关闭 OQ-012，并从 `OPEN_QUESTIONS.md` 移入 closed archive。
+2. 不再把 schema mismatch 作为当前阻塞问题或开放 owner 决策项。
+3. 保留长期防复发约束：新增或修复 ODS Parquet 时，必须按 schema contract 显式 cast，并运行对应 QA。
+4. 历史 raw 修复仍按 `PRD_20260603_04` 口径执行：默认从 GCS 原 Parquet 做 schema-preserving rewrite；API 重拉只作为原文件损坏、缺失、行数无法复原或 owner 明确要求的补救路径。
+
+### 理由
+
+当前生产读层已经无 mismatch 暴露，且防复发工具链和约束已落地。继续把 OQ-012 留在开放问题中只会制造优先级噪音；真正需要保留的是 schema contract / explicit cast / QA 的工程约束。
+
+### 影响
+
+1. `OPEN_QUESTIONS.md` 当前只保留仍需 owner 决策的问题。
+2. `TODO.md` 中 OQ-012 收口项标记为已完成。
+3. 后续新增 endpoint、修复历史 raw 或改 ingestion Parquet 写入逻辑时，仍必须遵守 `KNOWN_CONSTRAINTS.md` 中的 schema contract 和 QA 约束。
+
+### 备选方案
+
+- 继续保留 OQ-012 open，等待未来再确认：不采用，因为当前复核证据已足够关闭运行问题，防复发应作为长期约束而不是开放问题。
+- 关闭 OQ-012 并删除防复发约束：不采用，因为 schema drift 是外部表高风险问题，必须保留 contract / cast / QA 门禁。
+
+### 相关文件
+
+`.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/archive/CLOSED_QUESTIONS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/ARCHITECTURE_MEMORY.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `TODO.md`, `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`, `sql/qa/06_ods_parquet_schema_checks.sql`

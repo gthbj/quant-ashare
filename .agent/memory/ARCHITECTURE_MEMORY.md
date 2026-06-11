@@ -45,7 +45,7 @@ OQ-005 raw GCS canonical 路径为 `a-share/tushare/raw_data/api=<api>/endpoint=
 
 ## ODS Raw Parquet Schema 修复约束
 
-2026-06-03 已确认 10 张 ODS 外部表存在 2019+ Parquet 物理类型 mismatch，方案文档为 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`。修复优先级：先修当前 P0 源表 `ods_tushare_stk_limit`，再分批修 P1/P2/P3 扩展表 `limit_list_d`、`moneyflow`、`margin_detail`、`dividend`、`margin`、`daily_info`、`sz_daily_info`、`fina_audit`、`stk_rewards`。2026-06-05 只读复核中，`sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过；当前 BigQuery 读层未再暴露 schema mismatch，后续是否关闭 OQ-012 或保留防复发任务待 owner 决定。
+2026-06-03 已确认 10 张 ODS 外部表存在 2019+ Parquet 物理类型 mismatch，方案文档为 `docs/prd/PRD_20260603_04_ODS外部表ParquetSchema修复.md`。2026-06-05 只读复核中，`sql/qa/06_ods_parquet_schema_checks.sql` 对 P0 与 all 范围均通过，`ods_tushare_stk_limit` 2019+ 可读行数 10,662,140，当前 BigQuery 读层未再暴露 schema mismatch；OQ-012 已于 2026-06-11 正式关闭归档。长期防复发口径保留：新增/修复 ODS Parquet 必须按 schema contract 显式 cast 并跑 QA；历史 raw 修复默认走 GCS 原 Parquet schema-preserving rewrite，不默认 API 重拉。
 
 修复路径固定为：schema contract → GCS 原 Parquet 读取 → 显式 cast → staging → 临时 external table 验证 → backup → 发布正式 prefix → 正式 ODS QA。默认不从 API 重拉覆盖历史 raw；API 重拉仅作为原文件损坏、缺失、行数无法复原或 owner 明确要求的补救路径。
 
