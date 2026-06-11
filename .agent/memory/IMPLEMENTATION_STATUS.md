@@ -421,10 +421,10 @@ Last updated: 2026-06-11
 - `scripts/strategy1/replay_acceptance_gate_v3.py` 与 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 已按最新 contract 真执行通过；当前结果仍为 `25` 个候选里 `1 accepted / 24 rejected`。
 - `24_qa_acceptance_gate_v3_replay_outputs.sql` 已不再依赖手工镜像默认值：replay scope、Top-K、benchmark 集合、窗口、阈值和允许的 `score_orientation` 都由 helper 从 contract 渲染。
 
-### 最新补充（2026-06-08）：当前仍开放的主线只剩 OQ-010 与 OQ-012
+### 最新补充（2026-06-08，2026-06-11 更新）：当前仍开放的主线只剩 OQ-010
 
 - OQ-010：Cloud Run Python 路径已打通，但当前仍没有 accepted Python baseline；后续重点仍是寻找可接受模型 / 特征 / 风险控制组合。
-- OQ-012：schema contract、修复/验证脚本和 `06_ods_parquet_schema_checks.sql` 都已具备，当前 BigQuery 读层无 mismatch 暴露；剩余是 owner 是否正式关闭该问题，或保留防复发工程项。
+- OQ-012：2026-06-11 已正式关闭归档。schema contract、修复/验证脚本和 `06_ods_parquet_schema_checks.sql` 都已具备；2026-06-05 只读复核对 P0 与 all 范围均通过，当前 BigQuery 读层无 mismatch 暴露。防复发口径保留为长期约束：新增/修复 ODS Parquet 必须按 schema contract 显式 cast 并跑 QA。
 
 ## 已完成（Completed）
 
@@ -440,13 +440,13 @@ Last updated: 2026-06-11
 ## 进行中 / 部分（In Progress）
 
 - OQ-010：Cloud Run Python / native 模型路线仍在探索，当前 binary / regression / risk-feature 多轮候选都未产生 accepted baseline；live acceptance gate 正在从 v1 切到 v3，PR #125 分支已完成 2 候选 smoke。
-- OQ-012：schema repair 工具链和 QA 已 ready，当前问题更偏向收口决策，而不是缺实现。
+- OQ-012：schema repair 工具链和 QA 已 ready，且已于 2026-06-11 关闭归档。
 - OQ-005：主迁移已完成，只剩 cutover 后短观察窗记录和少量非阻断运维收尾。
 
 ## 未开始 / 未来（Not Started / Future）
 
 - 若后续真实运行暴露 stale-lock 边界，再为 `ashare-pipeline-control` 的 stale-lock reclaim 增加 Workflows execution liveness 检查。
-- 若 owner 决定继续精修 OQ-012，可把 schema contract / cast 防复发要求进一步前推到 ingestion 发布链路。
+- 后续新增 endpoint 或修复历史 raw 时，继续按 OQ-012 留下的 schema contract / cast / QA 防复发约束执行。
 - 若 owner 决定继续推进策略侧，优先做 OQ-010 可接受 Python baseline，而不是恢复 BQML / SQL runner 路线。
 - `lookback-capable` 价格构建输入、P1+ 资金面/事件/行业族 DWD、`dim_stock_sw_industry_hist` / `dim_stock_ci_industry_hist` 仍是后续扩展项。
 
@@ -463,7 +463,7 @@ Last updated: 2026-06-11
 | 市场状态 DWS | 已完成首版 | `dws_market_state_daily` 已进入生产链路，保留 v0 + v1 口径 |
 | Strategy1 历史 BQML runner | 已完成 | 只保留为历史 reference / audit |
 | Strategy1 Cloud Run Python 路线 | 部分完成 | 执行链路已可运行；live acceptance gate 已在分支切到 v3 并通过 2 候选 smoke，但仍无 accepted baseline |
-| ODS schema repair | 部分完成 | contract / tooling / QA 已具备，待 owner 决定最终收口 |
+| ODS schema repair | 完成 | OQ-012 已关闭归档；contract / tooling / QA 继续作为防复发约束保留 |
 
 ## 2026-06-10 - Strategy1 回测复合年化收益 PRD
 
