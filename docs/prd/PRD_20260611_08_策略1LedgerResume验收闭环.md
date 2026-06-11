@@ -29,7 +29,8 @@ fresh/resume fail-fast 校验，state 表 role 已支持 research
      `p_rebalance_anchor_start` = parent 的原调仓锚点（当前 official continuous 为
      `2021-01-04`，实现时从 parent 记录解析），禁止按 segment start 重算双周奇偶；
      fresh 对照切片使用同一锚点，保证 compare window 调仓日逐一对齐；
-   - 与 fresh run 同窗口切片做一致性比对：NAV、现金、日收益、持仓、成交事实逐日一致；
+   - 与 full fresh continuous parent 的同窗口切片做一致性比对：NAV、现金、日收益、持仓、成交事实逐日一致；
+     不得用从 cut date 后重新 fresh-start 的短段作为等价参照，因为短段会重置现金 / 持仓 / NAV；
    - 跑 `qa_cloudrun_ledger_resume_outputs` + `qa_ledger_resume_consistency` 两套 QA。
 3. **Runbook 固化**：resume 参数语义（`initial_state_mode` / `parent_backtest_id` /
    `state_as_of_date` / `resume_policy_id`）、适用场景与禁区写入运行手册。
@@ -47,7 +48,7 @@ fresh/resume fail-fast 校验，state 表 role 已支持 research
 |---|---|
 | 测试 | resume 相关 pytest 全过（含验收中新增的回归用例） |
 | 边界参数 | `p_predict_start` = `state_as_of_date` 次 SSE 开市日；biweekly 显式 `p_rebalance_anchor_start` = parent 原锚点（不得按 segment start 重算奇偶）；fresh 对照同锚点 |
-| 一致性 | resume segment 与 fresh 同窗口切片：NAV/现金/日收益/持仓/成交逐日一致（两套 resume QA 通过） |
+| 一致性 | resume segment 与 full fresh continuous parent 的同窗口切片：NAV/现金/日收益/持仓/成交逐日一致（两套 resume QA 通过）；cut 后短段 fresh-start 不可作为等价参照 |
 | 隔离 | 验收产物全部在 `ashare_research`，parent 未被触碰 |
 | runbook | resume 参数语义与适用边界落档 |
 | 记忆同步 | 完成后更新 KNOWN_CONSTRAINTS 对应条款（"resume 已实现并通过 consistency QA"的例外条件状态）与 TODO |

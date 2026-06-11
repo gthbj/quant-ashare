@@ -54,8 +54,8 @@
 - [x] OQ-010：审计并删除旧 BQML / SQL ledger fallback
   说明：PR #131 分支已删除 BQML-only `sql/ml/strategy1/02-04`、SQL ledger fallback `08_run_backtest.sql` / `--use-bq-ledger` 和旧 `scripts/strategy1/run_oq010_experiments.py`，并同步收敛 README / runbook / memory 口径。
 
-- [ ] OQ-010：实现 Cloud Run Python ledger resume
-  说明：已新增 PRD `docs/prd/PRD_20260609_01_策略1CloudRunLedgerResume.md`；目标是在 `ledger_exec_v1_lot100` 下支持从父回测现金、持仓、pending sell、NAV anchor 和调仓锚点继续运行，先验收 `2020-2022 -> 2023-2026` 与 full fresh `2020-2026` 的一致性。2026-06-11 更新：实现已随 PR #127 合入 main 但从未验收，剩余验收闭环按 `PRD_20260611_08_策略1LedgerResume验收闭环.md` 执行（pytest + research-only resume segment 与 fresh 切片逐日一致性 + 两套 resume QA + runbook）。
+- [x] OQ-010：实现 Cloud Run Python ledger resume
+  说明：已新增 PRD `docs/prd/PRD_20260609_01_策略1CloudRunLedgerResume.md`；目标是在 `ledger_exec_v1_lot100` 下支持从父回测现金、持仓、pending sell、NAV anchor 和调仓锚点继续运行。2026-06-11 PRD_08 验收已完成：parent `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，cut `2024-12-31`，resume child `bt_s1_resume_acceptance_resume_20250102_20260609_v20260611_01`；Cloud Run execution `strategy1-backtest-report-job-82454` 成功，两套 resume QA job `eb99f350-feb4-4fdc-977d-d2e6b7c74201` / `8b2b1e17-42ad-44d2-8318-9f283c26eee2` 通过，ADS 同 run/backtest 零行。正式结果若采用 resume segment，仍需 owner 显式批准。
 - [ ] OQ-010：按 R14 长训练窗口 PRD 做覆盖审计
   说明：`docs/prd/PRD_20260609_01_策略1R14长训练回测.md` 已定义固定 R14 方法、`2015-04-01 ~ 2019-12-31` 名义训练窗口和 `2020-2022` 的 `10` 只 / `20` 只双组合 diagnostic backtest；`2023-01 ~ 2026-06-09` 追加回测视 P0 结果和 owner 决策而定，若追加也跑两个组合。PR #130 已修复显式 `backfill` 历史窗口下限，PR #132 已修复 `dim_stock` 历史生命周期；2015 年重跑后又暴露 core smoke 仍用 2019 作为全表存在下限，分支 `codex/fix-historical-backfill-core-smoke` 已修复，待合并部署后重新触发 2015 年补数。
 
@@ -117,4 +117,4 @@
 - [ ] P1+ 资金面 / 事件 / 行业族 DWD 扩展
   说明：包括 `dim_stock_sw_industry_hist`、`dim_stock_ci_industry_hist` 及对应 QA。
 
-- [ ] 实现 Cloud Run Python ledger resume：PR #127 分支已修复 review 指出的 resume 实现断链与 QA 字段问题，尚未跑测试、Cloud Run 或 BigQuery 验收。
+- [x] 实现 Cloud Run Python ledger resume：PR #127 实现已在 PRD_08 中补齐 research-only 真实数据验收，两套 resume QA 通过；正式结果若采用 resume segment 仍需 owner 显式批准。

@@ -436,18 +436,18 @@ steps:
 
   qa_ledger_resume_consistency:
     stable_name: qa_ledger_resume_consistency
-    status: audit_only
-    execution_mode: manual_qa
+    status: active
+    execution_mode: manual_resume_qa
     current_path: sql/ml/strategy1/15_qa_ledger_resume_consistency.sql
     target_path: sql/strategy1/qa/qa_ledger_resume_consistency.sql
     sql_path: sql/strategy1/qa/qa_ledger_resume_consistency.sql
     caller: [manual_runbook]
     output_dataset_role_current: research
     output_dataset_role_target: research
-    required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_cash_tolerance_cny, p_value_tolerance_cny, p_share_tolerance]
+    required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_state_as_of_date, p_resume_policy_id, p_ledger_version, p_rebalance_anchor_start, p_cash_tolerance_cny, p_value_tolerance_cny, p_share_tolerance]
     internal_params: []
     optional_params: {}
-    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary]
+    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, backtest_ledger_state_daily]
     outputs: []
     partition_columns: []
 
@@ -478,7 +478,7 @@ steps:
     caller: [manual_runbook]
     output_dataset_role_current: research
     output_dataset_role_target: research
-    required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_state_as_of_date, p_resume_policy_id, p_ledger_version]
+    required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_state_as_of_date, p_resume_policy_id, p_ledger_version, p_rebalance_anchor_start]
     internal_params: []
     optional_params: {}
     inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, backtest_ledger_state_daily]
