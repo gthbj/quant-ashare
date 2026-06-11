@@ -26,21 +26,33 @@ WHERE exchange = 'SSE'
   AND is_open = 1
   AND cal_date BETWEEN p_true5y_start AND p_true5y_end;
 
+CREATE TEMP TABLE ods_daily_basic_mv_coverage AS
+SELECT
+  d.trade_date,
+  COUNTIF(b.total_mv IS NOT NULL AND b.circ_mv IS NOT NULL) AS mv_non_null_row_count
+FROM true5y_open_days AS d
+LEFT JOIN `data-aquarium.ashare_ods.ods_tushare_daily_basic` AS b
+  ON SAFE.PARSE_DATE('%Y%m%d', b.trade_date) = d.trade_date
+ AND b.endpoint = 'daily_basic'
+ AND b.partition_date BETWEEN FORMAT_DATE('%Y%m%d', p_true5y_start) AND FORMAT_DATE('%Y%m%d', p_true5y_end)
+GROUP BY d.trade_date;
+
+ASSERT (
+  SELECT COUNTIF(mv_non_null_row_count = 0) = 0
+  FROM ods_daily_basic_mv_coverage
+) AS 'QA-TRUE5Y-ODS-1: every true-five-year open day must have ODS daily_basic rows with non-null market value fields';
+
 CREATE TEMP TABLE repaired_2019_full_history_candidates AS
 SELECT
   f.trade_date,
   f.sec_code,
+  f.history_obs_60d,
   f.has_full_history_60d,
-  COUNT(prior.sec_code) AS price_obs_through_trade_date
+  f.history_obs_60d AS price_obs_in_window
 FROM `data-aquarium.ashare_dws.dws_stock_feature_price_daily` AS f
-JOIN `data-aquarium.ashare_dwd.dwd_stock_eod_price` AS prior
-  ON prior.sec_code = f.sec_code
- AND prior.trade_date BETWEEN DATE_SUB(f.trade_date, INTERVAL 180 DAY) AND f.trade_date
 WHERE f.trade_date BETWEEN p_repaired_2019_start AND p_repaired_2019_end
-  AND prior.trade_date BETWEEN DATE_SUB(p_repaired_2019_start, INTERVAL 180 DAY) AND p_repaired_2019_end
   AND f.feature_version = p_feature_version
-GROUP BY f.trade_date, f.sec_code, f.has_full_history_60d
-HAVING price_obs_through_trade_date >= 61;
+  AND f.history_obs_60d >= 61;
 
 ASSERT (
   SELECT COUNTIF(NOT COALESCE(has_full_history_60d, FALSE)) = 0
@@ -127,13 +139,23 @@ ASSERT (
 ) AS 'QA-TRUE5Y-5: valuation completeness report must be non-empty';
 
 SELECT
+  'ods_daily_basic_market_value_open_day_coverage' AS check_name,
+  p_true5y_start AS scope_start,
+  p_true5y_end AS scope_end,
+  COUNT(*) AS row_count,
+  COUNTIF(mv_non_null_row_count = 0) AS bad_count,
+  SAFE_DIVIDE(COUNTIF(mv_non_null_row_count > 0), COUNT(*)) AS metric_value,
+  'open-day ODS daily_basic total_mv/circ_mv non-null coverage for true-five-year refit windows' AS details
+FROM ods_daily_basic_mv_coverage
+UNION ALL
+SELECT
   'price_flag_repair_window' AS check_name,
   p_repaired_2019_start AS scope_start,
   p_repaired_2019_end AS scope_end,
   COUNT(*) AS row_count,
   COUNTIF(NOT COALESCE(has_full_history_60d, FALSE)) AS bad_count,
   SAFE_DIVIDE(COUNTIF(COALESCE(has_full_history_60d, FALSE)), COUNT(*)) AS metric_value,
-  'eligible rows with at least 61 price observations must be full-history TRUE' AS details
+  'eligible rows with history_obs_60d >= 61 must be full-history TRUE' AS details
 FROM repaired_2019_full_history_candidates
 UNION ALL
 SELECT

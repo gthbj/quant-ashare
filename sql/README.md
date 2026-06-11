@@ -66,7 +66,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_lot_
 
 - 行情 DWD：写入 `dwd_start_date = 2019-01-01` 之后的数据；价格表默认读取 `lookback_start_date = 2018-01-01` 作为滚动窗口和 `ret_1d` warm-up。
 - 策略 1 DWS：写入 `dws_start_date = 2019-01-01` 之后的数据；当前只读取已物化 DWD/DIM，不直接读取 ODS。由于最终 DWD 价格表不落 2018 buffer 行，价格特征表用 `has_full_history_60d` 显式标记 2019 年初 60 日窗口不完整样本，样本默认训练掩码会剔除这些行。
-- 当前物化结果下，`sample_trainable_default = TRUE` 的最早 `trade_date` 为 `2019-04-03`，2019Q1 无默认可训练样本；该范围由 `sql/qa/02_strategy1_dws_ads_checks.sql` 断言。
+- 历史 effective-window 策略配置曾以 `2019-04-03` 作为稳定训练起点；PRD_20260611_06 的 2010+ backfill / 2015Q1 / 2019 repair 后，当前 DWS 可支持 true-five-year refit 的更早训练窗口。`sql/qa/02_strategy1_dws_ads_checks.sql` 不再断言固定最早日期，而是断言默认可训练样本必须具备完整 60 日价格历史；true-five-year 覆盖用 `sql/qa/13_true5y_historical_coverage_checks.sql` 验收。
 - 财务 DWD：`fina_indicator` 从 `fin_start_period = 20170101` 起读取并写入，用于 2019+ PIT 和同比/基期特征。
 - 财务三大报表 DWD（OQ-003）：`income` / `balancesheet` / `cashflow` 同样从 `fin_start_period = 20170101` 起读取，可见日 `ann_date_eff = COALESCE(f_ann_date, ann_date)`；保留源 `report_type` 并派生 `report_caliber` / `is_default_report_caliber`，默认消费口径为合并报表 `report_type='1'`（实测当前 ODS 仅此一种口径）。默认 `_latest` 与 `dws_stock_feature_fin_daily` 只消费默认合并口径。
 - `dws_stock_feature_fin_daily`：把 `dwd_fin_indicator` 与三大报表 PIT as-of 到每个 universe 交易日，主键 `(sec_code, trade_date, feature_version='fin_default_v0_20260602')`。as-of 限制 `visible_trade_date` 在 `[trade_date - asof_lookback_days, trade_date]`（默认 `asof_lookback_days = 900` 日 ≈ 2.5 年）以约束扇出；超窗未更新财报视为缺失（`has_fin_*=FALSE`）。`report_caliber`/`is_default_report_caliber` 为消费口径契约（恒 consolidated/TRUE），实际可用性见 `has_fin_*` 与各来源 `*_report_period`。

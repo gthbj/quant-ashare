@@ -75,19 +75,22 @@ DECLARE p_anchor_seq INT64 DEFAULT (
     AND cal_date >= p_write_start_date
     AND cal_date <= p_write_end_date
 );
-DECLARE p_read_start_date DATE DEFAULT GREATEST(
-  COALESCE(
-    (
-      SELECT MAX(cal_date)
-      FROM `data-aquarium.ashare_dim.dim_trade_calendar`
-      WHERE exchange = 'SSE'
-        AND is_open = 1
-        AND trade_date_seq <= p_anchor_seq - p_roll_window_lookback_td
+DECLARE p_read_start_date DATE DEFAULT CASE
+  WHEN p_warehouse_mode = 'backfill' THEN p_write_floor_date
+  ELSE GREATEST(
+    COALESCE(
+      (
+        SELECT MAX(cal_date)
+        FROM `data-aquarium.ashare_dim.dim_trade_calendar`
+        WHERE exchange = 'SSE'
+          AND is_open = 1
+          AND trade_date_seq <= p_anchor_seq - p_roll_window_lookback_td
+      ),
+      DATE_SUB(p_write_start_date, INTERVAL 120 DAY)
     ),
-    DATE_SUB(p_write_start_date, INTERVAL 120 DAY)
-  ),
-  p_write_floor_date
-);
+    p_write_floor_date
+  )
+END;
 
 ASSERT p_warehouse_mode IN ('daily_current', 'backfill')
   AS 'market-state window refresh requires warehouse_mode daily_current or backfill';
