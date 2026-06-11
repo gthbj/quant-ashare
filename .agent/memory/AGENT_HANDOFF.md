@@ -22,6 +22,14 @@ Model: GPT-5 Codex
 Model: GPT-5 Codex
 
 > 当前交接补充（2026-06-11，GPT-5 Codex）
+> - 已完成 Strategy1 暴露管理 NAV 级上限仿真（纯 BigQuery 只读 + 本地 pandas）：新增 `scripts/strategy1/simulate_exposure_overlay_upper_bound.py`、报告 `docs/分析-策略1暴露管理上限仿真-20260611.md`、结果矩阵 `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv`。
+> - 恒等校验通过：`e(t)==1` 复现 official continuous baseline CAGR `0.12036528993503293`、MaxDD `-0.45481511936569563`、Calmar `0.26464663290635421`、contract Sharpe `0.5285475500566128`；crunch excess vs `000852.SH`=`-0.19329880132544719`，与 PR #179 对比表一致。
+> - 最优无摩擦 exposure 变体为 `two_state_biweekly_elow0_cost0bps`：CAGR `0.12130091898447448`、MaxDD `-0.297527701723727`、Calmar `0.4076962188116182`、contract Sharpe `0.6005994875878142`、平均暴露 `0.8873668188736682`、切换 `24` 次。
+> - 按预登记判据，Calmar `<0.5`，建议真实 exposure ledger 工程缓做/降优先级；所有 exposure 变体 contract Sharpe 最高仅 `0.6006 < 0.70`，v3 双门仍不可达。未写任何 BigQuery dataset、未改默认 profile、未 accepted、未 promotion，OQ-010 路线决策仍留给 owner。
+
+Model: GPT-5 Codex
+
+> 当前交接补充（2026-06-11，GPT-5 Codex）
 > - PR #179 实现 `quant_ashare.strategy1.tail_risk_overlay_ab` 与 `qa_tail_risk_overlay_ab_outputs`，并完成 live research-only A/B：A1 `strategy1-backtest-report-job-8rqwl`、A2 `strategy1-backtest-report-job-hwqbl`、A3 `strategy1-backtest-report-job-6kbtz` 全部成功。
 > - Review follow-up 后增强版 full overlay QA `bqjob_r6fb9e5810c470426_0000019eb59868de_1` 与 research readiness `bqjob_r15d88cd3e8df4d38_0000019eb59868de_1` 均通过；QA-OVERLAY-7/10 已改为逐 arm 硬门，对比表补齐 contract Sharpe、peak/trough、逐年 skip JSON、2024-01~02 vs `000852.SH` crunch excess。
 > - 结果：baseline CAGR `0.12036528993503204` / MaxDD `-0.4548151193656952` / Calmar `0.26464663290635254` / crunch excess `-0.1932988013254472`；A1/A3 在 crunch 段转正（`0.10932302982271269` / `0.1226915291378361`）但全周期收益损耗过大；A2 MaxDD 降到 `-0.32883181037211673`，CAGR 降到 `0.0850673652169256`、Calmar 降到 `0.2586956691345056`、crunch excess `0.039028737788334156`。
@@ -142,6 +150,52 @@ Model: GPT-5 Codex
 
 - 合并并部署含本分支代码的 runner 镜像后，按 runbook 执行 PRD_07 candidate-only live smoke 五场景；通过前不要声称 annual scheduler live 化已经生产验收。
 - Phase 3 完整 2021-2026 live pipeline 仍需 owner 另批。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+## 2026-06-11 GPT-5 Codex - Exposure overlay upper-bound simulation
+
+### 已完成工作
+
+- 新增 `scripts/strategy1/simulate_exposure_overlay_upper_bound.py`，对 official continuous baseline NAV 做本地 pandas 暴露缩放上限仿真；BigQuery 查询全为只读，不写 `ashare_research` / ADS / promotion 相关表。
+- 新增 `docs/分析-策略1暴露管理上限仿真-20260611.md`，按预登记判据报告方法、局限、恒等校验、完整矩阵摘要和结论。
+- 新增结果 CSV `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv`，包含 identity + `e_low` / 状态机 / 生效时点 / 成本档共 49 行结果。
+- 新增 `tests/strategy1/test_exposure_overlay_upper_bound.py`，覆盖 PIT 信号、三态迟滞、biweekly 调仓约束、成本扣减、identity metric 复现和 markdown 表输出。
+
+### 重要上下文
+
+- Baseline backtest：`bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`；窗口 `2021-01-04..2026-06-09`；market state version `market_state_v1_20260607`；基准 `000852.SH` 使用 `dwd_index_eod.pct_chg / 100`。
+- 恒等校验通过：CAGR `0.12036528993503293`、MaxDD `-0.45481511936569563`、Calmar `0.26464663290635421`、contract Sharpe `0.5285475500566128`；crunch excess vs `000852.SH`=`-0.19329880132544719`。
+- 最优无摩擦变体：`two_state_biweekly_elow0_cost0bps`，CAGR `0.12130091898447448`、MaxDD `-0.297527701723727`、Calmar `0.4076962188116182`、contract Sharpe `0.6005994875878142`、平均暴露 `0.8873668188736682`、暴露切换 `24` 次。
+- 预登记判据结论：最优 Calmar `<0.5`，真实 exposure ledger 工程建议缓做/降优先级，剩余主要缺口在 alpha / 信号 / 组合构造。所有 exposure 变体最高 contract Sharpe `0.6006 < 0.70`，即使达到上界也不能通过 v3 双门。
+
+### 改动文件
+
+- `scripts/strategy1/simulate_exposure_overlay_upper_bound.py`
+- `tests/strategy1/test_exposure_overlay_upper_bound.py`
+- `docs/分析-策略1暴露管理上限仿真-20260611.md`
+- `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- Live read-only simulation：`Identity check passed`，market state / NAV / benchmark SSE 开市日覆盖一致，`is_risk_off` 无 NULL。
+- Focused pytest：`tests/strategy1/test_exposure_overlay_upper_bound.py` 通过。
+- `py_compile` / `compileall`、retired linter、Dataform generated SQLX check、`git diff --check` 通过。
+
+### 阻塞项
+
+- 无实现阻塞。本报告不关闭 OQ-010，不替 owner 做路线决策。
+
+### 下一步建议
+
+- 若继续策略侧推进，优先把资源放在 alpha / 信号 / 组合构造或更强的回撤控制设计上；真实 exposure ledger 在当前上界证据下不宜作为下一阶段 P0。
 
 ### 已更新记忆文件
 
