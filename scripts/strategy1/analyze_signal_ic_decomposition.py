@@ -42,7 +42,8 @@ DEFAULT_TC_CSV = "docs/analysis_strategy1_transfer_ladder_20260611_transfer_coef
 HORIZONS = (1, 5, 10, 20)
 TRADING_DAYS_PER_YEAR = 252.0
 TURNOVER_COST_BPS = (0.0, 20.0)
-TRANSFER_LEVELS = ("L0", "L1", "L2", "L3")
+TRANSFER_LEVELS = ("L0", "L0.5", "L1", "L2", "L3")
+CORRELATION_MIN_STD = 1e-12
 CRUNCH_START = "2024-01-01"
 CRUNCH_END = "2024-02-07"
 OFFICIAL_REFERENCE = {
@@ -167,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         end_date=cfg.end_date,
     )
     transfer_coefficients = compute_transfer_coefficients(
+        base=base,
         weight_book=weight_book,
         official_targets=official_targets,
         official_positions=official_positions,
@@ -679,6 +681,7 @@ def build_weight_book(base: pd.DataFrame, rebalance_dates: list[date]) -> pd.Dat
         n_decile = max(1, int(math.floor(len(g) * 0.10)))
         levels = {
             "L0": l0_weights(g, n_decile),
+            "L0.5": long_score_weights(g.head(n_decile), "L0.5"),
             "L1": long_score_weights(g.head(50), "L1"),
             "L2": long_score_weights(g.head(20), "L2"),
             "L3": equal_top_weights(g.head(20), "L3", cap=0.075),
@@ -932,12 +935,14 @@ def information_ratio(excess_returns: pd.Series) -> float:
 
 def compute_transfer_coefficients(
     *,
+    base: pd.DataFrame,
     weight_book: pd.DataFrame,
     official_targets: pd.DataFrame,
     official_positions: pd.DataFrame,
     calendar: pd.DataFrame,
 ) -> pd.DataFrame:
     l2 = weight_book[weight_book["level"] == "L2"].copy()
+    universe_by_signal = build_rebalance_universe(base, sorted(l2["signal_date"].unique().tolist()))
     cal = calendar.copy()
     cal["trade_date"] = pd.to_datetime(cal["trade_date"]).dt.date
     next_open = next_open_map(cal["trade_date"].tolist())
@@ -948,36 +953,77 @@ def compute_transfer_coefficients(
     rows: list[dict[str, Any]] = []
     for signal_date, ideal in l2.groupby("signal_date"):
         ideal_weights = dict(zip(ideal["sec_code"].astype(str), ideal["weight"].astype(float)))
+        ideal_names = set(ideal_weights)
         target_sub = targets[targets["rebalance_date"] == signal_date]
         target_weights = dict(zip(target_sub["sec_code"].astype(str), target_sub["target_weight"].astype(float)))
+        target_names = set(target_weights)
         exec_date = next_open.get(signal_date)
         pos_weights: dict[str, float] = {}
         if exec_date is not None:
             pos_sub = positions[positions["trade_date"] == exec_date]
             pos_weights = dict(zip(pos_sub["sec_code"].astype(str), pos_sub["weight"].astype(float)))
+        realized_names = set(pos_weights)
+        domain = universe_by_signal.get(signal_date, sorted(ideal_names | target_names | realized_names))
+        realized_weight_sum = float(sum(pos_weights.values()))
         rows.append(
             {
                 "signal_date": signal_date,
                 "exec_date": exec_date,
-                "tc_target": weight_correlation(ideal_weights, target_weights),
-                "tc_realized": weight_correlation(ideal_weights, pos_weights),
+                "tc_domain": "full_prediction_universe",
+                "tc_target": weight_correlation_on_domain(ideal_weights, target_weights, domain),
+                "tc_realized": weight_correlation_on_domain(ideal_weights, pos_weights, domain),
                 "ideal_nonzero": len(ideal_weights),
                 "target_nonzero": len(target_weights),
                 "realized_nonzero": len(pos_weights),
+                "universe_size": len(domain),
+                "target_ideal_overlap_count": len(ideal_names & target_names),
+                "target_ideal_overlap_rate": safe_divide(len(ideal_names & target_names), len(ideal_names)),
+                "target_extra_count": len(target_names - ideal_names),
+                "ideal_missing_from_target_count": len(ideal_names - target_names),
+                "realized_ideal_overlap_count": len(ideal_names & realized_names),
+                "realized_ideal_overlap_rate": safe_divide(len(ideal_names & realized_names), len(ideal_names)),
+                "realized_target_overlap_count": len(target_names & realized_names),
+                "realized_target_overlap_rate": safe_divide(len(target_names & realized_names), len(target_names)),
+                "target_weight_sum": float(sum(target_weights.values())),
+                "realized_weight_sum": realized_weight_sum,
+                "official_cash_weight": 1.0 - realized_weight_sum,
             }
         )
     return pd.DataFrame(rows)
 
 
-def weight_correlation(a: dict[str, float], b: dict[str, float]) -> float:
-    keys = sorted(set(a) | set(b))
+def build_rebalance_universe(base: pd.DataFrame, signal_dates: list[date]) -> dict[date, list[str]]:
+    pred = base[["predict_date", "sec_code"]].copy()
+    pred["predict_date"] = pd.to_datetime(pred["predict_date"]).dt.date
+    use_dates = set(signal_dates)
+    pred = pred[pred["predict_date"].isin(use_dates)]
+    return {
+        signal_date: sorted(group["sec_code"].dropna().astype(str).unique().tolist())
+        for signal_date, group in pred.groupby("predict_date")
+    }
+
+
+def weight_correlation_on_domain(
+    a: dict[str, float],
+    b: dict[str, float],
+    domain: Iterable[str],
+    *,
+    min_std: float = CORRELATION_MIN_STD,
+) -> float:
+    keys = sorted(set(domain))
     if len(keys) < 3:
         return np.nan
     x = np.asarray([a.get(k, 0.0) for k in keys], dtype=float)
     y = np.asarray([b.get(k, 0.0) for k in keys], dtype=float)
-    if np.std(x) <= 0 or np.std(y) <= 0:
+    if np.std(x) <= min_std or np.std(y) <= min_std:
         return np.nan
     return float(np.corrcoef(x, y)[0, 1])
+
+
+def safe_divide(numerator: float, denominator: float) -> float:
+    if denominator == 0:
+        return np.nan
+    return float(numerator / denominator)
 
 
 def append_official_identity_check(
@@ -1041,7 +1087,7 @@ def build_report(
     l3_check = transfer_results[
         (transfer_results["level"] == "L3") & (transfer_results["cost_bps"] == 0.0)
     ]
-    tc_summary = transfer_coefficients[["tc_target", "tc_realized"]].mean(numeric_only=True).to_dict() if not transfer_coefficients.empty else {}
+    tc_summary = transfer_coefficients.mean(numeric_only=True).to_dict() if not transfer_coefficients.empty else {}
     raw_5d = summary_value(ic_summary, "A5_horizon", "5d", "mean_rank_ic")
     size_neutral = summary_value(ic_summary, "A2_size_neutral", "log_circ_mv", "mean_rank_ic")
     industry_neutral = summary_value(
@@ -1082,6 +1128,7 @@ def build_report(
             f"- market_state_version: `{cfg.market_state_version}`；IC regime 分组使用同日 `predict_date`，不做 t+1 shift。",
             "- `pred.score` 已是研究产物中用于排序的最终方向分数，本报告不按 `score_orientation` 再反转。",
             "- Transfer ladder 是 NAV 级 paper portfolio；忽略 lot rounding、涨跌停成交约束、现金再分配和真实 ledger 执行细节。L3 与 official ledger 的差异只用于估算转换损耗，不等同正式回测。",
+            "- L0/L0.5/L1/L2 的 score-weighted leg 使用组内 `score - min(score) + 1e-12` 归一化；最低分入选名的权重会接近 0，这是本报告的 paper 权重定义，不是生产组合权重。",
             "- BigQuery 全程只读；脚本仅读取 research/DWS/DWD/DIM 表并在本地 pandas 计算，未写 `ashare_research` / ADS / promotion 表。",
             "",
             "## 关键结论",
@@ -1093,8 +1140,9 @@ def build_report(
             "",
             "Transfer ladder 给出的更强结论：",
             f"- L0 score-weighted long/short no-cost annual Sharpe = {fmt_float(best_l0.get('absolute_sharpe_or_contract_sharpe') if best_l0 else np.nan)}；20bps 成本后仍为 {fmt_float(l0_cost20.iloc[0]['absolute_sharpe_or_contract_sharpe'] if not l0_cost20.empty else np.nan)}。按预登记规则，信号容量不是主要瓶颈。",
-            f"- L1/L2/L3 long-only IR 均远低于 L0，且 L3-L2 IR 差 = {fmt_float(level_metric_delta(transfer_results, 'L3', 'L2', 'information_ratio_vs_000852'))}、L1-L2 IR 差 = {fmt_float(level_metric_delta(transfer_results, 'L1', 'L2', 'information_ratio_vs_000852'))}。Top50 扩容和等权替代分数权重都不是本轮最优先的收益来源。",
-            f"- TC_target 平均约 {fmt_float(tc_summary.get('tc_target'))}、TC_realized 平均约 {fmt_float(tc_summary.get('tc_realized'))}，说明现行 equal Top20 目标/真实持仓几乎不保留 score-weighted 强度；转换损耗主要发生在 long-only/等权/真实成交路径，而不是 raw score 没信号。",
+            f"- L0.5（top decile long-only score-weighted）IR = {fmt_float(level_metric(transfer_results, 'L0.5', 'information_ratio_vs_000852'))}，L1 Top50 IR = {fmt_float(level_metric(transfer_results, 'L1', 'information_ratio_vs_000852'))}，L2 Top20 IR = {fmt_float(level_metric(transfer_results, 'L2', 'information_ratio_vs_000852'))}。宽度从 top decile 收到 Top50/Top20 没有形成第二个悬崖；主要落差在 L0 多空到 long-only 之间。",
+            f"- Official target 与 score-weighted Top20 的名字重合率均值 = {fmt_pct(tc_summary.get('target_ideal_overlap_rate'))}，最小值 = {fmt_pct(transfer_min(transfer_coefficients, 'target_ideal_overlap_rate'))}；L3-L2 IR 差 = {fmt_float(level_metric_delta(transfer_results, 'L3', 'L2', 'information_ratio_vs_000852'))}。按预登记规则，目标组合成员资格忠实于信号，等权替代分数权重不是优先瓶颈。",
+            f"- 执行层诊断：实际持仓相对 target 的覆盖率均值 = {fmt_pct(tc_summary.get('realized_target_overlap_rate'))}，最小值 = {fmt_pct(transfer_min(transfer_coefficients, 'realized_target_overlap_rate'))}；official 现金权重均值 = {fmt_pct(tc_summary.get('official_cash_weight'))}。真实缺口应按持仓覆盖率/现金路径解释，而不是用退化的非零并集相关系数。",
             "",
             "## IC 分解摘要",
             "",
@@ -1110,8 +1158,12 @@ def build_report(
             "",
             "## Transfer Coefficient",
             "",
-            f"- 平均 TC_target: {fmt_float(tc_summary.get('tc_target'))}",
-            f"- 平均 TC_realized: {fmt_float(tc_summary.get('tc_realized'))}",
+            f"- 全 universe 域平均 TC_target: {fmt_float(tc_summary.get('tc_target'))}",
+            f"- 全 universe 域平均 TC_realized: {fmt_float(tc_summary.get('tc_realized'))}",
+            f"- target/ideal Top20 名字重合率均值: {fmt_pct(tc_summary.get('target_ideal_overlap_rate'))}",
+            f"- realized/target 名字覆盖率均值: {fmt_pct(tc_summary.get('realized_target_overlap_rate'))}",
+            f"- official 实际持仓数均值: {fmt_float(tc_summary.get('realized_nonzero'))}",
+            f"- official 现金权重均值: {fmt_pct(tc_summary.get('official_cash_weight'))}",
             "",
             "## L3 恒等/偏差校验",
             "",
@@ -1146,6 +1198,19 @@ def build_report(
     l2 = transfer_results[(transfer_results["level"] == "L2") & (transfer_results["cost_bps"] == 0.0)]
     l3 = transfer_results[(transfer_results["level"] == "L3") & (transfer_results["cost_bps"] == 0.0)]
     l1 = transfer_results[(transfer_results["level"] == "L1") & (transfer_results["cost_bps"] == 0.0)]
+    l05 = transfer_results[(transfer_results["level"] == "L0.5") & (transfer_results["cost_bps"] == 0.0)]
+    if not l05.empty and best_l0 is not None:
+        lines.append(
+            f"- L0 多空 absolute Sharpe {fmt_float(best_l0.get('absolute_sharpe_or_contract_sharpe'))} "
+            f"到 L0.5 long-only IR {fmt_float(l05.iloc[0]['information_ratio_vs_000852'])} 出现主要落差；"
+            "二者基准不同，只作约束分解而非同口径差值。"
+        )
+    if not l05.empty and not l1.empty:
+        delta = float(l1.iloc[0]["information_ratio_vs_000852"] - l05.iloc[0]["information_ratio_vs_000852"])
+        lines.append(f"- L1-L0.5 IR 差: {fmt_float(delta)}。")
+    if not l05.empty and not l2.empty:
+        delta = float(l2.iloc[0]["information_ratio_vs_000852"] - l05.iloc[0]["information_ratio_vs_000852"])
+        lines.append(f"- L2-L0.5 IR 差: {fmt_float(delta)}。")
     if not l2.empty and not l3.empty:
         delta = float(l3.iloc[0]["information_ratio_vs_000852"] - l2.iloc[0]["information_ratio_vs_000852"])
         lines.append(f"- L3-L2 IR 差: {fmt_float(delta)}。")
@@ -1190,6 +1255,21 @@ def level_metric_delta(results: pd.DataFrame, lhs: str, rhs: str, field: str, co
     if left.empty or right.empty:
         return np.nan
     return float(left.iloc[0][field] - right.iloc[0][field])
+
+
+def level_metric(results: pd.DataFrame, level: str, field: str, cost_bps: float = 0.0) -> float:
+    if results.empty or field not in results.columns:
+        return np.nan
+    row = results[(results["level"] == level) & (results["cost_bps"] == cost_bps)]
+    if row.empty:
+        return np.nan
+    return float(row.iloc[0][field])
+
+
+def transfer_min(transfer_coefficients: pd.DataFrame, field: str) -> float:
+    if transfer_coefficients.empty or field not in transfer_coefficients.columns:
+        return np.nan
+    return float(transfer_coefficients[field].min())
 
 
 def compact_ic_table(summary: pd.DataFrame) -> pd.DataFrame:
