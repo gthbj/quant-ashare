@@ -30,6 +30,14 @@ Last updated: 2026-06-11
 - `scripts/qa/run_windowed_refresh_equivalence.py` 已增强为输出 per-table summary JSONL 与 mismatch sample JSONL；新增 `scripts/qa/run_index_market_windowed_equivalence.py`，覆盖 index DWD 与 market-state DWS 的 full/window shadow parity；新增 `sql/qa/13_true5y_historical_coverage_checks.sql`，将 `2019-01-02..2019-04-02` 旗标修复、true-five-year open-day coverage、估值/财务完备度合到同一个手工 QA。
 - 本轮没有执行生产 backfill、没有改写 DWD/DWS、没有重跑 true-five-year refit 或 continuous ledger。后续仍需按 PRD06 Phase A/B/C 执行：历史下限前移与旗标修复 -> parity / coverage QA -> 2021-2024 true-five-year refit -> 新 synthetic continuous 对比。
 
+### 最新补充（2026-06-11）：暴露管理 NAV 级上限仿真已完成
+
+- 分支 `codex/exposure-overlay-upper-bound` 新增只读分析脚本 `scripts/strategy1/simulate_exposure_overlay_upper_bound.py`、报告 `docs/分析-策略1暴露管理上限仿真-20260611.md` 与结果矩阵 `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv`，用于在投入真实 ledger 工程前评估 market-state exposure overlay 的理论上界；Markdown 报告已扩展为与 CSV 同口径的 25 列详细结果矩阵并附字段说明，且补充 hysteresis 被 two_state 证伪、48 变体 grid search 存在 in-sample selection bias、重算 IR 与 official summary IR 不可直接比较三项 review caveat。
+- 仿真只读查询 official continuous baseline NAV、SSE 交易日历、`market_state_v1_20260607` 和 `000852.SH` 日收益，所有计算在本地 pandas 完成；未写任何 BigQuery dataset、未改既有 run/backtest、未 accepted、未 promotion。
+- 恒等校验通过：`e(t)==1`、零成本复现 official baseline CAGR=`0.12036528993503293`、MaxDD=`-0.45481511936569563`、Calmar=`0.26464663290635421`、contract Sharpe=`0.5285475500566128`；baseline crunch excess vs `000852.SH`=`-0.19329880132544719`，与 PR #179 对比表一致。
+- 最优无摩擦变体为 `two_state_biweekly_elow0_cost0bps`：CAGR=`0.12130091898447448`、MaxDD=`-0.297527701723727`、Calmar=`0.4076962188116182`、contract Sharpe=`0.6005994875878142`、平均暴露=`0.8873668188736682`、暴露切换 `24` 次。
+- 按预登记判据，最优无摩擦 Calmar `<0.5`，报告建议真实 exposure ledger 工程缓做/降优先级；所有 exposure 变体最高 contract Sharpe 仅 `0.6006 < 0.70`，即使达到 NAV 级上界也不能通过 v3 双门，剩余主要缺口仍在 alpha / 信号 / 组合构造。OQ-010 路线决策仍留给 owner。
+
 ### 最新补充（2026-06-11）：尾部风险 Overlay 三组 A/B 已实现并完成 live run
 
 - PR #176 已合并到 `main`（merge commit `5c27e28`）。分支 `codex/strategy1-tail-risk-overlay-ab` 实现 `quant_ashare.strategy1.tail_risk_overlay_ab`，用于在 latest effective-window synthetic continuous prediction 流上启动 P1 / P2 / P1+P2 三组 research-only portfolio overlay A/B。
