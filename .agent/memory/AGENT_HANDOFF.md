@@ -1,3 +1,11 @@
+> 当前交接补充（2026-06-11，GPT-5 Codex，PRD_08）
+> - PRD_08 Cloud Run Python ledger resume 已完成 research-only 真实数据验收：parent `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，cut `2024-12-31`，next open `2025-01-02`，anchor `2021-01-04`；resume child execution `strategy1-backtest-report-job-82454` 成功。
+> - 两套 resume QA 均通过：`qa_cloudrun_ledger_resume_outputs` job `eb99f350-feb4-4fdc-977d-d2e6b7c74201`，`qa_ledger_resume_consistency` job `8b2b1e17-42ad-44d2-8318-9f283c26eee2`。验收产物仅写 research，ADS 同 run/backtest 为 0 行。
+> - 代码/契约更新：`qa_ledger_resume_consistency` 从旧 BQML / `ledger_exec_v1` 默认升级到 Cloud Run lot100 / research-first 口径；两套 QA 都要求 state date、resume policy、ledger version、原始 rebalance anchor 和 next-open 边界；runbook 明确等价参照是 full fresh continuous parent 的同窗口切片，不是 cut 后 segment fresh-start。
+> - 后续：PRD_07 worker 已在独立 worktree 提交分支 `codex/prd07-annual-live-smoke`；PRD_06 只读审计建议已回报，尚未整合到本 PRD_08 分支。
+
+Model: GPT-5 Codex
+
 > 当前交接补充（2026-06-11，GPT-5 Codex）
 > - PR #179 实现 `quant_ashare.strategy1.tail_risk_overlay_ab` 与 `qa_tail_risk_overlay_ab_outputs`，并完成 live research-only A/B：A1 `strategy1-backtest-report-job-8rqwl`、A2 `strategy1-backtest-report-job-hwqbl`、A3 `strategy1-backtest-report-job-6kbtz` 全部成功。
 > - Review follow-up 后增强版 full overlay QA `bqjob_r6fb9e5810c470426_0000019eb59868de_1` 与 research readiness `bqjob_r15d88cd3e8df4d38_0000019eb59868de_1` 均通过；QA-OVERLAY-7/10 已改为逐 arm 硬门，对比表补齐 contract Sharpe、peak/trough、逐年 skip JSON、2024-01~02 vs `000852.SH` crunch excess。
@@ -30,6 +38,60 @@ Model: Claude Fable 5
 > - DECISION-20260611-02 已关闭 OQ-014：接受 effective-window result 作为研究复盘口径，暂不修 pre-2019 DWS/lookback；但 result 未过 v3 absolute gates，不得标 accepted baseline 或 promotion。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - Cloud Run ledger resume acceptance
+
+### 已完成工作
+
+- 基于 `origin/main@6b619b0` 新建分支 `codex/strategy1-resume-acceptance`，实施 `docs/prd/PRD_20260611_08_策略1LedgerResume验收闭环.md`。
+- `qa_ledger_resume_consistency` 已从旧 BQML / `ledger_exec_v1` 默认值升级为 Cloud Run Python `ledger_exec_v1_lot100` / research-first 口径。
+- `qa_cloudrun_ledger_resume_outputs` 与 `qa_ledger_resume_consistency` 均纳入 `manual_resume_qa` active contract，要求 `p_state_as_of_date`、`p_resume_policy_id`、`p_ledger_version`、`p_rebalance_anchor_start`，并断言 `p_compare_start` 为 `state_as_of_date` 后下一 SSE 开市日。
+- 真实 research-only resume child 已跑通：`s1_resume_acceptance_resume_20250102_20260609_v20260611_01` / `bt_s1_resume_acceptance_resume_20250102_20260609_v20260611_01`，Cloud Run execution `strategy1-backtest-report-job-82454`。
+- 两套 QA 均通过：`qa_cloudrun_ledger_resume_outputs` job `eb99f350-feb4-4fdc-977d-d2e6b7c74201`；`qa_ledger_resume_consistency` job `8b2b1e17-42ad-44d2-8318-9f283c26eee2`。
+
+### 重要上下文
+
+- 验收 parent 为 latest effective-window official continuous backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，cut `2024-12-31`，next open `2025-01-02`，rebalance anchor `2021-01-04`。
+- 等价参照必须是 full fresh continuous parent 的同窗口切片；cut 后重新 fresh-start 的短段会重置现金、持仓和 NAV，不能作为 resume 等价参照。本轮曾跑过 short fresh diagnostic，但不纳入验收。
+- 验收产物行数：candidate `89315`、target `740`、order `1340`、trade `1392`、position `6554`、NAV `345`、ledger state `345`、summary `1`。ADS 同 run/backtest candidate/trade/NAV/ledger state/summary 均为 `0` 行。
+- 默认正式 continuous 仍为 fresh-run；resume 已是可用工具，但正式结果若采用 resume segment 仍需 owner 显式批准并重跑两套 resume QA。
+
+### 改动文件
+
+- `configs/strategy1/active_step_catalog.yml`
+- `sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql`
+- `sql/strategy1/qa/qa_ledger_resume_consistency.sql`
+- `tests/strategy1/test_ledger_resume_acceptance.py`
+- `docs/prd/PRD_20260611_08_策略1LedgerResume验收闭环.md`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests/strategy1/test_ledger_resume_acceptance.py tests/strategy1/test_strategy1_catalog.py tests/strategy1/test_sql_render.py`：24 passed。
+- Cloud Run resume child execution `strategy1-backtest-report-job-82454`：succeeded。
+- BigQuery QA jobs `eb99f350-feb4-4fdc-977d-d2e6b7c74201` / `8b2b1e17-42ad-44d2-8318-9f283c26eee2`：succeeded。
+- BigQuery readback confirmed research output rows present and ADS output rows zero for the resume child run/backtest.
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 将本分支作为 PRD_08 独立 PR 提交 review。
+- 单独整合 PRD_07 worker 分支 `codex/prd07-annual-live-smoke`，并按 PRD_07 执行 candidate-only live smoke。
+- PRD_06 需要按只读审计建议新增 true-five-year refit-only plan / historical backfill QA 后再跑 live backfill。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - Tail-risk overlay A/B implementation and live run
 

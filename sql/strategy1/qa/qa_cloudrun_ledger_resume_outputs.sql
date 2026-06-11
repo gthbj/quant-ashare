@@ -8,14 +8,31 @@ DECLARE p_compare_end DATE DEFAULT NULL;
 DECLARE p_state_as_of_date DATE DEFAULT NULL;
 DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
 DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1_lot100';
+DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;
 
 ASSERT p_full_backtest_id IS NOT NULL AS 'p_full_backtest_id is required';
 ASSERT p_resume_backtest_id IS NOT NULL AS 'p_resume_backtest_id is required';
 ASSERT p_compare_start IS NOT NULL AS 'p_compare_start is required';
 ASSERT p_compare_end IS NOT NULL AS 'p_compare_end is required';
 ASSERT p_state_as_of_date IS NOT NULL AS 'p_state_as_of_date is required';
+ASSERT p_rebalance_anchor_start IS NOT NULL AS 'p_rebalance_anchor_start is required';
 ASSERT p_compare_start <= p_compare_end AS 'compare window must be valid';
 ASSERT p_state_as_of_date < p_compare_start AS 'state_as_of_date must be before compare_start';
+
+ASSERT (
+  SELECT COUNT(*) = 1
+  FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS cal
+  WHERE cal.exchange = 'SSE'
+    AND cal.is_open = 1
+    AND cal.cal_date = p_compare_start
+    AND p_compare_start = (
+      SELECT MIN(next_cal.cal_date)
+      FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS next_cal
+      WHERE next_cal.exchange = 'SSE'
+        AND next_cal.is_open = 1
+        AND next_cal.cal_date > p_state_as_of_date
+    )
+) AS 'compare_start must equal the next SSE open day after state_as_of_date';
 
 CREATE TEMP TABLE full_nav AS
 SELECT trade_date, nav, net_value_cny, cash_cny, gross_exposure, turnover_cny AS turnover, daily_return, cost_cny
@@ -104,6 +121,7 @@ ASSERT (
   FROM resume_state
   WHERE ledger_version != p_ledger_version
      OR resume_policy_id != p_resume_policy_id
+     OR rebalance_anchor_start != p_rebalance_anchor_start
      OR ledger_params_hash IS NULL
      OR holdings_hash IS NULL
 ) = 0 AS 'Resume state metadata mismatch';
@@ -114,6 +132,7 @@ ASSERT (
     AND JSON_VALUE(metrics_json, '$.parent_backtest_id') = p_full_backtest_id
     AND SAFE_CAST(JSON_VALUE(metrics_json, '$.state_as_of_date') AS DATE) = p_state_as_of_date
     AND JSON_VALUE(metrics_json, '$.resume_policy_id') = p_resume_policy_id
+    AND SAFE_CAST(JSON_VALUE(metrics_json, '$.rebalance_anchor_start') AS DATE) = p_rebalance_anchor_start
 ) = 1 AS 'Resume summary metadata mismatch';
 
 CREATE TEMP TABLE nav_diff AS
@@ -131,14 +150,14 @@ FULL OUTER JOIN resume_nav r USING (trade_date);
 
 ASSERT (
   SELECT COUNT(*)
-  FROM nav_diff
-  WHERE nav_diff > 1e-10
-     OR net_value_diff > 1e-4
-     OR cash_diff > 1e-4
-     OR exposure_diff > 1e-10
-     OR turnover_diff > 1e-10
-     OR daily_return_diff > 1e-10
-     OR cost_diff > 1e-4
+  FROM nav_diff AS diff
+  WHERE diff.nav_diff > 1e-10
+     OR diff.net_value_diff > 1e-4
+     OR diff.cash_diff > 1e-4
+     OR diff.exposure_diff > 1e-10
+     OR diff.turnover_diff > 1e-10
+     OR diff.daily_return_diff > 1e-10
+     OR diff.cost_diff > 1e-4
 ) = 0 AS 'Full and resume NAV metrics differ';
 
 CREATE TEMP TABLE position_diff AS
@@ -152,8 +171,8 @@ FULL OUTER JOIN resume_position r USING (trade_date, sec_code);
 
 ASSERT (
   SELECT COUNT(*)
-  FROM position_diff
-  WHERE shares_diff != 0 OR market_value_diff > 1e-4
+  FROM position_diff AS diff
+  WHERE diff.shares_diff != 0 OR diff.market_value_diff > 1e-4
 ) = 0 AS 'Full and resume positions differ';
 
 
@@ -174,11 +193,11 @@ FULL OUTER JOIN resume_trade r USING (trade_date, sec_code, side, fill_status);
 
 ASSERT (
   SELECT COUNT(*)
-  FROM trade_diff
-  WHERE planned_shares_diff > 1e-6
-     OR filled_shares_diff > 1e-6
-     OR turnover_diff > 1e-4
-     OR fee_diff > 1e-4
-     OR tax_diff > 1e-4
-     OR slippage_diff > 1e-4
+  FROM trade_diff AS diff
+  WHERE diff.planned_shares_diff > 1e-6
+     OR diff.filled_shares_diff > 1e-6
+     OR diff.turnover_diff > 1e-4
+     OR diff.fee_diff > 1e-4
+     OR diff.tax_diff > 1e-4
+     OR diff.slippage_diff > 1e-4
 ) = 0 AS 'Full and resume trades differ';

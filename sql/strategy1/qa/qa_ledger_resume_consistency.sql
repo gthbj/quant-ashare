@@ -1,18 +1,28 @@
--- BigQuery Standard SQL · Strategy 1 BQML Runner
--- 15: Ledger state resume consistency QA.
+-- BigQuery Standard SQL · Strategy 1 Cloud Run Python lot100 ledger QA.
+-- Ledger state resume consistency QA.
 --
--- 用途：P2 验收时比较：
---   1) 一次性 fresh-start 全段回测；
---   2) parent backtest + resume segment 回测。
--- 对比窗口通常为 2026-01-02 至 2026-04-30。
+-- 用途：比较同一窗口内：
+--   1) fresh-start 对照切片；
+--   2) 从 parent backtest state 恢复的 resume segment。
 
-DECLARE p_full_backtest_id STRING DEFAULT 'bt_s1_bqml_baseline_pvfq_n30_bw_h5_extended_20260604_01';
-DECLARE p_resume_backtest_id STRING DEFAULT 'bt_s1_bqml_baseline_pvfq_n30_bw_h5_resume_20260604_01';
-DECLARE p_compare_start DATE DEFAULT DATE '2026-01-02';
-DECLARE p_compare_end DATE DEFAULT DATE '2026-04-30';
+DECLARE p_full_backtest_id STRING DEFAULT NULL;
+DECLARE p_resume_backtest_id STRING DEFAULT NULL;
+DECLARE p_compare_start DATE DEFAULT NULL;
+DECLARE p_compare_end DATE DEFAULT NULL;
+DECLARE p_state_as_of_date DATE DEFAULT NULL;
+DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
+DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1_lot100';
+DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;
 DECLARE p_cash_tolerance_cny FLOAT64 DEFAULT 1.0;
 DECLARE p_value_tolerance_cny FLOAT64 DEFAULT 1.0;
 DECLARE p_share_tolerance FLOAT64 DEFAULT 1e-6;
+
+ASSERT p_full_backtest_id IS NOT NULL AS 'p_full_backtest_id is required';
+ASSERT p_resume_backtest_id IS NOT NULL AS 'p_resume_backtest_id is required';
+ASSERT p_compare_start IS NOT NULL AS 'p_compare_start is required';
+ASSERT p_compare_end IS NOT NULL AS 'p_compare_end is required';
+ASSERT p_state_as_of_date IS NOT NULL AS 'p_state_as_of_date is required';
+ASSERT p_rebalance_anchor_start IS NOT NULL AS 'p_rebalance_anchor_start is required';
 
 IF p_compare_start > p_compare_end THEN
   RAISE USING MESSAGE = 'p_compare_start must be <= p_compare_end';
@@ -20,19 +30,48 @@ END IF;
 
 ASSERT (
   SELECT COUNT(*) = 1
+  FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS cal
+  WHERE cal.exchange = 'SSE'
+    AND cal.is_open = 1
+    AND cal.cal_date = p_compare_start
+    AND p_compare_start = (
+      SELECT MIN(next_cal.cal_date)
+      FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS next_cal
+      WHERE next_cal.exchange = 'SSE'
+        AND next_cal.is_open = 1
+        AND next_cal.cal_date > p_state_as_of_date
+    )
+) AS 'QA-RESUME-CONSIST-0: compare_start must equal the next SSE open day after state_as_of_date';
+
+ASSERT (
+  SELECT COUNT(*) = 1
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_full_backtest_id
-    AND JSON_VALUE(bs.metrics_json, '$.ledger_version') = 'ledger_exec_v1'
-) AS 'QA-RESUME-CONSIST-1: full backtest summary must exist exactly once and use ledger_exec_v1';
+    AND JSON_VALUE(bs.metrics_json, '$.ledger_version') = p_ledger_version
+    AND SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.rebalance_anchor_start') AS DATE) = p_rebalance_anchor_start
+) AS 'QA-RESUME-CONSIST-1: full backtest summary must exist exactly once and use expected lot100 ledger/anchor';
 
 ASSERT (
   SELECT COUNT(*) = 1
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_resume_backtest_id
-    AND JSON_VALUE(bs.metrics_json, '$.ledger_version') = 'ledger_exec_v1'
+    AND JSON_VALUE(bs.metrics_json, '$.ledger_version') = p_ledger_version
     AND JSON_VALUE(bs.metrics_json, '$.initial_state_mode') = 'resume_from_backtest'
     AND JSON_VALUE(bs.metrics_json, '$.is_resumed_backtest') = 'true'
-) AS 'QA-RESUME-CONSIST-2: resume backtest summary must exist exactly once and be marked as resumed';
+    AND SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.state_as_of_date') AS DATE) = p_state_as_of_date
+    AND JSON_VALUE(bs.metrics_json, '$.resume_policy_id') = p_resume_policy_id
+    AND SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.rebalance_anchor_start') AS DATE) = p_rebalance_anchor_start
+) AS 'QA-RESUME-CONSIST-2: resume backtest summary must exist exactly once and be marked with resume metadata';
+
+ASSERT (
+  SELECT COUNT(*) = 1
+  FROM `data-aquarium.ashare_ads.ads_backtest_ledger_state_daily` AS state
+  WHERE state.backtest_id = p_resume_backtest_id
+    AND state.trade_date = p_compare_start
+    AND state.ledger_version = p_ledger_version
+    AND state.resume_policy_id = p_resume_policy_id
+    AND state.rebalance_anchor_start = p_rebalance_anchor_start
+) AS 'QA-RESUME-CONSIST-2B: resume first-day ledger state must record expected ledger metadata';
 
 ASSERT (
   SELECT COUNT(*) = 0

@@ -23,12 +23,13 @@
 13. `sql/dws/08_dws_market_state_daily.sql` 与 `sql/qa/11_market_state_checks.sql`：生成并校验 P2 市场状态 risk-off 证据表；`backtest_report.py` 在 `tail_risk_profile_id=market_risk_off_v0` 或 `individual_and_market_risk_guard_v0` 时由 Python ledger 读取该表并跳过 risk-off 次日买单。
 14. `scripts/strategy1/diagnose_acceptance_gate_v2.py` 与 `sql/strategy1/acceptance/qa_acceptance_gate_v2_outputs.sql`：按 `model_acceptance_contract_v2` 只读生成验收门 v2、10/20/30/40 组合可行性、eligible benchmark 和 score orientation audit artifact；不训练、不改 prediction、不写 ADS。
 15. `sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql`：校验 Cloud Run Python `ledger_exec_v1_lot100` 的整数手成交、odd-lot 清仓、below-lot 跳单、现金和 summary lot 参数。
+16. `sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql` 与 `sql/strategy1/qa/qa_ledger_resume_consistency.sql`：校验 Cloud Run Python `ledger_exec_v1_lot100` resume child 与 full fresh continuous parent 的同窗口切片逐日一致，并检查 parent state、resume metadata、ledger version、resume policy、原始 rebalance anchor 和 next-open 边界。
 
 当前限制：
 
 1. 训练面板 SQL 由 runner config 的 `training_panel_step` 指定；基础面板为 `build_training_panel_base`，风险特征面板为 `build_training_panel_risk_feature`。
 2. candidate / portfolio / order 仍使用 `sql/strategy1/execution/**` BigQuery SQL。
-3. Python ledger P0 先支持 fresh-start；resume 路径 fail-fast。`ledger_exec_v1_lot100` 是 Python-only 执行语义，不再要求与 SQL FLOAT-shares runner 等价。
+3. Python ledger 默认仍为 fresh-start；resume 路径已实现并通过 PRD_20260611_08 research-only 验收，但每次作为正式分段结果使用前仍必须显式 owner 批准并跑 resume QA。`ledger_exec_v1_lot100` 是 Python-only 执行语义，不再要求与 SQL FLOAT-shares runner 等价。
 4. Cloud Run Jobs、Artifact Registry、IAM 和服务账号需按本文部署，不在代码中保存任何凭据。
 
 ## 2. 本地 dry-run
@@ -127,6 +128,46 @@ manifest 示例：
 3. merge 不删除或修改任何年度 source run；若 synthetic run 已存在，必须显式 `--force-replace` 才会删除同 synthetic run 的 registry/prediction 后重写。
 4. continuous ledger 通过现有 `quant_ashare.strategy1.backtest_report` 执行，`prediction_run_id` 指向 synthetic run，且必须显式传 `--skip-diagnosis --skip-tail-risk --skip-qa`；随后单独执行 `qa_continuous_backtest_outputs` 和 `qa_lot_aware_ledger_outputs`。
 5. `qa_continuous_backtest_outputs` 必须验证 synthetic manifest hash、year→source model 溯源、source/target prediction 行数、valid 段排除、交易日历覆盖，以及 continuous summary / NAV / ledger state 不变式。不得把年度 fresh NAV 拼接成正式结论。
+
+Cloud Run ledger resume 验收 / 手工恢复：
+
+```bash
+python -m quant_ashare.strategy1.backtest_report \
+  --experiment-id <resume_experiment_id> \
+  --experiment-json <base64-resolved-experiment-json> \
+  --output-dataset-role research \
+  --force-replace \
+  --skip-gcs-upload \
+  --skip-report \
+  --skip-diagnosis \
+  --skip-tail-risk \
+  --skip-qa
+```
+
+resume experiment JSON 必须显式包含：
+
+1. `initial_state_mode=resume_from_backtest`。
+2. `parent_backtest_id=<full fresh continuous parent backtest id>`。
+3. `state_as_of_date=<parent state date>`。
+4. `predict_start=<state_as_of_date 后下一 SSE 开市日>`。
+5. `rebalance_anchor_start=<parent 原始调仓锚点>`；biweekly 禁止按 segment start 重算奇偶。
+6. `prediction_run_id`、`target_holdings`、`max_single_weight`、`rebalance_frequency`、成本和 feature/label 口径必须与 parent 兼容。
+
+验收必须使用 full fresh continuous parent 的同窗口切片作为等价参照，不得用 cut date 后重新 fresh-start 的短段作为 full 输入；短段 fresh-start 会重置现金、持仓和 NAV，必然不等价。两套 QA 均通过后，resume segment 才可作为可用工具：
+
+```bash
+python -m quant_ashare.strategy1.sql_runner \
+  --step qa_cloudrun_ledger_resume_outputs \
+  --params-json-b64 <params> \
+  --output-dataset-role research
+
+python -m quant_ashare.strategy1.sql_runner \
+  --step qa_ledger_resume_consistency \
+  --params-json-b64 <params> \
+  --output-dataset-role research
+```
+
+2026-06-11 PRD_08 验收证据：parent backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，cut `2024-12-31`，next open `2025-01-02`，anchor `2021-01-04`；resume child execution `strategy1-backtest-report-job-82454` 成功，`qa_cloudrun_ledger_resume_outputs` job `eb99f350-feb4-4fdc-977d-d2e6b7c74201` 与 `qa_ledger_resume_consistency` job `8b2b1e17-42ad-44d2-8318-9f283c26eee2` 均通过；验收产物只写 `ashare_research`，同 run/backtest 在 ADS 为 0 行。
 
 年度滚动 pipeline scheduler dry-run：
 

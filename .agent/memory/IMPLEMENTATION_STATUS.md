@@ -6,6 +6,15 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：PRD_08 Cloud Run ledger resume research-only 验收已完成
+
+- 基于 `origin/main@6b619b0` 分支 `codex/strategy1-resume-acceptance` 实施 `PRD_20260611_08_策略1LedgerResume验收闭环.md`：将 `qa_ledger_resume_consistency` 从旧 BQML / `ledger_exec_v1` 默认值升级为 Cloud Run Python `ledger_exec_v1_lot100` / research-first 口径，并把 `qa_cloudrun_ledger_resume_outputs` 与 `qa_ledger_resume_consistency` 两套 QA 都纳入 `manual_resume_qa` active contract。
+- 两套 QA 现在都要求 `p_state_as_of_date`、`p_resume_policy_id`、`p_ledger_version`、`p_rebalance_anchor_start`，并断言 `p_compare_start` 等于 `state_as_of_date` 后下一 SSE 开市日；catalog 补齐 `backtest_ledger_state_daily` input，pytest 锁住 research 渲染不残留 `ashare_ads`。
+- 真实 research-only 验收已完成：parent full fresh continuous backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，cut `2024-12-31`，next open `2025-01-02`，原 anchor `2021-01-04`。resume child `s1_resume_acceptance_resume_20250102_20260609_v20260611_01` / `bt_s1_resume_acceptance_resume_20250102_20260609_v20260611_01` 通过 Cloud Run execution `strategy1-backtest-report-job-82454`。
+- BigQuery QA 通过：`qa_cloudrun_ledger_resume_outputs` job `eb99f350-feb4-4fdc-977d-d2e6b7c74201`；`qa_ledger_resume_consistency` job `8b2b1e17-42ad-44d2-8318-9f283c26eee2`。验收产物行数：candidate `89315`、target `740`、order `1340`、trade `1392`、position `6554`、NAV `345`、ledger state `345`、summary `1`；ADS 同 run/backtest candidate/trade/NAV/ledger state/summary 均为 `0` 行。
+- 验收中发现并修正两点：`qa_cloudrun_ledger_resume_outputs` 中 `nav_diff` temp table 与 column 同名导致 BigQuery 将 `nav_diff > ...` 解析为 STRUCT 比较，已改为显式 `diff.*`；“fresh 同窗口切片”口径明确为 full fresh continuous parent 的同窗口切片，不得用 cut 后重新 fresh-start 的短段作为等价参照。
+- 默认正式 continuous 仍为 fresh-run。Resume 已成为可用工具，但任何正式分段结果若采用 resume segment，仍需 owner 显式批准并重跑两套 resume QA。
+
 ### 最新补充（2026-06-11）：尾部风险 Overlay 三组 A/B 已实现并完成 live run
 
 - PR #176 已合并到 `main`（merge commit `5c27e28`）。分支 `codex/strategy1-tail-risk-overlay-ab` 实现 `quant_ashare.strategy1.tail_risk_overlay_ab`，用于在 latest effective-window synthetic continuous prediction 流上启动 P1 / P2 / P1+P2 三组 research-only portfolio overlay A/B。
@@ -387,7 +396,7 @@ Last updated: 2026-06-11
 ### 最新补充（2026-06-10）：PR #127 Cloud Run ledger resume review follow-up 已修复
 
 - PR #127 review follow-up 已在分支修复 Cloud Run ledger resume 实现问题：补齐 resume imports/params/dataclass、`run_ledger` parent-state restore 与 state table 写入、manifest/CLI/SQL metadata 贯通、`25` QA ADS 表/字段口径，以及测试 import。
-- 尚未运行测试、BigQuery 或 Cloud Run 验证。
+- 历史备注：该条记录生成时尚未运行测试、BigQuery 或 Cloud Run 验证；后续 PRD_08 已完成 research-only 真实数据验收，详见本文件顶部最新补充。
 
 ### 最新补充（2026-06-09）：2015-2018 手工 backfill 下限修复已在分支实现
 
@@ -429,7 +438,7 @@ Last updated: 2026-06-11
 - `ashare-composer` 环境已于 2026-06-08 删除完成；`orchestration/composer/**` 现在只保留为 retired / audit-only 历史快照，不再是现行生产路径。
 - `docs/Pipeline-补跑与故障恢复-Runbook.md` 已改写为 Workflows 版恢复手册，告警链路不会再把 on-call 指向已删除的 `ashare-composer` 操作命令；`scripts/alerting/README.md` 与 `setup_alerts.py` 的描述也已同步到 Scheduler + Workflows 路径。
 - 2026-06-09 首次 20:00 scheduled ODS run 暴露 runtime SA 权限缺口：Cloud Run Job 需要 `run.jobs.runWithOverrides`，operation polling 需要 `run.operations.get`；live IAM 已补 `roles/run.jobsExecutorWithOverrides`（job-level）和 `roles/run.viewer`（project-level），bootstrap 脚本也已同步修正。
-- 2026-06-09：在 PR #127 分支开始实现 Cloud Run Python ledger resume：manifest/CLI 透传 resume 字段，Python ledger 写入 `ads_backtest_ledger_state_daily` 并支持从父 backtest 状态恢复，SQL contract/QA 增加 `rebalance_anchor_start` 与 `cloudrun_lot100_resume_v1` 口径。尚未运行 BigQuery/Cloud Run 验证。
+- 2026-06-09：在 PR #127 分支开始实现 Cloud Run Python ledger resume：manifest/CLI 透传 resume 字段，Python ledger 写入 `ads_backtest_ledger_state_daily` 并支持从父 backtest 状态恢复，SQL contract/QA 增加 `rebalance_anchor_start` 与 `cloudrun_lot100_resume_v1` 口径。历史备注：当时尚未运行 BigQuery/Cloud Run 验证；后续 PRD_08 已完成 research-only 真实数据验收。
 
 ### 最新补充（2026-06-08）：Strategy1 `v3` replay / `24` QA 已收口为 contract-driven 路径
 
