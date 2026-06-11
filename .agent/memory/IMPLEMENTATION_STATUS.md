@@ -6,6 +6,13 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：年度 final refit dedicated panel / effective coverage floor 实现中
+
+- 针对 OQ-014，当前分支 `codex/fix-annual-refit-dedicated-panel` 已把 annual final refit 的 source panel 从 selection run 切换为 dedicated refit panel：annual resolved plan 在 `cloudrun_select_register_predict` 之后新增 `build_refit_training_panel`，用 refit run_id 写 panel；`cloudrun_refit_register_predict` 的 `--source-panel-run-id` 同步指向 refit run_id，`source_run_id` 仍指向 selection run 用于 selected candidate lineage。
+- `quant_ashare.strategy1.annual_pipeline_scheduler` 已新增 `refit_panel:yYYYY` stage，DAG 顺序为 `select:yYYYY -> refit_panel:yYYYY -> refit:yYYYY -> diagnostic/continuous`；continuous 仍只依赖六个 `refit:*`。
+- BigQuery 覆盖审计确认：若 effective refit start 取 `max(nominal_start, 2019-04-03)`，当前 DWS / panel SQL 对 2021-2026 六年均可做到 effective train window 每个 SSE 开市日有 labeled sample；2021-2024 因覆盖下限不再是名义完整五年 refit，解释结果时必须保留该 caveat。
+- PRD_02 已修订为 dedicated refit panel + `2019-04-03` effective coverage floor 口径；OQ-014 仍保留为 owner 方法论决策：若未来要求真实 pre-2019 五年窗口，需要先修复 / 重建 DWS lookback 与历史 valuation 覆盖，再重跑 dedicated refit panel、refit 与 continuous ledger。
+
 ### 最新补充（2026-06-11）：年度滚动结果 review follow-up 与 source panel 覆盖护栏
 
 - 针对 PR #171 后 review 发现，已基于 `origin/main@00f2265` 独立审计六个 annual selection source panel。结论：review 对 `2019Q1` 缺口和旧 QA 只查端点的判断成立，且 live 数据还暴露更多内部缺口。
@@ -53,7 +60,7 @@ Last updated: 2026-06-11
 ### 最新补充（2026-06-11）：年度滚动 refit / continuous / summary 修复三 PRD 已新增
 
 - 分支 `claude/prd-refit-continuous-summary` 新增三个 PRD，收口 2021-2026 首轮年度滚动实跑暴露的问题：
-  - `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`：当前实现在 valid 选参后未执行 final refit（2026 selected model 训练窗口为 `2020-01-02 ~ 2024-12-24`，PRD 要求 `2021-01-04 ~ 2025-12-24`）；方案为 `refit_register_predict` 步骤复用既有 BigQuery panel（经 `source_panel_run_id` 读 selection run panel，重新 fit preprocessor，不消费冻结 matrix transformed arrays）+ 独立 refit run_id 溯源契约 + 训练窗口 QA 硬门，六年从 select 之后重跑，不重跑 panel/matrix/fanout。
+  - `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`：当前实现在 valid 选参后未执行 final refit（2026 selected model 训练窗口为 `2020-01-02 ~ 2024-12-24`，PRD 要求 `2021-01-04 ~ 2025-12-24`）；初稿方案曾写为复用既有 BigQuery panel、重新 fit preprocessor、不消费冻结 matrix transformed arrays。该 panel 复用口径已被 2026-06-11 coverage revision 替代：当前权威方案为 dedicated refit panel + effective coverage floor。
   - `docs/prd/PRD_20260611_03_策略1SyntheticContinuous正式回测.md`：manifest 参数化的逐年 test 窗口切片 merge（排除 valid 段）、重叠/缺口/行数/溯源 QA、official continuous ledger（`2021-01-04` fresh-start 至 `2026-06-09`）；彩排用 pre-refit 预测可立即先行，正式执行依赖 02 完成。
   - `docs/prd/PRD_20260611_04_ResearchSummary落库修复.md`（简短）：6 行年度 summary `created_date`/`run_id` 为 NULL 的根因已实证（`09` INSERT 列清单不含这两列、ADS 表本无此两列、research 渲染只重写表名）；方案为 ADS additive 补列 + `09` 列清单修复 + 回填 + QA NOT NULL 断言；该修复必须先于 02/03 的任何重跑。
 - 本轮 docs/记忆-only，未改代码、未执行 BigQuery / Cloud Run。当前 6 年年度 diagnostic 结果在 refit 修正前不得作指标解读。
