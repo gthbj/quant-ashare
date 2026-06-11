@@ -35,7 +35,7 @@
   说明：P1 / P2 / P1+P2 三组 portfolio-only continuous，复用最新 effective-window synthetic prediction run，baseline 不重跑；前置检查 market state 覆盖与 tail-risk 字段可用性，guard 生效性断言为硬门；产出 MaxDD/Calmar/CAGR 对比表、risk-off 期现金占比与 `BUY_SKIPPED_TAIL_RISK` 逐年计数，支撑默认 profile 与暴露管理 PRD 两个决策。结果仅研究口径，不改默认 profile、不 promotion。
 
 - [ ] OQ-011：按 `PRD_20260611_06` 做历史数据回填（2010+）与 true-five-year refit 重跑
-  说明：ODS 14 endpoint 已从 2010 起可用（2026-06-11 探查证实 `daily`/`daily_basic` 2010-2014 有行）；DWD 价格仅 2015 起，DWS `2015-Q1` 与 `2019-Q1` 的 `has_full_history_60d` 全部 FALSE（后者为陈旧标记，重刷即可修）。Phase A 历史下限前移 + 旗标修复 + `2019-04-03` 后 parity 硬门；Phase B 2021-2024 名义五年 refit 重跑（不重做选参）；Phase C 新 synthetic continuous 对比表交 owner 口径决策。
+  说明：ODS 14 endpoint 已从 2010 起可用（2026-06-11 探查证实 `daily`/`daily_basic` 2010-2014 有行）；DWD 价格仅 2015 起，DWS `2015-Q1` 与 `2019-01-02..2019-04-02`（含 `2019-04-01/02` 两个开市日，超出自然 Q1）的 `has_full_history_60d` 全部 FALSE（后者为陈旧标记，重刷该窗口即可修，只刷自然 Q1 会留两天缺口）。Phase A 历史下限前移 + 旗标修复 + `2019-04-03` 后 parity 硬门；Phase B 2021-2024 名义五年 refit 重跑（不重做选参）；Phase C 新 synthetic continuous 对比表交 owner 口径决策。
 
 - [ ] OQ-010：按 `PRD_20260611_07` 做年度滚动调度 Phase 2 live 化
   说明：真实 GCS generation-guarded lease/state、Cloud Run execution 粒度 fanout 跟踪（替换 candidate-year proxy）、共享 `40 CPU / 160Gi` 池 live admission、candidate-only live smoke 五场景（kill-restart 恢复、artifact skip、lease 竞争、超时二次确认）；不跑完整 live 年度滚动（Phase 3 owner 另批）。

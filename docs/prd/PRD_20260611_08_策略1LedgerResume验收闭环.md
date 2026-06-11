@@ -24,6 +24,11 @@ fresh/resume fail-fast 校验，state 表 role 已支持 research
    - parent = 当前 official continuous backtest（从记忆/manifest 解析 id，不硬编码）；
    - 在 rebalance 边界附近选 cut date（建议 2024 年末），从 parent state resume 跑 cut →
      `2026-06-09` 的 segment（新 run/backtest id，写 `ashare_research`）；
+   - **边界参数硬门**（与 KNOWN_CONSTRAINTS resume 条款一致，违反即验收无效）：
+     `p_predict_start` 必须等于 `state_as_of_date` 后下一 SSE 开市日；biweekly 必须显式传
+     `p_rebalance_anchor_start` = parent 的原调仓锚点（当前 official continuous 为
+     `2021-01-04`，实现时从 parent 记录解析），禁止按 segment start 重算双周奇偶；
+     fresh 对照切片使用同一锚点，保证 compare window 调仓日逐一对齐；
    - 与 fresh run 同窗口切片做一致性比对：NAV、现金、日收益、持仓、成交事实逐日一致；
    - 跑 `qa_cloudrun_ledger_resume_outputs` + `qa_ledger_resume_consistency` 两套 QA。
 3. **Runbook 固化**：resume 参数语义（`initial_state_mode` / `parent_backtest_id` /
@@ -41,6 +46,7 @@ fresh/resume fail-fast 校验，state 表 role 已支持 research
 | 项 | 要求 |
 |---|---|
 | 测试 | resume 相关 pytest 全过（含验收中新增的回归用例） |
+| 边界参数 | `p_predict_start` = `state_as_of_date` 次 SSE 开市日；biweekly 显式 `p_rebalance_anchor_start` = parent 原锚点（不得按 segment start 重算奇偶）；fresh 对照同锚点 |
 | 一致性 | resume segment 与 fresh 同窗口切片：NAV/现金/日收益/持仓/成交逐日一致（两套 resume QA 通过） |
 | 隔离 | 验收产物全部在 `ashare_research`，parent 未被触碰 |
 | runbook | resume 参数语义与适用边界落档 |
