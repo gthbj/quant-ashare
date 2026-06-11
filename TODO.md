@@ -31,6 +31,9 @@
 - [x] OQ-014：决定是否接受 effective-window annual final refit 结果进入 baseline 评估
   说明：DECISION-20260611-02 已关闭 OQ-014：接受当前 DWS 覆盖下的 effective-window annual final refit / continuous ledger 作为研究复盘与后续策略迭代事实口径，暂不投入 pre-2019 DWS lookback / valuation 覆盖重建。该关闭不等于 accepted baseline：最新 result 的 v3 contract Sharpe=`0.5285475500566089 < 0.70`、Calmar=`0.26464663290635254 < 1.0`，不得 promotion。
 
+- [ ] OQ-010：按 `PRD_20260611_05` 跑尾部风险 Overlay 三组 A/B
+  说明：P1 / P2 / P1+P2 三组 portfolio-only continuous，复用最新 effective-window synthetic prediction run，baseline 不重跑；前置检查 market state 覆盖与 tail-risk 字段可用性，guard 生效性断言为硬门；产出 MaxDD/Calmar/CAGR 对比表、risk-off 期现金占比与 `BUY_SKIPPED_TAIL_RISK` 逐年计数，支撑默认 profile 与暴露管理 PRD 两个决策。结果仅研究口径，不改默认 profile、不 promotion。
+
 - [ ] OQ-010：基于 official continuous 结果决定下一轮策略改进或 accepted baseline 路线
   说明：2021-2026 effective-window official continuous 已成为当前研究复盘口径，但尚未 accepted。最新 result：compound_annual_return=`0.12036528993503204`，max_drawdown=`-0.4548151193656952`，information_ratio=`0.5420201365046585`，v3 contract Sharpe=`0.5285475500566089`、Calmar=`0.26464663290635254`，未过 v3 absolute gates。下一步应围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案；不得把本轮结果直接 promotion 或标 accepted。
 

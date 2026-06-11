@@ -1,3 +1,11 @@
+> 当前交接补充（2026-06-11，Claude Fable 5）
+> - 新增 `docs/prd/PRD_20260611_05_策略1尾部风险OverlayAB.md`：在最新 effective-window synthetic prediction 流上做 P1 / P2 / P1+P2 三组 portfolio-only continuous A/B，对照 baseline 量化 MaxDD / Calmar 改善与 CAGR 损耗；零训练、零 merge。
+> - 设计要点：复用 official synthetic run（从记忆/manifest 解析，禁止硬编码 id）、与 official 相同 skip-flags 执行模式（`--skip-tail-risk` 只跳诊断不影响 guard）、guard 生效性断言为硬门（`BUY_SKIPPED_TAIL_RISK` 计数 / risk-off 次日零买单）、risk-off 期现金占比曲线量化"只禁买"的隐性减仓效应。
+> - 背景动机：official continuous MaxDD `-45.48%`；回撤窗口 `2021-10-21→2024-02-07` 分解显示 beta≈-36pp、超额损失≈-10pp（疑似集中 2024 踩踏段）。本 A/B 同时是"P1 设默认前必须 full-period A/B"既有约束的前置执行。
+> - 本轮 docs/记忆-only，不改代码、不执行 BigQuery / Cloud Run；A/B 结果出来前不改默认 profile、不立暴露管理 PRD。
+
+Model: Claude Fable 5
+
 > 当前交接补充（2026-06-11，GPT-5 Codex）
 > - PR #173 已合并到 `main@f1abf46`，dedicated refit panel + `effective_refit_train_start=max(nominal_start, 2019-04-03)` 口径进入主线。
 > - 已从 `main@f1abf46` 构建并部署正式 runner digest `sha256:4768d25f49de4bb1e8084476d6f1fe1542ed86750823751fa104738eb0947699`，五个 Strategy1 jobs 的 boot smoke 全过。
