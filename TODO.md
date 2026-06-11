@@ -41,7 +41,7 @@
   说明：ODS 14 endpoint 已从 2010 起可用（2026-06-11 探查证实 `daily`/`daily_basic` 2010-2014 有行）；DWD 价格仅 2015 起，DWS `2015-Q1` 与 `2019-01-02..2019-04-02`（含 `2019-04-01/02` 两个开市日，超出自然 Q1）的 `has_full_history_60d` 全部 FALSE（后者为陈旧标记，重刷该窗口即可修，只刷自然 Q1 会留两天缺口）。Phase A 历史下限前移 + 旗标修复 + `2019-04-03` 后 parity 硬门；Phase B 2021-2024 名义五年 refit 重跑（不重做选参）；Phase C 新 synthetic continuous 对比表交 owner 口径决策。
 
 - [ ] OQ-010：按 `PRD_20260611_07` 做年度滚动调度 Phase 2 live 化
-  说明：真实 GCS generation-guarded lease/state、Cloud Run execution 粒度 fanout 跟踪（替换 candidate-year proxy）、共享 `40 CPU / 160Gi` 池 live admission、candidate-only live smoke 五场景（kill-restart 恢复、artifact skip、lease 竞争、超时二次确认）；不跑完整 live 年度滚动（Phase 3 owner 另批）。
+  说明：代码 PR 准备已在分支 `codex/prd07-annual-live-smoke` 完成：scheduler 新增显式 `--execute-live --candidate-only-smoke` live gate、真实 GCS generation-conditioned lease/state、Cloud Run execution 粒度 fanout tracking、matrix 前置检查（缺 `matrix_manifest.json` / `work_units.json` 时本地失败且不提交 Cloud Run）、artifact skip、state recovery、describe + artifact 双确认和 focused pytest 覆盖。尚未执行真实 Cloud Run live smoke，合并/部署后仍需先准备/复用对应 run-version 的 matrix artifact，再按 PRD_07 五场景做 candidate-only live smoke（kill-restart 恢复、artifact skip、lease 竞争、超时二次确认）；不跑完整 live 年度滚动（Phase 3 owner 另批）。
 
 - [ ] OQ-010：基于 official continuous 结果决定下一轮策略改进或 accepted baseline 路线
   说明：2021-2026 effective-window official continuous 已成为当前研究复盘口径，但尚未 accepted。最新 result：compound_annual_return=`0.12036528993503204`，max_drawdown=`-0.4548151193656952`，information_ratio=`0.5420201365046585`，v3 contract Sharpe=`0.5285475500566089`、Calmar=`0.26464663290635254`，未过 v3 absolute gates。下一步应围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案；不得把本轮结果直接 promotion 或标 accepted。

@@ -15,6 +15,14 @@ Last updated: 2026-06-11
 - 验收中发现并修正两点：`qa_cloudrun_ledger_resume_outputs` 中 `nav_diff` temp table 与 column 同名导致 BigQuery 将 `nav_diff > ...` 解析为 STRUCT 比较，已改为显式 `diff.*`；“fresh 同窗口切片”口径明确为 full fresh continuous parent 的同窗口切片，不得用 cut 后重新 fresh-start 的短段作为等价参照。
 - 默认正式 continuous 仍为 fresh-run。Resume 已成为可用工具，但任何正式分段结果若采用 resume segment，仍需 owner 显式批准并重跑两套 resume QA。
 
+### 最新补充（2026-06-11）：PRD_07 年度滚动调度 Phase 2 live smoke 代码 PR 准备完成
+
+- 分支 `codex/prd07-annual-live-smoke` 已 rebase 到最新 `origin/main@a20898e`，只改 PRD_07 相关 scheduler、测试、runbook/记忆；未触碰 `PRD_20260611_06`。
+- `quant_ashare.strategy1.annual_pipeline_scheduler` 保持默认 dry-run 安全行为；真实提交必须同时传 `--execute-live --candidate-only-smoke`，否则非 dry-run 仍 fail-fast，不会启动完整 2021-2026 pipeline。
+- 新增真实 GCS generation-conditioned annual scheduler lease/state 抽象：state JSON 使用 `if_generation_match=0` 创建、`if_generation_match=<current_generation>` 更新；generation conflict 会重读/重试，丢失 lease ownership 会停止提交。
+- 新增 candidate-only live smoke 执行路径：只筛选 smoke 年度/候选 unit，按 Cloud Run execution 粒度提交与记账；提交前先检查对应 matrix `matrix_manifest.json` / `work_units.json` 已存在，缺失则本地失败且不提交 Cloud Run；支持 artifact precheck skip、state recovery 不重复提交、共享 `40 CPU / 160Gi` / candidate slots live admission、execution describe + candidate artifact 双确认。`gcloud execute` 非零但能解析 execution id 时，不直接判失败，必须以后续 describe + `task_status.json` / `candidate_metrics.json` 判定。
+- 新增单测覆盖 generation conflict、lost ownership、state recovery、matrix 缺失不提交、artifact skip、execution-level accounting、describe success after execute wait failure；未执行真实 Cloud Run live smoke、未改 Cloud Run job spec/IAM/镜像。
+
 ### 最新补充（2026-06-11）：尾部风险 Overlay 三组 A/B 已实现并完成 live run
 
 - PR #176 已合并到 `main`（merge commit `5c27e28`）。分支 `codex/strategy1-tail-risk-overlay-ab` 实现 `quant_ashare.strategy1.tail_risk_overlay_ab`，用于在 latest effective-window synthetic continuous prediction 流上启动 P1 / P2 / P1+P2 三组 research-only portfolio overlay A/B。

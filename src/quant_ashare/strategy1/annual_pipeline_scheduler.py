@@ -1,4 +1,9 @@
-"""Dry-run scheduler for Strategy 1 annual rolling pipeline execution."""
+"""Scheduler for Strategy 1 annual rolling pipeline execution.
+
+The default mode is still dry-run only. Live execution requires both
+``--execute-live`` and ``--candidate-only-smoke`` so the Phase 2 smoke path
+cannot accidentally launch the full annual rolling pipeline.
+"""
 
 from __future__ import annotations
 
@@ -6,13 +11,17 @@ import argparse
 import dataclasses
 import hashlib
 import json
+import subprocess
+import time
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from google.cloud import storage
+
 from scripts.strategy1_cloudrun import __version__
-from scripts.strategy1_cloudrun.bq_io import join_gs_uri, json_dumps_strict
+from scripts.strategy1_cloudrun.bq_io import join_gs_uri, json_dumps_strict, parse_gs_uri
 from scripts.strategy1_cloudrun.config import (
     add_common_args,
     apply_cli_overrides,
@@ -40,6 +49,10 @@ from scripts.strategy1_cloudrun.task_fanout import (
     matrix_artifact_uri,
 )
 from quant_ashare.strategy1.pipeline_control import gcloud_execute_command
+from scripts.strategy1_cloudrun.state import (
+    cloud_run_execution_state,
+    extract_cloud_run_execution_id,
+)
 
 
 STAGE_PANEL = "panel"
@@ -55,6 +68,8 @@ STATUS_PLANNED = "planned"
 STATUS_RUNNING = "running"
 STATUS_SUCCEEDED = "succeeded"
 STATUS_DEFERRED = "deferred"
+STATUS_SKIPPED = "skipped"
+STATUS_FAILED = "failed"
 
 SIMULATION_MODEL_SYNCHRONOUS_WAVES = "synchronous_waves"
 
@@ -171,6 +186,10 @@ class StateGenerationMismatch(RuntimeError):
     """Raised when a generation-conditioned state update loses ownership."""
 
 
+class LiveSchedulerOwnershipLost(RuntimeError):
+    """Raised when the live scheduler loses GCS lease ownership."""
+
+
 @dataclasses.dataclass
 class InMemoryGenerationStateStore:
     """Small local model of GCS generation-conditioned state writes.
@@ -182,6 +201,16 @@ class InMemoryGenerationStateStore:
 
     generation: int | None = None
     payload: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+    def read(self) -> tuple[dict[str, Any] | None, int | None]:
+        if self.generation is None:
+            return None, None
+        return json.loads(json_dumps_strict(self.payload, ensure_ascii=False)), self.generation
+
+    def create_if_absent(self, payload: dict[str, Any]) -> int:
+        if self.generation is not None:
+            return self.generation
+        return self.create(payload)
 
     def create(self, payload: dict[str, Any]) -> int:
         if self.generation is not None:
@@ -202,6 +231,267 @@ class InMemoryGenerationStateStore:
         return self.generation
 
 
+class GcsGenerationStateStore:
+    """GCS JSON state object with generation-conditioned writes."""
+
+    def __init__(
+        self,
+        *,
+        project: str,
+        bucket: str,
+        prefix: str,
+        state_key: str,
+        client: storage.Client | None = None,
+    ):
+        self.project = project
+        self.bucket_name = bucket
+        self.blob_name = f"{prefix.rstrip('/')}/{state_key}.json"
+        self._client = client
+
+    def read(self) -> tuple[dict[str, Any] | None, int | None]:
+        blob = self._blob()
+        try:
+            blob.reload()
+            generation = int(blob.generation)
+            payload = json.loads(blob.download_as_bytes(if_generation_match=generation))
+            return payload, generation
+        except Exception as exc:
+            if _is_not_found_error(exc):
+                return None, None
+            raise
+
+    def create_if_absent(self, payload: dict[str, Any]) -> int:
+        blob = self._blob()
+        try:
+            blob.upload_from_string(
+                json_dumps_strict(payload, ensure_ascii=False, sort_keys=True),
+                content_type="application/json",
+                if_generation_match=0,
+            )
+            blob.reload()
+            return int(blob.generation)
+        except Exception as exc:
+            if _is_precondition_error(exc):
+                _, generation = self.read()
+                if generation is None:
+                    raise StateGenerationMismatch("state create raced but object is still missing") from exc
+                return generation
+            raise
+
+    def update(self, payload: dict[str, Any], *, expected_generation: int) -> int:
+        blob = self._blob()
+        try:
+            blob.upload_from_string(
+                json_dumps_strict(payload, ensure_ascii=False, sort_keys=True),
+                content_type="application/json",
+                if_generation_match=expected_generation,
+            )
+            blob.reload()
+            return int(blob.generation)
+        except Exception as exc:
+            if _is_precondition_error(exc) or _is_not_found_error(exc):
+                raise StateGenerationMismatch(
+                    f"state generation mismatch: expected {expected_generation}"
+                ) from exc
+            raise
+
+    def _blob(self) -> storage.Blob:
+        if self._client is None:
+            self._client = storage.Client(project=self.project)
+        return self._client.bucket(self.bucket_name).blob(self.blob_name)
+
+
+class GcsSchedulerLease:
+    """Lightweight annual-scheduler lease using GCS generation preconditions."""
+
+    def __init__(
+        self,
+        *,
+        project: str,
+        bucket: str,
+        prefix: str,
+        lock_key: str,
+        owner: str,
+        ttl_minutes: int,
+        client: storage.Client | None = None,
+    ):
+        self.project = project
+        self.bucket_name = bucket
+        self.blob_name = f"{prefix.rstrip('/')}/{lock_key}.lock"
+        self.lock_key = lock_key
+        self.owner = owner
+        self.ttl_minutes = ttl_minutes
+        self._client = client
+        self._generation: int | None = None
+
+    @property
+    def generation(self) -> int | None:
+        return self._generation
+
+    def acquire(self) -> bool:
+        now = utc_now()
+        payload = {
+            "lock_key": self.lock_key,
+            "lock_owner": self.owner,
+            "acquired_at": now.isoformat(),
+            "lease_expires_at": (now + timedelta(minutes=self.ttl_minutes)).isoformat(),
+        }
+        blob = self._blob()
+        try:
+            blob.upload_from_string(
+                json_dumps_strict(payload, ensure_ascii=False, sort_keys=True),
+                content_type="application/json",
+                if_generation_match=0,
+            )
+            blob.reload()
+            self._generation = int(blob.generation)
+            return True
+        except Exception as exc:
+            if _is_precondition_error(exc):
+                return False
+            raise
+
+    def heartbeat(self) -> bool:
+        if self._generation is None:
+            return False
+        blob = self._blob()
+        try:
+            existing = json.loads(blob.download_as_bytes(if_generation_match=self._generation))
+            if existing.get("lock_owner") != self.owner:
+                return False
+            now = utc_now()
+            existing["last_heartbeat_at"] = now.isoformat()
+            existing["lease_expires_at"] = (now + timedelta(minutes=self.ttl_minutes)).isoformat()
+            blob.upload_from_string(
+                json_dumps_strict(existing, ensure_ascii=False, sort_keys=True),
+                content_type="application/json",
+                if_generation_match=self._generation,
+            )
+            blob.reload()
+            self._generation = int(blob.generation)
+            return True
+        except Exception as exc:
+            if _is_precondition_error(exc) or _is_not_found_error(exc):
+                return False
+            raise
+
+    def release(self) -> None:
+        if self._generation is None:
+            return
+        try:
+            self._blob().delete(if_generation_match=self._generation)
+        except Exception:
+            pass
+        finally:
+            self._generation = None
+
+    def _blob(self) -> storage.Blob:
+        if self._client is None:
+            self._client = storage.Client(project=self.project)
+        return self._client.bucket(self.bucket_name).blob(self.blob_name)
+
+
+@dataclasses.dataclass(frozen=True)
+class LiveExecutionUnit:
+    unit_key: str
+    stage: str
+    year: int
+    task_ids: tuple[str, ...]
+    command: tuple[str, ...]
+    job_name: str
+    tokens: ResourceTokens
+    matrix_uri: str | None
+    artifact_uris: tuple[str, ...]
+
+    def to_state_seed(self) -> dict[str, Any]:
+        return {
+            "unit_key": self.unit_key,
+            "stage": self.stage,
+            "year": self.year,
+            "task_ids": list(self.task_ids),
+            "job_name": self.job_name,
+            "resource_tokens": self.tokens.to_dict(),
+            "matrix_uri": self.matrix_uri,
+            "artifact_uris": list(self.artifact_uris),
+            "status": STATUS_PLANNED,
+        }
+
+
+@dataclasses.dataclass(frozen=True)
+class CloudRunSubmitResult:
+    returncode: int
+    execution_id: str | None
+    stdout_tail: str = ""
+    stderr_tail: str = ""
+
+
+class GcloudExecutionClient:
+    def submit(self, command: tuple[str, ...] | list[str]) -> CloudRunSubmitResult:
+        proc = subprocess.run(list(command), text=True, capture_output=True)
+        return CloudRunSubmitResult(
+            returncode=proc.returncode,
+            execution_id=extract_cloud_run_execution_id(proc.stdout, proc.stderr),
+            stdout_tail=proc.stdout[-4000:],
+            stderr_tail=proc.stderr[-4000:],
+        )
+
+    def describe(self, *, project: str, region: str, execution_id: str) -> dict[str, Any] | None:
+        proc = subprocess.run(
+            [
+                "gcloud", "run", "jobs", "executions", "describe", execution_id,
+                f"--project={project}",
+                f"--region={region}",
+                "--format=json",
+            ],
+            text=True,
+            capture_output=True,
+        )
+        if proc.returncode != 0:
+            return None
+        try:
+            return json.loads(proc.stdout)
+        except Exception:
+            return None
+
+
+class GcsArtifactStore:
+    """GCS artifact checker used by live scheduling.
+
+    Candidate tasks are considered complete only when both the success marker
+    and metrics file exist under the candidate output URI.
+    """
+
+    def __init__(self, *, project: str, client: storage.Client | None = None):
+        self.project = project
+        self._client = client
+
+    def artifact_complete(self, unit: LiveExecutionUnit) -> bool:
+        if not unit.artifact_uris:
+            return False
+        for uri in unit.artifact_uris:
+            if not self._candidate_artifact_complete(uri):
+                return False
+        return True
+
+    def matrix_ready(self, unit: LiveExecutionUnit) -> bool:
+        if not unit.matrix_uri:
+            return False
+        required = ("matrix_manifest.json", "work_units.json")
+        bucket_name, prefix = parse_gs_uri(unit.matrix_uri)
+        if self._client is None:
+            self._client = storage.Client(project=self.project)
+        bucket = self._client.bucket(bucket_name)
+        return all(bucket.blob(join_object_name(prefix, name)).exists() for name in required)
+
+    def _candidate_artifact_complete(self, uri: str) -> bool:
+        required = ("task_status.json", "candidate_metrics.json")
+        bucket_name, prefix = parse_gs_uri(uri)
+        if self._client is None:
+            self._client = storage.Client(project=self.project)
+        bucket = self._client.bucket(bucket_name)
+        return all(bucket.blob(join_object_name(prefix, name)).exists() for name in required)
+
+
 def main() -> int:
     args = parse_args()
     config = apply_cli_overrides(load_runner_config(args.config), args)
@@ -215,6 +505,14 @@ def main() -> int:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json_dumps_strict(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    if args.execute_live:
+        result = execute_candidate_only_live_smoke(
+            plan=plan,
+            config=config,
+            args=args,
+        )
+        print(json_dumps_strict(result, ensure_ascii=False, indent=2))
+        return 0
     print(json_dumps_strict(plan, ensure_ascii=False, indent=2))
     if args.dry_run:
         return 0
@@ -265,8 +563,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lock-prefix", default=None)
     parser.add_argument("--lock-ttl-minutes", type=int, default=None)
     parser.add_argument("--heartbeat-interval-seconds", type=int, default=None)
+    parser.add_argument("--execute-live", action="store_true", help="Submit live Cloud Run executions; requires --candidate-only-smoke")
+    parser.add_argument("--candidate-only-smoke", action="store_true", help="Limit live mode to the PRD_07 candidate-only smoke subset")
+    parser.add_argument("--smoke-year", dest="smoke_years", type=int, action="append", default=None)
+    parser.add_argument("--smoke-candidates-per-year", type=int, default=3)
+    parser.add_argument("--candidate-smoke-batch-size", type=int, default=1)
+    parser.add_argument("--live-poll-seconds", type=float, default=15.0)
+    parser.add_argument("--max-live-poll-attempts", type=int, default=120)
     parser.add_argument("--output", default=None, help="Optional local path for scheduler dry-run JSON")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.execute_live:
+        if args.dry_run:
+            parser.error("--execute-live cannot be combined with --dry-run")
+        if not args.candidate_only_smoke:
+            parser.error("--execute-live requires --candidate-only-smoke")
+        if args.smoke_candidates_per_year < 1:
+            parser.error("--smoke-candidates-per-year must be >= 1")
+        if args.candidate_smoke_batch_size < 1:
+            parser.error("--candidate-smoke-batch-size must be >= 1")
+    return args
 
 
 def build_scheduler_plan(*, config, args: argparse.Namespace) -> dict[str, Any]:
@@ -359,6 +674,9 @@ def build_scheduler_plan(*, config, args: argparse.Namespace) -> dict[str, Any]:
         },
         "state_model": {
             "authoritative_store": "gcs_generation_conditioned_json",
+            "bucket": lock_bucket,
+            "prefix": f"{lock_prefix.rstrip('/')}/annual_pipeline_state" if lock_prefix else None,
+            "state_key": scheduler_run_id,
             "create_precondition": "if_generation_match=0",
             "update_precondition": "if_generation_match=<current_generation>",
             "generation_mismatch_action": "re_read_reconcile_running_executions_and_artifacts",
@@ -368,6 +686,7 @@ def build_scheduler_plan(*, config, args: argparse.Namespace) -> dict[str, Any]:
         "stage_tokens": stage_tokens_for_output(stage_tokens),
         "fanout_execution_accounting": {
             "dry_run_model": "candidate_year_proxy",
+            "live_model": "cloud_run_execution",
             "phase2_required_model": "cloud_run_execution",
             "note": (
                 "Phase 1 dry-run counts active candidate fanout by year. "
@@ -763,6 +1082,361 @@ def submission_groups_for_wave(
     return groups
 
 
+def execute_candidate_only_live_smoke(
+    *,
+    plan: dict[str, Any],
+    config,
+    args: argparse.Namespace,
+    state_store: Any | None = None,
+    lease: Any | None = None,
+    cloud_run: Any | None = None,
+    artifact_store: Any | None = None,
+) -> dict[str, Any]:
+    if not getattr(args, "execute_live", False) or not getattr(args, "candidate_only_smoke", False):
+        raise ValueError("live scheduler requires --execute-live --candidate-only-smoke")
+    if int(plan["start_year"]) == 2021 and int(plan["end_year"]) == 2026:
+        # The smoke subset is still small, but keep the result explicit so a
+        # full-range invocation cannot be mistaken for a full live pipeline.
+        live_scope = "candidate_only_smoke_subset_of_full_plan"
+    else:
+        live_scope = "candidate_only_smoke_subset"
+    lock_bucket = plan["scheduler_lock"]["bucket"]
+    lock_prefix = plan["scheduler_lock"]["prefix"]
+    if not lock_bucket or not lock_prefix:
+        raise ValueError("live scheduler requires lock bucket and prefix")
+    owner = args.scheduler_instance_id or f"annual-pipeline-scheduler-{int(time.time())}"
+    if state_store is None:
+        state_store = GcsGenerationStateStore(
+            project=config.project,
+            bucket=lock_bucket,
+            prefix=f"{lock_prefix.rstrip('/')}/annual_pipeline_state",
+            state_key=plan["scheduler_run_id"],
+        )
+    if lease is None:
+        lease = GcsSchedulerLease(
+            project=config.project,
+            bucket=lock_bucket,
+            prefix=lock_prefix,
+            lock_key=plan["scheduler_lock"]["lock_key"],
+            owner=owner,
+            ttl_minutes=int(args.lock_ttl_minutes or 30),
+        )
+    if cloud_run is None:
+        cloud_run = GcloudExecutionClient()
+    if artifact_store is None:
+        artifact_store = GcsArtifactStore(project=config.project)
+    if not lease.acquire():
+        raise LiveSchedulerOwnershipLost("annual scheduler lease is held by another owner")
+    units = candidate_smoke_execution_units(plan=plan, config=config, args=args)
+    summary = {
+        "entrypoint": "annual_pipeline_scheduler",
+        "status": "live_candidate_only_smoke_completed",
+        "live_scope": live_scope,
+        "scheduler_run_id": plan["scheduler_run_id"],
+        "scheduler_instance_id": owner,
+        "plan_hash": plan["plan_hash"],
+        "fanout_execution_accounting": "cloud_run_execution",
+        "unit_count": len(units),
+        "submitted_execution_count": 0,
+        "skipped_artifact_count": 0,
+        "recovered_execution_count": 0,
+        "failed_execution_count": 0,
+        "units": [],
+    }
+    try:
+        ensure_live_state(state_store, plan=plan, units=units)
+        for unit in units:
+            if not lease.heartbeat():
+                raise LiveSchedulerOwnershipLost(f"lost scheduler lease before submitting {unit.unit_key}")
+            outcome = process_live_unit(
+                unit,
+                plan=plan,
+                config=config,
+                args=args,
+                state_store=state_store,
+                lease=lease,
+                cloud_run=cloud_run,
+                artifact_store=artifact_store,
+            )
+            summary["units"].append(outcome)
+            if outcome["action"] == "submitted":
+                summary["submitted_execution_count"] += 1
+            if outcome["action"] == "artifact_skip":
+                summary["skipped_artifact_count"] += 1
+            if outcome["action"] == "recovered":
+                summary["recovered_execution_count"] += 1
+            if outcome["status"] == STATUS_FAILED:
+                summary["failed_execution_count"] += 1
+        if summary["failed_execution_count"]:
+            summary["status"] = "live_candidate_only_smoke_failed"
+        return summary
+    finally:
+        lease.release()
+
+
+def candidate_smoke_execution_units(*, plan: dict[str, Any], config, args: argparse.Namespace) -> list[LiveExecutionUnit]:
+    available_years = sorted({int(task["year"]) for task in plan["tasks"] if task["stage"] == STAGE_CANDIDATE})
+    selected_years = args.smoke_years or available_years[:2]
+    task_by_id = {task["task_id"]: task for task in plan["tasks"]}
+    units: list[LiveExecutionUnit] = []
+    batch_size = int(args.candidate_smoke_batch_size)
+    for year in selected_years:
+        candidates = [
+            task for task in plan["tasks"]
+            if task["stage"] == STAGE_CANDIDATE and int(task["year"]) == int(year)
+        ]
+        candidates = sorted(candidates, key=lambda item: int(item["unit_index"]))[: int(args.smoke_candidates_per_year)]
+        for batch_index in range(0, len(candidates), batch_size):
+            batch = candidates[batch_index: batch_index + batch_size]
+            if not batch:
+                continue
+            first = task_by_id[batch[0]["task_id"]]
+            offset = int(first["unit_index"])
+            tasks = len(batch)
+            matrix_id = first["matrix_id"]
+            matrix_uri = first["matrix_uri"]
+            unit_key = f"candidate_smoke:y{year}:u{offset:03d}:n{tasks:03d}"
+            tokens = ResourceTokens(
+                cpu=sum(int(item["resource_tokens"]["cpu"]) for item in batch),
+                memory_gib=sum(int(item["resource_tokens"]["memory_gib"]) for item in batch),
+                candidate_slots=sum(int(item["resource_tokens"]["candidate_slots"]) for item in batch),
+            )
+            units.append(LiveExecutionUnit(
+                unit_key=unit_key,
+                stage=STAGE_CANDIDATE,
+                year=int(year),
+                task_ids=tuple(str(item["task_id"]) for item in batch),
+                command=tuple(candidate_batch_command(config, args, matrix_id, matrix_uri, offset, tasks)),
+                job_name=str(first["job_name"]),
+                tokens=tokens,
+                matrix_uri=str(matrix_uri),
+                artifact_uris=tuple(str(item["artifact_uri"]) for item in batch if item.get("artifact_uri")),
+            ))
+    return units
+
+
+def ensure_live_state(state_store: Any, *, plan: dict[str, Any], units: list[LiveExecutionUnit]) -> None:
+    payload, generation = state_store.read()
+    now = utc_now().isoformat()
+    seed_units = {unit.unit_key: unit.to_state_seed() for unit in units}
+    if payload is None:
+        payload = {
+            "schema_version": 1,
+            "scheduler_run_id": plan["scheduler_run_id"],
+            "plan_hash": plan["plan_hash"],
+            "created_at": now,
+            "updated_at": now,
+            "units": seed_units,
+        }
+        state_store.create_if_absent(payload)
+        payload, generation = state_store.read()
+        if payload is None or generation is None:
+            raise StateGenerationMismatch("state create finished but object could not be read")
+    if payload.get("plan_hash") != plan["plan_hash"]:
+        raise ValueError(
+            f"state plan hash mismatch for {plan['scheduler_run_id']}: "
+            f"{payload.get('plan_hash')} != {plan['plan_hash']}"
+        )
+    changed = False
+    payload.setdefault("units", {})
+    for key, seed in seed_units.items():
+        if key not in payload["units"]:
+            payload["units"][key] = seed
+            changed = True
+    if changed:
+        payload["updated_at"] = now
+        state_store.update(payload, expected_generation=generation)
+
+
+def process_live_unit(
+    unit: LiveExecutionUnit,
+    *,
+    plan: dict[str, Any],
+    config,
+    args: argparse.Namespace,
+    state_store: Any,
+    lease: Any,
+    cloud_run: Any,
+    artifact_store: Any,
+) -> dict[str, Any]:
+    state_payload, _ = state_store.read()
+    record = (state_payload or {}).get("units", {}).get(unit.unit_key, {})
+    if record.get("status") in {STATUS_SUCCEEDED, STATUS_SKIPPED}:
+        return {"unit_key": unit.unit_key, "action": "already_terminal", "status": record["status"]}
+    execution_id = record.get("execution_id")
+    action = "recovered" if record.get("status") == STATUS_RUNNING and execution_id else "submitted"
+    if not execution_id:
+        if not artifact_store.matrix_ready(unit):
+            update_live_unit_state(
+                state_store,
+                unit.unit_key,
+                {
+                    "status": STATUS_FAILED,
+                    "error_message": "candidate live smoke requires existing matrix_manifest.json and work_units.json",
+                    "artifact_status": "matrix_missing",
+                    "finished_at": utc_now().isoformat(),
+                },
+            )
+            return {
+                "unit_key": unit.unit_key,
+                "action": "matrix_missing",
+                "status": STATUS_FAILED,
+                "artifact_status": "matrix_missing",
+            }
+        if artifact_store.artifact_complete(unit):
+            update_live_unit_state(
+                state_store,
+                unit.unit_key,
+                {
+                    "status": STATUS_SKIPPED,
+                    "artifact_status": "present_before_submit",
+                    "finished_at": utc_now().isoformat(),
+                },
+            )
+            return {"unit_key": unit.unit_key, "action": "artifact_skip", "status": STATUS_SKIPPED}
+        if not can_admit_live_execution(unit, state_payload or {}, plan):
+            return {"unit_key": unit.unit_key, "action": "blocked_by_live_admission", "status": STATUS_PLANNED}
+        submit_result = cloud_run.submit(unit.command)
+        execution_id = submit_result.execution_id
+        if not execution_id:
+            update_live_unit_state(
+                state_store,
+                unit.unit_key,
+                {
+                    "status": STATUS_FAILED,
+                    "error_message": "gcloud execute did not return a Cloud Run execution id",
+                    "submit_returncode": submit_result.returncode,
+                    "submit_stdout_tail": submit_result.stdout_tail,
+                    "submit_stderr_tail": submit_result.stderr_tail,
+                    "finished_at": utc_now().isoformat(),
+                },
+            )
+            return {"unit_key": unit.unit_key, "action": action, "status": STATUS_FAILED}
+        update_live_unit_state(
+            state_store,
+            unit.unit_key,
+            {
+                "status": STATUS_RUNNING,
+                "execution_id": execution_id,
+                "submit_returncode": submit_result.returncode,
+                "submit_stdout_tail": submit_result.stdout_tail,
+                "submit_stderr_tail": submit_result.stderr_tail,
+                "submitted_at": utc_now().isoformat(),
+            },
+        )
+    final = wait_for_live_execution_confirmation(
+        unit,
+        execution_id=str(execution_id),
+        config=config,
+        args=args,
+        lease=lease,
+        cloud_run=cloud_run,
+        artifact_store=artifact_store,
+    )
+    update_live_unit_state(state_store, unit.unit_key, final)
+    return {
+        "unit_key": unit.unit_key,
+        "action": action,
+        "status": final["status"],
+        "execution_id": execution_id,
+        "artifact_status": final.get("artifact_status"),
+    }
+
+
+def wait_for_live_execution_confirmation(
+    unit: LiveExecutionUnit,
+    *,
+    execution_id: str,
+    config,
+    args: argparse.Namespace,
+    lease: Any,
+    cloud_run: Any,
+    artifact_store: Any,
+) -> dict[str, Any]:
+    attempts = int(args.max_live_poll_attempts)
+    poll_seconds = float(args.live_poll_seconds)
+    last_state = "unknown"
+    for attempt in range(1, attempts + 1):
+        if not lease.heartbeat():
+            raise LiveSchedulerOwnershipLost(f"lost scheduler lease while waiting for {execution_id}")
+        payload = cloud_run.describe(project=config.project, region=config.region, execution_id=execution_id)
+        last_state = cloud_run_execution_state(payload)
+        artifact_ok = artifact_store.artifact_complete(unit)
+        if last_state == STATUS_SUCCEEDED and artifact_ok:
+            return {
+                "status": STATUS_SUCCEEDED,
+                "cloud_run_execution_state": last_state,
+                "artifact_status": "present_after_describe_success",
+                "finished_at": utc_now().isoformat(),
+                "describe_attempts": attempt,
+            }
+        if last_state in {STATUS_FAILED, "cancelled"}:
+            return {
+                "status": STATUS_FAILED,
+                "cloud_run_execution_state": last_state,
+                "artifact_status": "present" if artifact_ok else "missing",
+                "finished_at": utc_now().isoformat(),
+                "describe_attempts": attempt,
+            }
+        if poll_seconds > 0:
+            time.sleep(poll_seconds)
+    artifact_ok = artifact_store.artifact_complete(unit)
+    return {
+        "status": STATUS_SUCCEEDED if last_state == STATUS_SUCCEEDED and artifact_ok else STATUS_FAILED,
+        "cloud_run_execution_state": last_state,
+        "artifact_status": "present" if artifact_ok else "missing",
+        "finished_at": utc_now().isoformat(),
+        "describe_attempts": attempts,
+        "error_message": None if last_state == STATUS_SUCCEEDED and artifact_ok else "describe/artifact confirmation did not succeed",
+    }
+
+
+def update_live_unit_state(state_store: Any, unit_key: str, patch: dict[str, Any]) -> None:
+    for _ in range(3):
+        payload, generation = state_store.read()
+        if payload is None or generation is None:
+            raise StateGenerationMismatch("state disappeared during live update")
+        next_payload = json.loads(json_dumps_strict(payload, ensure_ascii=False))
+        units = next_payload.setdefault("units", {})
+        record = dict(units.get(unit_key) or {"unit_key": unit_key})
+        record.update(patch)
+        units[unit_key] = record
+        next_payload["updated_at"] = utc_now().isoformat()
+        try:
+            state_store.update(next_payload, expected_generation=generation)
+            return
+        except StateGenerationMismatch:
+            continue
+    raise StateGenerationMismatch(f"state update for {unit_key} lost generation race")
+
+
+def can_admit_live_execution(unit: LiveExecutionUnit, state_payload: dict[str, Any], plan: dict[str, Any]) -> bool:
+    running = [
+        record for record in (state_payload.get("units") or {}).values()
+        if record.get("status") == STATUS_RUNNING
+    ]
+    active_tokens = ResourceTokens()
+    for record in running:
+        raw = record.get("resource_tokens") or {}
+        active_tokens = active_tokens.add(ResourceTokens(
+            cpu=int(raw.get("cpu") or 0),
+            memory_gib=int(raw.get("memory_gib") or 0),
+            candidate_slots=int(raw.get("candidate_slots") or 0),
+        ))
+    usage = active_tokens.add(unit.tokens)
+    limits = plan["resource_limits"]
+    if usage.cpu > int(limits["cloudrun_cpu_tokens"]):
+        return False
+    if usage.memory_gib > int(limits["cloudrun_memory_gib_tokens"]):
+        return False
+    if usage.candidate_slots > int(limits["candidate_task_slots"]):
+        return False
+    running_candidate_executions = sum(1 for record in running if record.get("stage") == STAGE_CANDIDATE)
+    if unit.stage == STAGE_CANDIDATE and running_candidate_executions + 1 > int(limits["active_fanout_executions"]):
+        return False
+    return True
+
+
 def submitted_and_deferred_task_ids(groups: Iterable[dict[str, Any]]) -> tuple[list[str], list[str]]:
     submitted: list[str] = []
     deferred: list[str] = []
@@ -836,6 +1510,24 @@ def stable_plan_hash(tasks: Iterable[PipelineTask]) -> str:
         for task in tasks
     ]
     return hashlib.sha256(json_dumps_strict(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def join_object_name(prefix: str, name: str) -> str:
+    return "/".join([prefix.rstrip("/"), name.strip("/")]) if prefix else name.strip("/")
+
+
+def _is_precondition_error(exc: Exception) -> bool:
+    text = str(exc)
+    return any(token in text for token in ("conditionNotMet", "PreconditionFailed", "GenerationDoesNotMatch", "412"))
+
+
+def _is_not_found_error(exc: Exception) -> bool:
+    text = str(exc)
+    return any(token in text for token in ("NotFound", "404", "No such object"))
 
 
 if __name__ == "__main__":
