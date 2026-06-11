@@ -6,8 +6,16 @@
 
 Model: GPT-5 Codex
 
-> 当前交接补充（2026-06-11，GPT-5 Codex）
-> - 分支 `codex/prd07-annual-live-smoke` 完成 PRD_07 年度滚动调度 Phase 2 live smoke 代码 PR 准备；只改 scheduler、focused test、Strategy1 Cloud Run runbook 和记忆/TODO，未触碰 PRD_06/08。
+> 当前交接补充（2026-06-11，GPT-5 Codex，PRD_06）
+> - PR #182（PRD_07 annual scheduler live smoke code-prep）已合并到 `main@dab646d`；PRD06 分支已在该主线基础上继续 rebase，避免覆盖 scheduler live-smoke 记忆和 runbook 状态。
+> - PRD06 true-five-year refit code-prep 已实现：annual rolling resolved plan 支持 `--true-five-year-refit` / `--emit-refit-only` / 非默认 refit suffix，只输出 `build_refit_training_panel` 与 `cloudrun_refit_register_predict`，不重建 selection matrix 或候选 fanout。
+> - 新增/增强 QA 工具：stock window equivalence 可落 summary/sample JSONL；新增 index/market full-vs-window shadow parity；新增 `sql/qa/13_true5y_historical_coverage_checks.sql` 覆盖 `2019-01-02..2019-04-02` 旗标修复、true-five-year 每开市日 coverage 与估值/财务完备度。
+> - 本轮只做代码准备和护栏，未执行生产 backfill、未写 DWD/DWS、未重跑 true-five-year refit 或 continuous ledger；后续必须先跑 PRD06 Phase A parity/coverage QA，再进入 2021-2024 true-five-year refit。
+
+Model: GPT-5 Codex
+
+> 当前交接补充（2026-06-11，GPT-5 Codex，PRD_07）
+> - PR #182 已合并到 `main@dab646d`，完成 PRD_07 年度滚动调度 Phase 2 live smoke 代码 PR 准备；只改 scheduler、focused test、Strategy1 Cloud Run runbook 和记忆/TODO。
 > - `annual_pipeline_scheduler` 默认仍 dry-run 安全；真实提交必须显式 `--execute-live --candidate-only-smoke`，并且 live 路径只支持 candidate-only smoke，不会跑 select/refit/synthetic continuous 或完整 2021-2026 pipeline。
 > - 新增 GCS generation-conditioned lease/state、execution 粒度 fanout、matrix 前置检查、artifact skip、state recovery、describe + artifact 双确认；未执行真实 Cloud Run live smoke、未改 job spec/IAM/镜像。
 
@@ -102,7 +110,7 @@ Model: GPT-5 Codex
 
 ### 已完成工作
 
-- 基于最新 `origin/main@a20898e` 完成 rebase，独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd07-live-smoke`，分支 `codex/prd07-annual-live-smoke`。
+- PR #182 已合并到 `main@dab646d`。原独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd07-live-smoke`，分支 `codex/prd07-annual-live-smoke`。
 - `quant_ashare.strategy1.annual_pipeline_scheduler` 新增 Phase 2 candidate-only live smoke 路径，入口必须同时传 `--execute-live --candidate-only-smoke`；默认 dry-run / 非 live 仍保持安全。
 - 新增真实 GCS generation-conditioned annual scheduler lease/state 抽象；state create/update 使用 generation precondition，冲突重读/重试，丢失 lease ownership 停止提交。
 - live smoke 按 Cloud Run execution 记账，先检查对应 matrix `matrix_manifest.json` / `work_units.json` 已存在，缺失则本地失败且不提交 Cloud Run；支持 artifact precheck skip、state recovery 不重复提交、共享资源池 admission、execution describe + candidate artifact 双确认；`gcloud execute` 非零但有 execution id 时按 describe/artifact 二次确认。
@@ -120,7 +128,6 @@ Model: GPT-5 Codex
 - `docs/策略1CloudRun训练回测运行手册.md`
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
-- `TODO.md`
 
 ### 测试 / 验证
 
@@ -140,6 +147,57 @@ Model: GPT-5 Codex
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+## 2026-06-11 GPT-5 Codex - PRD06 true-five-year refit code-prep
+
+### 已完成工作
+
+- 基于 `origin/main@dab646d` rebase，worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd06-true5y`，分支 `codex/prd06-true5y-refit`。
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py` 新增 true-five-year refit-only plan 能力：`--true-five-year-refit` 禁用 `2019-04-03` floor，`--final-refit-run-suffix` 强制使用非默认 suffix，`--emit-refit-only` 只输出 refit panel / refit-register-predict 两步。
+- `scripts/qa/run_windowed_refresh_equivalence.py` 增强 summary JSONL 与 mismatch sample JSONL 输出，便于 PRD06 overlap parity 留档。
+- 新增 `scripts/qa/run_index_market_windowed_equivalence.py`，用 scratch full/window shadow 表对比 `dwd_index_eod` 与 `dws_market_state_daily` 的 window refresh 等价性。
+- 新增 `sql/qa/13_true5y_historical_coverage_checks.sql`，覆盖 `2019-01-02..2019-04-02` 旗标修复、true-five-year open-day feature/sample coverage、估值完备度硬门与财务完备度报告。
+- 更新 Strategy1 Cloud Run runbook、`KNOWN_CONSTRAINTS.md`、`IMPLEMENTATION_STATUS.md`、`TODO.md`。
+
+### 重要上下文
+
+- 本轮是代码准备，不是生产执行：没有执行 BigQuery backfill，没有写 DWD/DWS，没有重跑 2021-2024 true-five-year refit，也没有生成新的 continuous ledger。
+- `--true-five-year-refit` 只能在 PRD06 Phase A 完成后使用：历史 DWD/DWS 回填、`2019-01-02..2019-04-02` 旗标修复、`sql/qa/13_true5y_historical_coverage_checks.sql`、stock/index/market parity 全过。
+- true-five-year refit run 必须使用非默认 suffix（例如 `__true5y01`），不得覆盖 current effective-window `__refit01` 产物。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`
+- `scripts/qa/run_windowed_refresh_equivalence.py`
+- `scripts/qa/run_index_market_windowed_equivalence.py`
+- `sql/qa/13_true5y_historical_coverage_checks.sql`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `tests/strategy1/test_true5y_prd06_contracts.py`
+- `tests/strategy1_cloudrun/test_dataset_role_routing.py`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_true5y_prd06_contracts.py tests/strategy1_cloudrun/test_dataset_role_routing.py tests/strategy1/test_refit_panel_coverage_contract.py`：32 passed。
+- `python3 -m py_compile scripts/qa/run_windowed_refresh_equivalence.py scripts/qa/run_index_market_windowed_equivalence.py scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`：通过。
+
+### 阻塞项
+
+- 生产 backfill / true-five-year refit / continuous ledger 尚未执行；需合并部署后按 PRD06 Phase A/B/C 分步跑，并逐步记录证据。
+
+### 下一步建议
+
+- 合并 code-prep PR 后先跑 `2019-01-02..2019-04-02` 最小旗标修复与 parity QA；确认 `2019-04-03` 后零变化后，再扩到 2010+ 历史回填和 2021-2024 true-five-year refit。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - Tail-risk overlay A/B implementation and live run

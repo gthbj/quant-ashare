@@ -94,6 +94,29 @@ python -m scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection \
 4. `build_refit_training_panel` 必须使用独立 `__refit01` run_id 写 dedicated refit panel；`cloudrun_refit_register_predict` 使用 `quant_ashare.strategy1.refit_register_predict`，通过 `source_run_id` 读取 selection run 的 selected registry lineage，通过 `source_panel_run_id=__refit01` 读取 dedicated refit panel，并写入同一个独立 `__refit01` run。
 5. 年度 fresh-run backtest 只作 diagnostic，且应引用 refit run；正式 `2021-2026` 结果仍必须来自单一 continuous ledger 或经过 resume-continuous QA 的 segment ledger。
 
+PRD_20260611_06 true-five-year refit 代码准备入口（仅在历史 DWD/DWS 回填与 QA 通过后使用）：
+
+```bash
+python -m scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/annual_rolling_lgbm_regression_v0.yml \
+  --manifest configs/strategy1/annual_rolling_lgbm_regression_v0.yml \
+  --start-year 2021 \
+  --end-year 2024 \
+  --run-version vYYYYMMDD_NN \
+  --emit-refit-only \
+  --true-five-year-refit \
+  --final-refit-run-suffix __true5y01 \
+  --dry-run
+```
+
+执行纪律：
+
+1. `--true-five-year-refit` 会禁用当前 `2019-04-03` effective coverage floor，refit train start 回到每年名义五年窗口的实际首个开市日；必须配套非默认 `--final-refit-run-suffix`，避免覆盖现有 `__refit01` effective-window 结果。
+2. `--emit-refit-only` 只输出 `build_refit_training_panel` 与 `cloudrun_refit_register_predict`。它假设 selection run / selected candidate 已存在，不重建 selection panel / matrix / 11 候选 fanout。
+3. 运行前必须先完成 `2019-01-02..2019-04-02` 旗标修复、2010+ 历史 backfill、`sql/qa/13_true5y_historical_coverage_checks.sql` 和 overlap parity QA。stock parity 用 `scripts/qa/run_windowed_refresh_equivalence.py`，index/market parity 用 `scripts/qa/run_index_market_windowed_equivalence.py`，两者都应落 `summary-output-jsonl`；若 mismatch 非零，停止重跑 refit。
+
 年度滚动 synthetic continuous merge 与 official continuous ledger：
 
 ```bash
