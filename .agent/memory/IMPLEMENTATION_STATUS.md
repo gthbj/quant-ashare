@@ -6,6 +6,12 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：自上而下整手组合构造 PRD 已新增
+
+- 分支 `claude/prd-topdown-lot-construction` 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 现金交叉核验确认的结构性现金拖累（10 万真实部署 + 100 股整手 + 等权 5% + 无再分配 → 约 25% 买单 `BUY_SKIPPED_BELOW_LOT`、现金权重均值 29.4%、最少持仓 0），owner 决定（2026-06-11）重新设计组合构造而非修复等权。
+- 构造契约：自上而下贪心、新开仓最小权重 5%（`position_floor_count=20` 仅为门槛基数，`target_holdings` 退役为观测指标）、**无单票上限**（owner 决策，`max_realized_weight` 必报）、`walk_depth=50` 统一买卖阈值、P1 以替换语义绑定（红线：禁止跳过留现金语义，防复活 #179 A1 拖累）、可负担性/标记只约束新增不强制卖出。
+- 三阶段：Phase 0 paper 双臂原型（带/不带 P1 过滤，预登记判读，复用 PRD_09 阶梯机械）→ Phase 1 `ledger_exec_v2_lot100_topdown` + `qa_topdown_construction_outputs`（不动 v1）→ Phase 2 research-only continuous 重跑 + 三方对比交 owner。含 true-five-year 基线兼容条款。
+
 ### 最新补充（2026-06-11）：PRD_06/07/08 live 收口完成，true-five-year continuous 已产出但未 accepted
 
 - PRD_07 annual scheduler Phase 2 candidate-only live smoke 已完成并通过：正式 Strategy1 runner 镜像为 `sha256:45b4d257878afa91192410a8e300ad9c358c6a2b3412a6be6d1e5e1732843eb7`，smoke run-version `v20260611_prd07smoke01`；2021/2022 matrix 预置后由 scheduler live path 提交 fanout executions `strategy1-train-candidate-fanout-job-g65hx` / `strategy1-train-candidate-fanout-job-btvgv`，各 `3/3` tasks succeeded。dry-run plan hash 与 live state 均为 `7ef90a481f0e64ad`，两个 live unit 均为 `present_after_describe_success`，12 个候选 `task_status.json` / `candidate_metrics.json` 均可读；recovery 重跑同 scheduler_run_id 提交数 `0`，artifact-skip 新 run 提交数 `0`，missing-matrix preflight 本地失败且未提交 Cloud Run；真实 GCS 临时 lock smoke 验证同一 lock key 第二 holder 被拒、release 后可接管。

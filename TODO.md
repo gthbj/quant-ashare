@@ -37,6 +37,9 @@
 - [ ] OQ-010：按 `PRD_20260611_09` 做信号 IC 分解与组合转换效率分析
   说明：纯只读研究分析。Part A 在 official synthetic prediction 流上做真 OOS IC 五维分解（按年 / 市值+行业中性化 / market regime / 分数分位 / horizon 1/5/10/20d 衰减，前向收益直接读 `dws_stock_label_daily` 的同口径标签并按 `label_valid_{h}d` 过滤，t 值 NW / bootstrap 修正）；Part B 做 L0 分数加权多空 → L3 现行等权 Top20 四级转换阶梯逐级定价约束成本 + `TC_target` / `TC_realized` 测量（L3 与 official 恒等校验）。§6 预登记解读规则支撑组合构造改进 / 对冲结构评估 / 回炉模型三个 owner 决策。不重训、不写 BQ、不 promotion。
 
+- [ ] OQ-010：按 `PRD_20260611_10` 实现自上而下整手组合构造
+  说明：针对 PR #186 确认的结构性现金拖累（10 万 + 整手 + 等权 5% → 25% 买单跳过、现金均值 29.4%），按 owner 决策重设构造：自上而下贪心、新开仓最小权重 5%、无单票上限、`walk_depth=50`、P1 以替换语义绑定（禁止跳过留现金实现）。Phase 0 paper 双臂原型（带/不带 P1）→ Phase 1 `ledger_exec_v2_lot100_topdown` + 新 QA → Phase 2 research-only continuous 重跑与三方对比交 owner。不动 v1、不改全局默认 profile、不 promotion。
+
 - [ ] OQ-010：基于尾部风险 Overlay A/B 结果决定下一步风控路线
   说明：A1/A3 证明确实命中 crunch 段，但常年误伤过大；A2 是全周期 MaxDD/CAGR tradeoff 对照，但也未改善 Calmar。2026-06-11 NAV 级 exposure upper-bound 仿真已完成：最优无摩擦 `two_state_biweekly_elow0_cost0bps` Calmar=`0.4076962188116182`、contract Sharpe=`0.6005994875878142`，按预登记判据建议真实 exposure ledger 工程缓做/降优先级，下一步更应优先 alpha / 信号 / 组合构造；owner 仍需最终路线决策。三种 overlay 均暂不设默认。
 
