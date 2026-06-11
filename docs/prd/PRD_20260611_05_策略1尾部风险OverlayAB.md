@@ -75,8 +75,13 @@ Baseline = 已有 official continuous（`diagnostic_only`），不重跑。
 
 ### 4.3 前置检查
 
-1. `dws_market_state_daily` 在 `2021-01-04 ~ 2026-06-09` 全开市日覆盖且无 NULL `is_risk_off`
-   （跑 `sql/qa/11_market_state_checks.sql`）。
+1. `dws_market_state_daily` 在 `2021-01-04 ~ 2026-06-09` 全开市日覆盖且无 NULL `is_risk_off`。
+   注意：`sql/qa/11_market_state_checks.sql` 默认窗口是 `2024-01-02 ~ 2026-04-30`，且其
+   QA-MKT-3 只断言"表中的行都是开市日"，**没有**反向的"每个开市日都有一行"覆盖断言。
+   因此必须：① 跑 `11` 时显式传 A/B 全窗口参数；② 另跑一条 full-window calendar coverage
+   查询——交易日历（SSE `is_open=1`）left join market state，断言窗口内每个开市日恰有一行
+   当前版本数据且 `is_risk_off` 非 NULL。（owner 2026-06-11 只读抽查：`open_days=1314`、
+   `missing_days=0`、`null_is_risk_off=0`、`risk_off_signal_days=170`，当前数据本身满足。）
 2. 候选层 tail-risk 必需字段在 synthetic 流对应调仓日上的可用性抽查（避免大面积
    `tail_risk_required_field_null` 使 A1 退化为"全禁买"）。
 3. research readiness QA 照常。
@@ -89,8 +94,12 @@ Baseline = 已有 official continuous（`diagnostic_only`），不重跑。
    synthetic run，复跑应仍通过）+ `qa_lot_aware_ledger_outputs`。
 2. **Guard 生效性断言**（新增轻量验证查询，可入 QA 或脚本）：
    - A1/A3：`BUY_SKIPPED_TAIL_RISK` 订单数 > 0，且 2024-01~02 段计数显著非零；
-   - A2/A3：risk-off 次日不存在任何 BUY 成交（对照 `dws_market_state_daily.is_risk_off`）；
-   - 反向：A2 在非 risk-off 日的买单行为与 baseline 一致性抽查。
+   - A2/A3：risk-off execution dates 上不存在任何 filled BUY（对照
+     `dws_market_state_daily.is_risk_off`，PIT 对齐到次日执行口径）；
+   - A2/A3：`BUY_SKIPPED_MARKET_RISK_OFF` 只允许出现在 risk-off execution dates 上；
+   - 反向抽查（如做）只比较 **guard 之前**的 candidate / target 输入与 baseline 是否一致，
+     **不得**比较 ledger 之后的 filled BUY 路径——A2 首个 risk-off 跳买日后现金、持仓、
+     lot rounding 路径即与 baseline 永久分叉，非 risk-off 日的成交行为本就不应一致。
 3. 产出对比表（每 arm vs baseline）：CAGR / MaxDD / Calmar / contract Sharpe / IR /
    回撤窗口（peak/trough 日期）/ 年化换手 / risk-off 期现金占比均值与峰值 /
    `BUY_SKIPPED` 逐年计数 / 2024-01-01~02-07 段策略 vs 中证1000 超额。
@@ -111,7 +120,7 @@ Baseline = 已有 official continuous（`diagnostic_only`），不重跑。
 | 风险 | 控制 |
 |---|---|
 | 必需风险字段大面积 NULL 使 A1 退化为全禁买 | §4.3.2 前置抽查；A1 结果异常时先查 `filter_reason` 分布 |
-| market state 表覆盖缺口导致 A2 假阴性 | §4.3.1 先跑 `11` QA |
+| market state 表覆盖缺口导致 A2 假阴性 | §4.3.1：`11` QA 显式传全窗口参数 + full-window calendar coverage 查询（默认参数与断言方向均不够） |
 | guard 实际未接通（profile 没传到 05/ledger） | §5.2 生效性断言作为硬门 |
 | 误改默认 profile | 本 PRD 不动配置默认值；arm 级显式传参 |
 | 结果被解读为 accepted | 与 DECISION-20260611-02 同口径：仅研究复盘事实 |
