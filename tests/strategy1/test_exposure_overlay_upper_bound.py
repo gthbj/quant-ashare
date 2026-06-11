@@ -127,3 +127,84 @@ def test_report_display_columns_keep_detailed_metric_fields() -> None:
     }
 
     assert required <= set(sim.REPORT_DISPLAY_COLUMNS)
+
+
+def test_report_calls_out_design_findings_and_metric_caveats() -> None:
+    result = pd.DataFrame(
+        [
+            {
+                "variant_id": "baseline_identity",
+                "is_identity": True,
+                "state_machine": "identity",
+                "timing": "daily",
+                "e_low": 1.0,
+                "transaction_cost_bps": 0.0,
+                "total_return": 0.1,
+                "compound_annual_return": sim.EXPECTED_BASELINE["compound_annual_return"],
+                "annual_vol": 0.2,
+                "contract_sharpe": sim.EXPECTED_BASELINE["contract_sharpe"],
+                "max_drawdown": sim.EXPECTED_BASELINE["max_drawdown"],
+                "calmar_ratio": sim.EXPECTED_BASELINE["calmar_ratio"],
+                "benchmark_total_return": 0.02,
+                "excess_return_vs_000852": 0.08,
+                "information_ratio": 0.36172030078673045,
+                "max_drawdown_peak_date": "2023-06-16",
+                "max_drawdown_trough_date": "2024-02-07",
+                "crunch_strategy_return": -0.37,
+                "crunch_000852_return": -0.18,
+                "crunch_excess_return_vs_000852": sim.EXPECTED_BASELINE["crunch_excess_return_vs_000852"],
+                "average_exposure": 1.0,
+                "exposure_lt_1_day_ratio": 0.0,
+                "exposure_switch_count": 0,
+                "cumulative_cost_drag_pp": 0.0,
+                "return_period_count": 1313,
+                "nav_row_count": 1314,
+            },
+            {
+                "variant_id": "two_state_biweekly_elow0_cost0bps",
+                "is_identity": False,
+                "state_machine": "two_state",
+                "timing": "biweekly",
+                "e_low": 0.0,
+                "transaction_cost_bps": 0.0,
+                "total_return": 0.2,
+                "compound_annual_return": 0.12130091898447448,
+                "annual_vol": 0.2019664043864822,
+                "contract_sharpe": 0.6005994875878142,
+                "max_drawdown": -0.297527701723727,
+                "calmar_ratio": 0.4076962188116182,
+                "benchmark_total_return": 0.02,
+                "excess_return_vs_000852": 0.18,
+                "information_ratio": 0.31,
+                "max_drawdown_peak_date": "2023-06-16",
+                "max_drawdown_trough_date": "2024-09-18",
+                "crunch_strategy_return": -0.12,
+                "crunch_000852_return": -0.18,
+                "crunch_excess_return_vs_000852": 0.06,
+                "average_exposure": 0.89,
+                "exposure_lt_1_day_ratio": 0.11,
+                "exposure_switch_count": 24,
+                "cumulative_cost_drag_pp": 0.0,
+                "return_period_count": 1313,
+                "nav_row_count": 1314,
+            },
+        ]
+    )
+    args = type(
+        "Args",
+        (),
+        {
+            "backtest_id": "bt",
+            "start_date": "2021-01-04",
+            "end_date": "2026-06-09",
+            "market_state_version": "market_state_v1_20260607",
+            "benchmark_sec_code": "000852.SH",
+        },
+    )()
+
+    report = sim.build_report(result, args, output_csv=sim.Path("result.csv"))
+
+    assert "in-sample selection bias" in report
+    assert "hysteresis" in report
+    assert "two_state" in report
+    assert "0.5420" in report

@@ -32,7 +32,7 @@ Last updated: 2026-06-11
 
 ### 最新补充（2026-06-11）：暴露管理 NAV 级上限仿真已完成
 
-- 分支 `codex/exposure-overlay-upper-bound` 新增只读分析脚本 `scripts/strategy1/simulate_exposure_overlay_upper_bound.py`、报告 `docs/分析-策略1暴露管理上限仿真-20260611.md` 与结果矩阵 `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv`，用于在投入真实 ledger 工程前评估 market-state exposure overlay 的理论上界；Markdown 报告已扩展为与 CSV 同口径的 25 列详细结果矩阵并附字段说明。
+- 分支 `codex/exposure-overlay-upper-bound` 新增只读分析脚本 `scripts/strategy1/simulate_exposure_overlay_upper_bound.py`、报告 `docs/分析-策略1暴露管理上限仿真-20260611.md` 与结果矩阵 `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv`，用于在投入真实 ledger 工程前评估 market-state exposure overlay 的理论上界；Markdown 报告已扩展为与 CSV 同口径的 25 列详细结果矩阵并附字段说明，且补充 hysteresis 被 two_state 证伪、48 变体 grid search 存在 in-sample selection bias、重算 IR 与 official summary IR 不可直接比较三项 review caveat。
 - 仿真只读查询 official continuous baseline NAV、SSE 交易日历、`market_state_v1_20260607` 和 `000852.SH` 日收益，所有计算在本地 pandas 完成；未写任何 BigQuery dataset、未改既有 run/backtest、未 accepted、未 promotion。
 - 恒等校验通过：`e(t)==1`、零成本复现 official baseline CAGR=`0.12036528993503293`、MaxDD=`-0.45481511936569563`、Calmar=`0.26464663290635421`、contract Sharpe=`0.5285475500566128`；baseline crunch excess vs `000852.SH`=`-0.19329880132544719`，与 PR #179 对比表一致。
 - 最优无摩擦变体为 `two_state_biweekly_elow0_cost0bps`：CAGR=`0.12130091898447448`、MaxDD=`-0.297527701723727`、Calmar=`0.4076962188116182`、contract Sharpe=`0.6005994875878142`、平均暴露=`0.8873668188736682`、暴露切换 `24` 次。
