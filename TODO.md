@@ -34,6 +34,12 @@
 - [ ] OQ-010：按 `PRD_20260611_05` 跑尾部风险 Overlay 三组 A/B
   说明：P1 / P2 / P1+P2 三组 portfolio-only continuous，复用最新 effective-window synthetic prediction run，baseline 不重跑；前置检查 market state 覆盖与 tail-risk 字段可用性，guard 生效性断言为硬门；产出 MaxDD/Calmar/CAGR 对比表、risk-off 期现金占比与 `BUY_SKIPPED_TAIL_RISK` 逐年计数，支撑默认 profile 与暴露管理 PRD 两个决策。结果仅研究口径，不改默认 profile、不 promotion。
 
+- [ ] OQ-011：按 `PRD_20260611_06` 做历史数据回填（2010+）与 true-five-year refit 重跑
+  说明：ODS 14 endpoint 已从 2010 起可用（2026-06-11 探查证实 `daily`/`daily_basic` 2010-2014 有行）；DWD 价格仅 2015 起，DWS `2015-Q1` 与 `2019-01-02..2019-04-02`（含 `2019-04-01/02` 两个开市日，超出自然 Q1）的 `has_full_history_60d` 全部 FALSE（后者为陈旧标记，重刷该窗口即可修，只刷自然 Q1 会留两天缺口）。Phase A 历史下限前移 + 旗标修复 + `2019-04-03` 后 parity 硬门；Phase B 2021-2024 名义五年 refit 重跑（不重做选参）；Phase C 新 synthetic continuous 对比表交 owner 口径决策。
+
+- [ ] OQ-010：按 `PRD_20260611_07` 做年度滚动调度 Phase 2 live 化
+  说明：真实 GCS generation-guarded lease/state、Cloud Run execution 粒度 fanout 跟踪（替换 candidate-year proxy）、共享 `40 CPU / 160Gi` 池 live admission、candidate-only live smoke 五场景（kill-restart 恢复、artifact skip、lease 竞争、超时二次确认）；不跑完整 live 年度滚动（Phase 3 owner 另批）。
+
 - [ ] OQ-010：基于 official continuous 结果决定下一轮策略改进或 accepted baseline 路线
   说明：2021-2026 effective-window official continuous 已成为当前研究复盘口径，但尚未 accepted。最新 result：compound_annual_return=`0.12036528993503204`，max_drawdown=`-0.4548151193656952`，information_ratio=`0.5420201365046585`，v3 contract Sharpe=`0.5285475500566089`、Calmar=`0.26464663290635254`，未过 v3 absolute gates。下一步应围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案；不得把本轮结果直接 promotion 或标 accepted。
 
@@ -46,7 +52,7 @@
   说明：PR #131 分支已删除 BQML-only `sql/ml/strategy1/02-04`、SQL ledger fallback `08_run_backtest.sql` / `--use-bq-ledger` 和旧 `scripts/strategy1/run_oq010_experiments.py`，并同步收敛 README / runbook / memory 口径。
 
 - [ ] OQ-010：实现 Cloud Run Python ledger resume
-  说明：已新增 PRD `docs/prd/PRD_20260609_01_策略1CloudRunLedgerResume.md`；目标是在 `ledger_exec_v1_lot100` 下支持从父回测现金、持仓、pending sell、NAV anchor 和调仓锚点继续运行，先验收 `2020-2022 -> 2023-2026` 与 full fresh `2020-2026` 的一致性。
+  说明：已新增 PRD `docs/prd/PRD_20260609_01_策略1CloudRunLedgerResume.md`；目标是在 `ledger_exec_v1_lot100` 下支持从父回测现金、持仓、pending sell、NAV anchor 和调仓锚点继续运行，先验收 `2020-2022 -> 2023-2026` 与 full fresh `2020-2026` 的一致性。2026-06-11 更新：实现已随 PR #127 合入 main 但从未验收，剩余验收闭环按 `PRD_20260611_08_策略1LedgerResume验收闭环.md` 执行（pytest + research-only resume segment 与 fresh 切片逐日一致性 + 两套 resume QA + runbook）。
 - [ ] OQ-010：按 R14 长训练窗口 PRD 做覆盖审计
   说明：`docs/prd/PRD_20260609_01_策略1R14长训练回测.md` 已定义固定 R14 方法、`2015-04-01 ~ 2019-12-31` 名义训练窗口和 `2020-2022` 的 `10` 只 / `20` 只双组合 diagnostic backtest；`2023-01 ~ 2026-06-09` 追加回测视 P0 结果和 owner 决策而定，若追加也跑两个组合。PR #130 已修复显式 `backfill` 历史窗口下限，PR #132 已修复 `dim_stock` 历史生命周期；2015 年重跑后又暴露 core smoke 仍用 2019 作为全表存在下限，分支 `codex/fix-historical-backfill-core-smoke` 已修复，待合并部署后重新触发 2015 年补数。
 
