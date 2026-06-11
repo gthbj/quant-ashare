@@ -53,6 +53,7 @@ DEFAULT_AS_OF_DATE = "2026-06-09"
 DEFAULT_STAGE_ID = "annual_rolling_selection"
 DEFAULT_EXPERIMENT_GROUP = "strategy1_annual_rolling_selection"
 DEFAULT_RESUME_POLICY_ID = "cloudrun_lot100_resume_v1"
+DEFAULT_FINAL_REFIT_RUN_SUFFIX = "__refit01"
 
 FIRST_TRADING_DAY_BY_YEAR = {
     2015: "2015-04-01",
@@ -106,6 +107,9 @@ def main() -> int:
             version=version,
             as_of=as_of,
             continuous_anchor_start=actual_first_trading_day(args.start_year),
+            final_refit_min_training_day=args.final_refit_min_training_day,
+            final_refit_run_suffix=args.final_refit_run_suffix,
+            true_five_year_refit=args.true_five_year_refit,
         )
         for year in years
     ]
@@ -137,6 +141,10 @@ def main() -> int:
         "target_holdings": args.target_holdings,
         "max_single_weight": args.max_single_weight,
         "rebalance_frequency": args.rebalance_frequency,
+        "execution_scope": "refit_only" if args.emit_refit_only else "full_selection_refit_plan",
+        "true_five_year_refit": bool(args.true_five_year_refit),
+        "final_refit_min_training_day": args.final_refit_min_training_day,
+        "final_refit_run_suffix": args.final_refit_run_suffix,
         "continuous_ledger": {
             "backtest_id": continuous_backtest_id,
             "prediction_run_ids": [final_refit_experiment(exp).prediction_run_id for exp in experiments],
@@ -193,8 +201,40 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-qa", action="store_true")
     parser.add_argument("--include-yearly-backtest-commands", action="store_true")
     parser.add_argument("--skip-b26-diagnostic-reference", action="store_true")
+    parser.add_argument(
+        "--final-refit-min-training-day",
+        default=FINAL_REFIT_MIN_TRAINING_DAY,
+        help=(
+            "Earliest allowed annual final-refit train start. "
+            "Use --true-five-year-refit after PRD_06 historical coverage repair to disable the clamp."
+        ),
+    )
+    parser.add_argument(
+        "--true-five-year-refit",
+        action="store_true",
+        help="Disable the current 2019-04-03 refit floor and require a non-default refit run suffix.",
+    )
+    parser.add_argument(
+        "--final-refit-run-suffix",
+        default=DEFAULT_FINAL_REFIT_RUN_SUFFIX,
+        help="Suffix for annual final-refit run/backtest ids, e.g. __refit01 or __true5y01.",
+    )
+    parser.add_argument(
+        "--emit-refit-only",
+        action="store_true",
+        help="Emit only build_refit_training_panel and cloudrun_refit_register_predict steps for each year.",
+    )
     parser.add_argument("--output", default=None, help="Optional local path for resolved plan JSON")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.true_five_year_refit:
+        if args.final_refit_run_suffix == DEFAULT_FINAL_REFIT_RUN_SUFFIX:
+            parser.error("--true-five-year-refit requires an explicit non-default --final-refit-run-suffix")
+        args.final_refit_min_training_day = None
+    if args.final_refit_run_suffix and not str(args.final_refit_run_suffix).startswith("__"):
+        parser.error("--final-refit-run-suffix must start with '__'")
+    if args.emit_refit_only and args.include_yearly_backtest_commands:
+        parser.error("--emit-refit-only cannot be combined with --include-yearly-backtest-commands")
+    return args
 
 
 def validate_config(config, args: argparse.Namespace) -> None:
@@ -222,6 +262,9 @@ def build_year_experiment(
     version: str,
     as_of: date,
     continuous_anchor_start: str,
+    final_refit_min_training_day: str | None = FINAL_REFIT_MIN_TRAINING_DAY,
+    final_refit_run_suffix: str = DEFAULT_FINAL_REFIT_RUN_SUFFIX,
+    true_five_year_refit: bool = False,
 ) -> Experiment:
     selection_train_start_year = backtest_year - 6
     selection_train_end_year = backtest_year - 2
@@ -254,7 +297,10 @@ def build_year_experiment(
     valid_start = actual_first_trading_day(valid_year)
     valid_end = label_safe_year_end(valid_year, 5)
     backtest_start = actual_first_trading_day(backtest_year)
-    final_refit_start = final_refit_first_training_day(final_refit_start_year)
+    final_refit_start = final_refit_first_training_day(
+        final_refit_start_year,
+        min_training_day=final_refit_min_training_day,
+    )
     final_refit_end = label_safe_year_end(final_refit_end_year, 5)
     return Experiment(
         experiment_id=experiment_id,
@@ -311,7 +357,10 @@ def build_year_experiment(
             "nominal_final_refit_train_end": f"{final_refit_end_year}-12-31",
             "actual_final_refit_train_start": final_refit_start,
             "actual_final_refit_train_end": final_refit_end,
-            "effective_final_refit_min_train_start": FINAL_REFIT_MIN_TRAINING_DAY,
+            "effective_final_refit_min_train_start": final_refit_min_training_day,
+            "final_refit_window_mode": "true_five_year_nominal" if true_five_year_refit else "effective_coverage_floor",
+            "final_refit_run_suffix": final_refit_run_suffix,
+            "true_five_year_refit": true_five_year_refit,
             "nominal_backtest_start": f"{backtest_year}-01-01",
             "nominal_backtest_end": args.as_of_date if backtest_year == as_of.year else f"{backtest_year}-12-31",
             "actual_backtest_start": backtest_start,
@@ -336,6 +385,7 @@ def year_plan(*, config, exp: Experiment, args: argparse.Namespace, continuous_b
         "matrix_uri": matrix_uri,
         "selected_candidate_id": None,
         "selected_candidate_source": "select_register_predict output",
+        "command_scope": "refit_only" if getattr(args, "emit_refit_only", False) else "selection_refit",
         "window_contract": {
             key: value
             for key, value in exp.raw.items()
@@ -350,6 +400,8 @@ def year_plan(*, config, exp: Experiment, args: argparse.Namespace, continuous_b
             "source_panel_run_id": refit_exp.run_id,
             "train_start": exp.raw["final_refit_train_start"],
             "train_end": exp.raw["final_refit_train_end"],
+            "window_mode": exp.raw.get("final_refit_window_mode"),
+            "effective_final_refit_min_train_start": exp.raw.get("effective_final_refit_min_train_start"),
             "predict_start": refit_exp.predict_start,
             "predict_end": refit_exp.predict_end,
             "selected_candidate_required": True,
@@ -385,8 +437,10 @@ def command_plan(*, config, exp: Experiment, args: argparse.Namespace, include_b
         candidate_parallelism_from_cli=args.candidate_parallelism not in (None, 0),
     )
     refit_exp = final_refit_experiment(exp)
-    steps = [training_panel_step(config, exp, args)]
-    steps.extend(build_task_fanout_steps(config, exp, task_args, common_flags))
+    steps = []
+    if not getattr(args, "emit_refit_only", False):
+        steps.append(training_panel_step(config, exp, args))
+        steps.extend(build_task_fanout_steps(config, exp, task_args, common_flags))
     steps.append(training_panel_step(
         config,
         refit_exp,
@@ -463,7 +517,8 @@ def command_plan(*, config, exp: Experiment, args: argparse.Namespace, include_b
 
 
 def final_refit_run_id(exp: Experiment) -> str:
-    return f"{exp.run_id}__refit01"
+    suffix = str(exp.raw.get("final_refit_run_suffix") or DEFAULT_FINAL_REFIT_RUN_SUFFIX)
+    return f"{exp.run_id}{suffix}"
 
 
 def final_refit_backtest_id(exp: Experiment) -> str | None:
@@ -573,9 +628,15 @@ def actual_first_trading_day(year: int) -> str:
         raise ValueError(f"missing first trading day mapping for year {year}") from exc
 
 
-def final_refit_first_training_day(year: int) -> str:
+def final_refit_first_training_day(
+    year: int,
+    *,
+    min_training_day: str | None = FINAL_REFIT_MIN_TRAINING_DAY,
+) -> str:
     first_trading_day = parse_iso_date(actual_first_trading_day(year))
-    coverage_floor = parse_iso_date(FINAL_REFIT_MIN_TRAINING_DAY)
+    if min_training_day is None:
+        return first_trading_day.isoformat()
+    coverage_floor = parse_iso_date(min_training_day)
     return max(first_trading_day, coverage_floor).isoformat()
 
 

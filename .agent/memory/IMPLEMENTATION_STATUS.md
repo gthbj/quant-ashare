@@ -17,11 +17,18 @@ Last updated: 2026-06-11
 
 ### 最新补充（2026-06-11）：PRD_07 年度滚动调度 Phase 2 live smoke 代码 PR 准备完成
 
-- 分支 `codex/prd07-annual-live-smoke` 已 rebase 到最新 `origin/main@a20898e`，只改 PRD_07 相关 scheduler、测试、runbook/记忆；未触碰 `PRD_20260611_06`。
+- PR #182 已合并到 `main@dab646d`，只改 PRD_07 相关 scheduler、测试、runbook/记忆。
 - `quant_ashare.strategy1.annual_pipeline_scheduler` 保持默认 dry-run 安全行为；真实提交必须同时传 `--execute-live --candidate-only-smoke`，否则非 dry-run 仍 fail-fast，不会启动完整 2021-2026 pipeline。
 - 新增真实 GCS generation-conditioned annual scheduler lease/state 抽象：state JSON 使用 `if_generation_match=0` 创建、`if_generation_match=<current_generation>` 更新；generation conflict 会重读/重试，丢失 lease ownership 会停止提交。
 - 新增 candidate-only live smoke 执行路径：只筛选 smoke 年度/候选 unit，按 Cloud Run execution 粒度提交与记账；提交前先检查对应 matrix `matrix_manifest.json` / `work_units.json` 已存在，缺失则本地失败且不提交 Cloud Run；支持 artifact precheck skip、state recovery 不重复提交、共享 `40 CPU / 160Gi` / candidate slots live admission、execution describe + candidate artifact 双确认。`gcloud execute` 非零但能解析 execution id 时，不直接判失败，必须以后续 describe + `task_status.json` / `candidate_metrics.json` 判定。
 - 新增单测覆盖 generation conflict、lost ownership、state recovery、matrix 缺失不提交、artifact skip、execution-level accounting、describe success after execute wait failure；未执行真实 Cloud Run live smoke、未改 Cloud Run job spec/IAM/镜像。
+
+### 最新补充（2026-06-11）：PRD06 true-five-year refit code-prep 已实现，生产 backfill 尚未执行
+
+- 分支 `codex/prd06-true5y-refit` 已 rebase 到最新 `origin/main@dab646d`，实现 `PRD_20260611_06` 的代码准备层：annual rolling resolved plan 新增 `--true-five-year-refit`、`--final-refit-run-suffix` 与 `--emit-refit-only`，用于历史覆盖修复后只重跑 2021-2024 refit panel / refit，而不重建 selection panel、matrix 或 11 候选 fanout。
+- true-five-year 模式会禁用当前 `2019-04-03` effective coverage floor，回到每年名义五年窗口的实际首个开市日；CLI 强制非默认 run suffix，避免覆盖现有 `__refit01` effective-window 产物。
+- `scripts/qa/run_windowed_refresh_equivalence.py` 已增强为输出 per-table summary JSONL 与 mismatch sample JSONL；新增 `scripts/qa/run_index_market_windowed_equivalence.py`，覆盖 index DWD 与 market-state DWS 的 full/window shadow parity；新增 `sql/qa/13_true5y_historical_coverage_checks.sql`，将 `2019-01-02..2019-04-02` 旗标修复、true-five-year open-day coverage、估值/财务完备度合到同一个手工 QA。
+- 本轮没有执行生产 backfill、没有改写 DWD/DWS、没有重跑 true-five-year refit 或 continuous ledger。后续仍需按 PRD06 Phase A/B/C 执行：历史下限前移与旗标修复 -> parity / coverage QA -> 2021-2024 true-five-year refit -> 新 synthetic continuous 对比。
 
 ### 最新补充（2026-06-11）：尾部风险 Overlay 三组 A/B 已实现并完成 live run
 

@@ -427,6 +427,71 @@ def test_annual_year_plan_continuous_contract_uses_refit_run_id() -> None:
     assert year_2021.raw["effective_final_refit_min_train_start"] == "2019-04-03"
 
 
+def test_annual_true_five_year_refit_plan_uses_nominal_window_and_suffix() -> None:
+    args = argparse.Namespace(
+        as_of_date="2026-06-09",
+        target_holdings=20,
+        max_single_weight=0.075,
+        rebalance_frequency="biweekly",
+        feature_set_id="strategy1_pv_fin_risk_v0_20260606",
+        feature_version="strategy1_pv_v0_20260601",
+        fin_feature_version="fin_default_v0_20260602",
+        market_state_version="market_state_v0_20260606",
+        tail_risk_profile_id="diagnostic_only",
+        config="configs/strategy1/annual_rolling_lgbm_regression_v0.yml",
+        manifest="configs/strategy1/annual_rolling_lgbm_regression_v0.yml",
+        force_replace=False,
+        skip_gcs_upload=False,
+        candidate_parallelism=0,
+        skip_diagnosis=False,
+        skip_qa=False,
+        include_yearly_backtest_commands=False,
+        emit_refit_only=True,
+    )
+    exp = build_year_experiment(
+        backtest_year=2021,
+        args=args,
+        version="v20260611_true5y",
+        as_of=parse_iso_date(args.as_of_date),
+        continuous_anchor_start="2021-01-04",
+        final_refit_min_training_day=None,
+        final_refit_run_suffix="__true5y01",
+        true_five_year_refit=True,
+    )
+    plan = year_plan(
+        config=RunnerConfig(
+            output_dataset_role="research",
+            training_panel_step="build_training_panel_risk_feature",
+        ),
+        exp=exp,
+        args=args,
+        continuous_backtest_id=continuous_backtest_id_for(
+            start_year=2021,
+            end_year=2026,
+            target_holdings=args.target_holdings,
+            max_single_weight=args.max_single_weight,
+            version="v20260611_true5y",
+        ),
+    )
+
+    assert exp.raw["nominal_final_refit_train_start"] == "2016-01-01"
+    assert exp.raw["final_refit_train_start"] == "2016-01-04"
+    assert exp.raw["effective_final_refit_min_train_start"] is None
+    assert exp.raw["final_refit_window_mode"] == "true_five_year_nominal"
+    assert plan["final_refit"]["run_id"].endswith("__true5y01")
+    assert plan["final_refit"]["train_start"] == "2016-01-04"
+    assert plan["final_refit"]["effective_final_refit_min_train_start"] is None
+    assert plan["command_scope"] == "refit_only"
+    assert [step["step_id"] for step in plan["commands"]] == [
+        "build_refit_training_panel",
+        "cloudrun_refit_register_predict",
+    ]
+    joined = "\n".join(" ".join(step["command"]) for step in plan["commands"])
+    assert "--refit-train-start=2016-01-04" in joined
+    assert "--source-run-id=s1_annual_roll_y2021_train2015_2019_valid2020_n20_w075_v20260611_true5y" in joined
+    assert "--source-panel-run-id=s1_annual_roll_y2021_train2015_2019_valid2020_n20_w075_v20260611_true5y__true5y01" in joined
+
+
 def test_native_search_qa_params_cover_catalog_required_params() -> None:
     config = RunnerConfig(output_dataset_role="research")
     args = argparse.Namespace(candidate_parallelism=5)

@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Validate windowed stock refresh against canonical full SQL.
+"""Validate windowed index/market-state refresh against canonical full SQL.
 
-This is a periodic QA for the warehouse window refresh. It renders the existing canonical
-full-refresh SQL into scratch "_full" tables, copies those tables to "_window",
-runs the windowed refresh SQL against "_window", then compares the affected
-window row-by-row and column-by-column.
-
-The script does not mutate production DWD/DWS tables.
+The script renders canonical full-refresh SQL into scratch "_full" tables, copies
+those rows to "_window" tables, runs the index and market-state window refreshes
+against the scratch targets, then compares affected rows. It does not mutate
+production DWD/DWS tables.
 """
 
 from __future__ import annotations
@@ -28,7 +26,6 @@ LOCATION = "asia-east2"
 SCRATCH_DATASET = "ashare_qa_windowed_equivalence"
 FLOAT_TYPES = {"FLOAT", "FLOAT64", "NUMERIC", "BIGNUMERIC"}
 IGNORED_COMPARE_COLUMNS = {"created_at"}
-VALUATION_OBSERVATION_WINDOW = 60
 
 
 @dataclass(frozen=True)
@@ -36,7 +33,6 @@ class TableSpec:
     source_dataset: str
     table_name: str
     key_columns: tuple[str, ...]
-    compare_window: str
 
     @property
     def source_ref(self) -> str:
@@ -50,46 +46,29 @@ class TableSpec:
 
 
 TABLES = (
-    TableSpec("ashare_dwd", "dwd_stock_eod_price", ("trade_date", "sec_code"), "dwd"),
-    TableSpec("ashare_dwd", "dwd_stock_eod_valuation", ("trade_date", "sec_code"), "dwd"),
-    TableSpec("ashare_dws", "dws_stock_universe_daily", ("trade_date", "sec_code"), "dwd"),
-    TableSpec("ashare_dws", "dws_stock_feature_price_daily", ("trade_date", "sec_code", "feature_version"), "dwd"),
-    TableSpec("ashare_dws", "dws_stock_feature_valuation_daily", ("trade_date", "sec_code", "feature_version"), "dwd"),
-    TableSpec("ashare_dws", "dws_stock_feature_fin_daily", ("trade_date", "sec_code", "feature_version"), "dwd"),
-    TableSpec("ashare_dws", "dws_stock_label_daily", ("trade_date", "sec_code", "label_version"), "label"),
-    TableSpec("ashare_dws", "dws_stock_feature_daily_v0", ("trade_date", "sec_code", "feature_version"), "label"),
-    TableSpec(
-        "ashare_dws",
-        "dws_stock_sample_daily",
-        ("trade_date", "sec_code", "feature_version", "label_version"),
-        "label",
-    ),
+    TableSpec("ashare_dwd", "dwd_index_eod", ("trade_date", "sec_code")),
+    TableSpec("ashare_dws", "dws_market_state_daily", ("trade_date", "market_state_version")),
 )
 
 FULL_SQL_FILES = (
-    Path("sql/dwd/01_dwd_stock_eod_price.sql"),
-    Path("sql/dwd/02_dwd_stock_eod_valuation.sql"),
-    Path("sql/dws/01_dws_stock_universe_daily.sql"),
-    Path("sql/dws/02_dws_stock_feature_price_daily.sql"),
-    Path("sql/dws/03_dws_stock_feature_valuation_daily.sql"),
-    Path("sql/dws/07_dws_stock_feature_fin_daily.sql"),
-    Path("sql/dws/04_dws_stock_label_daily.sql"),
-    Path("sql/dws/05_dws_stock_feature_daily_v0.sql"),
-    Path("sql/dws/06_dws_stock_sample_daily.sql"),
+    Path("sql/dwd/04_dwd_index_eod.sql"),
+    Path("sql/dws/08_dws_market_state_daily.sql"),
 )
 
-WINDOW_SQL_FILE = Path("sql/incremental/01_refresh_stock_dwd_dws_window.sql")
+WINDOW_SQL_FILES = (
+    Path("sql/incremental/02_refresh_index_dwd_window.sql"),
+    Path("sql/incremental/03_refresh_market_state_window.sql"),
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build full/window shadow tables and compare windowed refresh values.",
+        description="Build full/window shadow tables and compare index/market refresh values.",
     )
     parser.add_argument("--project", default=PROJECT)
     parser.add_argument("--location", default=LOCATION)
     parser.add_argument("--scratch-dataset", default=SCRATCH_DATASET)
     parser.add_argument("--build-start-date", default="2024-01-01")
-    parser.add_argument("--lookback-start-date", default="2023-01-01")
     parser.add_argument("--date-from", default="2025-06-02")
     parser.add_argument("--date-to", default="2025-06-13")
     parser.add_argument("--business-date", default="")
@@ -115,10 +94,6 @@ def literal(value: str) -> str:
     return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
-def query_ref(project: str, dataset: str, table: str) -> str:
-    return f"`{project}.{dataset}.{table}`"
-
-
 def table_id(project: str, dataset: str, table: str) -> str:
     return f"{project}.{dataset}.{table}"
 
@@ -137,17 +112,10 @@ def apply_replacements(sql: str, replacements: dict[str, str]) -> str:
     return sql
 
 
-def override_date_declarations(
-    sql: str,
-    *,
-    build_start_date: str,
-    lookback_start_date: str,
-    end_date: str,
-) -> str:
+def override_date_declarations(sql: str, *, build_start_date: str, end_date: str) -> str:
     replacements = {
         r"DECLARE dwd_start_date DATE DEFAULT DATE '2019-01-01';": f"DECLARE dwd_start_date DATE DEFAULT DATE '{build_start_date}';",
         r"DECLARE dwd_end_date DATE DEFAULT CURRENT_DATE\('Asia/Shanghai'\);": f"DECLARE dwd_end_date DATE DEFAULT DATE '{end_date}';",
-        r"DECLARE lookback_start_date DATE DEFAULT DATE '2018-01-01';": f"DECLARE lookback_start_date DATE DEFAULT DATE '{lookback_start_date}';",
         r"DECLARE dws_start_date DATE DEFAULT DATE '2019-01-01';": f"DECLARE dws_start_date DATE DEFAULT DATE '{build_start_date}';",
         r"DECLARE dws_end_date DATE DEFAULT CURRENT_DATE\('Asia/Shanghai'\);": f"DECLARE dws_end_date DATE DEFAULT DATE '{end_date}';",
     }
@@ -161,14 +129,13 @@ def render_full_sql(path: Path, args: argparse.Namespace, full_end_date: str) ->
     sql = override_date_declarations(
         sql,
         build_start_date=args.build_start_date,
-        lookback_start_date=args.lookback_start_date,
         end_date=full_end_date,
     )
     return apply_replacements(sql, replacement_map(args.project, args.scratch_dataset, "full"))
 
 
-def render_window_sql(args: argparse.Namespace) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
-    sql = WINDOW_SQL_FILE.read_text(encoding="utf-8")
+def render_window_sql(path: Path, args: argparse.Namespace) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
+    sql = path.read_text(encoding="utf-8")
     sql = apply_replacements(sql, replacement_map(args.project, args.scratch_dataset, "window"))
     query_parameters = [
         bigquery.ScalarQueryParameter("business_date", "STRING", args.business_date or args.date_to),
@@ -185,114 +152,6 @@ CREATE OR REPLACE TABLE {spec.window_ref(args.project, args.scratch_dataset)} AS
 SELECT *
 FROM {spec.full_ref(args.project, args.scratch_dataset)}
 WHERE trade_date BETWEEN DATE {literal(args.build_start_date)} AND DATE {literal(full_end_date)};
-""".strip()
-
-
-def compare_window_dates(spec: TableSpec, args: argparse.Namespace, label_start_date: str) -> tuple[str, str]:
-    if spec.compare_window == "label":
-        return label_start_date, args.date_to
-    return args.date_from, args.date_to
-
-
-def label_start_date_sql(args: argparse.Namespace) -> str:
-    write_start = args.date_from or args.date_to
-    return f"""
-SELECT CAST(GREATEST(
-  COALESCE(
-    (
-      SELECT MAX(cal_date)
-      FROM `{args.project}.ashare_dim.dim_trade_calendar`
-      WHERE exchange = 'SSE'
-        AND is_open = 1
-        AND trade_date_seq <= (
-          SELECT MIN(trade_date_seq)
-          FROM `{args.project}.ashare_dim.dim_trade_calendar`
-          WHERE exchange = 'SSE'
-            AND is_open = 1
-            AND cal_date >= DATE {literal(write_start)}
-        ) - 20
-    ),
-    DATE_SUB(DATE {literal(write_start)}, INTERVAL 35 DAY)
-  ),
-  DATE {literal(args.build_start_date)}
-) AS STRING) AS label_start_date
-""".strip()
-
-
-def valuation_required_build_start_sql(args: argparse.Namespace) -> str:
-    write_start = args.date_from or args.date_to
-    return f"""
-WITH first_write AS (
-  SELECT
-    sec_code,
-    MIN(trade_date) AS first_write_trade_date
-  FROM `{args.project}.ashare_dwd.dwd_stock_eod_valuation`
-  WHERE trade_date BETWEEN DATE {literal(write_start)} AND DATE {literal(args.date_to)}
-  GROUP BY sec_code
-),
-ranked AS (
-  SELECT
-    v.sec_code,
-    v.trade_date,
-    ROW_NUMBER() OVER (
-      PARTITION BY v.sec_code
-      ORDER BY v.trade_date DESC
-    ) AS obs_rank_desc
-  FROM `{args.project}.ashare_dwd.dwd_stock_eod_valuation` AS v
-  JOIN first_write AS f
-    ON v.sec_code = f.sec_code
-   AND v.trade_date <= f.first_write_trade_date
-  WHERE v.trade_date BETWEEN DATE '2019-01-01' AND DATE {literal(args.date_to)}
-),
-read_bounds AS (
-  SELECT
-    sec_code,
-    MIN(trade_date) AS read_start_date,
-    COUNT(*) AS read_obs_count
-  FROM ranked
-  WHERE obs_rank_desc <= {VALUATION_OBSERVATION_WINDOW}
-  GROUP BY sec_code
-)
-SELECT
-  CAST(MIN(read_start_date) AS STRING) AS required_build_start_date,
-  COUNT(*) AS sec_code_count,
-  COUNTIF(read_obs_count < {VALUATION_OBSERVATION_WINDOW}) AS sec_code_count_with_less_than_60_obs
-FROM read_bounds
-""".strip()
-
-
-def build_compare_sql(spec: TableSpec, args: argparse.Namespace, schema: Iterable[bigquery.SchemaField], label_start_date: str) -> str:
-    start_date, end_date = compare_window_dates(spec, args, label_start_date)
-    diff_predicate = compare_diff_predicate(spec, args, schema)
-    using_keys = ", ".join(quote_identifier(col) for col in spec.key_columns)
-    return f"""
-WITH full_rows AS (
-  SELECT TRUE AS __in_full, *
-  FROM {spec.full_ref(args.project, args.scratch_dataset)}
-  WHERE trade_date BETWEEN DATE {literal(start_date)} AND DATE {literal(end_date)}
-),
-window_rows AS (
-  SELECT TRUE AS __in_window, *
-  FROM {spec.window_ref(args.project, args.scratch_dataset)}
-  WHERE trade_date BETWEEN DATE {literal(start_date)} AND DATE {literal(end_date)}
-),
-mismatches AS (
-  SELECT
-    f AS full_row,
-    w AS window_row
-  FROM full_rows AS f
-  FULL OUTER JOIN window_rows AS w
-  USING ({using_keys})
-  WHERE f.__in_full IS NULL
-    OR w.__in_window IS NULL
-    OR {diff_predicate}
-)
-SELECT
-  {literal(spec.table_name)} AS table_name,
-  DATE {literal(start_date)} AS compare_start_date,
-  DATE {literal(end_date)} AS compare_end_date,
-  COUNT(*) AS mismatch_count
-FROM mismatches
 """.strip()
 
 
@@ -320,25 +179,19 @@ def compare_diff_predicate(
     return "\n    OR ".join(diff_terms) if diff_terms else "FALSE"
 
 
-def build_diff_sample_sql(
-    spec: TableSpec,
-    args: argparse.Namespace,
-    schema: Iterable[bigquery.SchemaField],
-    label_start_date: str,
-) -> str:
-    start_date, end_date = compare_window_dates(spec, args, label_start_date)
+def build_compare_sql(spec: TableSpec, args: argparse.Namespace, schema: Iterable[bigquery.SchemaField]) -> str:
     diff_predicate = compare_diff_predicate(spec, args, schema)
     using_keys = ", ".join(quote_identifier(col) for col in spec.key_columns)
     return f"""
 WITH full_rows AS (
   SELECT TRUE AS __in_full, *
   FROM {spec.full_ref(args.project, args.scratch_dataset)}
-  WHERE trade_date BETWEEN DATE {literal(start_date)} AND DATE {literal(end_date)}
+  WHERE trade_date BETWEEN DATE {literal(args.date_from)} AND DATE {literal(args.date_to)}
 ),
 window_rows AS (
   SELECT TRUE AS __in_window, *
   FROM {spec.window_ref(args.project, args.scratch_dataset)}
-  WHERE trade_date BETWEEN DATE {literal(start_date)} AND DATE {literal(end_date)}
+  WHERE trade_date BETWEEN DATE {literal(args.date_from)} AND DATE {literal(args.date_to)}
 ),
 mismatches AS (
   SELECT
@@ -353,8 +206,42 @@ mismatches AS (
 )
 SELECT
   {literal(spec.table_name)} AS table_name,
-  DATE {literal(start_date)} AS compare_start_date,
-  DATE {literal(end_date)} AS compare_end_date,
+  DATE {literal(args.date_from)} AS compare_start_date,
+  DATE {literal(args.date_to)} AS compare_end_date,
+  COUNT(*) AS mismatch_count
+FROM mismatches
+""".strip()
+
+
+def build_diff_sample_sql(spec: TableSpec, args: argparse.Namespace, schema: Iterable[bigquery.SchemaField]) -> str:
+    diff_predicate = compare_diff_predicate(spec, args, schema)
+    using_keys = ", ".join(quote_identifier(col) for col in spec.key_columns)
+    return f"""
+WITH full_rows AS (
+  SELECT TRUE AS __in_full, *
+  FROM {spec.full_ref(args.project, args.scratch_dataset)}
+  WHERE trade_date BETWEEN DATE {literal(args.date_from)} AND DATE {literal(args.date_to)}
+),
+window_rows AS (
+  SELECT TRUE AS __in_window, *
+  FROM {spec.window_ref(args.project, args.scratch_dataset)}
+  WHERE trade_date BETWEEN DATE {literal(args.date_from)} AND DATE {literal(args.date_to)}
+),
+mismatches AS (
+  SELECT
+    f AS full_row,
+    w AS window_row
+  FROM full_rows AS f
+  FULL OUTER JOIN window_rows AS w
+  USING ({using_keys})
+  WHERE f.__in_full IS NULL
+    OR w.__in_window IS NULL
+    OR {diff_predicate}
+)
+SELECT
+  {literal(spec.table_name)} AS table_name,
+  DATE {literal(args.date_from)} AS compare_start_date,
+  DATE {literal(args.date_to)} AS compare_end_date,
   TO_JSON_STRING(STRUCT(TO_JSON_STRING(full_row) AS full_row_json, TO_JSON_STRING(window_row) AS window_row_json)) AS diff_sample_json
 FROM mismatches
 LIMIT {max(0, int(args.max_diff_samples))}
@@ -398,53 +285,19 @@ def run_query(
 def ensure_dataset(client: bigquery.Client, args: argparse.Namespace) -> None:
     dataset = bigquery.Dataset(f"{args.project}.{args.scratch_dataset}")
     dataset.location = args.location
-    dataset.description = "Scratch dataset for windowed stock refresh equivalence QA."
+    dataset.description = "Scratch dataset for index/market windowed refresh equivalence QA."
     client.create_dataset(dataset, exists_ok=True)
-
-
-def validate_build_start_guard(client: bigquery.Client, args: argparse.Namespace) -> None:
-    rows = list(
-        run_query(
-            client,
-            valuation_required_build_start_sql(args),
-            description="validate valuation build-start lookback",
-            location=args.location,
-        )
-    )
-    row = rows[0]
-    required_build_start = row["required_build_start_date"]
-    if required_build_start is None:
-        print("[guard] no valuation rows found for the write window; build-start lookback guard skipped")
-        return
-
-    if parse_date(args.build_start_date) > parse_date(required_build_start):
-        raise ValueError(
-            "build_start_date is too late for a discriminating equivalence QA run: "
-            f"build_start_date={args.build_start_date}, "
-            f"required_build_start_date<={required_build_start}. "
-            "Move --build-start-date earlier so canonical full shadows contain the "
-            "same 60-observation valuation history required by the windowed path."
-        )
-
-    print(
-        "[guard] valuation build-start lookback ok: "
-        f"required_build_start_date<={required_build_start}, "
-        f"sec_code_count={row['sec_code_count']}, "
-        f"less_than_60_obs={row['sec_code_count_with_less_than_60_obs']}"
-    )
 
 
 def main() -> int:
     args = parse_args()
-    date_to = parse_date(args.date_to)
-    full_end_date = (date_to + dt.timedelta(days=45)).isoformat()
+    full_end_date = parse_date(args.date_to).isoformat()
     business_date = args.business_date or args.date_to
 
-    print("Windowed refresh equivalence QA")
+    print("Index/market windowed refresh equivalence QA")
     print(f"  project={args.project}")
     print(f"  scratch_dataset={args.scratch_dataset}")
     print(f"  build_start_date={args.build_start_date}")
-    print(f"  lookback_start_date={args.lookback_start_date}")
     print(f"  date_from={args.date_from}")
     print(f"  date_to={args.date_to}")
     print(f"  business_date={business_date}")
@@ -455,24 +308,23 @@ def main() -> int:
 
     if args.dry_run:
         print("Dry-run plan:")
-        print("  1. Validate build_start_date has enough valuation lookback against production DWD.")
-        print("  2. Create scratch dataset.")
+        print("  1. Create scratch dataset.")
         for path in FULL_SQL_FILES:
-            print(f"  3. Render and run canonical full SQL: {path}")
+            print(f"  2. Render and run canonical full SQL: {path}")
         for spec in TABLES:
-            print(f"  4. Copy {spec.table_name}_full -> {spec.table_name}_window")
-        print(f"  5. Render and run {WINDOW_SQL_FILE} against *_window tables.")
-        print("  6. Compare *_window vs *_full for DWD and label windows.")
+            print(f"  3. Copy {spec.table_name}_full -> {spec.table_name}_window")
+        for path in WINDOW_SQL_FILES:
+            print(f"  4. Render and run window SQL: {path}")
+        print("  5. Compare *_window vs *_full for the requested window.")
         if args.summary_output_jsonl:
-            print(f"  7. Write per-table mismatch summaries to {args.summary_output_jsonl}.")
+            print(f"  6. Write per-table mismatch summaries to {args.summary_output_jsonl}.")
         if args.diff_sample_output_jsonl:
-            print(f"  8. Write up to {args.max_diff_samples} mismatch samples per failing table to {args.diff_sample_output_jsonl}.")
+            print(f"  7. Write up to {args.max_diff_samples} mismatch samples per failing table to {args.diff_sample_output_jsonl}.")
         return 0
 
-    client = bigquery.Client(project=args.project, location=args.location)
     reset_jsonl(args.summary_output_jsonl)
     reset_jsonl(args.diff_sample_output_jsonl)
-    validate_build_start_guard(client, args)
+    client = bigquery.Client(project=args.project, location=args.location)
     ensure_dataset(client, args)
 
     for path in FULL_SQL_FILES:
@@ -482,23 +334,20 @@ def main() -> int:
     for spec in TABLES:
         run_query(client, create_copy_sql(spec, args, full_end_date), description=f"copy window seed: {spec.table_name}", location=args.location)
 
-    window_sql, window_params = render_window_sql(args)
-    run_query(
-        client,
-        window_sql,
-        description="windowed refresh shadow",
-        location=args.location,
-        query_parameters=window_params,
-    )
-
-    label_start_rows = list(run_query(client, label_start_date_sql(args), description="compute label window start", location=args.location))
-    label_start_date = label_start_rows[0]["label_start_date"]
+    for path in WINDOW_SQL_FILES:
+        window_sql, window_params = render_window_sql(path, args)
+        run_query(
+            client,
+            window_sql,
+            description=f"windowed refresh shadow: {path}",
+            location=args.location,
+            query_parameters=window_params,
+        )
 
     failures = []
     for spec in TABLES:
         table = client.get_table(table_id(args.project, args.scratch_dataset, f"{spec.table_name}_full"))
-        compare_sql = build_compare_sql(spec, args, table.schema, label_start_date)
-        rows = list(run_query(client, compare_sql, description=f"compare {spec.table_name}", location=args.location))
+        rows = list(run_query(client, build_compare_sql(spec, args, table.schema), description=f"compare {spec.table_name}", location=args.location))
         result = rows[0]
         mismatch_count = result["mismatch_count"]
         print(
@@ -519,11 +368,10 @@ def main() -> int:
         if mismatch_count:
             failures.append((spec.table_name, mismatch_count))
             if args.diff_sample_output_jsonl and args.max_diff_samples > 0:
-                sample_sql = build_diff_sample_sql(spec, args, table.schema, label_start_date)
                 sample_rows = list(
                     run_query(
                         client,
-                        sample_sql,
+                        build_diff_sample_sql(spec, args, table.schema),
                         description=f"sample diffs {spec.table_name}",
                         location=args.location,
                     )
@@ -546,12 +394,12 @@ def main() -> int:
         print(f"[cleanup] deleted {args.project}.{args.scratch_dataset}")
 
     if failures:
-        print("Windowed refresh equivalence QA failed:")
+        print("Index/market windowed refresh equivalence QA failed:")
         for table_name, mismatch_count in failures:
             print(f"  {table_name}: {mismatch_count} mismatches")
         return 1
 
-    print("Windowed refresh equivalence QA passed.")
+    print("Index/market windowed refresh equivalence QA passed.")
     return 0
 
 
