@@ -1,3 +1,11 @@
+> 当前交接补充（2026-06-11，Claude Fable 5，PRD_09）
+> - 新增 `docs/prd/PRD_20260611_09_策略1信号IC分解与组合转换效率.md`：纯只读研究分析 PRD，把度量衡从组合 NAV 切换到信号层。动机：组合超额 t≈1.26（统计上不显著）而六个 refit 模型 valid rank IC 六年全正（`0.039~0.098`、日度 ICIR `0.30~0.81`），指向"信号真实、转换浪费"。
+> - Part A IC 分解五维：按年（真 OOS）/ 市值+行业中性化 / market regime / 分数分位（多头侧 vs 空头侧贡献）/ horizon 1/5/10/20d 衰减；前向收益直接读 `dws_stock_label_daily` 的同口径标签并按 `label_valid_{h}d` 过滤；所有 t 值须 NW / block bootstrap 修正。
+> - Part B 转换阶梯：L0 分数加权多空 → L1 long-only 分数加权 Top50 → L2 Top20 → L3 等权 Top20+7.5% cap（现行口径），逐级 IR 落差定价每条约束；L3 与 official 实际结果做恒等校验；TC 分拆为 `TC_target`（目标权重 vs 分数隐含权重）和 `TC_realized`（实际持仓权重 vs 分数隐含权重）。
+> - §6 预登记解读规则先写后跑（中性化阈值 60%/40%、L0 IR<1.0、阶梯落差 0.1 IR 等），支撑 owner 三个决策：组合构造改进 / 对冲结构评估 / 回炉模型。仅 docs+记忆改动，无代码、无 BQ 操作。
+>
+> Model: Claude Fable 5
+
 > 当前交接补充（2026-06-11，GPT-5 Codex，PRD_08）
 > - PRD_08 Cloud Run Python ledger resume 已完成 research-only 真实数据验收：parent `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，cut `2024-12-31`，next open `2025-01-02`，anchor `2021-01-04`；resume child execution `strategy1-backtest-report-job-82454` 成功。
 > - 两套 resume QA 均通过：`qa_cloudrun_ledger_resume_outputs` job `eb99f350-feb4-4fdc-977d-d2e6b7c74201`，`qa_ledger_resume_consistency` job `8b2b1e17-42ad-44d2-8318-9f283c26eee2`。验收产物仅写 research，ADS 同 run/backtest 为 0 行。
