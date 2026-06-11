@@ -310,13 +310,19 @@ def test_annual_rolling_command_plan_uses_package_entrypoints() -> None:
         "cloudrun_train_candidate_fanout",
         "cloudrun_select_register_predict",
     ]
-    assert [step["step_id"] for step in plan[-2:]] == [
+    assert [step["step_id"] for step in plan[-3:]] == [
+        "build_refit_training_panel",
         "cloudrun_refit_register_predict",
         "cloudrun_backtest_report",
     ]
     assert plan[0]["sql_step"] == "build_training_panel_risk_feature"
     assert plan[0]["params"]["p_run_id"] == "unit_run"
     assert plan[0]["params"]["p_feature_set_id"] == _experiment().feature_set_id
+    refit_panel = next(step for step in plan if step["step_id"] == "build_refit_training_panel")
+    assert refit_panel["sql_step"] == "build_training_panel_risk_feature"
+    assert refit_panel["params"]["p_run_id"] == "unit_run__refit01"
+    assert refit_panel["params"]["p_train_start"] == "2019-04-03"
+    assert refit_panel["params"]["p_train_end"] == "2023-12-31"
     assert "quant_ashare.strategy1.sql_runner" in joined
     assert "scripts.strategy1_cloudrun.sql_runner" not in joined
     assert "--step=build_training_panel_risk_feature" in joined
@@ -342,7 +348,7 @@ def test_annual_rolling_command_plan_uses_package_entrypoints() -> None:
     assert "scripts.strategy1_cloudrun.refit_register_predict" not in joined
     assert "scripts.strategy1_cloudrun.backtest_report" not in joined
     assert "--source-run-id=unit_run" in joined
-    assert "--source-panel-run-id=unit_run" in joined
+    assert "--source-panel-run-id=unit_run__refit01" in joined
     assert "--run-id=unit_run__refit01" in joined
     assert "--prediction-run-id=unit_run__refit01" in joined
     assert "--backtest-id=unit_bt__refit01" in joined
@@ -396,7 +402,7 @@ def test_annual_year_plan_continuous_contract_uses_refit_run_id() -> None:
 
     assert plan["final_refit"]["run_id"].endswith("__refit01")
     assert plan["final_refit"]["source_run_id"] == exp.run_id
-    assert plan["final_refit"]["source_panel_run_id"] == exp.run_id
+    assert plan["final_refit"]["source_panel_run_id"] == plan["final_refit"]["run_id"]
     assert plan["final_refit"]["train_start"] == "2021-01-04"
     assert plan["final_refit"]["train_end"] == "2025-12-24"
     assert plan["single_year_backtest"]["backtest_id"].endswith("__refit01")
@@ -409,6 +415,16 @@ def test_annual_year_plan_continuous_contract_uses_refit_run_id() -> None:
         continuous_anchor_start="2021-01-04",
     )
     assert year_2024.raw["final_refit_train_start"] == "2019-04-03"
+    year_2021 = build_year_experiment(
+        backtest_year=2021,
+        args=args,
+        version="v20260611_test",
+        as_of=parse_iso_date(args.as_of_date),
+        continuous_anchor_start="2021-01-04",
+    )
+    assert year_2021.raw["nominal_final_refit_train_start"] == "2016-01-01"
+    assert year_2021.raw["final_refit_train_start"] == "2019-04-03"
+    assert year_2021.raw["effective_final_refit_min_train_start"] == "2019-04-03"
 
 
 def test_native_search_qa_params_cover_catalog_required_params() -> None:

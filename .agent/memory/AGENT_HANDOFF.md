@@ -1,11 +1,70 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
-> - PR #171 后 review follow-up 已独立核验：`qa_refit_register_predict_outputs` 和 `refit_register_predict.py` 旧逻辑只查 source panel / prediction 的日期端点，不能发现内部交易日缺口。
-> - BigQuery 审计确认 2021/2022/2023 source selection panel 均缺 `2019-01-02..2019-04-02`；DWS `strategy1_pv_v0_20260601` 在该段有 feature/sample 行但 `has_full_history_60d=0`，2018 backfill 行存在，说明 `2019-04-03` override 只是对齐当前首个可训练开市日，不是根因修复。
-> - 审计还发现多个年份的 source selection panel 有 selection split / label-embargo 造成的内部年末缺口；OQ-014 已新增，关闭前不得把本轮 annual official continuous 结果升级为 accepted baseline 或 promotion source。
-> - 已加护栏：refit Python 执行前按 SSE 开市日检查 source panel 覆盖；训练窗口要求每天都有 labeled 行，prediction source window 要求每天都有 panel 行；`qa_refit_register_predict_outputs` 增加 labeled train / prediction 每个开市日覆盖断言。
-> - Official continuous 结果仍可作为已生成结果记录：`bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，CAGR=`0.0811063375`，MaxDD=`-0.4592575837`，IR=`0.3510127137`；但解释口径必须带 OQ-014 caveat。
+> - 当前分支 `codex/fix-annual-refit-dedicated-panel` 正在处理 OQ-014：annual resolved plan 已新增 `build_refit_training_panel` step，final refit 的 `source_panel_run_id` 改为 refit run_id，不再读取 selection panel。
+> - Pipeline scheduler 已新增 `refit_panel:yYYYY` stage，DAG 为 `select -> refit_panel -> refit -> diagnostic/continuous`。
+> - Refit 窗口实际起点改为 `max(nominal_start, 2019-04-03)`；2021-2024 不是名义完整五年 refit，结果解释必须带 effective-window caveat。
+> - BigQuery 覆盖审计显示该 effective floor 下 2021-2026 六年当前均无 labeled sample open-day gap；PRD_02、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、TODO 和 DECISION-20260611-01 已同步。
+> - 合并后仍需重建 runner 镜像，并重跑 2021-2026 dedicated refit panel / refit / synthetic continuous；旧 official continuous 不得直接升级 accepted baseline 或 promotion source。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - Annual final refit dedicated panel implementation
+
+### 已完成工作
+
+- 基于 `origin/main@d6a40e6` 新建干净 worktree `/Users/fisher/Desktop/git/quant-ashare-refit-panel`，分支 `codex/fix-annual-refit-dedicated-panel`。
+- 在 `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py` 中新增 dedicated refit panel plan step：selection panel 仍作为每年第一步服务 matrix / fanout / select，`build_refit_training_panel` 在 select 后用 refit run_id 写 panel。
+- `cloudrun_refit_register_predict` 仍用 `--source-run-id=<selection run>` 读取 selected candidate lineage，但 `--source-panel-run-id=<refit run>` 读取 dedicated refit panel。
+- final refit actual/effective 起点改为 `max(nominal_start, 2019-04-03)`，并在 raw metadata 记录 `effective_final_refit_min_train_start`；2021/2022/2023/2024 起点均为 `2019-04-03`，2025/2026 不受影响。
+- 在 `quant_ashare.strategy1.annual_pipeline_scheduler` 中新增 `refit_panel` stage，依赖顺序改为 `select:yYYYY -> refit_panel:yYYYY -> refit:yYYYY`，continuous ledger 仍依赖六个 `refit:*`。
+- 更新 PRD_02、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、IMPLEMENTATION_STATUS、TODO，并追加 `DECISION-20260611-01` 记录 effective-window 口径。
+
+### 重要上下文
+
+- 这是 OQ-014 的工程缓解，不是 historical DWS 根因修复。若 owner 要求 true pre-2019 五年窗口，需要先修复 / 重建 DWS lookback 与历史 valuation 覆盖。
+- 合并本分支后必须重建 Strategy1 runner 镜像；annual orchestrator / scheduler 的 resolved plan 由镜像内代码生成。
+- 旧 official continuous 结果仍是已生成事实，但不能直接升级为 accepted baseline 或 promotion source。
+
+### 改动文件
+
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`
+- `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`
+- `tests/strategy1_cloudrun/test_dataset_role_routing.py`
+- `tests/strategy1/test_annual_pipeline_scheduler.py`
+- `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- Focused pytest：`PYTHONPATH=src python3 -m pytest -q tests/strategy1_cloudrun/test_dataset_role_routing.py tests/strategy1/test_annual_pipeline_scheduler.py tests/strategy1/test_refit_panel_coverage_contract.py`：32 passed。
+- Full pytest：`PYTHONPATH=src python3 -m pytest -q tests`：122 passed。
+- Scheduler dry-run：`python3 -m quant_ashare.strategy1.annual_pipeline_scheduler --dry-run --start-year 2021 --end-year 2026 ...` 生成 97 tasks，确认 `refit_panel:y2021` 依赖 `select:y2021`、`refit:y2021` 依赖 `refit_panel:y2021`、continuous 依赖六个 refit。
+- BigQuery 覆盖审计（代码修改前执行）：以 `effective_refit_start=max(nominal_start, 2019-04-03)` 对 2021-2026 六年检查 SSE 开市日 labeled sample 覆盖，missing_labeled_days 均为 0。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无代码阻塞；尚未合并、重建镜像或重跑 live annual refit / continuous。
+
+### 下一步建议
+
+- 提交并发 PR；合并后重建 runner 镜像，更新 jobs，并以新 plan 重跑 2021-2026 dedicated refit panel / refit / synthetic continuous。
+
+### 已更新记忆文件
+
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - Annual refit source-panel coverage review follow-up
 
@@ -487,7 +546,7 @@ Model: Claude Fable 5
 
 ### 已完成工作
 
-- 新增 `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`：refit 窗口口径（resolved plan `final_refit` 块为权威）、复用既有 BigQuery panel（经 `source_panel_run_id` 读 selection run panel，重新 fit preprocessor，不消费冻结 matrix transformed arrays）、`refit_register_predict` 步骤、独立 refit run_id 的 registry 溯源契约、QA 硬门（训练窗口逐年断言）、六年从 select 之后重跑的范围声明。
+- 新增 `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`：refit 窗口口径（resolved plan `final_refit` 块为权威）、初稿复用 BigQuery panel / 重新 fit preprocessor / 不消费冻结 matrix transformed arrays、`refit_register_predict` 步骤、独立 refit run_id 的 registry 溯源契约、QA 硬门（训练窗口逐年断言）。注：该初稿 panel 复用口径已被 2026-06-11 coverage revision 替代，当前权威方案为 dedicated refit panel + effective coverage floor。
 - 新增 `docs/prd/PRD_20260611_03_策略1SyntheticContinuous正式回测.md`：manifest 参数化 merge（彩排/正式同代码）、逐年 test 窗口切片排除 valid 段、重叠/缺口/行数/溯源 QA、official continuous ledger 口径、rehearsal 与 official 的强制区分。
 - 新增 `docs/prd/PRD_20260611_04_ResearchSummary落库修复.md`（简短）：根因实证、ADS additive 补列 + `09` 列清单修复 + 6 行回填（需 owner 批准）+ `qa_runner_outputs` NOT NULL 断言。
 - 同步 `IMPLEMENTATION_STATUS.md`、`AGENT_HANDOFF.md`、`TODO.md`。

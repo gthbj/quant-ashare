@@ -2948,3 +2948,44 @@ Strategy1 长窗口训练 / 回测执行中曾因本机运行环境缺少 LightG
 ### 相关文件
 
 `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`
+
+## DECISION-20260611-01: 年度 final refit 使用 dedicated panel 与 effective coverage floor
+
+日期: 2026-06-11
+状态: active
+负责人: owner-delegated execution
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+PR #171 后 review follow-up 审计确认：annual final refit 旧实现以 selection run panel 作为 `source_panel_run_id`，但 selection panel 在 refit 训练窗口内存在内部交易日缺口。2021/2022/2023 均缺 `2019-01-02..2019-04-02`，且多个年份还因 selection split / label-embargo 缺少年末开市日。进一步 BigQuery 审计显示，当前 DWS / sample 在 `2019-04-03` 之前仍有历史 valuation 稀疏和 `has_full_history_60d=FALSE` 约束；若使用 `max(nominal_refit_train_start, DATE '2019-04-03')` 作为 effective 起点，则 2021-2026 六年 effective refit train window 当前均可做到每个 SSE 开市日有 labeled sample。
+
+### 决策
+
+1. annual final refit 不再读取 selection run panel；每年在 select 之后新增 `build_refit_training_panel`，用 refit run_id 构建 dedicated refit panel。
+2. `refit_register_predict --source-run-id` 继续指向 selection run，用于读取 selected candidate lineage；`--source-panel-run-id` 改为 refit run_id，用于读取 dedicated refit panel。
+3. annual resolved plan 的 actual / effective final-refit 起点取 `max(nominal_refit_train_start, DATE '2019-04-03')`，并保留名义窗口与 `effective_final_refit_min_train_start` 元数据。
+4. 该决策不关闭 OQ-014：2021-2024 结果只能解释为当前 DWS 覆盖下的 effective-window refit，不得宣称已完成名义完整五年 refit。
+5. 若 owner 后续要求 true pre-2019 五年窗口，必须先修复 / 重建 DWS lookback 与历史 valuation 覆盖，再重跑 dedicated refit panel、refit 和 continuous ledger。
+
+### 理由
+
+该方案直接消除旧 selection panel 的 split / label-embargo 缺口，并让 refit QA 能按 dedicated refit panel 检查逐开市日覆盖。以 `2019-04-03` 作为显式 coverage floor，可在当前生产 DWS 数据质量边界内恢复可执行、可审计的年度 refit 链路，同时避免把缺失的历史覆盖伪装成完整五年训练。
+
+### 影响
+
+1. annual orchestrator resolved plan 增加 `build_refit_training_panel` step；pipeline scheduler 增加 `refit_panel:yYYYY` stage。
+2. 2021-2024 refit 训练窗口被显式缩短到 `2019-04-03` 起；2025/2026 不受该 floor 影响。
+3. 合并后必须重建 runner 镜像，并重跑 2021-2026 dedicated refit panel / refit / synthetic continuous，旧 official continuous 结果不能直接升级为 accepted baseline 或 promotion source。
+4. PRD_02、KNOWN_CONSTRAINTS、OPEN_QUESTIONS、TODO 必须同步保留 effective-window caveat。
+
+### 备选方案
+
+- 继续用 selection panel：不采用，因为已实证存在内部缺口，且 refit QA 会失败。
+- 立即修复 / 重建 DWS lookback 与历史 valuation 覆盖后再做 refit：暂不采用。原因是范围更大、成本更高，且当前任务目标是先恢复年度 refit 链路的可执行性与可审计性。
+- 静默把 2021-2024 缩窗但不记录：不采用。原因是会污染 baseline 方法论解释。
+
+### 相关文件
+
+`scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`, `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`, `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`

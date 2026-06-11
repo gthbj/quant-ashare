@@ -83,12 +83,10 @@ LAST_TRADING_DAY_BY_YEAR = {
     2025: "2025-12-31",
 }
 
-FINAL_REFIT_FIRST_TRAINING_DAY_OVERRIDES = {
-    # Strategy1 2019 panels start at the first full-history sample date.
-    # Earlier generated panels were backfilled; 2019 remains constrained by
-    # the production DWS feature availability boundary.
-    2019: "2019-04-03",
-}
+# Current production DWS/panel coverage has internal trainable-row gaps before
+# this date: historical valuation rows are sparse before 2018 and
+# has_full_history_60d is false through 2019-04-02.
+FINAL_REFIT_MIN_TRAINING_DAY = "2019-04-03"
 
 
 def main() -> int:
@@ -313,6 +311,7 @@ def build_year_experiment(
             "nominal_final_refit_train_end": f"{final_refit_end_year}-12-31",
             "actual_final_refit_train_start": final_refit_start,
             "actual_final_refit_train_end": final_refit_end,
+            "effective_final_refit_min_train_start": FINAL_REFIT_MIN_TRAINING_DAY,
             "nominal_backtest_start": f"{backtest_year}-01-01",
             "nominal_backtest_end": args.as_of_date if backtest_year == as_of.year else f"{backtest_year}-12-31",
             "actual_backtest_start": backtest_start,
@@ -348,7 +347,7 @@ def year_plan(*, config, exp: Experiment, args: argparse.Namespace, continuous_b
             "prediction_run_id": refit_exp.prediction_run_id,
             "backtest_id": refit_exp.backtest_id,
             "source_run_id": exp.run_id,
-            "source_panel_run_id": exp.run_id,
+            "source_panel_run_id": refit_exp.run_id,
             "train_start": exp.raw["final_refit_train_start"],
             "train_end": exp.raw["final_refit_train_end"],
             "predict_start": refit_exp.predict_start,
@@ -388,6 +387,13 @@ def command_plan(*, config, exp: Experiment, args: argparse.Namespace, include_b
     refit_exp = final_refit_experiment(exp)
     steps = [training_panel_step(config, exp, args)]
     steps.extend(build_task_fanout_steps(config, exp, task_args, common_flags))
+    steps.append(training_panel_step(
+        config,
+        refit_exp,
+        args,
+        step_id="build_refit_training_panel",
+        display_name="Build annual final-refit training panel",
+    ))
     refit_flags = [
         f"--project={config.project}",
         f"--region={config.region}",
@@ -396,7 +402,7 @@ def command_plan(*, config, exp: Experiment, args: argparse.Namespace, include_b
         *output_dataset_role_cli_args(config.output_dataset_role, equals=True),
         f"--experiment-json={experiment_to_b64(refit_exp)}",
         f"--source-run-id={exp.run_id}",
-        f"--source-panel-run-id={exp.run_id}",
+        f"--source-panel-run-id={refit_exp.run_id}",
         f"--refit-train-start={refit_exp.train_start}",
         f"--refit-train-end={refit_exp.train_end}",
     ]
@@ -472,7 +478,7 @@ def final_refit_experiment(exp: Experiment) -> Experiment:
     raw = dict(exp.raw)
     raw.update({
         "source_run_id": exp.run_id,
-        "source_panel_run_id": exp.run_id,
+        "source_panel_run_id": final_refit_run_id(exp),
         "selection_run_id": exp.run_id,
         "selection_experiment_id": exp.experiment_id,
         "selection_backtest_id": exp.backtest_id,
@@ -499,14 +505,21 @@ def final_refit_experiment(exp: Experiment) -> Experiment:
     )
 
 
-def training_panel_step(config, exp: Experiment, args: argparse.Namespace) -> SimpleNamespace:
+def training_panel_step(
+    config,
+    exp: Experiment,
+    args: argparse.Namespace,
+    *,
+    step_id: str = "build_training_panel",
+    display_name: str = "Build annual rolling training panel",
+) -> SimpleNamespace:
     params = build_training_panel_params(exp, force_replace=args.force_replace)
     encoded = base64.urlsafe_b64encode(
         json_dumps_strict(params, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).decode("ascii")
     return SimpleNamespace(
-        step_id="build_training_panel",
-        display_name="Build annual rolling training panel",
+        step_id=step_id,
+        display_name=display_name,
         job_name=None,
         sql_step=config.training_panel_step,
         params=params,
@@ -561,7 +574,9 @@ def actual_first_trading_day(year: int) -> str:
 
 
 def final_refit_first_training_day(year: int) -> str:
-    return FINAL_REFIT_FIRST_TRAINING_DAY_OVERRIDES.get(year, actual_first_trading_day(year))
+    first_trading_day = parse_iso_date(actual_first_trading_day(year))
+    coverage_floor = parse_iso_date(FINAL_REFIT_MIN_TRAINING_DAY)
+    return max(first_trading_day, coverage_floor).isoformat()
 
 
 def actual_last_trading_day(year: int) -> str:

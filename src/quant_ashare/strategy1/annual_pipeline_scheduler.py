@@ -46,6 +46,7 @@ STAGE_PANEL = "panel"
 STAGE_MATRIX = "matrix"
 STAGE_CANDIDATE = "candidate"
 STAGE_SELECT = "select"
+STAGE_REFIT_PANEL = "refit_panel"
 STAGE_REFIT = "refit"
 STAGE_DIAGNOSTIC_BACKTEST = "diagnostic_backtest"
 STAGE_CONTINUOUS_LEDGER = "continuous_ledger"
@@ -102,7 +103,7 @@ class SchedulerLimits:
     active_backtest_jobs: int = 1
 
     def stage_limit(self, stage: str) -> int:
-        if stage == STAGE_PANEL:
+        if stage in (STAGE_PANEL, STAGE_REFIT_PANEL):
             return self.active_panel_jobs
         if stage == STAGE_MATRIX:
             return self.active_prepare_jobs
@@ -391,6 +392,7 @@ def build_scheduler_plan(*, config, args: argparse.Namespace) -> dict[str, Any]:
 def default_stage_tokens(config) -> dict[str, ResourceTokens]:
     return {
         STAGE_PANEL: ResourceTokens(),
+        STAGE_REFIT_PANEL: ResourceTokens(),
         STAGE_MATRIX: ResourceTokens(cpu=DEFAULT_PREPARE_CPU, memory_gib=DEFAULT_PREPARE_MEMORY_GIB),
         STAGE_CANDIDATE: ResourceTokens(
             cpu=int(config.candidate_task_cpu or DEFAULT_CANDIDATE_CPU),
@@ -491,13 +493,25 @@ def build_pipeline_tasks(
             matrix_id=matrix_id,
             matrix_uri=matrix_uri,
         ))
+        refit_panel_id = task_id(STAGE_REFIT_PANEL, year)
+        refit_panel_step = by_step["build_refit_training_panel"]
+        tasks.append(PipelineTask(
+            task_id=refit_panel_id,
+            stage=STAGE_REFIT_PANEL,
+            year=year,
+            dependencies=(select_id,),
+            tokens=stage_tokens[STAGE_REFIT_PANEL],
+            command=tuple(refit_panel_step["command"]),
+            job_name=refit_panel_step.get("job_name"),
+            artifact_uri=None,
+        ))
         refit_id = task_id(STAGE_REFIT, year)
         refit_step = by_step["cloudrun_refit_register_predict"]
         tasks.append(PipelineTask(
             task_id=refit_id,
             stage=STAGE_REFIT,
             year=year,
-            dependencies=(select_id,),
+            dependencies=(refit_panel_id,),
             tokens=stage_tokens[STAGE_REFIT],
             command=tuple(refit_step["command"]),
             job_name=refit_step.get("job_name"),
@@ -555,11 +569,12 @@ def task_priority(task: PipelineTask) -> tuple[int, int, int]:
     stage_priority = {
         STAGE_CANDIDATE: 10,
         STAGE_SELECT: 20,
-        STAGE_REFIT: 30,
-        STAGE_PANEL: 40,
-        STAGE_MATRIX: 50,
-        STAGE_DIAGNOSTIC_BACKTEST: 60,
-        STAGE_CONTINUOUS_LEDGER: 70,
+        STAGE_REFIT_PANEL: 30,
+        STAGE_REFIT: 40,
+        STAGE_PANEL: 50,
+        STAGE_MATRIX: 60,
+        STAGE_DIAGNOSTIC_BACKTEST: 70,
+        STAGE_CONTINUOUS_LEDGER: 80,
     }
     return (
         stage_priority[task.stage],
