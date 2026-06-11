@@ -9,7 +9,7 @@ Last updated: 2026-06-11
 ### 最新补充（2026-06-11）：历史回填 / 调度 Phase2 / ledger resume 三个后续 PRD 已新增
 
 - 分支 `claude/prd-history-scheduler-resume` 新增三个 PRD：`PRD_20260611_06_策略1历史数据回填与TrueFiveYearRefit.md`、`PRD_20260611_07_策略1年度滚动调度Phase2Live化.md`、`PRD_20260611_08_策略1LedgerResume验收闭环.md`。
-- PRD_06 依据只读探查事实：ODS `daily`/`daily_basic` 已覆盖 2010-2014（owner 确认 14 endpoint 从 2010 可用）；DWD 价格仅 2015 起；DWS `2015-Q1`（150,726 行）与 `2019-Q1`（208,007 行）`has_full_history_60d` 全部为 FALSE——2019Q1 属陈旧标记（DWD 已有 2018 行），重刷窗口即可修复。方案：历史下限前移（推荐 2010）→ 旗标重算 + `2019-04-03` 后现有行 parity 硬门 → 2021-2024 true-five-year refit 重跑（不重做选参，2025/2026 不重跑）→ 新 synthetic continuous 与 effective-window 口径对比，交 owner 口径决策。
+- PRD_06 依据只读探查事实：ODS `daily`/`daily_basic` 已覆盖 2010-2014（owner 确认 14 endpoint 从 2010 可用）；DWD 价格仅 2015 起；DWS `2015-Q1`（150,726 行）与 `2019-Q1`（208,007 行）`has_full_history_60d` 全部为 FALSE——2019 年初属陈旧标记（DWD 已有 2018 行），重刷 `2019-01-02..2019-04-02` 窗口即可修复（实证缺口含 4-01/4-02，不止自然 Q1）。方案：历史下限前移（推荐 2010）→ 旗标重算 + `2019-04-03` 后现有行 parity 硬门 → 2021-2024 true-five-year refit 重跑（不重做选参，2025/2026 不重跑）→ 新 synthetic continuous 与 effective-window 口径对比，交 owner 口径决策。
 - PRD_07 范围限定 PRD_20260611_01 §13 Phase 2：真实 GCS generation-guarded lease/state、execution 粒度 fanout 跟踪（替换 candidate-year proxy）、共享资源池 live admission、candidate-only live smoke 五场景；不跑完整 live 年度滚动。
 - PRD_08（短）：PR #127 已合入但从未验收的 ledger resume，跑 pytest + research-only 真实数据 resume segment 与 fresh 切片逐日一致性 + 两套 resume QA；默认 fresh-run 口径不变。
 - 本轮 docs/记忆-only，未改代码、未写任何 BigQuery 数据（只读探查）。
