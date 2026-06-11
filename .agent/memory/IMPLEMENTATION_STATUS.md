@@ -10,7 +10,7 @@ Last updated: 2026-06-11
 
 - 分支 `claude/prd-ic-transfer-efficiency` 新增 `docs/prd/PRD_20260611_09_策略1信号IC分解与组合转换效率.md`：纯只读研究分析（BigQuery 只读 + 本地 pandas），把策略评估的度量衡从组合 NAV 切换到信号层。
 - 动机：组合层超额 IR `0.542` 的 t 值仅 ≈1.26（统计上不显著），而六个年度 refit 模型的 valid 日度 rank IC 六年全正（`0.039~0.098`、日度 ICIR `0.30~0.81`）——"信号真实、组合转换浪费"假设需要量化证据；另需检验 2024-01~02 crunch 超额 `-19.3pp` 是否源于隐性小市值风格暴露。
-- Part A：真 OOS IC 五维分解（按年 / 风格中性化 / market regime / 分数分位 / horizon 衰减），前向收益强制复用 panel 标签口径，t 值强制 NW / block bootstrap 修正。Part B：L0 多空 → L3 现行口径四级转换阶梯逐级定价约束成本 + TC 直接测量，L3 须与 official 实际结果恒等校验。
+- Part A：真 OOS IC 五维分解（按年 / 风格中性化 / market regime / 分数分位 / horizon 衰减），前向收益直接读 `dws_stock_label_daily` 的同口径标签并按 `label_valid_{h}d` 过滤，t 值强制 NW / block bootstrap 修正。Part B：L0 多空 → L3 现行口径四级转换阶梯逐级定价约束成本 + `TC_target` / `TC_realized` 直接测量，L3 须与 official 实际结果恒等校验。
 - §6 预登记解读规则先写后跑，结果支撑 owner 三个决策：组合构造改进 / 对冲结构可行性评估 / 回炉模型。不重训、不改组合、不写 BQ、不 promotion。
 
 ### 最新补充（2026-06-11）：PRD_08 Cloud Run ledger resume research-only 验收已完成
