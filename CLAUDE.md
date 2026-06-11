@@ -33,6 +33,8 @@
 
 **会话纪律**：同一个需求 / 同一个 PR 只用**一个 Codex 对话**；每一轮新反馈必须续接既有会话，不要新开（避免上下文分裂）。
 
+**模型要求**：Codex 必须使用 **GPT-5.5 + reasoning effort `xhigh`**。CLI 显式传 `-m gpt-5.5 -c model_reasoning_effort="xhigh"`（resume 时同样传，防止沿用旧会话模型）；默认值固化在 `~/.codex/config.toml` 的 `model` / `model_reasoning_effort`。注意：ChatGPT 账号下模型 id 是 `gpt-5.5`，`gpt-5.5-codex` 不可用（已实测 400）。
+
 **操作要点（Claude 会话内驱动 Codex 的标准做法，2026-06-11 在 PR #189 实跑验证）**：
 
 1. 优先用 codex plugin 命令（如 `/codex:setup --enable-review-gate`）；plugin 命令在当前会话不可用时，直接用 `codex` CLI（已在 PATH）。
