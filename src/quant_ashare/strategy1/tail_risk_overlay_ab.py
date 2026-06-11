@@ -26,6 +26,11 @@ from quant_ashare.strategy1.dataset_roles import (
 from quant_ashare.strategy1.pipeline_control import gcloud_execute_command
 from quant_ashare.strategy1.sql_runner import run_sql_step
 from scripts.strategy1_cloudrun.dataset_roles import TableResolver
+from scripts.strategy1_cloudrun.state import (
+    cloud_run_execution_state,
+    describe_cloud_run_execution,
+    extract_cloud_run_execution_id,
+)
 
 
 PREDICT_START = "2021-01-04"
@@ -286,6 +291,8 @@ def build_plan(config, args: argparse.Namespace, source: dict[str, Any], baselin
             "market_state_version": args.market_state_version,
             "predict_start": args.predict_start,
             "predict_end": args.predict_end,
+            "rebalance_anchor_start": args.predict_start,
+            "feature_version": FEATURE_VERSION,
         },
         "arms": [
             {
@@ -344,6 +351,8 @@ def run_preflight(config, client: bigquery.Client, args: argparse.Namespace, sou
         "p_manifest_sha256": args.manifest_sha256 or source["manifest_sha256"],
         "p_predict_start": args.predict_start,
         "p_predict_end": args.predict_end,
+        "p_rebalance_anchor_start": args.predict_start,
+        "p_feature_version": FEATURE_VERSION,
         "p_market_state_version": args.market_state_version,
         "p_a1_run_id": "__preflight_a1__",
         "p_a1_backtest_id": "__preflight_a1__",
@@ -372,16 +381,8 @@ def run_arm(config, args: argparse.Namespace, exp: Experiment) -> dict[str, Any]
     if not args.execute_cloud_run:
         return {"status": "planned", "arm": exp.raw["arm"], "run_id": exp.run_id, "backtest_id": exp.backtest_id, "command": command}
     proc = subprocess.run(command, text=True, capture_output=True)
-    result = {
-        "status": "succeeded" if proc.returncode == 0 else "failed",
-        "arm": exp.raw["arm"],
-        "run_id": exp.run_id,
-        "backtest_id": exp.backtest_id,
-        "returncode": proc.returncode,
-        "stdout_tail": proc.stdout[-4000:],
-        "stderr_tail": proc.stderr[-4000:],
-    }
-    if proc.returncode != 0:
+    result = cloud_run_result(config, exp, proc.returncode, proc.stdout, proc.stderr)
+    if result["status"] != "succeeded":
         raise subprocess.CalledProcessError(proc.returncode, command, output=proc.stdout, stderr=proc.stderr)
     return result
 
@@ -395,22 +396,38 @@ def run_arms_parallel(config, args: argparse.Namespace, arms: list[Experiment]) 
     failures = []
     for exp, command, proc in processes:
         stdout, stderr = proc.communicate()
-        result = {
-            "status": "succeeded" if proc.returncode == 0 else "failed",
-            "arm": exp.raw["arm"],
-            "run_id": exp.run_id,
-            "backtest_id": exp.backtest_id,
-            "returncode": proc.returncode,
-            "stdout_tail": (stdout or "")[-4000:],
-            "stderr_tail": (stderr or "")[-4000:],
-        }
+        result = cloud_run_result(config, exp, proc.returncode, stdout or "", stderr or "")
         results.append(result)
-        if proc.returncode != 0:
-            failures.append((command, proc.returncode, stdout, stderr))
+        if result["status"] != "succeeded":
+            failures.append((command, proc.returncode, stdout, stderr, result))
     if failures:
-        command, returncode, stdout, stderr = failures[0]
-        raise subprocess.CalledProcessError(returncode, command, output=stdout, stderr=stderr)
+        command, returncode, stdout, stderr, result = failures[0]
+        raise subprocess.CalledProcessError(returncode, command, output=stdout, stderr=json.dumps(result, ensure_ascii=False))
     return results
+
+
+def cloud_run_result(config, exp: Experiment, returncode: int, stdout: str, stderr: str) -> dict[str, Any]:
+    execution_id = extract_cloud_run_execution_id(stdout, stderr)
+    execution_state = None
+    wait_returncode_ignored = False
+    if returncode != 0 and execution_id:
+        execution_state = cloud_run_execution_state(
+            describe_cloud_run_execution(config.project, config.region, execution_id)
+        )
+        wait_returncode_ignored = execution_state == "succeeded"
+    status = "succeeded" if returncode == 0 or wait_returncode_ignored else "failed"
+    return {
+        "status": status,
+        "arm": exp.raw["arm"],
+        "run_id": exp.run_id,
+        "backtest_id": exp.backtest_id,
+        "returncode": returncode,
+        "cloud_run_execution_id": execution_id,
+        "cloud_run_execution_state": execution_state,
+        "wait_returncode_ignored": wait_returncode_ignored,
+        "stdout_tail": stdout[-4000:],
+        "stderr_tail": stderr[-4000:],
+    }
 
 
 def run_standard_arm_qa(
@@ -479,6 +496,8 @@ def run_overlay_qa(
         "p_manifest_sha256": args.manifest_sha256 or source["manifest_sha256"],
         "p_predict_start": args.predict_start,
         "p_predict_end": args.predict_end,
+        "p_rebalance_anchor_start": args.predict_start,
+        "p_feature_version": FEATURE_VERSION,
         "p_market_state_version": args.market_state_version,
         "p_a1_run_id": arm_by_suffix["A1"].run_id,
         "p_a1_backtest_id": arm_by_suffix["A1"].backtest_id,

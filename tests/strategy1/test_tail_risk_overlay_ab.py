@@ -5,7 +5,9 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
+from quant_ashare.strategy1 import tail_risk_overlay_ab
 from quant_ashare.strategy1.catalog import load_step_catalog
 from quant_ashare.strategy1.sql_render import render_sql_step
 
@@ -124,6 +126,8 @@ def test_tail_risk_overlay_ab_qa_catalog_contract_and_research_rendering() -> No
             "p_manifest_sha256": "unit_manifest_sha",
             "p_predict_start": "2021-01-04",
             "p_predict_end": "2026-06-09",
+            "p_rebalance_anchor_start": "2021-01-04",
+            "p_feature_version": "strategy1_pv_v0_20260601",
             "p_market_state_version": "market_state_v1_20260607",
             "p_a1_run_id": "unit_p1",
             "p_a1_backtest_id": "bt_unit_p1",
@@ -145,6 +149,7 @@ def test_tail_risk_overlay_ab_qa_catalog_contract_and_research_rendering() -> No
     assert "data-aquarium.ashare_research.research_backtest_trade_daily" in rendered
     assert "QA-OVERLAY-2: market state must cover every SSE open date" in rendered
     assert "QA-OVERLAY-9: BUY_SKIPPED_MARKET_RISK_OFF" in rendered
+    assert "crunch_excess_return_vs_000852" in rendered
 
 
 def test_tail_risk_overlay_ab_sql_contains_pre_guard_a2_checks() -> None:
@@ -152,5 +157,41 @@ def test_tail_risk_overlay_ab_sql_contains_pre_guard_a2_checks() -> None:
 
     assert "p_preflight_only" in sql
     assert "LEFT JOIN market_state" in sql
+    assert "feat.feature_version = p_feature_version" in sql
+    assert "cal_date BETWEEN p_rebalance_anchor_start AND p_predict_end" in sql
+    assert "LOGICAL_AND(skip_count >= p_min_tail_risk_skips)" in sql
+    assert "LOGICAL_AND(skip_count > 0)" in sql
+    assert "QA-OVERLAY-4A: CSI1000 crunch benchmark" in sql
     assert "A2 market-only arm must match baseline candidate rows before ledger guard" in sql
     assert "A2 market-only arm must match baseline portfolio targets before ledger guard" in sql
+    assert "contract_sharpe" in sql
+    assert "max_drawdown_peak_date" in sql
+    assert "buy_skipped_yearly_json" in sql
+    assert "crunch_excess_return_vs_000852" in sql
+
+
+def test_tail_risk_overlay_ab_accepts_gcloud_wait_nonzero_when_execution_succeeded(monkeypatch) -> None:
+    monkeypatch.setattr(
+        tail_risk_overlay_ab,
+        "extract_cloud_run_execution_id",
+        lambda stdout, stderr: "strategy1-backtest-report-job-unit",
+    )
+    monkeypatch.setattr(
+        tail_risk_overlay_ab,
+        "describe_cloud_run_execution",
+        lambda project, region, execution_id: {
+            "status": {"conditions": [{"type": "Completed", "state": "True"}]}
+        },
+    )
+
+    result = tail_risk_overlay_ab.cloud_run_result(
+        SimpleNamespace(project="data-aquarium", region="asia-east2"),
+        SimpleNamespace(raw={"arm": "A1"}, run_id="unit_run", backtest_id="bt_unit_run"),
+        1,
+        "Execution [strategy1-backtest-report-job-unit] has completed successfully",
+        "gcloud wait returned non-zero after completion",
+    )
+
+    assert result["status"] == "succeeded"
+    assert result["cloud_run_execution_state"] == "succeeded"
+    assert result["wait_returncode_ignored"] is True

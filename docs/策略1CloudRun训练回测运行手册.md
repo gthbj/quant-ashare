@@ -578,7 +578,11 @@ python -m quant_ashare.strategy1.tail_risk_overlay_ab \
   --dry-run
 ```
 
-执行前先跑 preflight：
+执行前先跑 research readiness QA 和 overlay preflight：
+
+```bash
+bq query --use_legacy_sql=false --location=asia-east2 < sql/research/03_qa_research_schema_readiness.sql
+```
 
 ```bash
 python -m quant_ashare.strategy1.tail_risk_overlay_ab \
@@ -609,7 +613,8 @@ python -m quant_ashare.strategy1.tail_risk_overlay_ab \
 3. 每个 arm 通过正式 `strategy1-backtest-report-job` 运行 `quant_ashare.strategy1.backtest_report`，并显式传 `--skip-diagnosis --skip-tail-risk --skip-qa`；这里跳过的是诊断/默认 QA，不影响 profile-driven guard。
 4. 三个 arm 写不同 run/backtest id，可用 `--parallel-arms` 并发提交；默认不传时按 A1 → A2 → A3 串行。
 5. Runner 对每个 arm 跑 `qa_continuous_backtest_outputs` 与 `qa_lot_aware_ledger_outputs`，三臂完成后跑 `qa_tail_risk_overlay_ab_outputs` 汇总 guard 生效性和对比表。
-6. `qa_tail_risk_overlay_ab_outputs` 的 preflight 会额外验证 full-window market-state coverage 和 top20 rebalance prediction 的 tail-risk 必需字段可用性。
+6. `qa_tail_risk_overlay_ab_outputs` 的 preflight 会额外验证 full-window market-state coverage、top20 rebalance prediction 的 tail-risk 必需字段可用性，以及 `000852.SH` 在 2024-01-01 至 2024-02-07 crunch 段的逐开市日覆盖。
+7. 最终对比表包含 CAGR / MaxDD / Calmar / contract Sharpe / IR / 回撤 peak-trough 日期 / 年化换手 / risk-off 期现金占比均值与峰值 / `BUY_SKIPPED` 逐年 JSON / crunch 段策略 vs `000852.SH` 超额。
 
 ## 8. QA
 

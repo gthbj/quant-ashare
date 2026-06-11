@@ -291,7 +291,7 @@ steps:
     caller: [quant_ashare.strategy1.tail_risk_overlay_ab]
     output_dataset_role_current: research
     output_dataset_role_target: research
-    required_params: [p_baseline_run_id, p_baseline_backtest_id, p_prediction_run_id, p_strategy_id, p_synthetic_model_id, p_manifest_sha256, p_predict_start, p_predict_end, p_market_state_version, p_a1_run_id, p_a1_backtest_id, p_a2_run_id, p_a2_backtest_id, p_a3_run_id, p_a3_backtest_id, p_min_tail_risk_skips, p_min_tail_risk_crunch_skips, p_crunch_start, p_crunch_end, p_preflight_only]
+    required_params: [p_baseline_run_id, p_baseline_backtest_id, p_prediction_run_id, p_strategy_id, p_synthetic_model_id, p_manifest_sha256, p_predict_start, p_predict_end, p_rebalance_anchor_start, p_feature_version, p_market_state_version, p_a1_run_id, p_a1_backtest_id, p_a2_run_id, p_a2_backtest_id, p_a3_run_id, p_a3_backtest_id, p_min_tail_risk_skips, p_min_tail_risk_crunch_skips, p_crunch_start, p_crunch_end, p_preflight_only]
     internal_params: []
     optional_params: {}
     inputs: [model_registry, model_prediction_daily, stock_universe_daily, stock_feature_daily, market_state_daily, stock_candidate_daily, portfolio_target_daily, backtest_trade_daily, backtest_nav_daily, backtest_summary]

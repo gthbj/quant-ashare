@@ -47,8 +47,8 @@ Model: GPT-5 Codex
 - Baseline backtest：`bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`。
 - Live preflight job：`721577f5-35dc-4609-ab23-683af2e12c5b`。
 - Cloud Run executions：A1 `strategy1-backtest-report-job-8rqwl`、A2 `strategy1-backtest-report-job-hwqbl`、A3 `strategy1-backtest-report-job-6kbtz`，均 succeeded。
-- QA jobs：A1 continuous `e9637a8b-9c04-4d1a-be9e-267ce75ea886` / lot-aware `c6b62f19-daf0-4253-8917-ce4b5d04c790`；A2 continuous `f970f701-d5aa-4efe-8dbd-1e5ac2dd4c6d` / lot-aware `78935e7c-e6cf-45ab-9b00-bab668b8ec42`；A3 continuous `430a0a94-4a86-413b-a9af-38edfa3f46db` / lot-aware `40a8ebb7-3a90-4a2c-9ea7-4c5d6b408dca`；full overlay QA `cb94dc74-9e73-4921-b709-d02cae615bb2`。
-- 结果：A2 是唯一值得继续讨论的 overlay（MaxDD 从 `-0.4548151193656952` 改为 `-0.32883181037211673`，但 CAGR 从 `0.12036528993503204` 降为 `0.0850673652169256`，Calmar 从 `0.26464663290635254` 降为 `0.2586956691345056`）。A1/A3 收益损耗过大，不建议设默认。
+- QA jobs：A1 continuous `e9637a8b-9c04-4d1a-be9e-267ce75ea886` / lot-aware `c6b62f19-daf0-4253-8917-ce4b5d04c790`；A2 continuous `f970f701-d5aa-4efe-8dbd-1e5ac2dd4c6d` / lot-aware `78935e7c-e6cf-45ab-9b00-bab668b8ec42`；A3 continuous `430a0a94-4a86-413b-a9af-38edfa3f46db` / lot-aware `40a8ebb7-3a90-4a2c-9ea7-4c5d6b408dca`；initial full overlay QA `cb94dc74-9e73-4921-b709-d02cae615bb2`；review follow-up 后 enhanced full overlay QA `bqjob_r6fb9e5810c470426_0000019eb59868de_1`；research readiness QA `bqjob_r15d88cd3e8df4d38_0000019eb59868de_1`。
+- 结果：A1/A3 证明确实能改善 2024-01~02 crunch 段超额（baseline `-0.1932988013254472`，A1 `0.10932302982271269`，A3 `0.1226915291378361`），但全周期 CAGR/Calmar 损耗过大，不建议设默认；A2 是全周期 MaxDD/CAGR 取舍相对可讨论的 overlay（MaxDD `-0.32883181037211673`、CAGR `0.0850673652169256`、Calmar `0.2586956691345056`、crunch excess `0.039028737788334156`），但也未改善 Calmar。
 - 本轮没有 promotion；ADS run-scoped 表对三组 run/backtest 反向验证为 0 行，`research_promotion_manifest` 同 source 为 0 行。
 
 ### 改动文件
@@ -70,7 +70,7 @@ Model: GPT-5 Codex
 - Focused pytest：21 passed；新增 `--parallel-arms` 后 focused pytest：6 passed。
 - BigQuery dry-run：`qa_tail_risk_overlay_ab_outputs.sql` 通过。
 - Research render check：无 `ashare_ads` 残留，命中 `ashare_research.research_backtest_trade_daily`。
-- Live preflight、三组 Cloud Run executions、三组 continuous / lot-aware QA、full overlay QA 均通过。
+- Live preflight、三组 Cloud Run executions、三组 continuous / lot-aware QA、full overlay QA、review follow-up 后 enhanced full overlay QA 和 research readiness QA 均通过。
 - BigQuery 反向验证 ADS run-scoped 表与 promotion manifest 均为 0 行。
 
 ### 阻塞项
@@ -79,7 +79,7 @@ Model: GPT-5 Codex
 
 ### 下一步建议
 
-- 不要把任何 overlay profile 直接设为默认。若继续沿风控路线推进，优先讨论 A2 的风险收益取舍，或另写暴露管理 / 仓位控制方案。
+- 不要把任何 overlay profile 直接设为默认。若继续沿风控路线推进，优先拆成两条：调窄 P1 规则以减少常年误伤，或另写暴露管理 / 仓位控制方案；A2 可作为全周期 drawdown/carry tradeoff 对照。
 
 ### 已更新记忆文件
 
