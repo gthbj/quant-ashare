@@ -1,3 +1,11 @@
+> 当前交接补充（2026-06-11，Claude Fable 5，第二批）
+> - 新增三个后续工程 PRD：`PRD_20260611_06_策略1历史数据回填与TrueFiveYearRefit.md`（ODS 2010 起历史回填 + 2015Q1/2019Q1 `has_full_history_60d` 旗标修复 + 2021-2024 true-five-year refit 重跑 + 新 synthetic continuous 对比）、`PRD_20260611_07_策略1年度滚动调度Phase2Live化.md`（真实 GCS lease/state、execution 粒度 fanout、candidate-only live smoke）、`PRD_20260611_08_策略1LedgerResume验收闭环.md`（PR #127 已合入但从未验收的 resume 做测试 + research-only 真实数据一致性验收）。
+> - 关键探查事实（2026-06-11 只读 BigQuery）：ODS `daily`/`daily_basic` 已有 2010-2014 行（owner 确认 14 endpoint 从 2010 可用）；DWD 价格 2015 起；DWS `2015-Q1` 全部 150,726 行与 `2019-Q1` 全部 208,007 行 `has_full_history_60d=FALSE`——后者是陈旧标记，DWD 已有 2018 行，重刷 2019Q1 窗口即可修复，无需新数据。
+> - PRD_06 的 parity 硬门：重刷不得改变 `2019-04-03` 后任何现有行特征值，保护既有 selection/refit/official continuous 可复现性；不重做选参，2025/2026 refit 不重跑。
+> - 本轮 docs/记忆-only，未改代码、未写任何 BigQuery 数据（只读探查）。
+
+Model: Claude Fable 5
+
 > 当前交接补充（2026-06-11，Claude Fable 5）
 > - 新增 `docs/prd/PRD_20260611_05_策略1尾部风险OverlayAB.md`：在最新 effective-window synthetic prediction 流上做 P1 / P2 / P1+P2 三组 portfolio-only continuous A/B，对照 baseline 量化 MaxDD / Calmar 改善与 CAGR 损耗；零训练、零 merge。
 > - 设计要点：复用 official synthetic run（从记忆/manifest 解析，禁止硬编码 id）、与 official 相同 skip-flags 执行模式（`--skip-tail-risk` 只跳诊断不影响 guard）、guard 生效性断言为硬门（`BUY_SKIPPED_TAIL_RISK` 计数 / risk-off 次日零买单）、risk-off 期现金占比曲线量化"只禁买"的隐性减仓效应。
