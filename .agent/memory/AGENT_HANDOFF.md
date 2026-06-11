@@ -3,9 +3,58 @@
 > - 已从 `main@f1abf46` 构建并部署正式 runner digest `sha256:4768d25f49de4bb1e8084476d6f1fe1542ed86750823751fa104738eb0947699`，五个 Strategy1 jobs 的 boot smoke 全过。
 > - 2021-2026 dedicated refit panel、final refit、refit QA、synthetic continuous merge、official continuous ledger、continuous QA 均已重跑通过。
 > - 最新 official continuous（effective-window）指标：compound_annual_return=`0.12036528993503204`，max_drawdown=`-0.4548151193656952`，information_ratio=`0.5420201365046585`，return_period_count=`1313`。
-> - OQ-014 仍开放：本结果不能描述为 2021-2024 名义完整五年 refit；是否接受 effective-window 结果进入 baseline 评估，仍需 owner 决策。
+> - DECISION-20260611-02 已关闭 OQ-014：接受 effective-window result 作为研究复盘口径，暂不修 pre-2019 DWS/lookback；但 result 未过 v3 absolute gates，不得标 accepted baseline 或 promotion。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - Effective-window result decision
+
+### 已完成工作
+
+- 基于 PR #174 合并后的 `main@f8cf151` 新建分支 `codex/decide-effective-window-baseline`。
+- 复核 latest effective-window official continuous result 与 `model_acceptance_contract_v3`：contract Sharpe=`0.5285475500566089`，低于 `0.70`；Calmar=`0.26464663290635254`，低于 `1.0`。
+- 只读 BigQuery 复核 synthetic registry：run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02` 仍为 `status='selected'`，无 `acceptance_status` / `native_acceptance_status`。
+- 追加 `DECISION-20260611-02`：接受 effective-window annual final refit / continuous ledger 作为当前研究复盘事实口径，暂不投入 pre-2019 DWS lookback / valuation 覆盖重建；不得标 accepted baseline，不得 promotion。
+- 关闭 OQ-014 并移入 `.agent/memory/archive/CLOSED_QUESTIONS.md`。
+
+### 重要上下文
+
+- 当前结果可用于下一轮策略复盘和实验设计，但不是 production accepted baseline。
+- 2021-2024 仍不能描述为名义完整五年 refit。
+- 若未来需要 true five-year annual evidence，需要重新开专项：先修复 / 重建 DWS lookback 与历史 valuation 覆盖，再重跑 dedicated panel / refit / continuous。
+
+### 改动文件
+
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/archive/CLOSED_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- BigQuery 只读复核 effective-window summary / registry acceptance state。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 基于 latest effective-window official continuous 做下一轮 OQ-010 策略改进方案，重点处理回撤与 risk-adjusted return；不要 promotion 当前 result。
+
+### 已更新记忆文件
+
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/archive/CLOSED_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - Annual final refit dedicated panel rerun
 

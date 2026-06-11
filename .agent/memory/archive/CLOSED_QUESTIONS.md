@@ -1,6 +1,6 @@
 # 已关闭问题归档（Closed Questions Archive）
 
-> 维护：GPT-5 Codex（最近更新 2026-06-10）
+> 维护：GPT-5 Codex（最近更新 2026-06-11）
 
 本文件保存已关闭的 owner / 维护者问题。常规启动不需要读取；仅在追溯历史决策时参考。
 
@@ -16,3 +16,4 @@
 | OQ-009 | ODS `index_dailybasic` 多列外部 schema 与 Parquet 物理类型不一致（如 `float_mv`、`float_share`），导致 2019+ 读取失败。 | closed: upstream fixed + DWD restored（已恢复 `dwd_index_eod` 估值/股本字段；STAR50/CSI1000 因 ODS 无 dailybasic 端点仍为空） | owner / 上游 ingestion | sql/dwd/04_dwd_index_eod.sql |
 | OQ-005 | GCP 生产调度与编排迁出 Cloud Composer：长期目标改为 `Cloud Scheduler + Cloud Workflows` 替代 Composer 业务编排。 | closed: 2026-06-08 已完成 scheduled production cutover，`ashare-ods-ingestion-daily` 与 `ashare-pipeline-alert-checker` 两个 scheduler 已启用，Composer 业务 DAG 已停用，`ashare-composer` 环境已删除。后续只保留短观察窗作为运维记录，不再作为架构开放问题。 | owner | docs/prd/PRD_20260608_01_OQ005调度完全迁出Composer.md; orchestration/workflows/*.yaml; orchestration/workflows/bootstrap_scheduler_iam.sh; orchestration/workflows/deploy_scheduler_jobs.sh; orchestration/workflows/cutover_scheduler_jobs.sh |
 | OQ-013 | Strategy1 research-first / promotion 架构完成后，普通 runner 的 ADS 写权限是否需要在 IAM 层硬收敛。PR #151 review follow-up 已实证五个普通 Strategy1 jobs 仍使用 `241358486859-compute@developer.gserviceaccount.com`，且 `ashare_ads` dataset 仍授予该 SA WRITER。 | closed: owner 选择方案 1，接受现状但保留流程约束；暂不 revoke 普通 runner 的 `ashare_ads` WRITER，以免破坏 ADS audit / 历史报告重渲染兼容路径。正式流程仍要求普通实验默认写 `ashare_research`，ADS 正式发布只走 owner-approved promotion job；显式 ADS role 仅作为历史 ADS audit / 兼容路径。 | owner | DECISION-20260610-12; docs/prd/PRD_20260610_02_项目结构重构方案.md §Phase D; docs/策略1ResearchPromotion运行手册.md; .agent/memory/KNOWN_CONSTRAINTS.md |
+| OQ-014 | 年度滚动 final refit 是否接受当前 DWS 覆盖下的 effective-window refit，还是投入修复历史 DWS/lookback 后追求 true pre-2019 五年窗口？ | closed: DECISION-20260611-02 接受 effective-window annual final refit / continuous ledger 作为本轮正式研究复盘与后续策略迭代事实口径，暂不投入 pre-2019 DWS lookback / valuation 覆盖重建。该关闭不等于 accepted production baseline：最新 result 未通过 v3 absolute gates（contract Sharpe `0.5285475500566089 < 0.70`，Calmar `0.26464663290635254 < 1.0`），且不得 promotion。若未来需要 true five-year evidence，另开专项修复 DWS/lookback 并重跑。 | owner-delegated execution | DECISION-20260611-02; docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md; src/quant_ashare/strategy1/refit_register_predict.py; sql/strategy1/qa/qa_refit_register_predict_outputs.sql; .agent/memory/KNOWN_CONSTRAINTS.md |
