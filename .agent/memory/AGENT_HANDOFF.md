@@ -1,3 +1,10 @@
+> 当前交接补充（2026-06-11，Claude Fable 5，PRD_10）
+> - 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 确认的结构性现金拖累（10 万 + 整手 + 等权 5% + 无再分配 → 25% 买单跳过、现金均值 29.4%），owner 决定重新设计构造规则而非修复等权。
+> - 核心规则：自上而下贪心买入，新开仓最小权重 5%（`position_floor_count=20` 仅作门槛基数，`target_holdings` 退役为观测指标 `realized_holdings_count`）；**无单票上限**（owner 决策 2026-06-11）；`walk_depth=50` 统一买入深度与卖出保留阈值；P1 六条规则以"跳过→下一名顶上"替换语义绑定进构造（实现红线：禁止复用 ledger 层跳过留现金语义，防止复活 #179 A1 的现金拖累）；可负担性与 P1 标记均只约束新增买入、不强制卖出。
+> - 三阶段：Phase 0 paper 双臂原型（带/不带 P1，预登记判读）→ Phase 1 `ledger_exec_v2_lot100_topdown` + 新 QA（不动 v1）→ Phase 2 research-only continuous 重跑 + 三方对比。含基线兼容条款（true-five-year 若被采纳则随之切换）。仅 docs+记忆改动。
+>
+> Model: Claude Fable 5
+
 > 当前交接补充（2026-06-11，GPT-5 Codex，PRD_06/07/08 live 收口）
 > - PRD_07 Phase 2 candidate-only live smoke 已在正式 runner 镜像 `sha256:45b4d257878afa91192410a8e300ad9c358c6a2b3412a6be6d1e5e1732843eb7` 上通过：run-version `v20260611_prd07smoke01`，2021/2022 matrix 预置后由 scheduler 提交 fanout executions `strategy1-train-candidate-fanout-job-g65hx` / `btvgv`，各 3/3 tasks succeeded；dry-run/live state plan hash 均为 `7ef90a481f0e64ad`，两个 live unit 均 `present_after_describe_success`，12 个候选 artifact 文件均可读；同 run_id recovery 重跑提交数 0，artifact-skip 新 run 提交数 0，missing-matrix preflight 本地失败且提交数 0，真实 GCS 临时 lock smoke 验证 lease 竞争语义。
 > - PRD_06 Phase A 已完成生产历史修复：2010-2014、2015Q1、`2019-01-02..2019-04-02` 窗口重刷；发现并修复 57 个早期 `daily_basic` 市值字段全空开市日，暂停 `ashare-ods-ingestion-daily` 后补采并在 20:00 前恢复，随后日常 workflow execution `5e790d75-1351-4fb3-aea7-6a396675e3bc` 成功。
