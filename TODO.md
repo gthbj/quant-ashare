@@ -46,6 +46,9 @@
 - [x] OQ-011：按 `PRD_20260611_06` 做历史数据回填（2010+）与 true-five-year refit 重跑
   说明：PRD_06 Phase A/B/C 已完成。生产修复包括 2010-2014 backfill、2015Q1 repair、`2019-01-02..2019-04-02` repair，以及 57 个早期 `daily_basic` 市值字段全空开市日补采；`sql/qa/13_true5y_historical_coverage_checks.sql`（含 ODS `daily_basic` 市值 open-day 覆盖）通过。宽窗口 overlap parity 已补齐：stock/DWD/DWS 9 表以 `float_tolerance=1e-8` 零 mismatch；index DWD 与 market-state DWS 以 `float_tolerance=1e-4` 零 mismatch（严格口径只剩 market-state 浮点聚合 roundoff，非 regime/action 差异）。2021-2024 true-five-year refit 使用 `__true5y01` 非默认 suffix 重跑，四年 refit QA 全过；new synthetic continuous `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01` 已完成并通过 continuous / lot-aware QA。结果：compound CAGR=`0.13852596798718442`、MaxDD=`-0.37189972934558946`、legacy Sharpe=`0.6834026126199905`、v3 contract Sharpe=`0.6075887294330015`、contract Calmar=`0.3724820349585642`；仍未过 v3 hard gates，不得自动 accepted / promotion。
 
+- [x] OQ-011 / PRD_06 follow-up：补 true-five-year 与 DWS trainable 非空 QA 护栏
+  说明：`sql/qa/13_true5y_historical_coverage_checks.sql` 的 `QA-TRUE5Y-1` 已要求 eligible 2019 repair candidates 非空且 full-history 标记全真；`sql/qa/02_strategy1_dws_ads_checks.sql` 已要求 canonical feature/label 版本的默认 trainable 样本非空，防止后续行级断言空过。Dataform assertion 已同步生成；BigQuery dry-run 与实际只读 QA 均通过。
+
 - [x] OQ-010：按 `PRD_20260611_07` 做年度滚动调度 Phase 2 live 化
   说明：PRD_07 candidate-only live smoke 已在正式 runner 镜像上完成：run-version `v20260611_prd07smoke01`，2021/2022 matrix artifact 预置后，scheduler live path 提交 fanout executions `strategy1-train-candidate-fanout-job-g65hx` / `strategy1-train-candidate-fanout-job-btvgv`，各 `3/3` tasks succeeded。dry-run plan hash 与 live state 均为 `7ef90a481f0e64ad`，12 个候选 artifact 文件均可读；已覆盖 state recovery 同 run 不重复提交、artifact-skip 新 run 不提交、missing-matrix preflight 本地失败且不提交 Cloud Run、真实 GCS lease competition、以及 `gcloud --wait` 非零后 describe/artifact 成功的回归测试。完整 2021-2026 live pipeline / Phase 3 仍需 owner 另批，不在本项范围。
 

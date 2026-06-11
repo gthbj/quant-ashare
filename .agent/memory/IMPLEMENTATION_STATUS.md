@@ -6,6 +6,12 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：true-five-year / DWS QA 非空护栏已补
+
+- PRD_06 / OQ-011 的合并后 follow-up 已完成：`sql/qa/13_true5y_historical_coverage_checks.sql` 的 `QA-TRUE5Y-1` 不再只检查 bad_count 为 0，而是同时要求 eligible 2019 repair candidates 非空，防止空集合恒真式通过；当前实际执行 `price_flag_repair_window` row_count=`204751`、bad_count=`0`。
+- `sql/qa/02_strategy1_dws_ads_checks.sql` 已新增 canonical `strategy1_pv_v0_20260601` / `open_to_close_h1_5_10_20_v20260601` 默认 trainable 样本非空断言，避免后续 rank / full-history 等 trainable 行级断言在样本池为空时空过；Dataform assertion SQLX 已同步生成。
+- 验证：`python3 scripts/dataform/generate_sqlx_from_sql.py --check`、`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_true5y_prd06_contracts.py`、两个 QA SQL BigQuery dry-run 均通过；实际只读执行 `02_strategy1_dws_ads_checks.sql` job `bqjob_r3cf451e3a7e348ec_0000019eb72f67f1_1` 与 `13_true5y_historical_coverage_checks.sql` job `bqjob_r32afd60ee7875b_0000019eb72f6833_1` 均通过。
+
 ### 最新补充（2026-06-11）：自上而下整手组合构造 PRD 已新增
 
 - 分支 `claude/prd-topdown-lot-construction` 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 现金交叉核验确认的结构性现金拖累（10 万真实部署 + 100 股整手 + 等权 5% + 无再分配 → 约 25% 买单 `BUY_SKIPPED_BELOW_LOT`、现金权重均值 29.4%、最少持仓 0），owner 决定（2026-06-11）重新设计组合构造而非修复等权。

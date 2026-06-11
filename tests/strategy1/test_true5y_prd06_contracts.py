@@ -167,6 +167,8 @@ def test_true5y_historical_coverage_sql_pins_repair_window_and_internal_gaps() -
     assert "b.endpoint = 'daily_basic'" in sql
     assert "b.partition_date BETWEEN FORMAT_DATE('%Y%m%d', p_true5y_start)" in sql
     assert "COUNTIF(mv_non_null_row_count = 0) = 0" in sql
+    assert "COUNT(*) > 0" in sql
+    assert "must be non-empty and have recomputed has_full_history_60d=TRUE" in sql
     assert "COUNTIF(feature_row_count = 0) = 0" in sql
     assert "COUNTIF(trainable_sample_count = 0) = 0" in sql
     assert "valuation_non_null_ratio < p_min_valuation_non_null_ratio" in sql
@@ -194,3 +196,6 @@ def test_strategy1_dws_qa_uses_full_history_semantics_not_fixed_start_date() -> 
     assert "COALESCE(has_full_history_60d, TRUE)" in sql
     assert "history_obs_60d >= 61" in sql
     assert "NOT COALESCE(has_full_history_60d, FALSE)" in sql
+    assert "DECLARE default_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';" in sql
+    assert "DECLARE default_label_version STRING DEFAULT 'open_to_close_h1_5_10_20_v20260601';" in sql
+    assert "default trainable samples must be non-empty for canonical feature/label versions" in sql
