@@ -11,13 +11,19 @@ import pytest
 
 from scripts.strategy1_cloudrun.config import RunnerConfig
 from quant_ashare.strategy1.annual_pipeline_scheduler import (
+    CloudRunSubmitResult,
     InMemoryGenerationStateStore,
+    LiveExecutionUnit,
+    LiveSchedulerOwnershipLost,
     PipelineTask,
     ResourceTokens,
     SchedulerContext,
     SchedulerLimits,
     StateGenerationMismatch,
     build_scheduler_plan,
+    can_admit_live_execution,
+    candidate_smoke_execution_units,
+    execute_candidate_only_live_smoke,
     ready_tasks,
     select_admissible_tasks,
     simulate_dry_run_schedule,
@@ -76,6 +82,13 @@ def _args(**overrides) -> argparse.Namespace:
         "lock_prefix": None,
         "lock_ttl_minutes": 30,
         "heartbeat_interval_seconds": 60,
+        "execute_live": False,
+        "candidate_only_smoke": False,
+        "smoke_years": None,
+        "smoke_candidates_per_year": 3,
+        "candidate_smoke_batch_size": 1,
+        "live_poll_seconds": 0,
+        "max_live_poll_attempts": 1,
         "output": None,
     }
     values.update(overrides)
@@ -248,3 +261,260 @@ def test_no_tail_fill_single_task_defers_without_succeeding_candidate() -> None:
     assert simulation["waves"][0]["submitted_task_ids"] == []
     assert simulation["waves"][0]["deferred_task_ids"] == ["candidate:y2021:u000"]
     assert simulation["waves"][0]["resource_usage"] == {"cpu": 0, "memory_gib": 0, "candidate_slots": 0}
+
+
+class _FakeLease:
+    def __init__(self, *, heartbeat_results: list[bool] | None = None):
+        self.heartbeat_results = list(heartbeat_results or [])
+        self.acquire_calls = 0
+        self.heartbeat_calls = 0
+        self.release_calls = 0
+
+    def acquire(self) -> bool:
+        self.acquire_calls += 1
+        return True
+
+    def heartbeat(self) -> bool:
+        self.heartbeat_calls += 1
+        if self.heartbeat_results:
+            return self.heartbeat_results.pop(0)
+        return True
+
+    def release(self) -> None:
+        self.release_calls += 1
+
+
+class _FakeCloudRun:
+    def __init__(self, *, submit_returncode: int = 0, describe_states: dict[str, list[str]] | None = None):
+        self.submit_returncode = submit_returncode
+        self.describe_states = {key: list(value) for key, value in (describe_states or {}).items()}
+        self.submitted_commands: list[tuple[str, ...]] = []
+        self.next_execution_no = 1
+
+    def submit(self, command):
+        self.submitted_commands.append(tuple(command))
+        execution_id = f"strategy1-train-candidate-fanout-job-{self.next_execution_no}"
+        self.next_execution_no += 1
+        return CloudRunSubmitResult(
+            returncode=self.submit_returncode,
+            execution_id=execution_id,
+            stdout_tail=f"Execution [{execution_id}]",
+        )
+
+    def describe(self, *, project: str, region: str, execution_id: str):
+        states = self.describe_states.setdefault(execution_id, ["succeeded"])
+        state = states.pop(0) if states else "succeeded"
+        if state == "unknown":
+            return None
+        return {"status": {"conditions": [{"type": "Completed", "status": "True" if state == "succeeded" else "False"}]}}
+
+
+class _FakeArtifacts:
+    def __init__(self, complete_keys: set[str] | None = None, *, matrix_ready: bool = True):
+        self.complete_keys = set(complete_keys or set())
+        self._matrix_ready = matrix_ready
+
+    def matrix_ready(self, unit: LiveExecutionUnit) -> bool:
+        return self._matrix_ready
+
+    def artifact_complete(self, unit: LiveExecutionUnit) -> bool:
+        return unit.unit_key in self.complete_keys or all(uri in self.complete_keys for uri in unit.artifact_uris)
+
+
+class _EventuallyCompleteArtifacts:
+    def __init__(self):
+        self.calls = 0
+
+    def matrix_ready(self, unit: LiveExecutionUnit) -> bool:
+        return True
+
+    def artifact_complete(self, unit: LiveExecutionUnit) -> bool:
+        self.calls += 1
+        return self.calls > 1
+
+
+def _config(candidate_count: int = 4) -> RunnerConfig:
+    return RunnerConfig(
+        project="data-aquarium",
+        region="asia-east2",
+        output_dataset_role="research",
+        artifact_base_uri="gs://ashare-artifacts/reports/strategy1",
+        model_artifact_base_uri="gs://ashare-artifacts/models/strategy1",
+        lock_bucket="ashare-artifacts",
+        lock_prefix="locks/strategy1/cloudrun",
+        train_candidate_fanout_job="strategy1-train-candidate-fanout-job",
+        training_panel_step="build_training_panel_risk_feature",
+        candidate_task_cpu=2,
+        candidate_task_memory="8Gi",
+        candidate_grid=tuple(
+            {"candidate_id": f"candidate_{idx}", "model_family": "lightgbm_regression"}
+            for idx in range(candidate_count)
+        ),
+    )
+
+
+def _live_plan_and_units(**arg_overrides):
+    config = _config()
+    values = {
+        "dry_run": False,
+        "execute_live": True,
+        "candidate_only_smoke": True,
+        "start_year": 2021,
+        "end_year": 2022,
+        "smoke_years": [2021],
+        "smoke_candidates_per_year": 2,
+    }
+    values.update(arg_overrides)
+    args = _args(**values)
+    plan = build_scheduler_plan(config=config, args=args)
+    units = candidate_smoke_execution_units(plan=plan, config=config, args=args)
+    return config, args, plan, units
+
+
+def test_gcs_state_generation_conflict_reread_preserves_winner() -> None:
+    store = InMemoryGenerationStateStore()
+    generation = store.create({"status": "planned"})
+    store.update({"status": "running"}, expected_generation=generation)
+
+    with pytest.raises(StateGenerationMismatch):
+        store.update({"status": "stale"}, expected_generation=generation)
+
+    payload, current_generation = store.read()
+    assert current_generation == generation + 1
+    assert payload == {"status": "running"}
+
+
+def test_live_scheduler_lost_ownership_stops_before_submit() -> None:
+    config, args, plan, _ = _live_plan_and_units()
+    store = InMemoryGenerationStateStore()
+    lease = _FakeLease(heartbeat_results=[False])
+    cloud_run = _FakeCloudRun()
+
+    with pytest.raises(LiveSchedulerOwnershipLost, match="lost scheduler lease"):
+        execute_candidate_only_live_smoke(
+            plan=plan,
+            config=config,
+            args=args,
+            state_store=store,
+            lease=lease,
+            cloud_run=cloud_run,
+            artifact_store=_FakeArtifacts(),
+        )
+
+    assert cloud_run.submitted_commands == []
+    assert lease.release_calls == 1
+
+
+def test_live_state_recovery_does_not_resubmit_completed_execution() -> None:
+    config, args, plan, units = _live_plan_and_units(smoke_candidates_per_year=1)
+    unit = units[0]
+    store = InMemoryGenerationStateStore()
+    store.create({
+        "schema_version": 1,
+        "scheduler_run_id": plan["scheduler_run_id"],
+        "plan_hash": plan["plan_hash"],
+        "units": {
+            unit.unit_key: {
+                **unit.to_state_seed(),
+                "status": "running",
+                "execution_id": "strategy1-train-candidate-fanout-job-existing",
+            }
+        },
+    })
+    cloud_run = _FakeCloudRun(
+        describe_states={"strategy1-train-candidate-fanout-job-existing": ["succeeded"]}
+    )
+
+    result = execute_candidate_only_live_smoke(
+        plan=plan,
+        config=config,
+        args=args,
+        state_store=store,
+        lease=_FakeLease(),
+        cloud_run=cloud_run,
+        artifact_store=_FakeArtifacts({unit.unit_key}),
+    )
+
+    assert cloud_run.submitted_commands == []
+    assert result["recovered_execution_count"] == 1
+    payload, _ = store.read()
+    assert payload["units"][unit.unit_key]["status"] == "succeeded"
+
+
+def test_live_scheduler_artifact_skip_avoids_submission() -> None:
+    config, args, plan, units = _live_plan_and_units(smoke_candidates_per_year=1)
+    unit = units[0]
+    cloud_run = _FakeCloudRun()
+
+    result = execute_candidate_only_live_smoke(
+        plan=plan,
+        config=config,
+        args=args,
+        state_store=InMemoryGenerationStateStore(),
+        lease=_FakeLease(),
+        cloud_run=cloud_run,
+        artifact_store=_FakeArtifacts({unit.unit_key}),
+    )
+
+    assert cloud_run.submitted_commands == []
+    assert result["skipped_artifact_count"] == 1
+    assert result["units"][0]["status"] == "skipped"
+
+
+def test_live_scheduler_missing_matrix_fails_before_submission() -> None:
+    config, args, plan, units = _live_plan_and_units(smoke_candidates_per_year=1)
+    unit = units[0]
+    cloud_run = _FakeCloudRun()
+    store = InMemoryGenerationStateStore()
+
+    result = execute_candidate_only_live_smoke(
+        plan=plan,
+        config=config,
+        args=args,
+        state_store=store,
+        lease=_FakeLease(),
+        cloud_run=cloud_run,
+        artifact_store=_FakeArtifacts(matrix_ready=False),
+    )
+
+    assert cloud_run.submitted_commands == []
+    assert result["failed_execution_count"] == 1
+    assert result["units"][0]["action"] == "matrix_missing"
+    payload, _ = store.read()
+    assert payload["units"][unit.unit_key]["artifact_status"] == "matrix_missing"
+
+
+def test_live_admission_counts_cloud_run_executions_not_candidate_year_proxy() -> None:
+    _, _, plan, units = _live_plan_and_units(smoke_candidates_per_year=2)
+    plan["resource_limits"]["active_fanout_executions"] = 1
+    state_payload = {
+        "units": {
+            units[0].unit_key: {
+                **units[0].to_state_seed(),
+                "status": "running",
+                "execution_id": "execution-a",
+            }
+        }
+    }
+
+    assert can_admit_live_execution(units[1], state_payload, plan) is False
+
+
+def test_describe_success_and_artifact_confirm_success_after_execute_wait_failure() -> None:
+    config, args, plan, units = _live_plan_and_units(smoke_candidates_per_year=1)
+    unit = units[0]
+    cloud_run = _FakeCloudRun(submit_returncode=1)
+
+    result = execute_candidate_only_live_smoke(
+        plan=plan,
+        config=config,
+        args=args,
+        state_store=InMemoryGenerationStateStore(),
+        lease=_FakeLease(),
+        cloud_run=cloud_run,
+        artifact_store=_EventuallyCompleteArtifacts(),
+    )
+
+    assert result["submitted_execution_count"] == 1
+    assert result["failed_execution_count"] == 0
+    assert result["units"][0]["status"] == "succeeded"

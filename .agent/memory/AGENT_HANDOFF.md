@@ -7,6 +7,13 @@
 Model: GPT-5 Codex
 
 > 当前交接补充（2026-06-11，GPT-5 Codex）
+> - 分支 `codex/prd07-annual-live-smoke` 完成 PRD_07 年度滚动调度 Phase 2 live smoke 代码 PR 准备；只改 scheduler、focused test、Strategy1 Cloud Run runbook 和记忆/TODO，未触碰 PRD_06/08。
+> - `annual_pipeline_scheduler` 默认仍 dry-run 安全；真实提交必须显式 `--execute-live --candidate-only-smoke`，并且 live 路径只支持 candidate-only smoke，不会跑 select/refit/synthetic continuous 或完整 2021-2026 pipeline。
+> - 新增 GCS generation-conditioned lease/state、execution 粒度 fanout、matrix 前置检查、artifact skip、state recovery、describe + artifact 双确认；未执行真实 Cloud Run live smoke、未改 job spec/IAM/镜像。
+
+Model: GPT-5 Codex
+
+> 当前交接补充（2026-06-11，GPT-5 Codex）
 > - PR #179 实现 `quant_ashare.strategy1.tail_risk_overlay_ab` 与 `qa_tail_risk_overlay_ab_outputs`，并完成 live research-only A/B：A1 `strategy1-backtest-report-job-8rqwl`、A2 `strategy1-backtest-report-job-hwqbl`、A3 `strategy1-backtest-report-job-6kbtz` 全部成功。
 > - Review follow-up 后增强版 full overlay QA `bqjob_r6fb9e5810c470426_0000019eb59868de_1` 与 research readiness `bqjob_r15d88cd3e8df4d38_0000019eb59868de_1` 均通过；QA-OVERLAY-7/10 已改为逐 arm 硬门，对比表补齐 contract Sharpe、peak/trough、逐年 skip JSON、2024-01~02 vs `000852.SH` crunch excess。
 > - 结果：baseline CAGR `0.12036528993503204` / MaxDD `-0.4548151193656952` / Calmar `0.26464663290635254` / crunch excess `-0.1932988013254472`；A1/A3 在 crunch 段转正（`0.10932302982271269` / `0.1226915291378361`）但全周期收益损耗过大；A2 MaxDD 降到 `-0.32883181037211673`，CAGR 降到 `0.0850673652169256`、Calmar 降到 `0.2586956691345056`、crunch excess `0.039028737788334156`。
@@ -82,14 +89,56 @@ Model: GPT-5 Codex
 
 ### 下一步建议
 
-- 将本分支作为 PRD_08 独立 PR 提交 review。
-- 单独整合 PRD_07 worker 分支 `codex/prd07-annual-live-smoke`，并按 PRD_07 执行 candidate-only live smoke。
-- PRD_06 需要按只读审计建议新增 true-five-year refit-only plan / historical backfill QA 后再跑 live backfill。
+- 若正式结果采用 resume segment，仍需 owner 显式批准并重跑两套 resume QA。
 
 ### 已更新记忆文件
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+## 2026-06-11 GPT-5 Codex - PRD_07 annual scheduler live smoke code prep
+
+### 已完成工作
+
+- 基于最新 `origin/main@a20898e` 完成 rebase，独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd07-live-smoke`，分支 `codex/prd07-annual-live-smoke`。
+- `quant_ashare.strategy1.annual_pipeline_scheduler` 新增 Phase 2 candidate-only live smoke 路径，入口必须同时传 `--execute-live --candidate-only-smoke`；默认 dry-run / 非 live 仍保持安全。
+- 新增真实 GCS generation-conditioned annual scheduler lease/state 抽象；state create/update 使用 generation precondition，冲突重读/重试，丢失 lease ownership 停止提交。
+- live smoke 按 Cloud Run execution 记账，先检查对应 matrix `matrix_manifest.json` / `work_units.json` 已存在，缺失则本地失败且不提交 Cloud Run；支持 artifact precheck skip、state recovery 不重复提交、共享资源池 admission、execution describe + candidate artifact 双确认；`gcloud execute` 非零但有 execution id 时按 describe/artifact 二次确认。
+- 更新 `docs/策略1CloudRun训练回测运行手册.md` 的 Phase 2 live smoke 命令与边界说明。
+
+### 重要上下文
+
+- 本轮没有执行真实 Cloud Run live smoke，没有跑完整 2021-2026 pipeline，没有修改 Cloud Run job spec、IAM 或镜像。
+- PRD_07 后续真实验收仍需在合并/部署后按 candidate-only 五场景执行并记录 execution id / artifact 路径；执行前必须先准备/复用对应 run-version 的 matrix artifact。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`
+- `tests/strategy1/test_annual_pipeline_scheduler.py`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_annual_pipeline_scheduler.py`：13 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_annual_pipeline_scheduler.py tests/strategy1/test_strategy1_catalog.py tests/strategy1/test_tail_risk_overlay_ab.py`：25 passed。
+
+### 阻塞项
+
+- 无代码阻塞。真实 candidate-only live smoke 尚未执行。
+
+### 下一步建议
+
+- 合并并部署含本分支代码的 runner 镜像后，按 runbook 执行 PRD_07 candidate-only live smoke 五场景；通过前不要声称 annual scheduler live 化已经生产验收。
+- Phase 3 完整 2021-2026 live pipeline 仍需 owner 另批。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 

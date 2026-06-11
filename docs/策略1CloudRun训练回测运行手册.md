@@ -194,6 +194,41 @@ python -m quant_ashare.strategy1.annual_pipeline_scheduler \
 4. `stage_tokens` 显示 candidate `2 CPU / 8Gi`、prepare/refit `8 CPU / 32Gi`、select/backtest `4 CPU / 16Gi`（refit 复用 train job 但需要更大内存），且 `simulation.peak_resource_usage` 不超过全局 `20 / 40 CPU / 160Gi`。
 5. `simulation.simulation_model=synchronous_waves` 表示 dry-run 每个 wave 原子完成后再排下一轮；该峰值是 DAG/resource admission 参考值，不是 live overlap 容量上限。Phase 2 真实执行必须按 Cloud Run execution 粒度统计 fanout，因为 retry / 尾部 batch 可能让同一年拆成多个 execution。
 
+年度滚动 Phase 2 candidate-only live smoke：
+
+前置：对应 `run-version` / 年度的 `prepare_matrix` 产物必须已存在，至少包含
+`matrix_manifest.json` 与 `work_units.json`。本 smoke 只验证 candidate fanout live
+调度，不会自动构建 panel 或 matrix；若 matrix 缺失，scheduler 会在本地失败并且不提交
+Cloud Run execution。
+
+```bash
+python -m quant_ashare.strategy1.annual_pipeline_scheduler \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/annual_rolling_lgbm_regression_v0.yml \
+  --manifest configs/strategy1/annual_rolling_lgbm_regression_v0.yml \
+  --start-year 2021 \
+  --end-year 2022 \
+  --run-version vYYYYMMDD_NN \
+  --global-candidate-task-limit 20 \
+  --global-cpu-limit 40 \
+  --global-memory-gib-limit 160 \
+  --execute-live \
+  --candidate-only-smoke \
+  --smoke-year 2021 \
+  --smoke-year 2022 \
+  --smoke-candidates-per-year 3 \
+  --candidate-smoke-batch-size 1
+```
+
+期望：
+
+1. live 模式必须同时传 `--execute-live --candidate-only-smoke`；默认 dry-run / 非 live 仍不提交 Cloud Run。
+2. 只提交 candidate fanout smoke executions，不执行 panel / matrix 构建、`select_register_predict`、final refit、synthetic merge 或 continuous ledger，不代表完整年度滚动已验收。
+3. scheduler 使用 GCS generation-guarded lease 与 state JSON；state 恢复时按 Cloud Run execution id、describe 状态和 candidate artifact 双确认，已完成 artifact 会 skip，不重复提交。
+4. `gcloud run jobs execute` 非零退出但能解析到 execution id 时，不直接判失败；必须以 execution describe 成功且 `task_status.json` / `candidate_metrics.json` 存在作为成功条件。
+5. 本 smoke 不改 Cloud Run job spec、IAM 或镜像；如需完整 2021-2026 live pipeline，必须另按 Phase 3 获得 owner 批准。
+
 sklearn native search dry-run：
 
 ```bash
