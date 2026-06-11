@@ -150,7 +150,7 @@ Runner 以 BigQuery script variables 传参，首版参数如下：
 
 说明：
 
-- 当前默认可训练样本最早日期是 `2019-04-03`；2019Q1 因 60 日历史不完整被默认掩码剔除。
+- 首版 / legacy effective-window 配置使用 `2019-04-03` 作为稳定训练起点；PRD_20260611_06 完成 2010+ 历史修复后，true-five-year refit 可使用更早的名义五年训练窗口，但必须先通过完整历史覆盖与 refit panel coverage QA。
 - 5 日标签会重叠，指标解释时必须按周频调仓或按日期聚合，避免把重叠样本当成独立日频观测。
 - 若未来做滚动训练，每个 fold 使用独立 `run_id` 或在 `split_fold` 中记录 fold，不能覆盖旧结果。
 

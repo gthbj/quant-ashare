@@ -8,7 +8,7 @@ config {
   dependencies: ["dws_stock_universe_daily", "dws_stock_feature_price_daily", "dws_stock_feature_valuation_daily", "dws_stock_label_daily", "dws_stock_feature_daily_v0", "dws_stock_sample_daily", "dws_stock_feature_fin_daily"]
 }
 
--- 文档维护：GPT-5（最近更新 2026-06-01）
+-- 文档维护：GPT-5 Codex（最近更新 2026-06-11）
 -- BigQuery Standard SQL
 -- 策略 1 DWS/ADS 物化后的基础断言。
 
@@ -112,11 +112,20 @@ ASSERT (
 ) AS 'universe must include delisted stocks during their alive intervals';
 
 ASSERT (
-  SELECT COUNT(*) > 0
+  SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_dws.dws_stock_feature_price_daily`
-  WHERE trade_date BETWEEN DATE '2019-01-01' AND DATE '2019-03-31'
-    AND has_full_history_60d = FALSE
-) AS 'price feature table must explicitly mark incomplete 60d history in early 2019 when no final DWD lookback rows exist';
+  WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    AND history_obs_60d < 61
+    AND COALESCE(has_full_history_60d, TRUE)
+) AS 'price feature rows with fewer than 61 observations must not be marked full-history';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dws.dws_stock_feature_price_daily`
+  WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    AND history_obs_60d >= 61
+    AND NOT COALESCE(has_full_history_60d, FALSE)
+) AS 'price feature rows with at least 61 observations must be marked full-history';
 
 ASSERT (
   SELECT COUNT(*) = 0
@@ -138,12 +147,12 @@ ASSERT (
 ) AS 'default trainable samples must have universe-ranked rank_pct_5d';
 
 ASSERT (
-  SELECT MIN(trade_date) = DATE '2019-04-03'
-    AND COUNTIF(trade_date < DATE '2019-04-01') = 0
+  SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_dws.dws_stock_sample_daily`
   WHERE trade_date BETWEEN dws_start_date AND dws_end_date
     AND sample_trainable_default
-) AS 'default trainable samples should start on 2019-04-03 with no 2019Q1 rows under current no-2018-lookback build';
+    AND NOT COALESCE(has_full_history_60d, FALSE)
+) AS 'default trainable samples must require complete 60d price history';
 
 ASSERT (
   SELECT COUNT(*) = 0

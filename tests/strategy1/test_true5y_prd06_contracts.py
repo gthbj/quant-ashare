@@ -160,6 +160,37 @@ def test_true5y_historical_coverage_sql_pins_repair_window_and_internal_gaps() -
     assert "DATE '2019-04-02'" in sql
     assert "not only natural Q1" in sql
     assert "has_full_history_60d" in sql
+    assert "history_obs_60d >= 61" in sql
+    assert "COUNT(prior.sec_code)" not in sql
+    assert "ods_daily_basic_market_value_open_day_coverage" in sql
+    assert "`data-aquarium.ashare_ods.ods_tushare_daily_basic`" in sql
+    assert "b.endpoint = 'daily_basic'" in sql
+    assert "b.partition_date BETWEEN FORMAT_DATE('%Y%m%d', p_true5y_start)" in sql
+    assert "COUNTIF(mv_non_null_row_count = 0) = 0" in sql
     assert "COUNTIF(feature_row_count = 0) = 0" in sql
     assert "COUNTIF(trainable_sample_count = 0) = 0" in sql
     assert "valuation_non_null_ratio < p_min_valuation_non_null_ratio" in sql
+
+
+def test_windowed_stock_refresh_prev_close_is_not_capped_to_730_days() -> None:
+    sql = (REPO_ROOT / "sql/incremental/01_refresh_stock_dwd_dws_window.sql").read_text(encoding="utf-8")
+
+    assert "DATE_SUB(p_dwd_write_start_date, INTERVAL 730 DAY)" not in sql
+    assert "trade_date BETWEEN p_write_floor_date AND DATE_SUB(p_dwd_write_start_date, INTERVAL 1 DAY)" in sql
+
+
+def test_market_state_backfill_reads_full_history_for_sparse_20_row_windows() -> None:
+    sql = (REPO_ROOT / "sql/incremental/03_refresh_market_state_window.sql").read_text(encoding="utf-8")
+
+    assert "WHEN p_warehouse_mode = 'backfill' THEN p_write_floor_date" in sql
+    assert "p_roll_window_lookback_td" in sql
+
+
+def test_strategy1_dws_qa_uses_full_history_semantics_not_fixed_start_date() -> None:
+    sql = (REPO_ROOT / "sql/qa/02_strategy1_dws_ads_checks.sql").read_text(encoding="utf-8")
+
+    assert "MIN(trade_date) = DATE '2019-04-03'" not in sql
+    assert "history_obs_60d < 61" in sql
+    assert "COALESCE(has_full_history_60d, TRUE)" in sql
+    assert "history_obs_60d >= 61" in sql
+    assert "NOT COALESCE(has_full_history_60d, FALSE)" in sql

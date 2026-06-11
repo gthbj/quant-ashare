@@ -6,6 +6,16 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：PRD_06/07/08 live 收口完成，true-five-year continuous 已产出但未 accepted
+
+- PRD_07 annual scheduler Phase 2 candidate-only live smoke 已完成并通过：正式 Strategy1 runner 镜像为 `sha256:45b4d257878afa91192410a8e300ad9c358c6a2b3412a6be6d1e5e1732843eb7`，smoke run-version `v20260611_prd07smoke01`；2021/2022 matrix 预置后由 scheduler live path 提交 fanout executions `strategy1-train-candidate-fanout-job-g65hx` / `strategy1-train-candidate-fanout-job-btvgv`，各 `3/3` tasks succeeded。dry-run plan hash 与 live state 均为 `7ef90a481f0e64ad`，两个 live unit 均为 `present_after_describe_success`，12 个候选 `task_status.json` / `candidate_metrics.json` 均可读；recovery 重跑同 scheduler_run_id 提交数 `0`，artifact-skip 新 run 提交数 `0`，missing-matrix preflight 本地失败且未提交 Cloud Run；真实 GCS 临时 lock smoke 验证同一 lock key 第二 holder 被拒、release 后可接管。
+- PRD_06 Phase A 历史覆盖修复已完成：2010-2014 backfill、2015Q1 repair、`2019-01-02..2019-04-02` repair 均以 window-fix pipeline-control revision `ashare-pipeline-control-00010-ltq` 重跑成功。修复中发现 57 个早期 `daily_basic` 分区存在行但市值字段全空，已暂停 `ashare-ods-ingestion-daily` 后补采 `daily_basic`，刷新受影响 DWD/DWS 窗口并恢复 scheduler；20:00 日常 execution `5e790d75-1351-4fb3-aea7-6a396675e3bc` 成功。
+- 本轮代码修复已落在分支 `codex/prd06-07-live-execution`：`01_refresh_stock_dwd_dws_window.sql` 的 DWD `prev_close` warm-up 改读 `p_write_floor_date`，避免长停牌/稀疏股票被 730 自然日截断；`03_refresh_market_state_window.sql` 的 backfill 市场状态读取下限改为 `p_write_floor_date`，修复稀疏股票 20-row rolling parity；`13_true5y_historical_coverage_checks.sql` 用 `history_obs_60d >= 61` 判定 2019 旗标修复，并新增 ODS `daily_basic` 市值字段 open-day 覆盖护栏。
+- PRD_06 overlap parity 已补宽窗口验收：stock / DWD / DWS 9 表在 `2019-04-03..2026-06-09`（label/feature/sample 含标签回补比较起点 `2019-03-06`）以 `float_tolerance=1e-8` 全部 `mismatch_count=0`；index DWD 与 market-state DWS 在 `2019-04-03..2026-06-09` 以 `float_tolerance=1e-4` 全部 `mismatch_count=0`。更严格 `1e-8/1e-5` 曾只暴露 `dws_market_state_daily` 浮点聚合 roundoff（样本为微元级 `limit_down_mv_cny` 差异，regime/action 字段一致），不作为业务差异。
+- PRD_06 Phase B true-five-year refit 已完成：2021-2024 resolved plan 使用 `--true-five-year-refit --emit-refit-only --final-refit-run-suffix __true5y01`，train windows 分别为 `2016-01-04..2020-12-24`、`2017-01-03..2021-12-24`、`2018-01-02..2022-12-23`、`2019-01-02..2023-12-22`；四年 refit panel 缺口为 0，refit/register/predict executions `strategy1-train-predict-job-zj4t4` / `wqwpx` / `tdv5j` / `998sc` 成功，四年 `qa_refit_register_predict_outputs` 均通过。
+- PRD_06 Phase C synthetic continuous 已完成：synthetic run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01` merge 成功，prediction rows `2643406`，input manifest sha256 `bdf5722c6d514eca27b6a9ecbfad46bfe818bf3ad8adf2a0531063f91d3fb4d3`；continuous backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01` Cloud Run execution `strategy1-backtest-report-job-4zbd4` 成功。`qa_continuous_backtest_outputs` job `20cf1a26-93ce-48c9-9c7a-d10587d37ae3` 与 `qa_lot_aware_ledger_outputs` job `afa4be4e-bd47-4eb4-add1-a80f39cef082` 均通过；ADS model prediction / NAV / summary 与 `research_promotion_manifest` 同 source 均为 `0` 行。
+- true-five-year continuous 对比结果：effective-window backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02` 的 compound CAGR=`0.12036528993503204`、MaxDD=`-0.4548151193656952`、legacy Sharpe=`0.6132671411257953`、v3 contract Sharpe=`0.5285475500566089`、contract Calmar=`0.26464663290635254`；true-five-year backtest 的 compound CAGR=`0.13852596798718442`、MaxDD=`-0.37189972934558946`、legacy Sharpe=`0.6834026126199905`、v3 contract Sharpe=`0.6075887294330015`、contract Calmar=`0.3724820349585642`。true-five-year 明显改善但仍未通过 v3 hard gates（contract Sharpe `<0.70`，contract Calmar `<1.0`），不得自动标 accepted baseline 或 promotion；采纳为新研究 baseline 需 owner 决策。
+
 ### 最新补充（2026-06-11）：信号 IC 分解与组合转换效率 PRD 已新增
 
 - 分支 `claude/prd-ic-transfer-efficiency` 新增 `docs/prd/PRD_20260611_09_策略1信号IC分解与组合转换效率.md`：纯只读研究分析（BigQuery 只读 + 本地 pandas），把策略评估的度量衡从组合 NAV 切换到信号层。
@@ -24,6 +34,7 @@ Last updated: 2026-06-11
 
 ### 最新补充（2026-06-11）：PRD_07 年度滚动调度 Phase 2 live smoke 代码 PR 准备完成
 
+- 注：本小节是 PR #182 合并时的代码准备记录；真实 candidate-only live smoke 已在上方“PRD_06/07/08 live 收口完成”小节完成。
 - PR #182 已合并到 `main@dab646d`，只改 PRD_07 相关 scheduler、测试、runbook/记忆。
 - `quant_ashare.strategy1.annual_pipeline_scheduler` 保持默认 dry-run 安全行为；真实提交必须同时传 `--execute-live --candidate-only-smoke`，否则非 dry-run 仍 fail-fast，不会启动完整 2021-2026 pipeline。
 - 新增真实 GCS generation-conditioned annual scheduler lease/state 抽象：state JSON 使用 `if_generation_match=0` 创建、`if_generation_match=<current_generation>` 更新；generation conflict 会重读/重试，丢失 lease ownership 会停止提交。
@@ -32,6 +43,7 @@ Last updated: 2026-06-11
 
 ### 最新补充（2026-06-11）：PRD06 true-five-year refit code-prep 已实现，生产 backfill 尚未执行
 
+- 注：本小节是 PR #183 合并时的代码准备记录；生产 backfill、true-five-year refit 和 continuous ledger 已在上方“PRD_06/07/08 live 收口完成”小节完成。
 - 分支 `codex/prd06-true5y-refit` 已 rebase 到最新 `origin/main@dab646d`，实现 `PRD_20260611_06` 的代码准备层：annual rolling resolved plan 新增 `--true-five-year-refit`、`--final-refit-run-suffix` 与 `--emit-refit-only`，用于历史覆盖修复后只重跑 2021-2024 refit panel / refit，而不重建 selection panel、matrix 或 11 候选 fanout。
 - true-five-year 模式会禁用当前 `2019-04-03` effective coverage floor，回到每年名义五年窗口的实际首个开市日；CLI 强制非默认 run suffix，避免覆盖现有 `__refit01` effective-window 产物。
 - `scripts/qa/run_windowed_refresh_equivalence.py` 已增强为输出 per-table summary JSONL 与 mismatch sample JSONL；新增 `scripts/qa/run_index_market_windowed_equivalence.py`，覆盖 index DWD 与 market-state DWS 的 full/window shadow parity；新增 `sql/qa/13_true5y_historical_coverage_checks.sql`，将 `2019-01-02..2019-04-02` 旗标修复、true-five-year open-day coverage、估值/财务完备度合到同一个手工 QA。

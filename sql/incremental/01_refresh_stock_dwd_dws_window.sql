@@ -267,7 +267,7 @@ prev_close AS (
     sec_code,
     ARRAY_AGG(close_hfq IGNORE NULLS ORDER BY trade_date DESC LIMIT 1)[SAFE_OFFSET(0)] AS prev_close_hfq
   FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price`
-  WHERE trade_date BETWEEN DATE_SUB(p_dwd_write_start_date, INTERVAL 730 DAY) AND DATE_SUB(p_dwd_write_start_date, INTERVAL 1 DAY)
+  WHERE trade_date BETWEEN p_write_floor_date AND DATE_SUB(p_dwd_write_start_date, INTERVAL 1 DAY)
   GROUP BY sec_code
 ),
 joined AS (
