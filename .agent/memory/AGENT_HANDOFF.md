@@ -1,3 +1,14 @@
+> 当前交接补充（2026-06-11，GPT-5 Codex，PR #189 top-down review follow-up）
+> - 按 Claude comment 全量处理 PR #189 发现并补齐：
+>   1) 修复 v1 与 topdown 的参数哈希口径（`walk_depth / min_position_weight / position_floor_count` 仅在 topdown 加入；v1 不变）；
+>   2) `ledger_exec_v2_lot100_topdown` 中仅 `can_sell` 时才回收卖出现金，避免未卖出却回款；
+>   3) topdown 强制 require individual 风控 profile（`validate_ledger_params` 拦截）；
+>   4) `qa_topdown_construction_outputs.sql` 从 `QA-TOPDOWN-6` 起补充 topdown 专用约束与 hard gate（topdown profile 必须个券风险、tail risk 标记存在、标记日不得 fill BUY、候选输入覆盖 full-rank、NAV 前一天对齐检查）；二轮复核指出第一版 NAV 子查询仍取 `bt.trade_date` 当天，本轮已改为显式 `cal -> prev -> nav.trade_date = prev.cal_date` join；
+>   5) topdown `LedgerParams.cash_redistribution` 已收敛到 `topdown_whole_order_skip_v2`，与 summary 自述一致；v1 仍保持 `none_v1`；
+>   6) 增强测试覆盖 `BUY_SKIPPED_TAIL_RISK`、topdown hash 回归、v1 hash 不变、topdown cash redistribution 运行参数和错误口径 fail-fast。
+> - 验证：`tests/strategy1_cloudrun/test_lot_aware_ledger.py` + `tests/strategy1_cloudrun/test_dataset_role_routing.py` + `tests/strategy1/test_sql_render.py` focused pytest 58 passed、`git diff --check` 通过；此前全量 `tests/strategy1 + tests/strategy1_cloudrun` 173 passed、retired linter、compileall、Dataform SQLX check 通过；BigQuery 只读 dry-run 已由 Claude 在授权环境代跑通过。
+> - 本次修改不改默认 v1（`ledger_exec_v1_lot100`）语义，不改全局 tail-risk profile，不 promotion，未做 live BigQuery/Cloud Run 写入。
+
 > 当前交接补充（2026-06-11，GPT-5 Codex，PRD_10 code prep）
 > - 分支 `codex/topdown-lot-construction` 基于 `origin/main@a21cf97` 实现 PRD_20260611_10 Phase 1 代码准备：新增 `ledger_exec_v2_lot100_topdown` / `cloudrun_lot100_topdown_resume_v1`，由 `backtest_report --use-topdown-ledger` 显式 opt-in，默认 `ledger_exec_v1_lot100` 不变。
 > - v2 ledger 直接读取 `stock_candidate_daily.rank_raw <= walk_depth` 的 full ranked candidates；`portfolio_target_daily` / `order_plan_daily` 仍是兼容产物，不作为 v2 构造输入。构造按 rank 自上而下行走，新开仓最小权重默认 5%，整手买入，禁止 `FILLED_SCALED_CASH`，现金不足时按低排名整笔放弃买入。

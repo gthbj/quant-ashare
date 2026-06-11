@@ -26,6 +26,7 @@ from quant_ashare.strategy1.ledger import (
     LEDGER_VERSION_TOPDOWN_LOT100,
     RESUME_POLICY_CLOUDRUN_LOT100,
     RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100,
+    cash_redistribution_id_for_ledger_version,
 )
 from quant_ashare.strategy1.dataset_roles import allow_future_research, output_dataset_role_cli_args
 from quant_ashare.strategy1.sql_runner import resolve_sql_step_path, run_sql_step
@@ -268,6 +269,7 @@ def build_ledger_params(
         ledger_version=ledger_version,
         lot_size=args.lot_size,
         min_buy_lot=args.min_buy_lot,
+        cash_redistribution=cash_redistribution_id_for_ledger_version(ledger_version),
         force_replace=force_replace,
         rebalance_frequency=exp.rebalance_frequency,
         target_holdings=exp.target_holdings,

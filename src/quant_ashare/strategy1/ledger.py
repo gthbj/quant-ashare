@@ -35,6 +35,8 @@ LEDGER_VERSION_LOT100 = "ledger_exec_v1_lot100"
 LEDGER_VERSION_TOPDOWN_LOT100 = "ledger_exec_v2_lot100_topdown"
 RESUME_POLICY_CLOUDRUN_LOT100 = "cloudrun_lot100_resume_v1"
 RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100 = "cloudrun_lot100_topdown_resume_v1"
+CASH_REDISTRIBUTION_NONE_V1 = "none_v1"
+CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2 = "topdown_whole_order_skip_v2"
 FILLED_STATUSES = frozenset({"FILLED", "FILLED_SCALED_CASH"})
 LOT_AWARE_ZERO_FILL_STATUSES = frozenset({
     "BUY_SKIPPED_UNTRADABLE",
@@ -74,7 +76,7 @@ class LedgerParams:
     sell_odd_lot_policy: str = "allow_full_exit_odd_lot"
     partial_sell_rounding: str = "floor_to_lot_keep_residual"
     buy_rounding: str = "floor_to_lot"
-    cash_redistribution: str = "none_v1"
+    cash_redistribution: str = CASH_REDISTRIBUTION_NONE_V1
     min_notional_cny: float = 0.0
     force_replace: bool = False
     rebalance_frequency: str = "weekly"
@@ -491,7 +493,7 @@ def build_daily_plan_topdown(
         expected_sell_price = item.sell_fill_price
         if expected_sell_price is None and item.val_price > 0:
             expected_sell_price = item.val_price * (1 - params.slippage_sell_bps / 10000.0)
-        if expected_sell_price is not None and expected_sell_price > 0:
+        if item.can_sell and expected_sell_price is not None and expected_sell_price > 0:
             turnover = item.cur_shares * expected_sell_price
             fee = max(turnover * params.commission_bps / 10000.0, params.min_commission_cny)
             tax = turnover * params.stamp_tax_sell_bps / 10000.0
@@ -957,12 +959,10 @@ def ledger_params_hash(params: LedgerParams) -> str:
         "lot_size": params.lot_size,
         "market_state_version": params.market_state_version,
         "max_single_weight": params.max_single_weight,
-        "min_position_weight": effective_min_position_weight(params),
         "min_buy_lot": params.min_buy_lot,
         "min_commission_cny": params.min_commission_cny,
         "min_notional_cny": params.min_notional_cny,
         "partial_sell_rounding": params.partial_sell_rounding,
-        "position_floor_count": params.position_floor_count,
         "rebalance_anchor_start": effective_rebalance_anchor_start(params),
         "rebalance_frequency": params.rebalance_frequency,
         "resume_policy_id": params.resume_policy_id,
@@ -974,8 +974,11 @@ def ledger_params_hash(params: LedgerParams) -> str:
         "strategy_id": params.strategy_id,
         "tail_risk_profile_id": params.tail_risk_profile_id,
         "target_holdings": params.target_holdings,
-        "walk_depth": params.walk_depth,
     }
+    if is_topdown_lot100(params):
+        payload["min_position_weight"] = effective_min_position_weight(params)
+        payload["position_floor_count"] = params.position_floor_count
+        payload["walk_depth"] = params.walk_depth
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -1332,8 +1335,12 @@ def validate_ledger_params(params: LedgerParams) -> None:
             raise ValueError(f"unsupported sell_odd_lot_policy: {params.sell_odd_lot_policy}")
         if params.partial_sell_rounding != "floor_to_lot_keep_residual":
             raise ValueError(f"unsupported partial_sell_rounding: {params.partial_sell_rounding}")
-        if params.cash_redistribution != "none_v1":
-            raise ValueError(f"unsupported cash_redistribution: {params.cash_redistribution}")
+        expected_cash_redistribution = expected_cash_redistribution_id(params)
+        if params.cash_redistribution != expected_cash_redistribution:
+            raise ValueError(
+                "unsupported cash_redistribution: "
+                f"{params.cash_redistribution}; expected {expected_cash_redistribution}"
+            )
     if is_topdown_lot100(params):
         if params.position_floor_count <= 0:
             raise ValueError("position_floor_count must be positive")
@@ -1341,6 +1348,8 @@ def validate_ledger_params(params: LedgerParams) -> None:
             raise ValueError("min_position_weight must be positive")
         if params.walk_depth <= 0:
             raise ValueError("walk_depth must be positive")
+        if not has_individual_risk_guard(params.tail_risk_profile_id):
+            raise ValueError("topdown ledger requires individual tail-risk guard profile")
 
 
 def is_lot_aware(params: LedgerParams) -> bool:
@@ -1353,6 +1362,16 @@ def is_topdown_lot100(params: LedgerParams) -> bool:
 
 def expected_resume_policy_id(params: LedgerParams) -> str:
     return RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100 if is_topdown_lot100(params) else RESUME_POLICY_CLOUDRUN_LOT100
+
+
+def expected_cash_redistribution_id(params: LedgerParams) -> str:
+    return cash_redistribution_id_for_ledger_version(params.ledger_version)
+
+
+def cash_redistribution_id_for_ledger_version(ledger_version: str) -> str:
+    if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100:
+        return CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2
+    return CASH_REDISTRIBUTION_NONE_V1
 
 
 def min_buy_shares(params: LedgerParams) -> int:

@@ -53,9 +53,17 @@ ASSERT (
 ASSERT (
   SELECT COUNT(*) = 0
   FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+  JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS cal
+    ON cal.exchange = 'SSE'
+   AND cal.is_open = 1
+   AND cal.cal_date = bt.trade_date
+  JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS prev
+    ON prev.exchange = 'SSE'
+   AND prev.is_open = 1
+   AND prev.trade_date_seq = cal.trade_date_seq - 1
   JOIN `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
     ON nav.backtest_id = bt.backtest_id
-   AND nav.trade_date = bt.trade_date
+   AND nav.trade_date = prev.cal_date
    AND nav.trade_date BETWEEN p_predict_start AND p_predict_end
   WHERE bt.backtest_id = p_backtest_id
     AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
@@ -80,42 +88,43 @@ ASSERT (
   )
 ) AS 'QA-TOPDOWN-5: candidate input must cover full rank walk_depth';
 
-IF p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0') THEN
-  ASSERT (
-    SELECT COUNT(*) > 0
-    FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
-    WHERE cand.strategy_id = p_strategy_id
-      AND cand.run_id = p_run_id
-      AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
-      AND cand.rank_raw <= p_walk_depth
-      AND STARTS_WITH(COALESCE(cand.filter_reason, ''), 'tail_risk:')
-  ) AS 'QA-TOPDOWN-6: P1-enabled top-down run must have tail_risk markers inside walk_depth';
+ASSERT (p_tail_risk_profile_id IN ('individual_risk_guard_v0', 'individual_and_market_risk_guard_v0'))
+  AS 'QA-TOPDOWN-6: top-down construction requires individual tail-risk guard profile';
 
-  ASSERT (
-    SELECT COUNT(*) = 0
-    FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
-    JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS sig_cal
-      ON sig_cal.exchange = 'SSE'
-     AND sig_cal.is_open = 1
-     AND sig_cal.cal_date = cand.rebalance_date
-    JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS exec_cal
-      ON exec_cal.exchange = 'SSE'
-     AND exec_cal.is_open = 1
-     AND exec_cal.trade_date_seq = sig_cal.trade_date_seq + 1
-    JOIN `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
-      ON bt.backtest_id = p_backtest_id
-     AND bt.trade_date = exec_cal.cal_date
-     AND bt.sec_code = cand.sec_code
-     AND bt.side = 'BUY'
-     AND bt.fill_status = 'FILLED'
-     AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
-    WHERE cand.strategy_id = p_strategy_id
-      AND cand.run_id = p_run_id
-      AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
-      AND cand.rank_raw <= p_walk_depth
-      AND STARTS_WITH(COALESCE(cand.filter_reason, ''), 'tail_risk:')
-  ) AS 'QA-TOPDOWN-7: tail-risk marked candidates inside walk_depth must not create filled BUYs';
-END IF;
+ASSERT (
+  SELECT COUNT(*) > 0
+  FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
+  WHERE cand.strategy_id = p_strategy_id
+    AND cand.run_id = p_run_id
+    AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
+    AND cand.rank_raw <= p_walk_depth
+    AND STARTS_WITH(COALESCE(cand.filter_reason, ''), 'tail_risk:')
+) AS 'QA-TOPDOWN-7: top-down run must have tail_risk markers inside walk_depth';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_ads.ads_stock_candidate_daily` AS cand
+  JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS sig_cal
+    ON sig_cal.exchange = 'SSE'
+   AND sig_cal.is_open = 1
+   AND sig_cal.cal_date = cand.rebalance_date
+  JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS exec_cal
+    ON exec_cal.exchange = 'SSE'
+   AND exec_cal.is_open = 1
+   AND exec_cal.trade_date_seq = sig_cal.trade_date_seq + 1
+  JOIN `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+    ON bt.backtest_id = p_backtest_id
+   AND bt.trade_date = exec_cal.cal_date
+   AND bt.sec_code = cand.sec_code
+   AND bt.side = 'BUY'
+   AND bt.fill_status = 'FILLED'
+   AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+  WHERE cand.strategy_id = p_strategy_id
+    AND cand.run_id = p_run_id
+    AND cand.rebalance_date BETWEEN p_predict_start AND p_predict_end
+    AND cand.rank_raw <= p_walk_depth
+    AND STARTS_WITH(COALESCE(cand.filter_reason, ''), 'tail_risk:')
+) AS 'QA-TOPDOWN-8: tail-risk marked candidates inside walk_depth must not create filled BUYs';
 
 ASSERT (
   SELECT COUNT(*) = 0
@@ -123,7 +132,7 @@ ASSERT (
   WHERE nav.backtest_id = p_backtest_id
     AND nav.trade_date BETWEEN p_predict_start AND p_predict_end
     AND (nav.cash_cny < -1.0 OR nav.gross_exposure > 1.005)
-) AS 'QA-TOPDOWN-8: top-down v2 must remain long-only without negative cash';
+) AS 'QA-TOPDOWN-9: top-down v2 must remain long-only without negative cash';
 
 ASSERT (
   SELECT COUNT(*) = 0
@@ -169,4 +178,4 @@ ASSERT (
       AND COALESCE(se.rank_raw, 1000000000) > p_walk_depth
       AND bt.sec_code IS NULL
   )
-) AS 'QA-TOPDOWN-9: over-depth holdings after rebalance must trace to sell failure';
+) AS 'QA-TOPDOWN-10: over-depth holdings after rebalance must trace to sell failure';

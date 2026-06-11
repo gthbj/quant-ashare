@@ -40,7 +40,12 @@ from scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection import (
     year_plan,
 )
 from scripts.strategy1_cloudrun.state import LockConfig, OrchestratorStatusTable, status_table_ref
-from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_LOT100
+from scripts.strategy1_cloudrun.ledger import (
+    CASH_REDISTRIBUTION_NONE_V1,
+    CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2,
+    LEDGER_VERSION_LOT100,
+    LEDGER_VERSION_TOPDOWN_LOT100,
+)
 from quant_ashare.strategy1.train_predict import CandidateResult, write_registry
 from quant_ashare.strategy1.catalog import load_step_catalog
 
@@ -137,6 +142,28 @@ def test_build_ledger_params_keeps_output_dataset_role_out_of_semantic_defaults(
 
     assert params.output_dataset_role == "research"
     assert params.ledger_version == LEDGER_VERSION_LOT100
+    assert params.cash_redistribution == CASH_REDISTRIBUTION_NONE_V1
+
+
+def test_build_ledger_params_records_topdown_cash_redistribution() -> None:
+    args = argparse.Namespace(
+        lot_size=100,
+        min_buy_lot=1,
+        position_floor_count=20,
+        min_position_weight=None,
+        walk_depth=50,
+    )
+
+    params = build_ledger_params(
+        RunnerConfig(output_dataset_role="research"),
+        _experiment(),
+        force_replace=True,
+        ledger_version=LEDGER_VERSION_TOPDOWN_LOT100,
+        args=args,
+    )
+
+    assert params.ledger_version == LEDGER_VERSION_TOPDOWN_LOT100
+    assert params.cash_redistribution == CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2
 
 
 def test_orchestrator_cloud_run_commands_propagate_explicit_ads_output_dataset_role() -> None:
