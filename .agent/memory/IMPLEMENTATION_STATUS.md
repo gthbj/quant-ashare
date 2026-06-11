@@ -6,6 +6,14 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：PRD_10 自上而下整手构造代码准备已实现，尚未 live 跑数
+
+- 分支 `codex/topdown-lot-construction` 基于 `origin/main@a21cf97` 实现 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md` 的 Phase 1 代码准备：新增 Python ledger version `ledger_exec_v2_lot100_topdown` 与 resume policy `cloudrun_lot100_topdown_resume_v1`，通过 `backtest_report --use-topdown-ledger` 显式 opt-in；默认 `ledger_exec_v1_lot100` 不变。
+- v2 ledger 直接读取 `stock_candidate_daily.rank_raw <= walk_depth` 的 full ranked candidates，不再消费 `portfolio_target_daily` 的 TopN 等权目标作为构造输入；构造规则为自上而下按 rank 行走，新开仓最小权重默认 `1/position_floor_count=5%`，整手买入且禁止现金缩股，现金不足时从低排名整笔放弃买入。
+- P1 个股尾部风险在 v2 中是 profile 驱动的替换语义：只有 `tail_risk_profile_id` 启用 individual guard 时，`filter_reason LIKE 'tail_risk:%'` 的新增候选才会跳过并由后续排名顶上；`diagnostic_only` 下 marker 不会导致跳买。P2 market risk-off 则在 risk-off 次日跳过所有新增买入。持仓保留阈值统一为 `walk_depth`，超深度持仓必须卖出；若仍持有只能由 `SELL_SKIPPED_UNTRADABLE` / `PENDING_SELL_CARRY` 追溯。
+- 新增 `sql/strategy1/qa/qa_topdown_construction_outputs.sql` 并登记 catalog，由 `backtest_report` 在 topdown 模式自动运行；QA 覆盖 summary 参数、零 `FILLED_SCALED_CASH` / `BUY_SKIPPED_BELOW_LOT_AFTER_SCALE`、整手成交、最小新仓权重、full-rank 输入覆盖、P1 生效、非负现金/long-only、超深度持仓卖出失败追溯。`09` summary metrics_json 补记录 `portfolio_construction_method`、`position_floor_count`、`min_position_weight`、`walk_depth`、实际持仓数和最大单票权重统计，report/runbook 已同步展示。
+- 验证已通过：focused ledger/render/catalog tests、Strategy1/Cloud Run 全量 pytest、retired linter、compileall、Dataform SQLX check、`git diff --check`。本轮未重建镜像、未更新 Cloud Run jobs、未执行 BigQuery/Cloud Run live run；Phase 0 paper 原型、Phase 2 research-only continuous 重跑、三方对比和 owner accepted/promotion 决策仍未完成。
+
 ### 最新补充（2026-06-11）：自上而下整手组合构造 PRD 已新增
 
 - 分支 `claude/prd-topdown-lot-construction` 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 现金交叉核验确认的结构性现金拖累（10 万真实部署 + 100 股整手 + 等权 5% + 无再分配 → 约 25% 买单 `BUY_SKIPPED_BELOW_LOT`、现金权重均值 29.4%、最少持仓 0），owner 决定（2026-06-11）重新设计组合构造而非修复等权。

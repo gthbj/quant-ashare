@@ -1332,12 +1332,30 @@ def render_markdown(summary: dict, model_info: dict, evidence: dict,
     sections.append(f"- 最大总暴露: {exec_d.get('max_gross_exposure', 0):.2%}")
     sections.append("")
 
-    if m.get("ledger_version") == "ledger_exec_v1_lot100":
+    if m.get("ledger_version") in {"ledger_exec_v1_lot100", "ledger_exec_v2_lot100_topdown"}:
         sections.append("### 交易现实性\n")
         sections.append(f"- lot size: {m.get('lot_size', 'N/A')} 股，最小买入: {m.get('min_buy_lot', 'N/A')} 手")
+        if m.get("ledger_version") == "ledger_exec_v2_lot100_topdown":
+            sections.append(
+                f"- 构造方法: {m.get('portfolio_construction_method', 'topdown_lot100_v2')}，"
+                f"最小新仓权重: {float(m.get('min_position_weight', 0) or 0):.2%}，"
+                f"行走深度: {m.get('walk_depth', 'N/A')}"
+            )
         sections.append(f"- 平均现金占比: {exec_d.get('avg_cash_weight', 0):.2%}，"
                          f"最大现金占比: {exec_d.get('max_cash_weight', 0):.2%}，"
                          f"现金大于 10% 天数: {exec_d.get('cash_gt_10pct_days', 0)}")
+        if m.get("avg_realized_holdings_count") is not None:
+            sections.append(
+                f"- 实际持仓数: 平均 {float(m.get('avg_realized_holdings_count') or 0):.2f}，"
+                f"最少 {float(m.get('min_realized_holdings_count') or 0):.0f}，"
+                f"最多 {float(m.get('max_realized_holdings_count') or 0):.0f}"
+            )
+        if m.get("max_realized_weight") is not None:
+            sections.append(
+                f"- 最大单票权重: 平均 {float(m.get('avg_max_realized_weight') or 0):.2%}，"
+                f"P95 {float(m.get('p95_max_realized_weight') or 0):.2%}，"
+                f"最大 {float(m.get('max_realized_weight') or 0):.2%}"
+            )
         sections.append(f"- below-lot 买入跳单: {exec_d.get('buy_below_lot_skip_count', 0)}，"
                          f"缩放后 below-lot 跳单: {exec_d.get('buy_below_lot_after_scale_skip_count', 0)}，"
                          f"现金/取整回退跳单: {exec_d.get('buy_cash_rounding_skip_count', 0)}")

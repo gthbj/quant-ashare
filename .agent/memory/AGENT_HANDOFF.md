@@ -1,3 +1,11 @@
+> 当前交接补充（2026-06-11，GPT-5 Codex，PRD_10 code prep）
+> - 分支 `codex/topdown-lot-construction` 基于 `origin/main@a21cf97` 实现 PRD_20260611_10 Phase 1 代码准备：新增 `ledger_exec_v2_lot100_topdown` / `cloudrun_lot100_topdown_resume_v1`，由 `backtest_report --use-topdown-ledger` 显式 opt-in，默认 `ledger_exec_v1_lot100` 不变。
+> - v2 ledger 直接读取 `stock_candidate_daily.rank_raw <= walk_depth` 的 full ranked candidates；`portfolio_target_daily` / `order_plan_daily` 仍是兼容产物，不作为 v2 构造输入。构造按 rank 自上而下行走，新开仓最小权重默认 5%，整手买入，禁止 `FILLED_SCALED_CASH`，现金不足时按低排名整笔放弃买入。
+> - P1 语义已按 profile 绑定：只有启用 individual guard 时 `tail_risk:*` 新增候选才跳过并由后续排名顶上；`diagnostic_only` 下 marker 不触发跳买。P2 risk-off 次日跳过所有新增买入。持仓保留阈值统一 `walk_depth`；超深度持仓必须卖出，仍持有必须追溯到 `SELL_SKIPPED_UNTRADABLE` / `PENDING_SELL_CARRY`。
+> - 新增 `qa_topdown_construction_outputs` 并登记 catalog；`09` summary metrics_json、Markdown report 和 Cloud Run runbook 已同步记录/展示 topdown 参数、实际持仓数和最大单票权重。验证：Strategy1/Cloud Run 全量 pytest、retired linter、compileall、Dataform SQLX check、`git diff --check` 通过。本轮未部署镜像、未执行 BigQuery/Cloud Run live run；Phase 0 paper、Phase 2 research-only continuous 和 owner 决策仍待办。
+>
+> Model: GPT-5 Codex
+
 > 当前交接补充（2026-06-11，Claude Fable 5，PRD_10）
 > - 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 确认的结构性现金拖累（10 万 + 整手 + 等权 5% + 无再分配 → 25% 买单跳过、现金均值 29.4%），owner 决定重新设计构造规则而非修复等权。
 > - 核心规则：自上而下贪心买入，新开仓最小权重 5%（`position_floor_count=20` 仅作门槛基数，`target_holdings` 退役为观测指标 `realized_holdings_count`）；**无单票上限**（owner 决策 2026-06-11）；`walk_depth=50` 统一买入深度与卖出保留阈值；P1 六条规则以"跳过→下一名顶上"替换语义绑定进构造（实现红线：禁止复用 ledger 层跳过留现金语义，防止复活 #179 A1 的现金拖累）；可负担性与 P1 标记均只约束新增买入、不强制卖出。

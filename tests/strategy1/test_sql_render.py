@@ -10,7 +10,7 @@ from quant_ashare.strategy1.sql_render import (
 )
 from quant_ashare.strategy1.backtest_report import build_sql_params
 from scripts.strategy1_cloudrun.config import Experiment, load_runner_config
-from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_LOT100
+from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_LOT100, LEDGER_VERSION_TOPDOWN_LOT100
 
 
 def _sql_value_for_type(sql_type: str) -> object:
@@ -186,6 +186,35 @@ def test_lot_aware_qa_params_include_min_buy_shares() -> None:
 
     assert "DECLARE p_min_buy_shares INT64 DEFAULT 100;" in rendered
     assert LEDGER_VERSION_LOT100 in rendered
+
+
+def test_topdown_backtest_params_render_topdown_qa() -> None:
+    exp = Experiment(
+        experiment_id="unit_exp",
+        run_id="unit_run",
+        prediction_run_id="unit_pred",
+        backtest_id="unit_bt",
+    )
+    args = type(
+        "Args",
+        (),
+        {
+            "lot_size": 100,
+            "min_buy_lot": 1,
+            "use_topdown_ledger": True,
+            "position_floor_count": 20,
+            "min_position_weight": None,
+            "walk_depth": 50,
+        },
+    )()
+    params = build_sql_params(exp, force_replace=False, use_float_ledger=False, args=args)
+
+    rendered = render_sql_step("qa_topdown_construction_outputs", params)
+
+    assert f"DECLARE p_ledger_version STRING DEFAULT '{LEDGER_VERSION_TOPDOWN_LOT100}';" in rendered
+    assert "DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_topdown_resume_v1';" in rendered
+    assert "DECLARE p_walk_depth INT64 DEFAULT 50;" in rendered
+    assert "data-aquarium.ashare_research.research_stock_candidate_daily" in rendered
 
 
 def test_model_diagnosis_pool_qa_uses_explicit_valid_test_windows() -> None:

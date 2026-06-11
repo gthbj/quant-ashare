@@ -172,7 +172,7 @@ steps:
     caller: [quant_ashare.strategy1.backtest_report]
     output_dataset_role_current: research
     output_dataset_role_target: research
-    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_experiment_id, p_experiment_group, p_baseline_experiment_id, p_parent_experiment_id, p_parent_run_id, p_rebalance_frequency, p_rebalance_anchor_start, p_target_holdings, p_max_single_weight, p_label_horizon, p_horizon_natural_frequency, p_feature_set_id, p_tail_risk_profile_id, p_market_state_version, p_execution_backend, p_ledger_version, p_ledger_executor, p_lot_size, p_min_buy_lot, p_predict_start, p_predict_end, p_initial_capital, p_cost_profile_id, p_commission_bps, p_min_commission_cny, p_stamp_tax_buy_bps, p_stamp_tax_sell_bps, p_slippage_buy_bps, p_slippage_sell_bps, p_cost_bps, p_benchmark, p_initial_state_mode, p_parent_backtest_id, p_state_as_of_date, p_resume_policy_id, p_force_replace]
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_experiment_id, p_experiment_group, p_baseline_experiment_id, p_parent_experiment_id, p_parent_run_id, p_rebalance_frequency, p_rebalance_anchor_start, p_target_holdings, p_max_single_weight, p_label_horizon, p_horizon_natural_frequency, p_feature_set_id, p_tail_risk_profile_id, p_market_state_version, p_execution_backend, p_ledger_version, p_ledger_executor, p_lot_size, p_min_buy_lot, p_position_floor_count, p_min_position_weight, p_walk_depth, p_portfolio_construction_method, p_predict_start, p_predict_end, p_initial_capital, p_cost_profile_id, p_commission_bps, p_min_commission_cny, p_stamp_tax_buy_bps, p_stamp_tax_sell_bps, p_slippage_buy_bps, p_slippage_sell_bps, p_cost_bps, p_benchmark, p_initial_state_mode, p_parent_backtest_id, p_state_as_of_date, p_resume_policy_id, p_force_replace]
     internal_params: [p_calendar_end, p_selected_model_id]
     optional_params: {}
     inputs: [training_panel, model_registry, model_prediction_daily, stock_candidate_daily, backtest_trade_daily, backtest_position_daily, backtest_nav_daily]
@@ -278,6 +278,23 @@ steps:
     internal_params: []
     optional_params: {}
     inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, backtest_ledger_state_daily]
+    outputs: []
+    partition_columns: []
+
+  qa_topdown_construction_outputs:
+    stable_name: qa_topdown_construction_outputs
+    status: active
+    execution_mode: cloudrun_backtest_report
+    current_path: sql/strategy1/qa/qa_topdown_construction_outputs.sql
+    target_path: sql/strategy1/qa/qa_topdown_construction_outputs.sql
+    sql_path: sql/strategy1/qa/qa_topdown_construction_outputs.sql
+    caller: [quant_ashare.strategy1.backtest_report]
+    output_dataset_role_current: research
+    output_dataset_role_target: research
+    required_params: [p_run_id, p_strategy_id, p_backtest_id, p_predict_start, p_predict_end, p_ledger_version, p_lot_size, p_min_buy_lot, p_position_floor_count, p_min_position_weight, p_walk_depth, p_tail_risk_profile_id, p_resume_policy_id]
+    internal_params: []
+    optional_params: {}
+    inputs: [stock_candidate_daily, backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary]
     outputs: []
     partition_columns: []
 

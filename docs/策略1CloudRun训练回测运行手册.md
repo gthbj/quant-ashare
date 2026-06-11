@@ -1,4 +1,4 @@
-> 文档维护：GPT-5 Codex（最近更新 2026-06-10）
+> 文档维护：GPT-5 Codex（最近更新 2026-06-11）
 
 # 策略 1 Cloud Run 训练回测运行手册
 
@@ -22,14 +22,15 @@
 12. `scripts/strategy1/analyze_tail_risk.py` 与 `sql/strategy1/qa/qa_tail_risk_outputs.sql`：在 TopK 回测完成后只读 ADS/DWD/DIM，输出最大回撤窗口、持仓贡献、跌停/不可卖暴露和选股画像，并校验 ADS pre/post hash 未变化。
 13. `sql/dws/08_dws_market_state_daily.sql` 与 `sql/qa/11_market_state_checks.sql`：生成并校验 P2 市场状态 risk-off 证据表；`backtest_report.py` 在 `tail_risk_profile_id=market_risk_off_v0` 或 `individual_and_market_risk_guard_v0` 时由 Python ledger 读取该表并跳过 risk-off 次日买单。
 14. `scripts/strategy1/diagnose_acceptance_gate_v2.py` 与 `sql/strategy1/acceptance/qa_acceptance_gate_v2_outputs.sql`：按 `model_acceptance_contract_v2` 只读生成验收门 v2、10/20/30/40 组合可行性、eligible benchmark 和 score orientation audit artifact；不训练、不改 prediction、不写 ADS。
-15. `sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql`：校验 Cloud Run Python `ledger_exec_v1_lot100` 的整数手成交、odd-lot 清仓、below-lot 跳单、现金和 summary lot 参数。
+15. `sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql`：校验 Cloud Run Python lot-aware ledger 的整数手成交、odd-lot 清仓、below-lot 跳单、现金和 summary lot 参数。
 16. `sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql` 与 `sql/strategy1/qa/qa_ledger_resume_consistency.sql`：校验 Cloud Run Python `ledger_exec_v1_lot100` resume child 与 full fresh continuous parent 的同窗口切片逐日一致，并检查 parent state、resume metadata、ledger version、resume policy、原始 rebalance anchor 和 next-open 边界。
+17. `sql/strategy1/qa/qa_topdown_construction_outputs.sql`：校验 `ledger_exec_v2_lot100_topdown` 的自上而下整手构造参数、零现金缩股、P1 标记生效、full-rank 输入完整性和超深度持仓卖出失败追溯。
 
 当前限制：
 
 1. 训练面板 SQL 由 runner config 的 `training_panel_step` 指定；基础面板为 `build_training_panel_base`，风险特征面板为 `build_training_panel_risk_feature`。
 2. candidate / portfolio / order 仍使用 `sql/strategy1/execution/**` BigQuery SQL。
-3. Python ledger 默认仍为 fresh-start；resume 路径已实现并通过 PRD_20260611_08 research-only 验收，但每次作为正式分段结果使用前仍必须显式 owner 批准并跑 resume QA。`ledger_exec_v1_lot100` 是 Python-only 执行语义，不再要求与 SQL FLOAT-shares runner 等价。
+3. Python ledger 默认仍为 fresh-start；resume 路径已实现并通过 PRD_20260611_08 research-only 验收，但每次作为正式分段结果使用前仍必须显式 owner 批准并跑 resume QA。`ledger_exec_v1_lot100` / `ledger_exec_v2_lot100_topdown` 都是 Python-only 执行语义，不再要求与 SQL FLOAT-shares runner 等价。
 4. Cloud Run Jobs、Artifact Registry、IAM 和服务账号需按本文部署，不在代码中保存任何凭据。
 
 ## 2. 本地 dry-run
@@ -191,6 +192,27 @@ python -m quant_ashare.strategy1.sql_runner \
 ```
 
 2026-06-11 PRD_08 验收证据：parent backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，cut `2024-12-31`，next open `2025-01-02`，anchor `2021-01-04`；resume child execution `strategy1-backtest-report-job-82454` 成功，`qa_cloudrun_ledger_resume_outputs` job `eb99f350-feb4-4fdc-977d-d2e6b7c74201` 与 `qa_ledger_resume_consistency` job `8b2b1e17-42ad-44d2-8318-9f283c26eee2` 均通过；验收产物只写 `ashare_research`，同 run/backtest 在 ADS 为 0 行。
+
+自上而下整手组合构造（PRD_20260611_10）手工 backtest：
+
+```bash
+python -m quant_ashare.strategy1.backtest_report \
+  --experiment-id <experiment_id> \
+  --experiment-json <base64-resolved-experiment-json> \
+  --output-dataset-role research \
+  --use-topdown-ledger \
+  --position-floor-count 20 \
+  --walk-depth 50 \
+  --force-replace
+```
+
+执行纪律：
+
+1. `--use-topdown-ledger` 会把 Python ledger 切到 `ledger_exec_v2_lot100_topdown`，并在 summary `metrics_json` 记录 `portfolio_construction_method=topdown_lot100_v2`、`position_floor_count`、`min_position_weight`、`walk_depth` 和 `cash_redistribution=topdown_whole_order_skip_v2`。
+2. v2 ledger 直接读取 `stock_candidate_daily.rank_raw <= walk_depth` 的 full ranked candidates；`portfolio_target_daily` / `order_plan_daily` 仍由既有 SQL 生成兼容产物，不能作为 v2 构造输入解释。
+3. 若要验证 P1 绑定，experiment 的 `tail_risk_profile_id` 必须显式为 `individual_risk_guard_v0` 或 `individual_and_market_risk_guard_v0`；不得修改全局默认 profile。
+4. `backtest_report` 在未传 `--skip-qa` 时会继续跑 `qa_lot_aware_ledger_outputs`，并额外跑 `qa_topdown_construction_outputs`。后者要求零 `FILLED_SCALED_CASH` / `BUY_SKIPPED_BELOW_LOT_AFTER_SCALE`、P1 标记非空且不产生新增 BUY、full-rank 输入覆盖到 `walk_depth`，以及超深度持仓只能由 `SELL_SKIPPED_*` / `PENDING_SELL_CARRY` 解释。
+5. v2 结果仍是 research evidence；是否取代 official 口径、是否进入 accepted baseline 或 promotion，都必须由 owner 单独决策。
 
 年度滚动 pipeline scheduler dry-run：
 
