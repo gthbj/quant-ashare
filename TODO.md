@@ -31,8 +31,11 @@
 - [x] OQ-014：决定是否接受 effective-window annual final refit 结果进入 baseline 评估
   说明：DECISION-20260611-02 已关闭 OQ-014：接受当前 DWS 覆盖下的 effective-window annual final refit / continuous ledger 作为研究复盘与后续策略迭代事实口径，暂不投入 pre-2019 DWS lookback / valuation 覆盖重建。该关闭不等于 accepted baseline：最新 result 的 v3 contract Sharpe=`0.5285475500566089 < 0.70`、Calmar=`0.26464663290635254 < 1.0`，不得 promotion。
 
-- [ ] OQ-010：按 `PRD_20260611_05` 跑尾部风险 Overlay 三组 A/B
-  说明：P1 / P2 / P1+P2 三组 portfolio-only continuous，复用最新 effective-window synthetic prediction run，baseline 不重跑；前置检查 market state 覆盖与 tail-risk 字段可用性，guard 生效性断言为硬门；产出 MaxDD/Calmar/CAGR 对比表、risk-off 期现金占比与 `BUY_SKIPPED_TAIL_RISK` 逐年计数，支撑默认 profile 与暴露管理 PRD 两个决策。结果仅研究口径，不改默认 profile、不 promotion。
+- [x] OQ-010：按 `PRD_20260611_05` 跑尾部风险 Overlay 三组 A/B
+  说明：已在分支 `codex/strategy1-tail-risk-overlay-ab` 实现 `quant_ashare.strategy1.tail_risk_overlay_ab` 与 `qa_tail_risk_overlay_ab_outputs`，并完成 live research-only A/B：A1 `individual_risk_guard_v0`、A2 `market_risk_off_v0`、A3 `individual_and_market_risk_guard_v0` 三组 Cloud Run executions 全部成功，continuous / lot-aware / overlay QA 均通过。结果：A2 将 MaxDD 从 `-0.4548151193656952` 降至 `-0.32883181037211673`，但 CAGR 从 `0.12036528993503204` 降至 `0.0850673652169256`，Calmar 从 `0.26464663290635254` 降至 `0.2586956691345056`；A1/A3 收益损耗更大。ADS 反向验证为 0 行，promotion manifest 为 0 行；结果仅研究口径，不改默认 profile、不 promotion。
+
+- [ ] OQ-010：基于尾部风险 Overlay A/B 结果决定下一步风控路线
+  说明：A2 是唯一值得继续讨论的 overlay（明显降低 MaxDD、但未改善 Calmar），需 owner 决定是否作为后续候选继续优化、仅保留为研究证据，或转向暴露管理 / 仓位控制 PRD；A1/A3 暂不建议设默认。
 
 - [ ] OQ-011：按 `PRD_20260611_06` 做历史数据回填（2010+）与 true-five-year refit 重跑
   说明：ODS 14 endpoint 已从 2010 起可用（2026-06-11 探查证实 `daily`/`daily_basic` 2010-2014 有行）；DWD 价格仅 2015 起，DWS `2015-Q1` 与 `2019-01-02..2019-04-02`（含 `2019-04-01/02` 两个开市日，超出自然 Q1）的 `has_full_history_60d` 全部 FALSE（后者为陈旧标记，重刷该窗口即可修，只刷自然 Q1 会留两天缺口）。Phase A 历史下限前移 + 旗标修复 + `2019-04-03` 后 parity 硬门；Phase B 2021-2024 名义五年 refit 重跑（不重做选参）；Phase C 新 synthetic continuous 对比表交 owner 口径决策。

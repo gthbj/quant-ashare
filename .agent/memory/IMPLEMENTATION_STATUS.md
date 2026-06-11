@@ -6,6 +6,14 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：尾部风险 Overlay 三组 A/B 已实现并完成 live run
+
+- PR #176 已合并到 `main`（merge commit `5c27e28`）。分支 `codex/strategy1-tail-risk-overlay-ab` 实现 `quant_ashare.strategy1.tail_risk_overlay_ab`，用于在 latest effective-window synthetic continuous prediction 流上启动 P1 / P2 / P1+P2 三组 research-only portfolio overlay A/B。
+- 新增 `sql/strategy1/qa/qa_tail_risk_overlay_ab_outputs.sql` 并登记到 `configs/strategy1/active_step_catalog.yml`：preflight 校验 refit-backed synthetic source、market state 全窗口覆盖、tail-risk 必需字段与 actionable rows、`000852.SH` crunch 段覆盖；full QA 逐 arm 校验 A1/A3 的 `BUY_SKIPPED_TAIL_RISK` 生效、A2/A3 risk-off 次日零 filled BUY、`BUY_SKIPPED_MARKET_RISK_OFF` 只出现在 risk-off execution dates，并验证 A2 在 guard 前的 candidate / target 与 baseline 一致。最终对比表补齐 contract Sharpe、回撤 peak/trough、逐年 skip JSON、2024-01-01~02-07 vs `000852.SH` crunch excess。
+- Live run 已完成：preflight job `721577f5-35dc-4609-ab23-683af2e12c5b`；三组 Cloud Run executions 并发提交并全部成功：A1 `strategy1-backtest-report-job-8rqwl`、A2 `strategy1-backtest-report-job-hwqbl`、A3 `strategy1-backtest-report-job-6kbtz`。每组 `qa_continuous_backtest_outputs` 与 `qa_lot_aware_ledger_outputs` 均通过；full overlay QA job `cb94dc74-9e73-4921-b709-d02cae615bb2` 通过。Review follow-up 后复跑 research readiness QA `bqjob_r15d88cd3e8df4d38_0000019eb59868de_1` 和增强版 full overlay QA `bqjob_r6fb9e5810c470426_0000019eb59868de_1`，均通过。
+- A/B 对比结果（baseline 为 `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`）：baseline CAGR=`0.12036528993503204`、MaxDD=`-0.4548151193656952`、Calmar=`0.26464663290635254`、contract Sharpe=`0.5285475500566089`、crunch excess vs `000852.SH`=`-0.1932988013254472`；A1 CAGR=`0.015519449576750333`、MaxDD=`-0.334060926298572`、Calmar=`0.046456943494431885`、contract Sharpe=`0.10665225318579581`、`BUY_SKIPPED_TAIL_RISK=736`、crunch excess=`0.10932302982271269`; A2 CAGR=`0.0850673652169256`、MaxDD=`-0.32883181037211673`、Calmar=`0.2586956691345056`、contract Sharpe=`0.43090287072081357`、`BUY_SKIPPED_MARKET_RISK_OFF=400`、crunch excess=`0.039028737788334156`；A3 CAGR=`0.0070758218915791815`、MaxDD=`-0.3231500757570126`、Calmar=`0.021896395583393673`、contract Sharpe=`0.05132940198167215`、tail-risk skip=`521`、market risk-off skip=`400`、crunch excess=`0.1226915291378361`。
+- 结论口径：A1/A3 证明确实能命中 2024-01~02 crunch 段，但全周期收益损耗和 Calmar 过差，不能设默认；A2 全周期 MaxDD/CAGR 取舍相对可讨论，但 Calmar 也未改善。三组结果均为 research evidence，不改默认 profile、不标 accepted、不 promotion。反向验证确认三组 run/backtest 在 ADS run-scoped 表为 0 行，`research_promotion_manifest` 同 source 为 0 行。
+
 ### 最新补充（2026-06-11）：历史回填 / 调度 Phase2 / ledger resume 三个后续 PRD 已新增
 
 - 分支 `claude/prd-history-scheduler-resume` 新增三个 PRD：`PRD_20260611_06_策略1历史数据回填与TrueFiveYearRefit.md`、`PRD_20260611_07_策略1年度滚动调度Phase2Live化.md`、`PRD_20260611_08_策略1LedgerResume验收闭环.md`。

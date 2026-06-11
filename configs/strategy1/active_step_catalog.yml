@@ -220,7 +220,7 @@ steps:
     current_path: sql/strategy1/qa/qa_continuous_backtest_outputs.sql
     target_path: sql/strategy1/qa/qa_continuous_backtest_outputs.sql
     sql_path: sql/strategy1/qa/qa_continuous_backtest_outputs.sql
-    caller: [manual_runbook, quant_ashare.strategy1.synthetic_continuous]
+    caller: [manual_runbook, quant_ashare.strategy1.synthetic_continuous, quant_ashare.strategy1.tail_risk_overlay_ab]
     output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_synthetic_model_id, p_predict_start, p_predict_end, p_expected_year_count, p_manifest_sha256, p_require_source_refit, p_expected_ledger_version, p_resume_policy_id]
@@ -271,13 +271,30 @@ steps:
     current_path: sql/ml/strategy1/23_qa_lot_aware_ledger_outputs.sql
     target_path: sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql
     sql_path: sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql
-    caller: [quant_ashare.strategy1.backtest_report]
+    caller: [quant_ashare.strategy1.backtest_report, quant_ashare.strategy1.tail_risk_overlay_ab]
     output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_backtest_id, p_run_id, p_predict_start, p_predict_end, p_ledger_version, p_lot_size, p_min_buy_lot, p_min_buy_shares, p_resume_policy_id]
     internal_params: []
     optional_params: {}
     inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, backtest_ledger_state_daily]
+    outputs: []
+    partition_columns: []
+
+  qa_tail_risk_overlay_ab_outputs:
+    stable_name: qa_tail_risk_overlay_ab_outputs
+    status: active
+    execution_mode: manual_tail_risk_overlay_ab_qa
+    current_path: sql/strategy1/qa/qa_tail_risk_overlay_ab_outputs.sql
+    target_path: sql/strategy1/qa/qa_tail_risk_overlay_ab_outputs.sql
+    sql_path: sql/strategy1/qa/qa_tail_risk_overlay_ab_outputs.sql
+    caller: [quant_ashare.strategy1.tail_risk_overlay_ab]
+    output_dataset_role_current: research
+    output_dataset_role_target: research
+    required_params: [p_baseline_run_id, p_baseline_backtest_id, p_prediction_run_id, p_strategy_id, p_synthetic_model_id, p_manifest_sha256, p_predict_start, p_predict_end, p_market_state_version, p_a1_run_id, p_a1_backtest_id, p_a2_run_id, p_a2_backtest_id, p_a3_run_id, p_a3_backtest_id, p_min_tail_risk_skips, p_min_tail_risk_crunch_skips, p_crunch_start, p_crunch_end, p_preflight_only]
+    internal_params: []
+    optional_params: {}
+    inputs: [model_registry, model_prediction_daily, stock_universe_daily, stock_feature_daily, market_state_daily, stock_candidate_daily, portfolio_target_daily, backtest_trade_daily, backtest_nav_daily, backtest_summary]
     outputs: []
     partition_columns: []
 

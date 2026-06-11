@@ -1,3 +1,11 @@
+> 当前交接补充（2026-06-11，GPT-5 Codex）
+> - PR #179 实现 `quant_ashare.strategy1.tail_risk_overlay_ab` 与 `qa_tail_risk_overlay_ab_outputs`，并完成 live research-only A/B：A1 `strategy1-backtest-report-job-8rqwl`、A2 `strategy1-backtest-report-job-hwqbl`、A3 `strategy1-backtest-report-job-6kbtz` 全部成功。
+> - Review follow-up 后增强版 full overlay QA `bqjob_r6fb9e5810c470426_0000019eb59868de_1` 与 research readiness `bqjob_r15d88cd3e8df4d38_0000019eb59868de_1` 均通过；QA-OVERLAY-7/10 已改为逐 arm 硬门，对比表补齐 contract Sharpe、peak/trough、逐年 skip JSON、2024-01~02 vs `000852.SH` crunch excess。
+> - 结果：baseline CAGR `0.12036528993503204` / MaxDD `-0.4548151193656952` / Calmar `0.26464663290635254` / crunch excess `-0.1932988013254472`；A1/A3 在 crunch 段转正（`0.10932302982271269` / `0.1226915291378361`）但全周期收益损耗过大；A2 MaxDD 降到 `-0.32883181037211673`，CAGR 降到 `0.0850673652169256`、Calmar 降到 `0.2586956691345056`、crunch excess `0.039028737788334156`。
+> - 反向验证：三组 run/backtest 在 ADS run-scoped 表为 0 行，`research_promotion_manifest` 为 0 行。本轮结果仅 research evidence，不改默认 profile、不 accepted、不 promotion。
+
+Model: GPT-5 Codex
+
 > 当前交接补充（2026-06-11，Claude Fable 5，第二批）
 > - 新增三个后续工程 PRD：`PRD_20260611_06_策略1历史数据回填与TrueFiveYearRefit.md`（ODS 2010 起历史回填 + 2015Q1/2019Q1 `has_full_history_60d` 旗标修复 + 2021-2024 true-five-year refit 重跑 + 新 synthetic continuous 对比）、`PRD_20260611_07_策略1年度滚动调度Phase2Live化.md`（真实 GCS lease/state、execution 粒度 fanout、candidate-only live smoke）、`PRD_20260611_08_策略1LedgerResume验收闭环.md`（PR #127 已合入但从未验收的 resume 做测试 + research-only 真实数据一致性验收）。
 > - 关键探查事实（2026-06-11 只读 BigQuery）：ODS `daily`/`daily_basic` 已有 2010-2014 行（owner 确认 14 endpoint 从 2010 可用）；DWD 价格 2015 起；DWS `2015-Q1` 全部 150,726 行与 `2019-Q1` 全部 208,007 行 `has_full_history_60d=FALSE`——后者是陈旧标记，DWD 已有 2018 行，重刷 `2019-01-02..2019-04-02` 窗口即可修复（实证缺口含 4-01/4-02 两个开市日，不止自然 Q1），无需新数据。
@@ -22,6 +30,63 @@ Model: Claude Fable 5
 > - DECISION-20260611-02 已关闭 OQ-014：接受 effective-window result 作为研究复盘口径，暂不修 pre-2019 DWS/lookback；但 result 未过 v3 absolute gates，不得标 accepted baseline 或 promotion。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - Tail-risk overlay A/B implementation and live run
+
+### 已完成工作
+
+- 合并 PR #176，merge commit `5c27e28`。
+- 基于 `origin/main@5c27e28` 新建 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-tail-risk-overlay-ab`，分支 `codex/strategy1-tail-risk-overlay-ab`。
+- 新增 `quant_ashare.strategy1.tail_risk_overlay_ab`：research-only，自动发现 latest refit-backed synthetic continuous source，构造 A1 / A2 / A3 三组 overlay arm，可 `--parallel-arms` 并发提交 Cloud Run backtest-report jobs，并串接 continuous / lot-aware / overlay QA。
+- 新增 `qa_tail_risk_overlay_ab_outputs` 并登记 catalog；QA 覆盖 source/preflight、market state 全窗口覆盖、tail-risk required fields、生效性、risk-off 次日零 filled BUY、market skip 只在 risk-off execution dates、A2 guard 前 candidate / target 与 baseline 一致。
+- 更新 Cloud Run runbook，补 Tail-risk overlay continuous A/B dry-run / preflight / execute 示例。
+
+### 重要上下文
+
+- Source synthetic run：`s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`；synthetic model `synth_s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`；input manifest sha256 `bfd1e3c3e251954ae5ffa1a58102570e4c4538a92b24c9c181c7e41368877166`。
+- Baseline backtest：`bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`。
+- Live preflight job：`721577f5-35dc-4609-ab23-683af2e12c5b`。
+- Cloud Run executions：A1 `strategy1-backtest-report-job-8rqwl`、A2 `strategy1-backtest-report-job-hwqbl`、A3 `strategy1-backtest-report-job-6kbtz`，均 succeeded。
+- QA jobs：A1 continuous `e9637a8b-9c04-4d1a-be9e-267ce75ea886` / lot-aware `c6b62f19-daf0-4253-8917-ce4b5d04c790`；A2 continuous `f970f701-d5aa-4efe-8dbd-1e5ac2dd4c6d` / lot-aware `78935e7c-e6cf-45ab-9b00-bab668b8ec42`；A3 continuous `430a0a94-4a86-413b-a9af-38edfa3f46db` / lot-aware `40a8ebb7-3a90-4a2c-9ea7-4c5d6b408dca`；full overlay QA `cb94dc74-9e73-4921-b709-d02cae615bb2`。
+- 结果：A2 是唯一值得继续讨论的 overlay（MaxDD 从 `-0.4548151193656952` 改为 `-0.32883181037211673`，但 CAGR 从 `0.12036528993503204` 降为 `0.0850673652169256`，Calmar 从 `0.26464663290635254` 降为 `0.2586956691345056`）。A1/A3 收益损耗过大，不建议设默认。
+- 本轮没有 promotion；ADS run-scoped 表对三组 run/backtest 反向验证为 0 行，`research_promotion_manifest` 同 source 为 0 行。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/tail_risk_overlay_ab.py`
+- `sql/strategy1/qa/qa_tail_risk_overlay_ab_outputs.sql`
+- `configs/strategy1/active_step_catalog.yml`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `tests/strategy1/test_tail_risk_overlay_ab.py`
+- `tests/strategy1/test_cloudrun_package_entrypoints.py`
+- `tests/strategy1/test_package_boundaries.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- Focused pytest：21 passed；新增 `--parallel-arms` 后 focused pytest：6 passed。
+- BigQuery dry-run：`qa_tail_risk_overlay_ab_outputs.sql` 通过。
+- Research render check：无 `ashare_ads` 残留，命中 `ashare_research.research_backtest_trade_daily`。
+- Live preflight、三组 Cloud Run executions、三组 continuous / lot-aware QA、full overlay QA 均通过。
+- BigQuery 反向验证 ADS run-scoped 表与 promotion manifest 均为 0 行。
+
+### 阻塞项
+
+- 无实现阻塞。是否继续优化 A2、转向暴露管理 PRD，或保持研究证据，需要 owner 决策。
+
+### 下一步建议
+
+- 不要把任何 overlay profile 直接设为默认。若继续沿风控路线推进，优先讨论 A2 的风险收益取舍，或另写暴露管理 / 仓位控制方案。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - Effective-window result decision
 

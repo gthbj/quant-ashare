@@ -146,6 +146,21 @@ def _entrypoint_args(tmp_path: Path) -> dict[str, list[str]]:
             "--skip-tail-risk",
             "--skip-qa",
         ],
+        "tail_risk_overlay_ab": [
+            "--dry-run",
+            "--run-version",
+            "vunit",
+            "--prediction-run-id",
+            "unit_synthetic_run",
+            "--synthetic-model-id",
+            "unit_synthetic_model",
+            "--manifest-sha256",
+            "unit_manifest_sha",
+            "--baseline-run-id",
+            "unit_synthetic_run",
+            "--baseline-backtest-id",
+            "bt_unit_synthetic_run",
+        ],
     }
 
 
@@ -179,6 +194,7 @@ def _run_module(module: str, args: list[str]) -> subprocess.CompletedProcess[str
         "refit_register_predict",
         "synthetic_continuous",
         "backtest_report",
+        "tail_risk_overlay_ab",
     ],
 )
 def test_package_entrypoint_help_smoke(entrypoint: str) -> None:
@@ -198,6 +214,7 @@ def test_package_entrypoint_help_smoke(entrypoint: str) -> None:
         "refit_register_predict",
         "synthetic_continuous",
         "backtest_report",
+        "tail_risk_overlay_ab",
     ],
 )
 def test_package_entrypoint_dry_run_plan_is_json(entrypoint: str, tmp_path: Path) -> None:
