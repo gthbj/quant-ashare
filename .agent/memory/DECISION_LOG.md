@@ -2989,3 +2989,42 @@ PR #171 后 review follow-up 审计确认：annual final refit 旧实现以 sele
 ### 相关文件
 
 `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`, `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`, `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
+
+## DECISION-20260611-02: 接受 annual effective-window 结果作为研究复盘口径
+
+日期: 2026-06-11
+状态: active
+负责人: owner-delegated execution
+Agent ID: Codex
+模型: GPT-5 Codex
+
+### 背景
+
+PR #173 已合并并完成 live 重跑：2021-2026 dedicated refit panel、final refit、synthetic continuous merge、single continuous ledger 和 continuous QA 全部通过。该链路消除了旧 selection panel 的内部交易日缺口，但 2021-2024 refit 训练起点被 effective floor 截到 `2019-04-03`，不是名义完整五年窗口。最新 official continuous 指标为 compound annual return `0.12036528993503204`、max drawdown `-0.4548151193656952`、information ratio `0.5420201365046585`。只读复核显示 synthetic registry 仍为 `status='selected'` 且无 acceptance 状态；按 v3 contract 公式，contract Sharpe `0.5285475500566089 < 0.70`，Calmar `0.26464663290635254 < 1.0`。
+
+### 决策
+
+1. 接受当前 effective-window annual final refit / continuous ledger 作为本轮正式研究复盘与后续策略迭代的事实口径。
+2. 暂不投入修复 / 重建 pre-2019 DWS lookback 与历史 valuation 覆盖来追求 true pre-2019 名义五年窗口。
+3. 本结果不得标记为 accepted production baseline，不得 promotion 到 ADS；acceptance / promotion 仍必须另行按 contract 与 owner-approved promotion 流程完成。
+4. 后续若需要 true five-year annual evidence，可重新打开专项 PRD / OQ，先修复 DWS/lookback 覆盖，再重跑 dedicated panel / refit / continuous。
+
+### 理由
+
+当前工程目标是完成年度 final refit 与 single continuous ledger 的可执行、可审计闭环。Effective-window 结果已经通过现有 refit 和 continuous QA，足以支持策略复盘和下一轮实验设计；但它既不是名义完整五年窗口，也未通过 v3 absolute performance gates，因此不应升级为 production accepted baseline。
+
+### 影响
+
+1. OQ-014 可关闭为“接受 effective-window 研究口径；不追求当前轮 true pre-2019 五年窗口”。
+2. OQ-010 仍开放，下一步应基于 effective-window official continuous 指标做策略改进，而不是 promotion。
+3. 记忆和 TODO 必须继续保留 caveat：2021-2024 不是名义完整五年 refit。
+
+### 备选方案
+
+- 立即修复 / 重建 DWS lookback 与历史 valuation 覆盖后重跑 true five-year：不采用，范围更大且不改变当前结果未通过 v3 acceptance 的事实。
+- 将 effective-window 结果标为 accepted baseline：不采用，已实证 v3 contract Sharpe 和 Calmar 不达标，且 synthetic registry 没有 acceptance 状态。
+- 完全废弃本轮结果：不采用，因为 dedicated panel / refit / continuous QA 均通过，作为研究复盘事实有效。
+
+### 相关文件
+
+`.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/archive/CLOSED_QUESTIONS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
