@@ -146,6 +146,33 @@ def run_refit_register_predict(
             "source panel coverage does not cover refit/predict window: "
             f"{trade_dates.min()}..{trade_dates.max()} vs {refit_start}..{predict_end}"
         )
+    open_train_dates = load_open_trade_dates(
+        client,
+        config.project,
+        start_date=refit_start,
+        end_date=refit_end,
+    )
+    open_predict_dates = load_open_trade_dates(
+        client,
+        config.project,
+        start_date=predict_start,
+        end_date=predict_end,
+    )
+    _assert_panel_covers_open_dates(
+        panel_dates=trade_dates,
+        open_dates=open_train_dates,
+        context="source panel refit train window",
+    )
+    _assert_panel_covers_open_dates(
+        panel_dates=trade_dates[panel["target_label"].notna()],
+        open_dates=open_train_dates,
+        context="source panel refit labeled train window",
+    )
+    _assert_panel_covers_open_dates(
+        panel_dates=trade_dates,
+        open_dates=open_predict_dates,
+        context="source panel prediction window",
+    )
 
     feature_frame, feature_columns = feature_frame_from_panel(panel)
     panel = panel.reset_index(drop=True)
@@ -361,6 +388,48 @@ def load_source_panel(
             bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
         ],
     )
+
+
+def load_open_trade_dates(
+    client: bigquery.Client,
+    project: str,
+    *,
+    start_date: str | date,
+    end_date: str | date,
+) -> list[date]:
+    frame = query_dataframe(
+        client,
+        f"""
+        SELECT cal_date
+        FROM `{project}.ashare_dim.dim_trade_calendar`
+        WHERE exchange = 'SSE'
+          AND is_open = 1
+          AND cal_date BETWEEN @start_date AND @end_date
+        ORDER BY cal_date
+        """,
+        [
+            bigquery.ScalarQueryParameter("start_date", "DATE", _date_value(start_date)),
+            bigquery.ScalarQueryParameter("end_date", "DATE", _date_value(end_date)),
+        ],
+    )
+    return [_date_value(value) for value in frame["cal_date"].tolist()]
+
+
+def _assert_panel_covers_open_dates(
+    *,
+    panel_dates: pd.Series,
+    open_dates: list[date],
+    context: str,
+) -> None:
+    if not open_dates:
+        raise RuntimeError(f"{context} has no SSE open dates")
+    panel_date_set = set(pd.to_datetime(panel_dates).dt.date)
+    missing = [trade_date for trade_date in open_dates if trade_date not in panel_date_set]
+    if missing:
+        raise RuntimeError(
+            f"{context} is missing {len(missing)} SSE open dates: "
+            f"first={missing[0]}, last={missing[-1]}"
+        )
 
 
 def _date_value(value: str | date) -> date:

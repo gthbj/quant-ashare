@@ -6,6 +6,16 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：年度滚动结果 review follow-up 与 source panel 覆盖护栏
+
+- 针对 PR #171 后 review 发现，已基于 `origin/main@00f2265` 独立审计六个 annual selection source panel。结论：review 对 `2019Q1` 缺口和旧 QA 只查端点的判断成立，且 live 数据还暴露更多内部缺口。
+- BigQuery 审计结果：2021/2022/2023 的 source selection panel 在 final-refit 训练窗口内均缺 `2019-01-02..2019-04-02`（2019Q1 全缺、2019Q2 缺 `2019-04-01` / `2019-04-02`）；2024/2025 因 hotfix 从 `2019-04-03` 起步避开该段。DWS 实证显示 `strategy1_pv_v0_20260601` 在 `2019-01-02..2019-04-02` 有 feature/sample 行但 `has_full_history_60d=0`，2018 backfill 行存在且 2018 月度有 `has_full_history_60d=TRUE`，因此 `2019-04-03` override 是对齐当前可训练首日，不是根因修复。
+- 同一审计还发现 source selection panel 存在 selection split / label-embargo 内部缺口，例如 2021 source panel 缺 2019 年末 5 个开市日、2022 缺 2020 年末 5 个开市日、2023 缺 2021 年末 5 个开市日、2024 缺 2022 年末 5 个开市日、2025 缺 2023 年末 5 个开市日、2026 缺 2024 年末 5 个开市日。旧 `qa_refit_register_predict_outputs` 只要求 `MIN/MAX` 覆盖，因此不会拦截这类内部洞。
+- 已加护栏：`refit_register_predict` 执行前会读取 SSE 交易日历并断言 source panel 在 refit train window 的每个开市日都有 labeled train 行、prediction source window 的每个开市日都有 panel 行；`qa_refit_register_predict_outputs` 增加 source panel labeled train 行 / prediction 每个开市日覆盖断言，防止端点覆盖再次误报通过。
+- 新增 `OQ-014`：owner 需决定是否接受当前 annual official continuous 结果仅作为已生成/diagnostic evidence，或重建 DWS/lookback、dedicated refit panel 后重跑六年 refit + continuous。OQ-014 关闭前，不得把当前结果升级为 accepted baseline 或 promotion source。
+- 集中自主决策清单：`2019-04-03` 起点 override（现标注为 observed alignment / root cause pending）、`strategy1-train-predict-job` 升到 `8 CPU / 32Gi` 以解决 2025/2026 OOM、rehearsal pre-refit continuous 在 official 后补跑（diagnostic only，不影响 official hash/ledger）、年度 fresh diagnostic backtest 跳过（optional，最终评价只用 single continuous ledger）、synthetic continuous backtest 显式跳过默认 diagnosis/tail-risk/default QA 并外接专用 QA。
+- 失败 / 跳过门清单：2024 refit 首轮因 source panel 覆盖不足失败；2025/2026 refit 首轮因 16Gi memory limit 失败；official synthetic merge 首轮因 BigQuery partition filter 失败；`QA-CONT-6` valid-window lineage/scope 两轮失败后修复并重跑；年度 fresh diagnostic backtest 未执行；synthetic run 默认 `10/12/20` QA/诊断按 PRD_03 设计跳过。
+
 ### 最新补充（2026-06-11）：年度滚动正式化全流程执行完成
 
 - PR #166 已合并到 `main`（merge commit `7b2bd67`），修复 PRD_02 首轮 refit 暴露的 2024+ 问题：2019 final-refit 起点显式 override 为 `2019-04-03`，scheduler / runbook refit 资源口径改为 `8 CPU / 32Gi`。

@@ -1,4 +1,4 @@
-> 文档维护：Claude Fable 5（最近更新 2026-06-11）
+> 文档维护：Claude Fable 5；Post-implementation note：GPT-5 Codex（最近更新 2026-06-11）
 
 # PRD：策略 1 年度滚动 Final Refit
 
@@ -84,6 +84,8 @@ label embargo 规则不变：`label_horizon=5` 的训练样本必须保证未来
 - 冻结 matrix 与其 `preprocess.joblib` 对 refit 一律只读不复用，继续作为 selection run 的 audit 产物。
 
 实现 PR 必须包含前置断言：panel 的日期覆盖区间 ⊇ refit 窗口；不满足时 fail-fast，禁止静默缩窗。
+
+> Post-implementation note（2026-06-11）：live review follow-up 已推翻“selection panel 连续覆盖 refit 窗口”这个实现假设。审计确认 source selection panel 在 refit 训练窗口内存在内部交易日缺口：2021/2022/2023 均缺 `2019-01-02..2019-04-02`，且多个年份存在 selection split / label-embargo 造成的年末缺口。后续 refit QA / 执行必须按 SSE 开市日做内部覆盖断言；OQ-014 关闭前，不得把本轮 official continuous 结果当作完整 final-refit 窗口已实证覆盖的 accepted baseline。
 
 ### 5.2 Refit 执行步骤
 

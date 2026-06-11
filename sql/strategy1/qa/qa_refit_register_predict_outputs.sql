@@ -45,6 +45,49 @@ ASSERT (
 ) AS 'QA-REFIT-3: source panel must cover refit train and prediction windows';
 
 ASSERT (
+  WITH expected_open_days AS (
+    SELECT cal.cal_date AS trade_date
+    FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS cal
+    WHERE cal.exchange = 'SSE'
+      AND cal.is_open = 1
+      AND cal.cal_date BETWEEN p_refit_train_start AND p_refit_train_end
+  ),
+  source_panel_days AS (
+    SELECT tp.trade_date
+    FROM `data-aquarium.ashare_ads.ads_ml_training_panel_daily` AS tp
+    WHERE tp.run_id = p_source_panel_run_id
+      AND tp.trade_date BETWEEN p_refit_train_start AND p_refit_train_end
+      AND tp.target_label IS NOT NULL
+    GROUP BY tp.trade_date
+  )
+  SELECT COUNT(*) > 0
+    AND COUNTIF(source_panel_days.trade_date IS NULL) = 0
+  FROM expected_open_days
+  LEFT JOIN source_panel_days USING (trade_date)
+) AS 'QA-REFIT-4: source panel must have labeled rows for every SSE open day in the refit train window';
+
+ASSERT (
+  WITH expected_open_days AS (
+    SELECT cal.cal_date AS predict_date
+    FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS cal
+    WHERE cal.exchange = 'SSE'
+      AND cal.is_open = 1
+      AND cal.cal_date BETWEEN p_predict_start AND p_predict_end
+  ),
+  prediction_days AS (
+    SELECT pred.predict_date
+    FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
+    WHERE pred.run_id = p_run_id
+      AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
+    GROUP BY pred.predict_date
+  )
+  SELECT COUNT(*) > 0
+    AND COUNTIF(prediction_days.predict_date IS NULL) = 0
+  FROM expected_open_days
+  LEFT JOIN prediction_days USING (predict_date)
+) AS 'QA-REFIT-5: refit predictions must have rows for every SSE open day in the predict window';
+
+ASSERT (
   SELECT COUNT(*) > 0
     AND MIN(pred.predict_date) = p_predict_start
     AND MAX(pred.predict_date) = p_predict_end
@@ -52,7 +95,7 @@ ASSERT (
   FROM `data-aquarium.ashare_ads.ads_model_prediction_daily` AS pred
   WHERE pred.run_id = p_run_id
     AND pred.predict_date BETWEEN p_predict_start AND p_predict_end
-) AS 'QA-REFIT-4: refit predictions must cover the exact predict window';
+) AS 'QA-REFIT-6: refit predictions must cover the exact predict boundary';
 
 ASSERT (
   SELECT COUNT(*) = 1
@@ -65,7 +108,7 @@ ASSERT (
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
     AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
-) AS 'QA-REFIT-5: refit metrics_json must preserve selected candidate, source panel, and preprocess fit lineage';
+) AS 'QA-REFIT-7: refit metrics_json must preserve selected candidate, source panel, and preprocess fit lineage';
 
 ASSERT (
   SELECT COUNT(*) = 1
@@ -75,4 +118,4 @@ ASSERT (
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
     AND JSON_VALUE(reg.model_params_json, '$.run_id') = p_run_id
-) AS 'QA-REFIT-6: refit preprocess artifacts must belong to the refit run';
+) AS 'QA-REFIT-8: refit preprocess artifacts must belong to the refit run';
