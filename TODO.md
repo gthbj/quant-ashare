@@ -28,8 +28,11 @@
 - [x] OQ-010：按 `PRD_20260611_03` 实现 synthetic continuous merge 与正式 continuous ledger
   说明：PR #167/#168/#169/#170 已合并 synthetic continuous 能力、partition-filter hotfix、valid-window lineage hotfix 与 `QA-CONT-6` scope 修复。Official synthetic merge 已用 `--force-replace` 成功写入 registry rows=`1` / prediction rows=`2643406`（最新 insert job `f566b4dd-14b8-4419-8225-4747adcb045a`，resolved manifest sha256=`2062d93544dd7c2bd12566f42da0ad3c973b5c6a63f00f4cd1c72a3a5269ba97`）；single continuous ledger 已成功（Cloud Run execution `strategy1-backtest-report-job-w5k24`）；`qa_continuous_backtest_outputs` 已通过（job `843cfc18-054a-4910-b303-61e47f82f249`）；`qa_lot_aware_ledger_outputs` 已通过（job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`）。正式结果：total_return=`0.5012920494620134`，compound_annual_return=`0.08110633748103813`，max_drawdown=`-0.45925758365200664`，information_ratio=`0.3510127136837824`。Rehearsal pre-refit continuous 已补跑并通过 QA（diagnostic only）：execution `strategy1-backtest-report-job-s88hz`，continuous QA `ae56421b-e316-492e-be5b-48584c7917c5`，lot-aware QA `3a98e8d0-5ace-4a74-8170-36ac71e68ca9`。年度 fresh diagnostic backtest 是 optional，本轮未重跑；最终评价只用 single continuous ledger。
 
+- [ ] OQ-014：决定并处理年度 final refit source panel 内部缺口
+  说明：2026-06-11 review follow-up 已审计确认，当前 source selection panel 在 refit 训练窗口内存在内部缺口：2021/2022/2023 均缺 `2019-01-02..2019-04-02`，且多个年份存在 selection split / label-embargo 年末缺口。`2019-04-03` override 只是对齐当前 DWS / panel 首个可训练日，不是根因修复。已给 refit Python 执行和 `qa_refit_register_predict_outputs` 增加每个 SSE 开市日覆盖断言；后续需 owner 决定接受当前 official continuous 仅作 diagnostic/provisional，还是重建 DWS/lookback 或 dedicated refit panel 后重跑六年 refit + continuous。OQ-014 关闭前，不得把本轮结果标记 accepted baseline 或 promotion source。
+
 - [ ] OQ-010：基于 official continuous 结果决定下一轮策略改进或 accepted baseline 路线
-  说明：2021-2026 official continuous 只产出数据与 QA 事实，尚未宣称 accepted baseline。若继续推进，需围绕特征、候选空间、风控或 acceptance gate 做独立方案，不得把本轮结果直接 promotion 或标 accepted。
+  说明：2021-2026 official continuous 只产出数据与 QA 事实，尚未宣称 accepted baseline。若继续推进，需先处理 OQ-014 的 source panel 内部覆盖口径，再围绕特征、候选空间、风控或 acceptance gate 做独立方案；不得把本轮结果直接 promotion 或标 accepted。
 
 - [x] OQ-010：实现回测复合年化收益字段
   说明：PR #134 已扩展 ADS summary 契约并在 `09` 写出 `compound_annual_return` / `return_period_count` / annualization metadata，`10` 和 `24` QA 校验 `NAV 有效交易日数 - 1` 口径，report 默认展示复合年化；旧 `annual_return` / `sharpe` 保留 legacy 语义，不回填历史 run。

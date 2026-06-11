@@ -1,11 +1,65 @@
 > 当前交接补充（2026-06-11，GPT-5 Codex）
-> - PR #166 已合并并部署正式 Strategy1 runner 镜像 `sha256:e379fdccb49281ec628f389de261929d37e60906b51538132b350314ba8db9da`；五个 jobs 已更新，`strategy1-train-predict-job` 已提升到 `8 CPU / 32Gi`，六个 boot smoke（含 `refit_register_predict --help`）均成功。
-> - `v20260610_02` final refit 六年全部完成：2021/2022/2023 首轮成功，hotfix 后 2024/2025/2026 成功（executions `strategy1-train-predict-job-5s49j` / `mx272` / `d6g52`）；六年 `qa_refit_register_predict_outputs` 全部 succeeded。
-> - PRD_03 official continuous 已闭环：PR #170 合并后 `qa_continuous_backtest_outputs` 通过（job `843cfc18-054a-4910-b303-61e47f82f249`），lot-aware QA 通过（job `0b5ec09d-0aad-41e3-871e-67766f2a4f5c`）；official synthetic merge latest insert job `f566b4dd-14b8-4419-8225-4747adcb045a`，resolved manifest sha256=`2062d93544dd7c2bd12566f42da0ad3c973b5c6a63f00f4cd1c72a3a5269ba97`。
-> - Official single continuous summary（非年度拼接）：`bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，`2021-01-04..2026-06-09`，total_return=`0.5012920495`，compound_annual_return=`0.0811063375`，max_drawdown=`-0.4592575837`，IR=`0.3510127137`。
-> - Rehearsal pre-refit continuous 也已补跑并通过 QA：merge insert job `36465e3e-90b6-43d6-b538-350f102311ac`，backtest execution `strategy1-backtest-report-job-s88hz`，continuous QA `ae56421b-e316-492e-be5b-48584c7917c5`，lot-aware QA `3a98e8d0-5ace-4a74-8170-36ac71e68ca9`；年度 fresh diagnostic backtest 为可选项，本轮未重跑。
+> - PR #171 后 review follow-up 已独立核验：`qa_refit_register_predict_outputs` 和 `refit_register_predict.py` 旧逻辑只查 source panel / prediction 的日期端点，不能发现内部交易日缺口。
+> - BigQuery 审计确认 2021/2022/2023 source selection panel 均缺 `2019-01-02..2019-04-02`；DWS `strategy1_pv_v0_20260601` 在该段有 feature/sample 行但 `has_full_history_60d=0`，2018 backfill 行存在，说明 `2019-04-03` override 只是对齐当前首个可训练开市日，不是根因修复。
+> - 审计还发现多个年份的 source selection panel 有 selection split / label-embargo 造成的内部年末缺口；OQ-014 已新增，关闭前不得把本轮 annual official continuous 结果升级为 accepted baseline 或 promotion source。
+> - 已加护栏：refit Python 执行前按 SSE 开市日检查 source panel 覆盖；训练窗口要求每天都有 labeled 行，prediction source window 要求每天都有 panel 行；`qa_refit_register_predict_outputs` 增加 labeled train / prediction 每个开市日覆盖断言。
+> - Official continuous 结果仍可作为已生成结果记录：`bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，CAGR=`0.0811063375`，MaxDD=`-0.4592575837`，IR=`0.3510127137`；但解释口径必须带 OQ-014 caveat。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - Annual refit source-panel coverage review follow-up
+
+### 已完成工作
+
+- 基于 `origin/main@00f2265` 在干净 worktree 审计 PR #171 后 review 的两条发现。
+- BigQuery 按六个 annual selection source panel 与 SSE 交易日历对账，确认 review 指出的 `2019Q1` panel 空洞成立，并发现 selection split / label-embargo 内部年末缺口。
+- `src/quant_ashare/strategy1/refit_register_predict.py` 已新增 SSE 开市日覆盖检查，source panel 在 refit train window 任一开市日缺 labeled 行、或 prediction source window 任一开市日缺 panel 行都会 fail-fast。
+- `sql/strategy1/qa/qa_refit_register_predict_outputs.sql` 已新增 source panel labeled train 行与 refit prediction 的逐开市日覆盖断言，不再只依赖 min/max 日期端点。
+- 新增 `tests/strategy1/test_refit_panel_coverage_contract.py`，锁住 Python helper 与 SQL QA 覆盖断言。
+- 新增 `OQ-014`，并在 `KNOWN_CONSTRAINTS.md` / `TODO.md` / PRD_02 post-implementation note 中写明：`2019-04-03` override 是 observed alignment，不是根因修复；OQ-014 关闭前不得把本轮结果标记 accepted baseline 或 promotion source。
+
+### 重要上下文
+
+- 当前 official continuous 结果是已生成并已通过旧 QA 的事实记录，但 source selection panel 并未覆盖完整 refit 训练窗口。后续 owner 需选择接受当前结果为 diagnostic/provisional，或重建 DWS/lookback / dedicated refit panel 后重跑六年 refit + continuous。
+- 集中自主决策清单已写入 `IMPLEMENTATION_STATUS.md`：`2019-04-03` 起点 override、train-predict 升 `8 CPU / 32Gi`、rehearsal 后置补跑、年度 diagnostic skipped、synthetic run 跳过默认 QA/诊断并外接专用 QA。
+- 失败 / 跳过门清单也已集中写入 `IMPLEMENTATION_STATUS.md`：2024 refit panel coverage failure、2025/2026 OOM、synthetic partition filter failure、`QA-CONT-6` 两轮 failure、年度 diagnostic skipped、synthetic 默认 `10/12/20` QA/诊断 skipped。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/refit_register_predict.py`
+- `sql/strategy1/qa/qa_refit_register_predict_outputs.sql`
+- `tests/strategy1/test_refit_panel_coverage_contract.py`
+- `docs/prd/PRD_20260611_02_策略1年度滚动FinalRefit.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests`：122 passed。
+- Focused pytest：`tests/strategy1/test_refit_panel_coverage_contract.py`、package entrypoint、catalog、SQL render 合计 37 passed。
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_refit_register_predict_outputs.sql`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `python3 -m compileall -q src scripts tests`：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- OQ-014 需要 owner 决策；当前 PR 只补护栏和记录，不重建 DWS / panel，不重跑 annual refit 或 continuous ledger。
+
+### 下一步建议
+
+- 合并本 follow-up 后，优先决定 OQ-014：若要把年度结果推进 accepted baseline，需要先实现 dedicated refit panel 或 DWS/lookback 重算并重跑六年 refit + continuous。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - Annual rolling official continuous results
 
