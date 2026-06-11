@@ -6,6 +6,13 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：尾部风险 Overlay 三组 A/B PRD 已新增
+
+- 分支 `claude/prd-tail-risk-overlay-ab` 新增 `docs/prd/PRD_20260611_05_策略1尾部风险OverlayAB.md`：在最新 effective-window synthetic prediction 流上做 P1（`individual_risk_guard_v0`）/ P2（`market_risk_off_v0`）/ P1+P2 三组 portfolio-only continuous A/B，baseline 为既有 official continuous（`diagnostic_only`），零训练、零 merge。
+- 动机：official MaxDD `-45.48%`，回撤窗口 `2021-10-21→2024-02-07` 分解为 beta≈-36pp + 超额损失≈-10pp（疑似集中 2024-01~02 踩踏段）；同时执行"P1 设默认前必须 full-period A/B"的既有约束前置。
+- 关键设计：复用 synthetic run（manifest 解析、禁止硬编码 id）、official 同款 skip-flags 执行模式、guard 生效性断言为硬门、risk-off 期现金占比曲线量化隐性减仓；产出对比表支撑两个后续决策（默认 profile / 暴露管理 PRD 立项）。
+- 本轮 docs/记忆-only，未改代码、未执行 BigQuery / Cloud Run。
+
 ### 最新补充（2026-06-11）：年度 final refit dedicated panel / effective-window continuous 已重跑完成
 
 - PR #173 已合并到 `main`（merge commit `f1abf46`），OQ-014 的工程缓解进入主线：annual resolved plan 在 `cloudrun_select_register_predict` 后新增 `build_refit_training_panel`，用 `__refit01` run_id 构建 dedicated refit panel；`cloudrun_refit_register_predict` 的 `--source-panel-run-id` 指向同一 refit run，`--source-run-id` 仍指向 selection run 用于 selected candidate lineage。
