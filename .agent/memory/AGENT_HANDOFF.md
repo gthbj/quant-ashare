@@ -9,6 +9,16 @@
 
 Model: GPT-5 Codex
 
+> 当前交接补充（2026-06-11，GPT-5 Codex，PRD_09）
+> - 分支 `codex/signal-ic-transfer-analysis` 已完成 PRD_20260611_09 信号 IC 分解与组合转换效率分析：新增只读脚本 `scripts/strategy1/analyze_signal_ic_decomposition.py`、兼容入口 `scripts/strategy1/analyze_transfer_ladder.py`、报告 `docs/分析-策略1信号IC分解与转换效率-20260611.md` 与四份结果 CSV。
+> - 全程 BigQuery 只读：读取 official synthetic prediction run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`、official backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`、DWS labels/features/market state、DWD price/index 和 research target/position；未写 `ashare_research` / ADS / promotion。
+> - 关键结论：5d raw rank IC=`0.040908`、NW t=`5.586351`，2021-2026 年度 IC 全正；市值中性后 IC 保留 `90.52%`，行业 snapshot 参考保留 `88.20%`。L0 score-weighted long/short no-cost Sharpe=`2.800047`（20bps 后 `1.807056`）；新增 L0.5 top-decile long-only IR=`0.509749`，L1/L2/L3 long-only IR 约 `0.491`/`0.544`/`0.486`。
+> - Review follow-up 修正了旧 TC 伪迹：TC 改为 full prediction universe 域，平均 `TC_target=0.712888`、`TC_realized=0.628765`；target 与 score-weighted Top20 名字重合率均值/最小值均 `100%`，L3-L2 IR 差仅 `-0.058363`，等权替代分数权重不是优先瓶颈。真实执行缺口来自持仓覆盖率/现金路径：realized/target 覆盖率均值 `81.51%`、最小 `5%`，TC 行内 `official_cash_weight` 均值 `29.07%`。
+> - 现金交叉核验已做实：NAV 表 `cash_cny/net_value_cny` 与 `1-sum(position.weight)` 最大差 `2.22e-16`、差异天数 `0`，NAV 现金权重均值 `29.36%`，现金 >50% 交易日 `265` 天。全周期 `BUY_SKIPPED_BELOW_LOT=690`，最低覆盖执行日 `2021-12-27` 的 20 个 BUY 全部 `BUY_SKIPPED_BELOW_LOT`，指向小资金 + 100 股整手约束造成的结构性现金拖累，而不是测量伪迹。
+> - L3 paper 与 official daily_return corr=`0.913059`，但 paper CAGR 比 official 高 `2.90pp`、MaxDD 比 official 差 `12.30pp`；报告已声明 paper ladder 只作转换效率上界/分解，不等同正式回测。OQ-010 路线决策仍留 owner，本轮不 accepted、不 promotion。
+>
+> Model: GPT-5 Codex
+
 > 当前交接补充（2026-06-11，Claude Fable 5，PRD_09）
 > - 新增 `docs/prd/PRD_20260611_09_策略1信号IC分解与组合转换效率.md`：纯只读研究分析 PRD，把度量衡从组合 NAV 切换到信号层。动机：组合超额 t≈1.26（统计上不显著）而六个 refit 模型 valid rank IC 六年全正（`0.039~0.098`、日度 ICIR `0.30~0.81`），指向"信号真实、转换浪费"。
 > - Part A IC 分解五维：按年（真 OOS）/ 市值+行业中性化 / market regime / 分数分位（多头侧 vs 空头侧贡献）/ horizon 1/5/10/20d 衰减；前向收益直接读 `dws_stock_label_daily` 的同口径标签并按 `label_valid_{h}d` 过滤；所有 t 值须 NW / block bootstrap 修正。
@@ -80,6 +90,66 @@ Model: Claude Fable 5
 > - DECISION-20260611-02 已关闭 OQ-014：接受 effective-window result 作为研究复盘口径，暂不修 pre-2019 DWS/lookback；但 result 未过 v3 absolute gates，不得标 accepted baseline 或 promotion。
 
 Model: GPT-5 Codex
+
+## 2026-06-11 GPT-5 Codex - PRD_09 signal IC transfer efficiency analysis
+
+### 已完成工作
+
+- 基于 `origin/main@d411144` 新建 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-signal-ic-analysis`，分支 `codex/signal-ic-transfer-analysis`。
+- 新增 `scripts/strategy1/analyze_signal_ic_decomposition.py`，实现 PRD_09 的 Part A IC decomposition 与 Part B transfer ladder；`scripts/strategy1/analyze_transfer_ladder.py` 为兼容入口，复用同一实现，避免两套逻辑漂移。
+- 新增报告 `docs/分析-策略1信号IC分解与转换效率-20260611.md` 与四份 CSV：IC summary、daily IC、transfer ladder results、transfer coefficients。CSV 因仓库 `*.csv` ignore 规则需 `git add -f` 纳入 PR。
+- 本地执行时安装了缺失的 `google-cloud-bigquery-storage` 用户级 Python 依赖，用于加速 BigQuery Storage API 结果读取；未改仓库依赖文件。
+
+### 重要上下文
+
+- official synthetic prediction run：`s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`；official backtest：`bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`；窗口 `2021-01-04..2026-06-09`；label version `open_to_close_h1_5_10_20_v20260601`；feature version `strategy1_pv_v0_20260601`；market state version `market_state_v1_20260607`；benchmark `000852.SH`。
+- 初次运行曾因默认 `strategy_id=strategy1_lgbm_v1` 查不到 synthetic registry join；只读断点查询确认 registry 实际 `strategy_id=ml_pv_clf_v0`，脚本默认值已修正为 `ml_pv_clf_v0`，仍可 CLI 覆写。
+- Part A 结果：5d raw rank IC=`0.040908`，NW t=`5.586351`；年度 5d IC 全正（2021=`0.030861`、2022=`0.027927`、2023=`0.016943`、2024=`0.064402`、2025=`0.055560`、2026 YTD=`0.062493`）；市值中性后 IC=`0.037032`，保留 raw `90.52%`；snapshot 行业参考中性后 IC=`0.036080`，保留 `88.20%`。
+- Regime / bucket：risk_off IC=`0.030273` 但 NW t=`1.189055`，risk_on IC=`0.058193`；top/bottom decile 5d spread=`0.7486pp`，short-side contribution share=`52.51%`，未超过 60% 阈值。
+- Part B：L0 score-weighted long/short no-cost annual Sharpe=`2.800047`，20bps 成本后 `1.807056`；L0.5 top-decile long-only IR=`0.509749`，L1/L2/L3 long-only IR 分别约 `0.491` / `0.544` / `0.486`。L3-L2 IR 差=`-0.058363`，L1-L2 IR 差=`-0.053236`，宽度从 top decile 收到 Top50/Top20 没有形成第二个悬崖。
+- Review follow-up 修正旧 TC 伪迹：非零并集相关会退化为对等权常数向量求相关，不能解释为 `TC≈0`。现改用 full prediction universe 域并补 membership 诊断：平均 `TC_target=0.712888`、`TC_realized=0.628765`；target 与 score-weighted Top20 名字重合率均值/最小值均 `100%`，说明目标组合成员资格忠实于信号，等权替代分数权重不是优先瓶颈。执行层缺口用 realized/target 覆盖率与现金解释：覆盖率均值 `81.51%`、最小 `5%`，TC 行内 `official_cash_weight` 均值 `29.07%`。
+- 交叉核验确认 official 现金不是 join 伪迹：NAV `cash_cny/net_value_cny` 与 `1-sum(position.weight)` 最大差 `2.22e-16`，差异天数 `0`；NAV 现金权重均值 `29.36%`，现金 >50% 交易日 `265` 天。全周期 `BUY_SKIPPED_BELOW_LOT=690`；最低覆盖执行日 `2021-12-27` 的 20 个 BUY 全部为 `BUY_SKIPPED_BELOW_LOT`。
+- L3 paper 与 official daily_return corr=`0.913059`，但 paper CAGR 比 official 高 `2.90pp`、MaxDD 比 official 差 `12.30pp`；报告明确 paper ladder 只用于转换效率上界/分解，不等同 official ledger。
+- 全程 BigQuery 只读，未写任何 dataset，未改 run/backtest，未 accepted，未 promotion。OQ-010 路线决策仍留 owner。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_signal_ic_decomposition.py`
+- `scripts/strategy1/analyze_transfer_ladder.py`
+- `tests/strategy1/test_signal_ic_transfer_analysis.py`
+- `docs/分析-策略1信号IC分解与转换效率-20260611.md`
+- `docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`
+- `docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`
+- `docs/analysis_strategy1_transfer_ladder_20260611_results.csv`
+- `docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- Live read-only analysis：`python3 scripts/strategy1/analyze_signal_ic_decomposition.py` 成功生成报告和四份 CSV。
+- `python3 scripts/strategy1/analyze_signal_ic_decomposition.py --help` 与 `python3 scripts/strategy1/analyze_transfer_ladder.py --help` 均成功。
+- `python3 -m pytest -q tests/strategy1/test_signal_ic_transfer_analysis.py tests/strategy1/test_exposure_overlay_upper_bound.py`：16 passed。
+- `python3 -m py_compile scripts/strategy1/analyze_signal_ic_decomposition.py scripts/strategy1/analyze_transfer_ladder.py`：通过。
+- `python3 -m compileall -q scripts/strategy1 tests/strategy1`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无实现阻塞。本报告不关闭 OQ-010，不替 owner 做下一步策略路线决策。
+
+### 下一步建议
+
+- 基于 PRD_09 结果，下一步优先讨论组合转换方向：long-only 相对多空的约束损耗、真实 ledger 的 100 股整手 / 小资金现金拖累、以及是否需要把 target 名字忠实但实际持仓覆盖不足的问题纳入后续组合/执行层改造；等权 Top20 和 Top50 扩宽暂非优先瓶颈。
+- 不建议把本次 paper ladder 数值当正式回测结果；任何策略默认/accepted/promotion 仍需独立 PRD、真实 ledger 与 QA。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-11 GPT-5 Codex - Cloud Run ledger resume acceptance
 
