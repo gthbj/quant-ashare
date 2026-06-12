@@ -155,6 +155,9 @@
 - [x] OQ-010 / 工程治理：实现 `PRD_20260612_04` 工程护栏与测试补强
   说明：分支 `codex/prd04-guardrails` 已完成七项护栏并完成 PR #202 Claude review F2-F11 代码修复：CA dividend staleness fail-fast、active step catalog 必填键、指标定义 freeze、11 对 window SQL 同构 guard、四入口 experiment resolver 合一、acceptance/selection/train_predict 纯函数表驱动测试、pytest repo-root/src scaffold 与仓库外 collect-only 支持。验证：全量 pytest 266 passed、Dataform SQLX check、`git diff --check`、仓库外 collect-only 266 collected、`qa_corporate_action_ledger_outputs.sql` BigQuery dry-run 通过；未改训练/回测/组合语义，未写生产 BQ。
 
+- [x] OQ-010 / 工程治理：实现 `PRD_20260612_05` Strategy1 包结构 Phase E 收尾 Batch 1
+  说明：分支 `codex/prd05-batch1` / PR #203 已完成 Batch 1：`bq_io.py` / `config.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径改为兼容 shim；runner `__version__` 改由 src 定义并从 scripts re-export；src 内对 `bq_io` / `config` / `dataset_roles` / `acceptance` / `__version__` 的反向 import 清零。`tests/strategy1/test_package_boundaries.py` 已固化兼容符号快照与 Batch 1 反向 import 计数断言。验证：全量 pytest 268 passed、package boundary 6 passed、五个 package entrypoint 干跑 16 passed、retired linter / compileall / Dataform check / `git diff --check` 均通过。未改训练/回测/组合语义，未触碰 Cloud Run job spec/args/镜像/IAM；Batch 2/3 仍为后续独立 PR。
+
 - [ ] OQ-010 / 数据治理：owner 决定是否补采 dividend ODS `2026-05-28..2026-06-09` 并复核 CA-on baseline
   说明：PR #202 review 实跑发现现存 CA-on baseline 的 `QA-CA-LEDGER-0` 会失败，`ods_tushare_dividend` 当前 max partition/date 为 `2026-05-27`，缺口为 `2026-05-28..2026-06-09`。PR #202 只保留并修正断言口径与 dry-run 编译验证，不执行 BigQuery/GCS 写入；补采与 baseline 复核留 owner 决策。
 
