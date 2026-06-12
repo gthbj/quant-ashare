@@ -81,6 +81,26 @@ def test_resolve_run_ids_prefers_true5y_current_research_baseline_fixture() -> N
     assert backtest_id == "bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01"
 
 
+def test_resolve_run_ids_can_pair_latest_ca_backtest_with_existing_prediction() -> None:
+    memory_text = """
+### 最新补充（2026-06-12）：baseline 数字切换为 CA-on 口径
+
+- DECISION-20260612-03 已切 CA-on baseline：backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`；baseline ≠ accepted。
+
+### 最新补充（2026-06-12）：研究 baseline 切换为 true-five-year continuous（DECISION-20260612-02）
+
+- Owner 采纳 true-five-year continuous 为策略 1 研究 baseline：run
+  `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`、
+  backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`；
+  effective-window continuous 降级为历史参照。
+"""
+
+    prediction_run_id, backtest_id = phase0.resolve_run_ids_from_memory_text(None, None, memory_text)
+
+    assert prediction_run_id == "s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01"
+    assert backtest_id == "bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01"
+
+
 def test_rebalance_t1_skips_p1_and_replaces_with_next_candidate() -> None:
     cfg = make_cfg(end_date="2026-01-05")
     prices = pd.DataFrame(

@@ -191,14 +191,17 @@ def resolve_run_ids_from_memory_text(
 
 
 def find_baseline_ids(memory_text: str) -> tuple[str | None, str | None]:
+    baseline_prediction_id: str | None = None
+    baseline_backtest_id: str | None = None
     for chunk in baseline_context_chunks(memory_text):
-        prediction_id = first_pattern_match(PREDICTION_RUN_ID_PATTERN, chunk)
-        backtest_id = first_pattern_match(BACKTEST_ID_PATTERN, chunk)
-        if prediction_id and backtest_id:
-            return prediction_id, backtest_id
-    return first_pattern_match(PREDICTION_RUN_ID_PATTERN, memory_text), first_pattern_match(
-        BACKTEST_ID_PATTERN,
-        memory_text,
+        if baseline_prediction_id is None:
+            baseline_prediction_id = first_pattern_match(PREDICTION_RUN_ID_PATTERN, chunk)
+        if baseline_backtest_id is None:
+            baseline_backtest_id = first_pattern_match(BACKTEST_ID_PATTERN, chunk)
+        if baseline_prediction_id and baseline_backtest_id:
+            return baseline_prediction_id, baseline_backtest_id
+    return baseline_prediction_id or first_pattern_match(PREDICTION_RUN_ID_PATTERN, memory_text), (
+        baseline_backtest_id or first_pattern_match(BACKTEST_ID_PATTERN, memory_text)
     )
 
 

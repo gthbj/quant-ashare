@@ -1,3 +1,9 @@
+> 当前交接补充（2026-06-12，GPT-5.5，PR #199 确认轮微修）
+> - 复核 Claude commit `1fa12c4` 时发现 resolver 真实记忆解析仍回落 CA-off：已改为可从最高优先级 CA-on 段取 backtest、从后续段补 prediction，并新增真实记忆形态 fixture；实测解析到 `bt_..._ca01`。
+> - `TODO.md` 删除残留的旧 true-five-year baseline open 路线项；本轮未改 ledger 默认值、未跑 live/BigQuery 写入、未 promotion、未改默认 profile。
+>
+> Model: GPT-5.5
+
 > 当前交接补充（2026-06-12，Claude Fable 5，DECISION-20260612-03）
 > - PRD_20260612_02 全三阶段收口：Phase C CA-on 重跑 `bt_..._ca01` 三套 QA 通过，六项偏差分解桥 unexplained < 1e-9pp。owner 三项决策落地为 DECISION-20260612-03：baseline 数字切 CA-on（CAGR `15.35%`/Sharpe `0.6682`/Calmar `0.4101`）、"未复权简化"约定 superseded、后续实验一律显式 CA-on（代码默认 none_v1 不变）。
 > - v3 gates：Sharpe 距 0.70 门 0.032、Calmar 未过——baseline ≠ accepted；剩余缺口为真实 alpha/结构（OQ-010）。
@@ -11,6 +17,56 @@
 > - Phase C QA 全过：continuous job `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware job `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger job `37674e4f-06ee-4998-9d1e-75ace14cb965`。报告 `docs/分析-Ledger CA 重跑对照-20260612.md` 已产出；CA-on contract Sharpe `0.6682`、Calmar `0.4101`，仍未 accepted / promotion。
 >
 > Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - PR #199 确认轮复核与微修
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-decision`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `claude/decision-ca-baseline`
+Run ID: N/A
+相关 issue/PR: PR #199
+
+### 已完成工作
+
+- 按 owner 要求拉取 Claude 裁决回帖并同步 `claude/decision-ca-baseline` 到 commit `1fa12c4`。
+- 逐条复核 5 条 review 发现：tail_risk_overlay_ab 显式 CA-on、KNOWN_CONSTRAINTS 去重/拆黏、AGENT_HANDOFF 完整条目已到位；复核时发现 resolver 真实记忆解析仍回落 CA-off，且 TODO 仍残留旧 true-five-year baseline open 项。
+- 直接微修 resolver：`find_baseline_ids()` 允许从最高优先级 CA-on baseline 段落取 backtest，再从后续最佳 baseline 段补 prediction；新增 fixture 覆盖“DECISION-20260612-03 只有 CA-on backtest、DECISION-20260612-02 同时有 prediction+CA-off backtest”的真实记忆形态。
+- 删除 `TODO.md` 残留旧 true-five-year baseline open 路线项，保留已纳入 CA-on 的当前 OQ-010 路线项。
+
+### 重要上下文
+
+- 本轮未改 ledger 默认值：`corporate_actions` 代码默认仍为 `none_v1`；只在实验编排/解析纪律上保证 CA-on。
+- 未执行 live / BigQuery 写入，未 promotion，未改默认 profile。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_topdown_lot_phase0.py`
+- `tests/strategy1/test_topdown_lot_phase0.py`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_topdown_lot_phase0.py`：9 passed。
+- 真实项目记忆解析实测返回 `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`。
+- `PYTHONPATH=src python3 -m pytest -q tests`：201 passed。
+- `python3 -m compileall -q src scripts tests`：passed。
+- `git diff --check`：passed。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提交、push，并在 PR #199 comment 给出确认轮结论。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-12 Claude Fable 5 - 六 PR 合并队列 + DECISION-20260612-03 CA-on baseline 落地（PR #199）
 

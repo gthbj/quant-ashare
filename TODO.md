@@ -83,9 +83,6 @@
   说明：PR #194 量化触发预登记判据（true5y 修正 CAGR +1.86pp、Calmar +0.055）。`corporate_actions` 参数化（默认 `none_v1` 记账输出逐字节不变），红利税主口径 `flat_10pct`；Phase A DWD 事件表（canonical 聚合）+ hfq 交叉校验 → Phase B ledger + 参数传播清单 + 默认回归 → Phase C true5y CA 重跑三方对照（六项偏差分解）。排在 PRD_10 Phase 2 之前；单门通过不触发 accepted。
 
 
-- [ ] OQ-010：基于 true-five-year baseline 决定下一轮策略改进或 accepted baseline 路线
-  说明：2021-2026 effective-window official continuous 与 true-five-year continuous 都已成为 research evidence，但都尚未 accepted。Effective-window：compound CAGR=`0.12036528993503204`，MaxDD=`-0.4548151193656952`，legacy Sharpe=`0.6132671411257953`，v3 contract Sharpe=`0.5285475500566089`，contract Calmar=`0.26464663290635254`。True-five-year：compound CAGR=`0.13852596798718442`，MaxDD=`-0.37189972934558946`，legacy Sharpe=`0.6834026126199905`，v3 contract Sharpe=`0.6075887294330015`，contract Calmar=`0.3724820349585642`。True-five-year 明显改善但仍未过 v3 hard gates（contract Sharpe `<0.70`、contract Calmar `<1.0`）。DECISION-20260612-02 已采纳 true-five-year 为研究 baseline（effective-window 降级为历史参照，OQ-011 关闭）；下一步围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案。不得把任一结果直接 promotion 或标 accepted。
-
 - [x] OQ-010：实现回测复合年化收益字段
   说明：PR #134 已扩展 ADS summary 契约并在 `09` 写出 `compound_annual_return` / `return_period_count` / annualization metadata，`10` 和 `24` QA 校验 `NAV 有效交易日数 - 1` 口径，report 默认展示复合年化；旧 `annual_return` / `sharpe` 保留 legacy 语义，不回填历史 run。
 
