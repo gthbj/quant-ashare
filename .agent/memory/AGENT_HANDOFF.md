@@ -1,10 +1,82 @@
-> 当前交接摘要（2026-06-12，GPT-5.5，PRD_20260612_05 Batch 2）
-> - `codex/prd05-batch2` 已完成 Batch 2 代码与测试：`state.py` / `task_fanout.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径保留兼容 shim。
-> - src 对 `scripts.strategy1_cloudrun.state` / `task_fanout` 的反向 import 已清零；Batch 2 后剩余 src→scripts import 仅限 Batch 3 范围 `feature_sets` / `preprocess` / `orchestrate_annual_rolling_selection`。
-> - `annual_pipeline_scheduler.py` 已复用迁入后的 state helpers，并恢复 `GcloudExecutionClient.describe` 失败 `LOGGER.warning`；三类锁语义仅补 docstring 出处注记，未合并 reclaim/heartbeat 行为。
-> - 新增 fake GCS lease 单测与 Batch 2 兼容符号快照；本轮未触碰 Cloud Run job spec/args/镜像/IAM，未写 BigQuery/GCS；全量验证已通过，PR #204 已创建。
+> 当前交接摘要（2026-06-12，GPT-5.5，dividend backfill + CA resume）
+> - `codex/dividend-backfill-resume` 已完成 dividend 独立 backfill manifest / endpoint group，`current_scope` 显式排除 `dividend_backfill`，每日调度行为不变。
+> - 已通过 `ashare-ingest-current-scope` 补采 `ods_tushare_dividend` 开市日 `2026-05-28..2026-06-12` 共 12 个分区，重建 dwd/12 与 qa/14，QA-CA-EVENT-1..6 通过。
+> - 已从 CA-on parent `2026-05-27` state resume child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`；research-only 输出，lot-aware QA / CA ledger QA 通过，ADS 与 promotion 反查为 0。
+> - 差异归因闭合：两条新增现金分红净现金 `+68.4` CNY，position/share 差异 0；拼接指标 CAGR `0.15357789449949522`、contract Sharpe `0.668539787795112`、Calmar `0.41030930550903105`。Claude review 已通过 PR #205 技术面，owner 预先决策影响很小则采纳；展示数字修正已采纳，未改 `DECISION-20260612-03` 文本。
 >
 > Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - dividend ODS backfill and CA resume
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-div-backfill`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/dividend-backfill-resume`
+Run ID: `s1_dividend_backfill_resume_20260528_20260609_v20260612_01`
+相关 issue/PR: PR #202 comment `4692136310`；PR #205
+
+### 已完成工作
+
+- 新增独立 dividend backfill manifest / endpoint group，并让 `current_scope` alias 显式排除 `dividend_backfill`，避免每日调度捡走 dividend。
+- 构建 ingestion image `sha256:35acbc363408d05dd758d70ba5f293e8b0d333a000c6dfe8e8143ddadd0b8bba` 后，用 Cloud Run job `ashare-ingest-current-scope` 补采 `2026-05-28..2026-06-12` 12 个 SSE 开市日。
+- 重建 `sql/dwd/12_dwd_stock_dividend_event.sql` 与 `sql/qa/14_corporate_action_event_checks.sql`；QA-CA-EVENT-1..6 通过。
+- 从 parent `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 的 `2026-05-27` state resume 到 child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，Cloud Run execution `strategy1-backtest-report-job-tjn4j` 成功。
+- 新增交付报告 `docs/分析-dividend-ODS补采与CA-Resume补跑-20260612.md`，包含补采执行记录、QA、差异归因表和拼接指标。
+
+### 重要上下文
+
+- child 只写 `ashare_research`；ADS nav/trade/position/state/summary 与 promotion manifest 反查均为 0 行。不得 promotion，不标 accepted。
+- `qa_cloudrun_ledger_resume_outputs` 现有 catalog SQL 后半段仍包含 parent/child 等值断言；本轮 full run 预期失败于 `Full and resume NAV metrics differ`，结构 subset 8 个 ASSERT 通过。
+- 差异归因闭合：新增 `002756.SZ` 2026-05-29 与 `001314.SZ` 2026-06-02 两条现金分红，税前 `76.0`、税 `7.6`、净现金 `68.4`；position/share 差异 0，非 CA 仅两条未成交 planned_shares 尾差且现金影响 0。
+- 拼接 parent NAV `2021-01-04..2026-05-27` + child NAV `2026-05-28..2026-06-09` 后，CAGR=`0.15357789449949522`、contract Sharpe=`0.668539787795112`、Calmar=`0.41030930550903105`、MaxDD=`-0.3742978588042647`。本轮不改 `DECISION-20260612-03` 文本。
+- 采纳结论：Claude review 已通过 PR #205 技术面，owner 预先决策影响很小则采纳；本轮展示数字修正采纳为 CAGR `15.36%` (`0.153578`) / contract Sharpe `0.6685` / Calmar `0.4103` / MaxDD 不变，`DECISION-20260612-03` 文本不改。
+
+### 改动文件
+
+- `configs/ingestion/ods_dividend_backfill_v0.yml`
+- `configs/ingestion/schema_contracts/dividend.json`
+- `configs/ods_schema_contracts/dividend.yml`
+- `scripts/ingestion/endpoints/corporate_actions.py`
+- `scripts/ingestion/common/endpoint_runner.py`
+- `scripts/ingestion/run_ingestion_job.py`
+- `tests/ingestion/test_dividend_backfill_manifest.py`
+- `docs/分析-dividend-ODS补采与CA-Resume补跑-20260612.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/ingestion/test_dividend_backfill_manifest.py`：2 passed。
+- local dry-run：dividend backfill plan 使用 `partition_endpoint=dividend`、`partition_date=20260528`、GCS prefix `api=dividend/endpoint=dividend/partition_date=20260528/`。
+- local current_scope dry-run：27 个 endpoint partitions，无 dividend。
+- ODS backfill 后 `2026-05-28..2026-06-12` 共 `1215` 行，2024/2025 同期 `1182`/`1184` 行；ingestion meta `12` 条 success。
+- dwd/12 job `manual_dividend_dwd12_rebuild_20260612_01`；qa/14 job `manual_dividend_ca_event_qa_20260612_01`，QA-CA-EVENT-1..6 通过。
+- resume child Cloud Run execution `strategy1-backtest-report-job-tjn4j` 成功，research NAV/state 各 9 行，summary metadata 匹配 parent / CA / resume 参数。
+- QA：`qa_lot_aware_ledger_outputs` job `b697f4dc-1eaf-4eff-9df1-23e04fb809ac` passed；`qa_corporate_action_ledger_outputs` job `beefe3d8-0022-4aa9-a224-37eb82931760` passed；cloudrun resume structure subset job `bqjob_r8fe2168bb9d0164_0000019ebc5bb4d6_1` passed。
+- ADS nav/trade/position/state/summary 反查 0 行，`research_promotion_manifest` 0 行。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 合并前 rebase 到最新 `origin/main`，冲突按 main 最新记忆结构重新并入本 PR 条目与 baseline 数字修正。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
 
 ## 2026-06-12 GPT-5.5 - PRD_20260612_05 Batch 2 package cleanup
 
@@ -141,57 +213,3 @@ Run ID: N/A
 - `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
 - `TODO.md`
 
-## 2026-06-12 GPT-5.5 - PR #201 pre-merge rebase after PR #202
-
-日期: 2026-06-12
-Agent ID: Codex
-Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd03`
-模型: GPT-5.5
-运行环境: macOS / zsh / branch `codex/prd03-memory-archive`
-Run ID: N/A
-相关 issue/PR: PR #201；PR #202；PRD_20260612_03
-
-### 已完成工作
-
-- 将 `codex/prd03-memory-archive` rebase 到 `origin/main@a5ca9e5`（PR #202 已合并）。
-- 按 PRD_03 滚动结构处置 #202 新记忆内容：`IMPLEMENTATION_STATUS.md` 按小节日期重切最近 7 条，`AGENT_HANDOFF.md` 保留当前条目 + PR #202 两条交接，超出条目按月归档。
-- 保留 #202 在 `KNOWN_CONSTRAINTS.md` 新增的 dividend 过渡政策条款；`TODO.md` 中 PRD_20260612_04 工程护栏完成项和 dividend backfill 待办继承自 `main`。
-
-### 重要上下文
-
-- 本轮只做合并前 rebase、记忆滚动归档和验证，不修改 resolver 代码，不执行 BigQuery/GCS 写入，不触碰 Cloud Run job spec/镜像/IAM。
-- PR #202 F1 数据缺口仍留 owner 决策：现存 CA-on baseline 的 dividend 数据缺口为 `2026-05-28..2026-06-09`，补采与 baseline 复核不在 PR #201 范围。
-
-### 改动文件
-
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-
-### 测试 / 验证
-
-- DECISION id 集合对账：before=`99`、after main index=`99`、missing=`0`、extra=`0`。
-- 决策全文归档按 ID 对账：before=`99`、archive=`99`、missing=`0`、extra=`0`、text_mismatches=`0`。
-- `IMPLEMENTATION_STATUS.md` 编年史对账：before=`75`、after main=`7`、archive=`68`、total=`75`，heading multiset match=`True`，nonblank body line multiset match=`True`。
-- PRD_10 / PR #189 小节边界仍保持 review 修复：PRD_10 moved bullets=`5`，PR #189 bullets=`4`。
-- Handoff 滚动对账：origin/main entries=`35`、after main entries=`3`、origin entries missing=`0`；PRD_03 实现 handoff 已归档。
-- #202 记忆继承检查：`KNOWN_CONSTRAINTS.md` dividend 过渡政策存在；`TODO.md` PRD_04 完成项与 dividend ODS 补采待办存在。
-- `PYTHONPATH=src python3 -m pytest -q tests`：266 passed。
-- 真实项目记忆解析实测返回 CA-on baseline：`s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`。
-- `git diff --check`：passed。
-
-### 阻塞项
-
-- 无。
-
-### 下一步建议
-
-- 对账与 pytest 通过后，提交、`--force-with-lease` 推送 PR #201，并在 PR 回帖最新结果。
-
-### 已更新记忆文件
-
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`

@@ -161,8 +161,11 @@
 - [x] OQ-010 / 工程治理：实现 `PRD_20260612_05` Strategy1 包结构 Phase E 收尾 Batch 2
   说明：分支 `codex/prd05-batch2` / PR #204 已完成 Batch 2：`state.py` / `task_fanout.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径改为兼容 shim；src 内对 `state` / `task_fanout` 的反向 import 清零。`annual_pipeline_scheduler.py` 复用迁入后的 state helpers，`GcloudExecutionClient.describe` 恢复失败 warning；三类锁语义只补 docstring 出处注记，未合并 reclaim / heartbeat 行为。新增 fake GCS lease 单测与 Batch 2 兼容符号快照；全量 pytest 275 passed，package boundary / package entrypoint / retired linter / compileall / Dataform check / `git diff --check` 均通过。本轮未改训练/回测/组合语义，未触碰 Cloud Run job spec/args/镜像/IAM，未写 BigQuery/GCS。Batch 3 仍为后续独立 PR。
 
-- [ ] OQ-010 / 数据治理：owner 决定是否补采 dividend ODS `2026-05-28..2026-06-09` 并复核 CA-on baseline
-  说明：PR #202 review 实跑发现现存 CA-on baseline 的 `QA-CA-LEDGER-0` 会失败，`ods_tushare_dividend` 当前 max partition/date 为 `2026-05-27`，缺口为 `2026-05-28..2026-06-09`。PR #202 只保留并修正断言口径与 dry-run 编译验证，不执行 BigQuery/GCS 写入；补采与 baseline 复核留 owner 决策。
+- [x] OQ-010 / 数据治理：补采 dividend ODS `2026-05-28..2026-06-09` 并复核 CA-on baseline
+  说明：owner 已批准并由分支 `codex/dividend-backfill-resume` 执行完成。实际补采 `2026-05-28..2026-06-12` 12 个 SSE 开市日，`ods_tushare_dividend` 合计 `1215` 行；dwd/12 与 qa/14 重建通过；CA-on parent 从 `2026-05-27` state resume 到 child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，research-only QA 与差异归因通过。拼接指标见 `docs/分析-dividend-ODS补采与CA-Resume补跑-20260612.md`。
+
+- [x] OQ-010 / 数据治理：owner / Claude 决定是否采纳 dividend backfill 后的 CA-on baseline 展示数字修正
+  说明：已采纳。Claude review 已通过 PR #205 技术面；owner 预先决策影响很小则采纳。拼接 parent NAV `2021-01-04..2026-05-27` + child NAV `2026-05-28..2026-06-09` 后，v3 contract CAGR=`0.15357789449949522`、Sharpe=`0.668539787795112`、Calmar=`0.41030930550903105`、MaxDD=`-0.3742978588042647`；展示数字改为 CAGR `15.36%` (`0.153578`) / contract Sharpe `0.6685` / Calmar `0.4103` / MaxDD 不变，`DECISION-20260612-03` 文本仍不改。
 
 - [ ] OQ-005：如真实运行暴露 stale-lock 边界，再为 `ashare-pipeline-control` 的 stale-lock reclaim 增加 Workflows execution liveness 检查
 

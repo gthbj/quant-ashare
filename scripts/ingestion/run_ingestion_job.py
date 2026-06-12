@@ -42,9 +42,13 @@ ENDPOINT_GROUPS: dict[str, dict[str, Any]] = {
         "module": "scripts.ingestion.endpoints.finance",
         "endpoints": ["fina_indicator", "income", "balancesheet", "cashflow"],
     },
+    "dividend_backfill": {
+        "module": "scripts.ingestion.endpoints.corporate_actions",
+        "endpoints": ["dividend"],
+    },
 }
 ENDPOINT_GROUP_ALIASES: dict[str, list[str]] = {
-    "current_scope": list(ENDPOINT_GROUPS),
+    "current_scope": ["market_eod", "index_eod", "dim_snapshot", "finance_recent"],
 }
 
 
@@ -126,6 +130,8 @@ def build_plan(
                     "api": endpoint_cfg.get("api", endpoint_cfg["endpoint"]),
                     "variant": variant_name,
                     "partition_endpoint": partition_endpoint,
+                    "business_date_field": endpoint_cfg.get("business_date_field"),
+                    "request_date_param": endpoint_cfg.get("request_date_param"),
                     "partition_date": partition_date,
                     "partition_date_semantics": endpoint_cfg.get("partition_date_semantics"),
                     "request_params": variant.get("params", {}),

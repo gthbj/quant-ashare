@@ -36,7 +36,7 @@ ashare_ods (已有, 外部表)
 - P0 数仓底座、财务三大报表、benchmark 口径、单位契约、ODS schema 防复发、OQ-005 调度迁移与 true-five-year 数据覆盖修复均已完成或关闭。
 - Strategy1 已完成 research-first / promotion 架构、package entrypoint、年度 final refit + synthetic continuous、lot-aware / resume / CA-on ledger 契约链路。
 - 当前研究 baseline 为 true-five-year CA-on：prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`。
-- baseline 指标锚点：CAGR `15.35%`、v3 contract Sharpe `0.6682`、Calmar `0.4101`；仍未过 v3 hard gates，baseline ≠ accepted，不得 promotion。
+- baseline 指标锚点：CAGR `15.36%` (`0.153578`)、v3 contract Sharpe `0.6685`、Calmar `0.4103`、MaxDD 不变；2026-06-12 dividend 补采后 resume 修正，child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，详见 `docs/分析-dividend-ODS补采与CA-Resume补跑-20260612.md`；仍未过 v3 hard gates，baseline ≠ accepted，不得 promotion。
 - 当前开放主线只剩 OQ-010：继续寻找可 accepted 的 Cloud Run Python baseline / 组合构造 / 风控路线。
 - 下一步执行项以 `TODO.md` 为准；完整现状快照见 `IMPLEMENTATION_STATUS.md`。
 

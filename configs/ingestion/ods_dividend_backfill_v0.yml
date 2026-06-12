@@ -1,0 +1,24 @@
+version: 0
+name: ods_dividend_backfill_v0
+description: 手工 dividend ODS 缺口补采清单，不纳入 current_scope 每日调度
+defaults:
+  source_system: tushare
+  enabled: true
+  schema_contract_dir: configs/ingestion/schema_contracts
+  gcs_bucket: data-aquarium
+  gcs_prefix_template: a-share/tushare/raw_data/api={api}/endpoint={partition_endpoint}/partition_date={partition_date}/
+endpoints:
+- endpoint: dividend
+  partition_endpoint: dividend
+  ods_table: ashare_ods.ods_tushare_dividend
+  cadence: manual_backfill
+  business_date_field: ex_date
+  request_date_param: ex_date
+  partition_date_semantics: business_date
+  unit_contract_required: true
+  current_consumer:
+  - dwd_stock_dividend_event
+  qa_required:
+  - corporate_action_event
+  notes: 分红送转事件手工补采；partition_date == ex_date。仅通过显式 dividend_backfill endpoint group 使用。
+  api: dividend
