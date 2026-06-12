@@ -402,7 +402,9 @@ def test_parent_summary_corporate_action_params_default_old_rows_and_fail_fast()
         ]))
 
 
-def test_default_none_v1_run_ledger_outputs_are_byte_identical(monkeypatch) -> None:
+def test_explicit_none_v1_params_preserve_default_run_ledger_outputs(monkeypatch) -> None:
+    """Proves default CA params are neutral; golden hash covers pre-CA payload parity."""
+
     class FixedDatetime(dt.datetime):
         @classmethod
         def now(cls, tz=None):
