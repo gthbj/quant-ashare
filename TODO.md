@@ -10,8 +10,8 @@
 - [x] 排查 `ingestion_run` / `ingestion_partition_status` 零写入与采集告警断档
   说明：已完成（PR #196，2026-06-12）：确诊为采集 Cloud Run 镜像 stale——镜像构建于 2026-06-04 11:50 UTC，早于 status_writer 接线 `60fb242`（15:57 UTC），此后未重建；已重建镜像并补采 000001.SH 06-10/11，meta 表首批落行实证。剩余验证见上一条。
 
-- [ ] 按 `PRD_20260612_01` 执行 BigQuery 数据集清理退役
-  说明：第 1 类清理已于 2026-06-12 完成（删除 `ashare_meta` 5 张 `_repair_val_*` 与 `ashare_qa_windowed_equivalence` 18 张 shadow 表）。Phase B 代码/文档/KNOWN_CONSTRAINTS 改写已在分支 `codex/bq-dataset-cleanup-impl` 完成：退役两个 windowed equivalence parity 脚本、清理 active 引用并加入 catalog ban-list。剩余：实现 PR 合并后手工执行 Phase A `ashare` 整库硬删除（先过 Data Access 审计日志预检）、Phase B scratch 数据集删除、Phase C `ads_ml_training_panel_daily` `s1_bqml%` 旧 run 裁剪（预期 12 run / 36,853,582 行），每步留删除时间戳与前后对账证据（7 天 UNDROP / time travel 窗口）。
+- [x] 按 `PRD_20260612_01` 执行 BigQuery 数据集清理退役
+  说明：全部完成。第 1 类清理 2026-06-12 完成（5 张 `_repair_val_*` + 18 张 shadow 表）；Phase B 代码由 PR #197 合并（退役两个 windowed equivalence 脚本、清理 active 引用、catalog ban-list、KNOWN_CONSTRAINTS 三处改写）；三个 BigQuery 手工操作 2026-06-12 执行完毕并通过对账（证据见 PR #197 comment）：Phase A 审计日志预检通过（30 天仅 owner 与项目 compute SA 的 2026-05-24 遗留写入，05-27 起零活动）后删除 `ashare`（09:41:45Z）；Phase B 删除 `ashare_qa_windowed_equivalence`（09:41:48Z）；Phase C DELETE 36,853,582 行（09:43:35Z，与预期精确一致），post-manifest 13 项全部 IDENTICAL（panel 剩 61 run / 184,596,703 行，registry 151/52、summary 90、models 50 不变）。回滚窗口截止 2026-06-19 ~09:4xZ（UNDROP / time travel，均须 `--location=asia-east2`）。
 
 - [x] OQ-005：合并 2026-06-09 scheduled ODS run 暴露的 Cloud Run Job IAM bootstrap 修正
   说明：已由 PR #126 合并到 `main`。`orchestration/workflows/bootstrap_scheduler_iam.sh` 已固化 runtime SA 的 job-level `roles/run.jobsExecutorWithOverrides`、project-level `roles/run.viewer`，并移除旧 job-level `roles/run.invoker`，避免重新 bootstrap 后复现 scheduled ODS workflow 权限失败。

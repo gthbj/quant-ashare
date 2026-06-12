@@ -1,4 +1,11 @@
-<<<<<<< HEAD
+> 当前交接补充（2026-06-12，Claude Fable 5，PRD_20260612_01 执行收口）
+> - PRD 经 PR #193 三轮 Codex review 收敛合并（merge `d9963cf`）；Phase B 实现 PR #197 经 Claude review 零发现合并（merge `2312f30`，166 pytest 通过）。
+> - 三个 BigQuery 操作已执行并通过对账（证据贴 PR #197 comment）：Phase A 审计日志预检通过（30 天窗口仅 owner 与项目 compute SA 的 2026-05-24 遗留 InsertJob，2026-05-27 起零活动，无外部消费方）后删除 `ashare` @ `2026-06-12T09:41:45Z`；Phase B 删除 `ashare_qa_windowed_equivalence` @ `09:41:48Z`；两者 `bq show` 复核 Not found，项目剩 9 个数据集。
+> - Phase C：DELETE `ads_ml_training_panel_daily` `s1_bqml%` 行 affected=`36,853,582`（与 PRD 预期精确一致），pre/post manifest 13 项全部 IDENTICAL：panel 剩 61 run / `184,596,703` 行、`s1_bqml%`=0；prediction/candidate/target/order/trade/position/NAV/ledger/signal、registry 151/52、summary 90、model 50 全部不变。
+> - 回滚窗口截止 `2026-06-19` ~`09:4x`Z（UNDROP / `FOR SYSTEM_TIME AS OF`，均须 `--location=asia-east2`，DML 另需分区过滤）。TODO 对应项已勾选。本条目同时修复 `0786d97` 带入 main 的 AGENT_HANDOFF 未解冲突标记（双方条目均保留、按时间排序）。
+>
+> Model: Claude Fable 5
+
 > 当前交接补充（2026-06-12，Claude Fable 5，ingestion 镜像 stale 修复）
 > - 确诊 `ashare_meta.ingestion_run` / `ingestion_partition_status` 0 行根因：采集 Cloud Run 镜像 `351dfd99...` 构建于 2026-06-04 11:50 UTC，早于 status_writer 接线 commit `60fb242`（15:57 UTC）约 4 小时，此后从未重建；live 采集成功但镜像内无写表代码。次生后果：镜像内打包的 manifest 缺 `2e4d29b` 新增的 000001.SH variant，ODS 000001.SH 自 06-10 停更，`dws_market_state_daily` 06-10/11 `sse_composite_*` 全 NULL（06-10 `risk_off` 判定为退化输入产物）。
 > - 已重建镜像（新 digest `5c78e862...`，build `8053b0d5`）推 `:latest`，job spec 未动；boot dry-run `4vq5v` 实证新 digest 生效、plan 27 端点含 000001.SH。已补采 000001.SH 06-10/11（executions `zh88k`/`q4prv`/`fr44m`/`v9k6h`），两张 meta 表落首批 4 行 success，ODS 可读。
@@ -46,7 +53,15 @@ Run ID: `manual_backfill_sse_composite_20260610_index_eod` / `manual_backfill_ss
 
 - 20:00 CST 后按 TODO 验证清单复核；若 `ingestion_run` 当日仍无行，查 execution 日志与 BigQuery 写入错误。
 - 考虑给 `scripts/ingestion/**` / `configs/ingestion/**` 变更加 CI 或 PR checklist 强制「重建镜像」步骤（已写入 KNOWN_CONSTRAINTS，流程硬约束待 owner 决定形式）。
-=======
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+
 > 当前交接补充（2026-06-12，GPT-5.5，PRD_20260612_01 Phase B implementation）
 > - 分支 `codex/bq-dataset-cleanup-impl` 已完成 PRD_20260612_01 Phase B 代码层：退役两个 windowed equivalence parity 脚本并移除空 `scripts/qa/`，清理契约测试、`sql/README.md` 示例和 Strategy1 Cloud Run runbook active 前置条件。
 > - `active_step_catalog.yml` 已加入两条退役脚本 ban-list，并补齐相关 `.agent/memory` 历史白名单；`KNOWN_CONSTRAINTS.md` 已把 OQ-005 window parity 与 true-five-year overlap parity 硬门改写为 PRD 定稿口径，BQML audit 条款补充面板裁剪后的复算入口。
@@ -106,17 +121,12 @@ Run ID: N/A
 
 - 提交并推送 `codex/bq-dataset-cleanup-impl`，创建 base `main` 的实现 PR。
 - 实现 PR 合并后，再按 PRD 手工执行 BigQuery Phase A/B/C 清理；执行时必须遵守 `--location=asia-east2`、分区过滤和删除前/后 manifest 对账要求。
->>>>>>> origin/main
 
 ### 已更新记忆文件
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
-<<<<<<< HEAD
-- `TODO.md`
-
-=======
 - `.agent/memory/ARCHITECTURE_MEMORY.md`
 - `TODO.md`
 
@@ -129,7 +139,6 @@ Run ID: N/A
 >
 > Model: Claude Fable 5
 
->>>>>>> origin/main
 > 当前交接补充（2026-06-12，GPT-5 Codex，PR #186 CSV cleanup）
 > - 已按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
 > - 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；CSV 视为可再生成的本地/临时分析产物，不再跟随 git。`docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。
