@@ -59,6 +59,16 @@ CRUNCH_START = "2024-01-01"
 CRUNCH_END = "2024-02-07"
 TRADING_DAYS_PER_YEAR = 252.0
 LOT_SIZE = 100
+PREDICTION_RUN_ID_PATTERN = re.compile(
+    r"\bs1_annual_roll_synth_continuous(?:_true5y)?_2021_2026_n20_w075_v\d{8}_\d+\b"
+)
+BACKTEST_ID_PATTERN = re.compile(
+    r"\bbt_s1_annual_roll_continuous(?:_true5y)?_2021_2026_n20_w075_v\d{8}_\d+\b"
+)
+BASELINE_CONTEXT_PATTERN = re.compile(
+    r"DECISION-20260612-01|研究 baseline|baseline|采纳|切换|current baseline",
+    flags=re.IGNORECASE,
+)
 
 P1_RULE_FIELDS = (
     "ret_20d",
@@ -145,27 +155,77 @@ def fmt_cost_id(value: float) -> str:
 
 
 def resolve_default_run_ids(prediction_run_id: str | None, backtest_id: str | None) -> tuple[str, str]:
-    """Resolve the current effective-window official ids from project memory if omitted."""
+    """Resolve current research baseline ids from project memory if omitted."""
     if prediction_run_id and backtest_id:
         return prediction_run_id, backtest_id
 
     memory_paths = [
-        REPO_ROOT / ".agent/memory/AGENT_HANDOFF.md",
         REPO_ROOT / ".agent/memory/IMPLEMENTATION_STATUS.md",
+        REPO_ROOT / ".agent/memory/DECISION_LOG.md",
+        REPO_ROOT / ".agent/memory/AGENT_HANDOFF.md",
         REPO_ROOT / "TODO.md",
     ]
     memory_text = "\n".join(path.read_text(encoding="utf-8") for path in memory_paths if path.exists())
+    return resolve_run_ids_from_memory_text(prediction_run_id, backtest_id, memory_text)
+
+
+def resolve_run_ids_from_memory_text(
+    prediction_run_id: str | None,
+    backtest_id: str | None,
+    memory_text: str,
+) -> tuple[str, str]:
+    """Resolve current research baseline ids from memory text, preferring baseline decision context."""
+    if prediction_run_id and backtest_id:
+        return prediction_run_id, backtest_id
+
+    baseline_prediction_id, baseline_backtest_id = find_baseline_ids(memory_text)
     if not prediction_run_id:
-        match = re.search(r"\bs1_annual_roll_synth_continuous_2021_2026_n20_w075_v\d{8}_\d+\b", memory_text)
-        if match is None:
+        if baseline_prediction_id is None:
             raise ValueError("--prediction-run-id is required; could not resolve it from project memory")
-        prediction_run_id = match.group(0)
+        prediction_run_id = baseline_prediction_id
     if not backtest_id:
-        match = re.search(r"\bbt_s1_annual_roll_continuous_2021_2026_n20_w075_v\d{8}_\d+\b", memory_text)
-        if match is None:
+        if baseline_backtest_id is None:
             raise ValueError("--backtest-id is required; could not resolve it from project memory")
-        backtest_id = match.group(0)
+        backtest_id = baseline_backtest_id
     return prediction_run_id, backtest_id
+
+
+def find_baseline_ids(memory_text: str) -> tuple[str | None, str | None]:
+    for chunk in baseline_context_chunks(memory_text):
+        prediction_id = first_pattern_match(PREDICTION_RUN_ID_PATTERN, chunk)
+        backtest_id = first_pattern_match(BACKTEST_ID_PATTERN, chunk)
+        if prediction_id and backtest_id:
+            return prediction_id, backtest_id
+    return first_pattern_match(PREDICTION_RUN_ID_PATTERN, memory_text), first_pattern_match(
+        BACKTEST_ID_PATTERN,
+        memory_text,
+    )
+
+
+def baseline_context_chunks(memory_text: str) -> list[str]:
+    chunks = [chunk.strip() for chunk in re.split(r"\n\s*\n", memory_text) if chunk.strip()]
+    scored: list[tuple[int, int, str]] = []
+    for idx, chunk in enumerate(chunks):
+        if not BASELINE_CONTEXT_PATTERN.search(chunk):
+            continue
+        if not PREDICTION_RUN_ID_PATTERN.search(chunk) and not BACKTEST_ID_PATTERN.search(chunk):
+            continue
+        score = 0
+        if "DECISION-20260612-01" in chunk:
+            score += 100
+        if "true5y" in chunk or "true-five-year" in chunk:
+            score += 80
+        if re.search(r"研究 baseline|current baseline|baseline", chunk, flags=re.IGNORECASE):
+            score += 40
+        if "采纳" in chunk or "切换" in chunk:
+            score += 30
+        scored.append((score, idx, chunk))
+    return [chunk for _, _, chunk in sorted(scored, key=lambda item: (-item[0], item[1]))]
+
+
+def first_pattern_match(pattern: re.Pattern[str], text: str) -> str | None:
+    match = pattern.search(text)
+    return match.group(0) if match else None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -175,8 +235,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--project", default=DEFAULT_PROJECT)
     parser.add_argument("--location", default=DEFAULT_LOCATION)
     parser.add_argument("--strategy-id", default=DEFAULT_STRATEGY_ID)
-    parser.add_argument("--prediction-run-id", default=None)
-    parser.add_argument("--backtest-id", default=None)
+    parser.add_argument(
+        "--prediction-run-id",
+        default=None,
+        help="Prediction run id. Omit to resolve the current research baseline from project memory.",
+    )
+    parser.add_argument(
+        "--backtest-id",
+        default=None,
+        help="Backtest id. Omit to resolve the current research baseline from project memory.",
+    )
     parser.add_argument("--start-date", default=DEFAULT_START_DATE)
     parser.add_argument("--end-date", default=DEFAULT_END_DATE)
     parser.add_argument("--feature-version", default=DEFAULT_FEATURE_VERSION)

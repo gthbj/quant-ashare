@@ -6,6 +6,11 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：PR #190 Phase 0 resolver 已兼容 true-five-year research baseline 切换
+
+- 按 PR #192 review 发现 1，`scripts/strategy1/analyze_topdown_lot_phase0.py` 的默认 run/backtest id resolver 已从“effective-window official ids”改为“当前研究 baseline（从记忆解析）”：支持 `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_*` 与 `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_*`，并优先解析含 `DECISION-20260612-01` / “采纳/切换/研究 baseline”语义的记忆段落；找不到 baseline 语义时再回退全文首个匹配。
+- 新增 fixture 单测覆盖同一记忆文本同时存在旧 effective-window ids 与新 true5y ids 时，默认解析返回 true5y。本文只修 resolver 与测试/记忆，不重跑 Phase 0 数据、不改报告数字、不触碰 ledger v1 / Phase 1、不改默认 tail_risk profile、不 promotion。
+
 ### 最新补充（2026-06-12）：PR #190 Phase 0 paper review follow-up 已完成
 
 - `scripts/strategy1/analyze_topdown_lot_phase0.py` 已按 PR #190 review 修订：主判读成本档改为 official matched 分腿费率（买 `6bps`、卖 `11bps`），保留 `0bps` / `20bps` 敏感性；输出逐票持仓审计 `holdings_detail_json`，新增 P1 饱和机制、四通道归因、2022-05 饱和 episode、最差 3 个 10 日窗口持仓明细；集中度主口径改为 NAV 分母并保留持仓内分母对照。

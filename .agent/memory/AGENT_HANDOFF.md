@@ -1,3 +1,59 @@
+> 当前交接补充（2026-06-12，GPT-5.5，PR #190 true5y baseline resolver follow-up）
+> - 按 PR #192 review 发现 1，PR #190 的 `scripts/strategy1/analyze_topdown_lot_phase0.py` 默认 id resolver 已支持 true5y prediction/backtest id，并从“effective-window official ids”改为“当前研究 baseline（从记忆解析）”语义。
+> - resolver 优先解析含 `DECISION-20260612-01` / “采纳/切换/研究 baseline”语义的记忆段落；同一记忆文本同时出现旧 effective-window ids 与新 true5y ids 时，默认返回 true5y。找不到 baseline 语义时回退全文首个匹配。
+> - 新增 fixture 单测，不依赖真实记忆文件；本轮未重跑 Phase 0 数据，未改报告数字，未触碰 `scripts/strategy1_cloudrun/bq_io.py`、ledger v1 / Phase 1、默认 tail_risk profile 或 promotion。
+>
+> Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - PR #190 true5y baseline resolver follow-up
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: 当前本地会话
+模型: GPT-5.5
+运行环境: `/Users/fisher/Desktop/git/quant-ashare`，分支 `codex/strategy1-topdown-phase0`
+Run ID: N/A（未重跑 Phase 0）
+相关 issue/PR: PR #190，关联 PR #192 review comment `4689225423`
+
+### 已完成工作
+
+- 修复 `resolve_default_run_ids()`：支持 `*_true5y_*` id 形状，并优先解析当前研究 baseline 语义段落。
+- 增加 `resolve_run_ids_from_memory_text()` / baseline 段落解析 helper，便于单测用 fixture 文本覆盖，不依赖真实项目记忆文件。
+- 更新 CLI help：省略 `--prediction-run-id` / `--backtest-id` 时从项目记忆解析当前研究 baseline。
+
+### 重要上下文
+
+- 这是 PR #192 的 baseline 切换纪律对 PR #190 的前置兼容修复；本轮没有把 Phase 0 数字切到 true5y 重跑。
+- `scripts/strategy1_cloudrun/bq_io.py` 是 owner 既有未提交改动，本轮未修改、未暂存。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_topdown_lot_phase0.py`
+- `tests/strategy1/test_topdown_lot_phase0.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests/strategy1/test_topdown_lot_phase0.py`
+- `python3 -m py_compile scripts/strategy1/analyze_topdown_lot_phase0.py tests/strategy1/test_topdown_lot_phase0.py`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- PR #192 合入后，后续如 owner 决策重跑 Phase 0，再让脚本默认解析 true5y baseline 并刷新报告/产物。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
 > 当前交接补充（2026-06-12，GPT-5.5，PR #190 Phase 0 review follow-up）
 > - PR #190 的 Phase 0 paper 报告已按多代理 review 修订：主判读改 official matched 分腿费率（买 `6bps`、卖 `11bps`），保留 `0bps` / `20bps` 敏感性；新增逐票持仓审计、P1 饱和机制、四通道归因、2022-05 episode、最差 3 个 10 日窗口持仓明细。
 > - 主结果（`walk_depth=50`, matched official cost）：T0 CAGR `10.91%`、MaxDD `-63.66%`、Calmar `0.171`；T1 CAGR `-2.79%`、MaxDD `-66.32%`、Calmar `-0.042`；T1-T0 CAGR gap `-13.70pp`，crunch excess 改善 `+8.96pp`。20bps 旧口径 gap `-14.81pp` 已作为敏感性保留。

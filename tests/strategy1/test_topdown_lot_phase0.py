@@ -56,6 +56,27 @@ def test_min_buy_shares_ceil_to_lot_threshold() -> None:
     assert phase0.min_buy_shares(100_000.0, 80.0, 0.05) == 100.0
 
 
+def test_resolve_run_ids_prefers_true5y_current_research_baseline_fixture() -> None:
+    memory_text = """
+### 旧记录：effective-window continuous
+
+- 运行口径：run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`
+  / backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`。
+
+### 最新补充（2026-06-12）：研究 baseline 切换为 true-five-year continuous（DECISION-20260612-01）
+
+- Owner 采纳 true-five-year continuous 为策略 1 研究 baseline：run
+  `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`、
+  backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`；
+  effective-window continuous 降级为历史参照。
+"""
+
+    prediction_run_id, backtest_id = phase0.resolve_run_ids_from_memory_text(None, None, memory_text)
+
+    assert prediction_run_id == "s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01"
+    assert backtest_id == "bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01"
+
+
 def test_rebalance_t1_skips_p1_and_replaces_with_next_candidate() -> None:
     cfg = make_cfg(end_date="2026-01-05")
     prices = pd.DataFrame(
