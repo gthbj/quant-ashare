@@ -37,9 +37,17 @@ Last updated: 2026-06-13
 ### 开放主线
 
 - `OPEN_QUESTIONS.md` 只剩 OQ-010：继续寻找可 accepted 的 Cloud Run Python baseline / 组合构造 / 风控路线。
-- PRD_20260611_10 topdown Phase 0 / Phase 2、尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
+- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；门/窗口/分级是否调整仍留 owner 决策。PRD_20260611_10 topdown Phase 0 / Phase 2、尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
+
+### 最新补充（2026-06-13）：PRD_20260613_02 v3 Calmar 门合理性分析已实现
+
+- 分支 `codex/calmar-gate-analysis` 已按 PRD_20260613_02 产出只读分析脚本 `scripts/strategy1/analyze_calmar_gate_feasibility.py`、报告 `docs/分析-策略1v3Calmar门合理性-20260613.md` 和 6 个小 CSV；脚本显式读取 ADS 三表历史 replay 源与 research true5y CA-on baseline NAV，不写 BigQuery/GCS，不改 contract / acceptance / registry。
+- 脚本复用 `replay_acceptance_gate_v3.py` 的复合年化、Sharpe、MaxDD、Calmar 与 relative gate helper，并新增单测覆盖指标对账、canonical backtest 去重和 A/B/C/D option gate 分离；未新增 metric freeze 清单内本地指标定义。
+- 关键读数：8 指数长窗 Calmar 区间 `-0.1024..0.1089`，replay 短窗 `0.6557..1.3868`；当前 true5y CA-on baseline 拼接口径长窗 Calmar `0.4103` / Sharpe `0.6685`，短窗 Calmar `1.1041` / Sharpe `1.4636`；当前 CA-on NAV 上重算的无摩擦 exposure 上界最优 `two_state_biweekly_elow0_cost0bps` Calmar `0.6455` / Sharpe `0.7478`；历史 canonical Top5 replay 仍为 `1 accepted / 24 rejected`。
+- 预登记判读：因当前 CA-on exposure 上界 `0.6455 > 0.5`，长窗“物理不可达”强判据未完全成立；但长窗 beta/baseline 均远低于 1.0，短窗/滚动窗出现 1.0 量级读数，核心结论收敛为“v3 Calmar 门高度窗口敏感，owner 需先钉死 production acceptance 窗口，再决定 A/B/C/D 门方案或分级”。本轮不做门变更、不 promotion、不标 baseline accepted。
+- 验证通过：`PYTHONPATH=src python3 -m pytest -q tests`（281 passed）；`git diff --check`；脚本实跑成功生成报告/CSV。
 
 ### 最新补充（2026-06-13）：ingestion meta 0 行事故复核与防复发告警已实现
 
@@ -88,11 +96,3 @@ Last updated: 2026-06-13
 - F2 口径：当前 `source_partition_date_max` 来自 DWD dividend event 的事件/分区日期，不能作为精确 ingestion watermark；本轮改为 full-table 可见上界检查（上限 `CURRENT_DATE('Asia/Shanghai')`）。精确 ingestion watermark 需要新增 source ingestion 列或修复 ingestion meta；后者当前另有 0-row 事件，留 owner 决策。
 - §2.6 取舍：v3 contract 主路径在缺 v3 metrics 时先返回 `v3_acceptance_metrics=missing`，legacy `decide_acceptance` 主路径对 v3 contract 不强造测试；已改为测试该路由并补齐 legacy helper gate 覆盖。`select_candidate([], [], None)` 的 `IndexError` 作为当前行为被 characterization test 固定，本 PR 不改生产语义。
 - 验证通过：`python3 -m pytest -q tests`（266 passed）；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`；`git diff --check`；`cd /tmp && python3 -m pytest /Users/fisher/Desktop/git/worktrees/quant-ashare-prd04/tests --collect-only -q`（266 collected）；`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`。本轮仍未改回测/训练/组合语义，未改默认 `corporate_actions='none_v1'`，未触碰 Cloud Run job spec/镜像/IAM，未写 BigQuery 生产数据。
-
-### 最新补充（2026-06-12）：PRD_20260612_04 工程护栏与测试补强已实现
-
-- 分支 `codex/prd04-guardrails` 按已定稿 PRD §2.1-§2.7 完成实现，分 7 个主题提交：dividend staleness 断言与恢复路径、active step catalog 必填键校验、指标定义 freeze pytest、11 对 window SQL 文本同构 guard、四入口 experiment resolver 合一、acceptance/selection/train_predict 纯函数表驱动测试、pytest scaffold 与仓库外 collect 支持。
-- `qa_corporate_action_ledger_outputs` 新增 `QA-CA-LEDGER-0`：当 `corporate_actions != none_v1` 时，若 `predict_end` 晚于 `ashare_dwd.dwd_stock_dividend_event.source_partition_date_max` 可见上界则 fail-fast；README 与 `KNOWN_CONSTRAINTS.md` 记录过渡政策和完整恢复路径（dividend ODS backfill -> dwd/12 -> qa/14 -> ledger QA）。
-- `resolve_experiment` 公共逻辑迁至 `src/quant_ashare/strategy1/experiment_resolution.py`；`train_predict` 的 `--manifest-resolved` 旧语义保留，`backtest_report/reporting` 对 `--manifest-resolved` 选择 fail-fast，并用测试确认当前 orchestrator/backtest command builder 不传该参数。
-- 新增测试覆盖：catalog contract、metric definition allowlist、window SQL 同构负向 seeded mutation、v3 acceptance / legacy helper 阈值边界、candidate ranking / selection 边界、valid signal / orientation / complexity / CV missing path、CLI module runner fixture 和仓库外 pytest collect。
-- 验证通过：`python3 -m pytest -q tests`（243 passed）；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`；`git diff --check`；`cd /tmp && python3 -m pytest /Users/fisher/Desktop/git/worktrees/quant-ashare-prd04/tests --collect-only -q`（243 collected）；`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`。本轮未改回测/训练/组合语义，未改默认 `corporate_actions='none_v1'`，未触碰 Cloud Run job spec/镜像/IAM，未写 BigQuery 生产数据。

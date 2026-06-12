@@ -1,10 +1,80 @@
-> 当前交接摘要（2026-06-13，GPT-5.5，ingestion meta incident）
-> - `codex/ingestion-meta-incident` 已完成 ashare_meta ingestion meta 0 行事故复核，报告见 `docs/分析-ingestion-meta-0行事故排查-20260613.md`。
-> - 根因确认仍是旧 ingestion 镜像 stale：旧 digest `351dfd...` 早于 `60fb242` status_writer 接线；2026-06-12 scheduled run 已用 `5c78...` 写入 27 条 meta，当前 `latest` 为 dividend 补采镜像 `35acbc...`。
-> - 本轮新增 `v_ingestion_meta_missing`、`ingestion_meta_missing` alert summary 分支、Cloud Logging metric / Monitoring policy 配置、alert README / runbook 和文本契约测试。
-> - 本轮未改 Cloud Run job spec/IAM/Workflows/Scheduler，未补写历史 meta；2026-06-13 是周六，20:00 scheduled run 应验证非交易日 gate，下一次 live meta 验证为 2026-06-15 20:00 CST。
+> 当前交接摘要（2026-06-13，GPT-5.5，PRD_20260613_02）
+> - `codex/calmar-gate-analysis` 已完成 v3 Calmar 门合理性只读分析：新增 `scripts/strategy1/analyze_calmar_gate_feasibility.py`、报告 `docs/分析-策略1v3Calmar门合理性-20260613.md` 与 6 份小 CSV。
+> - 分析覆盖契约语义、八指数双窗口、3 年滚动 Calmar、true5y CA-on baseline NAV exposure overlay 上界、A/B/C/D 反事实矩阵、portfolio 变体附表和全 gate 失败原因矩阵。
+> - 主要结论：长窗口八指数 Calmar 上限仅 `0.1089`，当前 CA-on baseline 长窗口 Calmar `0.4103`；无摩擦 exposure 上界可到 `0.6455`，因此不能宣称绝对物理不可达，但 v3 Calmar `>1.0` 对当前路线仍显著偏高且窗口敏感。
+> - 本轮只读，未改 contract / acceptance / registry，未写 BigQuery/GCS；全量 `pytest tests` 与 `git diff --check` 已通过，PR #211 已创建。
 >
 > Model: GPT-5.5
+
+## 2026-06-13 GPT-5.5 - PRD_20260613_02 v3 Calmar gate feasibility analysis
+
+日期: 2026-06-13
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-calmar-gate`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/calmar-gate-analysis`
+Run ID: N/A
+相关 issue/PR: PRD `docs/prd/PRD_20260613_02_策略1v3Calmar门合理性分析.md`；PR #211
+
+### 已完成工作
+
+- 新增只读分析脚本 `scripts/strategy1/analyze_calmar_gate_feasibility.py`，复用 v3 replay metric helper 与 `simulate_exposure_overlay_upper_bound.py` 路径，不新增 metric freeze 清单内本地定义。
+- 梳理 v3 gate 契约组合语义，引用 `acceptance.py`、`model_acceptance_contract_v3.yml`、`PRD_20260608_02` 与 `DECISION-20260608-11/-12` 的设计意图。
+- 对八个 benchmark candidate 指数计算 `2021-01-04..2026-06-09` 与 `2024-01-02..2026-04-30` 双窗口 CAGR / Sharpe / MaxDD / Calmar，并生成 3 年滚动 Calmar。
+- 拼接当前 true5y CA-on parent/child NAV，复算 baseline 指标，并在该 NAV 上跑 48 个零摩擦 exposure overlay 上界变体。
+- 按 PRD 数据契约读取 ADS 三表、从 NAV 复算指标、只把 canonical `bt_s1_<search_id>__<candidate_id>` 纳入候选，portfolio 变体单独附表；产出 A/B/C/D 反事实回放、全 gate 失败原因矩阵和满仓持指数误放行底线检查。
+- 生成报告 `docs/分析-策略1v3Calmar门合理性-20260613.md` 与 6 份小 CSV 入库产物。
+
+### 重要上下文
+
+- 本轮严格只读：未改 contract / acceptance / registry，未写 BigQuery/GCS，反事实结果只落报告和 CSV。
+- 当前 true5y CA-on stitched baseline 长窗口 CAGR=`15.36%`、Sharpe=`0.6685`、MaxDD=`-37.43%`、Calmar=`0.4103`；短窗口 Calmar=`1.1041`。
+- 八指数长窗口 Calmar 区间为 `-0.1024..0.1089`，短窗口为 `0.6557..1.3868`；3 年滚动最高 Calmar=`0.5535`。
+- exposure overlay 零摩擦最优变体 `two_state_biweekly_elow0_cost0bps` Calmar=`0.6455`、Sharpe=`0.7478`，说明 `Calmar > 1.0` 仍远，但“不存在任何择时上界可达 0.5”的强物理不可达结论不成立。
+- 历史短窗口 canonical 回放中现行 v3 有 `1 accepted / 24 rejected`；该 accepted 是历史短窗口候选，不改变当前 true5y CA-on baseline 未 accepted / 不 promotion 的事实。
+- 四选项都存在短窗口纯指数误放行风险，必须保留 pure-index guard / alpha evidence guard；owner 需要先裁决 acceptance 窗口口径，再决定 A/B/C/D 或分级展示。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_calmar_gate_feasibility.py`
+- `tests/strategy1/test_calmar_gate_feasibility.py`
+- `docs/分析-策略1v3Calmar门合理性-20260613.md`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_index_metrics.csv`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_rolling_3y.csv`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_exposure_overlay.csv`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_reachability_ladder.csv`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_counterfactual_matrix.csv`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_portfolio_variants.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 scripts/strategy1/analyze_calmar_gate_feasibility.py`：成功生成报告与 CSV。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_calmar_gate_feasibility.py`：3 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_metric_definition_freeze.py`：1 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests`：281 passed。
+- `git diff --check`：passed。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- owner 先决定 v3 acceptance 采用长 continuous 窗口、短 replay 窗口还是分层判读，再裁决 A/B/C/D 或改为正式/研究分级展示。
+- 合并前 rebase 到最新 `origin/main`；若上游改动影响 Strategy1 metric/replay/acceptance 相关文件，需要重跑全量验证。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
 
 ## 2026-06-13 GPT-5.5 - ingestion meta incident follow-up
 
@@ -140,78 +210,6 @@ Run ID: N/A
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-## 2026-06-12 GPT-5.5 - dividend ODS backfill and CA resume
-
-日期: 2026-06-12
-Agent ID: Codex
-Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-div-backfill`
-模型: GPT-5.5
-运行环境: macOS / zsh / branch `codex/dividend-backfill-resume`
-Run ID: `s1_dividend_backfill_resume_20260528_20260609_v20260612_01`
-相关 issue/PR: PR #202 comment `4692136310`；PR #205
-
-### 已完成工作
-
-- 新增独立 dividend backfill manifest / endpoint group，并让 `current_scope` alias 显式排除 `dividend_backfill`，避免每日调度捡走 dividend。
-- 构建 ingestion image `sha256:35acbc363408d05dd758d70ba5f293e8b0d333a000c6dfe8e8143ddadd0b8bba` 后，用 Cloud Run job `ashare-ingest-current-scope` 补采 `2026-05-28..2026-06-12` 12 个 SSE 开市日。
-- 重建 `sql/dwd/12_dwd_stock_dividend_event.sql` 与 `sql/qa/14_corporate_action_event_checks.sql`；QA-CA-EVENT-1..6 通过。
-- 从 parent `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 的 `2026-05-27` state resume 到 child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，Cloud Run execution `strategy1-backtest-report-job-tjn4j` 成功。
-- 新增交付报告 `docs/分析-dividend-ODS补采与CA-Resume补跑-20260612.md`，包含补采执行记录、QA、差异归因表和拼接指标。
-
-### 重要上下文
-
-- child 只写 `ashare_research`；ADS nav/trade/position/state/summary 与 promotion manifest 反查均为 0 行。不得 promotion，不标 accepted。
-- `qa_cloudrun_ledger_resume_outputs` 现有 catalog SQL 后半段仍包含 parent/child 等值断言；本轮 full run 预期失败于 `Full and resume NAV metrics differ`，结构 subset 8 个 ASSERT 通过。
-- 差异归因闭合：新增 `002756.SZ` 2026-05-29 与 `001314.SZ` 2026-06-02 两条现金分红，税前 `76.0`、税 `7.6`、净现金 `68.4`；position/share 差异 0，非 CA 仅两条未成交 planned_shares 尾差且现金影响 0。
-- 拼接 parent NAV `2021-01-04..2026-05-27` + child NAV `2026-05-28..2026-06-09` 后，CAGR=`0.15357789449949522`、contract Sharpe=`0.668539787795112`、Calmar=`0.41030930550903105`、MaxDD=`-0.3742978588042647`。本轮不改 `DECISION-20260612-03` 文本。
-- 采纳结论：Claude review 已通过 PR #205 技术面，owner 预先决策影响很小则采纳；本轮展示数字修正采纳为 CAGR `15.36%` (`0.153578`) / contract Sharpe `0.6685` / Calmar `0.4103` / MaxDD 不变，`DECISION-20260612-03` 文本不改。
-
-### 改动文件
-
-- `configs/ingestion/ods_dividend_backfill_v0.yml`
-- `configs/ingestion/schema_contracts/dividend.json`
-- `configs/ods_schema_contracts/dividend.yml`
-- `scripts/ingestion/endpoints/corporate_actions.py`
-- `scripts/ingestion/common/endpoint_runner.py`
-- `scripts/ingestion/run_ingestion_job.py`
-- `tests/ingestion/test_dividend_backfill_manifest.py`
-- `docs/分析-dividend-ODS补采与CA-Resume补跑-20260612.md`
-- `.agent/memory/MEMORY_INDEX.md`
-- `.agent/memory/PROJECT_CONTEXT.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-### 测试 / 验证
-
-- `PYTHONPATH=src python3 -m pytest -q tests/ingestion/test_dividend_backfill_manifest.py`：2 passed。
-- local dry-run：dividend backfill plan 使用 `partition_endpoint=dividend`、`partition_date=20260528`、GCS prefix `api=dividend/endpoint=dividend/partition_date=20260528/`。
-- local current_scope dry-run：27 个 endpoint partitions，无 dividend。
-- ODS backfill 后 `2026-05-28..2026-06-12` 共 `1215` 行，2024/2025 同期 `1182`/`1184` 行；ingestion meta `12` 条 success。
-- dwd/12 job `manual_dividend_dwd12_rebuild_20260612_01`；qa/14 job `manual_dividend_ca_event_qa_20260612_01`，QA-CA-EVENT-1..6 通过。
-- resume child Cloud Run execution `strategy1-backtest-report-job-tjn4j` 成功，research NAV/state 各 9 行，summary metadata 匹配 parent / CA / resume 参数。
-- QA：`qa_lot_aware_ledger_outputs` job `b697f4dc-1eaf-4eff-9df1-23e04fb809ac` passed；`qa_corporate_action_ledger_outputs` job `beefe3d8-0022-4aa9-a224-37eb82931760` passed；cloudrun resume structure subset job `bqjob_r8fe2168bb9d0164_0000019ebc5bb4d6_1` passed。
-- ADS nav/trade/position/state/summary 反查 0 行，`research_promotion_manifest` 0 行。
-
-### 阻塞项
-
-- 无。
-
-### 下一步建议
-
-- 合并前 rebase 到最新 `origin/main`，冲突按 main 最新记忆结构重新并入本 PR 条目与 baseline 数字修正。
-
-### 已更新记忆文件
-
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
 - `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
 - `TODO.md`
