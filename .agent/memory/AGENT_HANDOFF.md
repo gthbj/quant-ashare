@@ -1,10 +1,74 @@
-> 当前交接摘要（2026-06-13，GPT-5.5，PRD_20260613_02）
-> - `codex/calmar-gate-analysis` 已完成 v3 Calmar 门合理性只读分析：新增 `scripts/strategy1/analyze_calmar_gate_feasibility.py`、报告 `docs/分析-策略1v3Calmar门合理性-20260613.md` 与 6 份小 CSV。
-> - 分析覆盖契约语义、八指数双窗口、3 年滚动 Calmar、true5y CA-on baseline NAV exposure overlay 上界、A/B/C/D 反事实矩阵、portfolio 变体附表和全 gate 失败原因矩阵。
-> - 主要结论：长窗口八指数 Calmar 上限仅 `0.1089`，当前 CA-on baseline 长窗口 Calmar `0.4103`；无摩擦 exposure 上界可到 `0.6455`，因此不能宣称绝对物理不可达，但 v3 Calmar `>1.0` 对当前路线仍显著偏高且窗口敏感。
-> - 本轮只读，未改 contract / acceptance / registry，未写 BigQuery/GCS；全量 `pytest tests` 与 `git diff --check` 已通过，PR #211 已创建。
+> 当前交接摘要（2026-06-13，GPT-5.5，PRD_20260613_01 P1 市值规则修复双选项 paper）
+> - `codex/p1-rules-paper-batch` 已扩展 `analyze_topdown_lot_phase0.py`：字段级 P1 null reason、T1a/T1b1/T1b2 三新臂、0.60 饱和回退与 0.50/0.70 阈值敏感性附表。
+> - BigQuery 只读 + 本地 pandas 实跑完成，resolver 解析到 true5y CA-on：prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，official backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`。
+> - matched official cost / `walk_depth=50` 主判读下 T1a/T1b1/T1b2 均未满足预登记四门槛；若继续 Phase 2，建议用 T0 / no P1，PRD_10 的 P1 绑定条款需 owner 决策。
+> - PR #210 Claude review low follow-up 已补报告口径说明：Phase 0 effective-window 与本轮 true5y CA-on prediction 流不同，T1-T0 gap `-13.70pp -> -15.95pp` 不可直接横比。
+> - 本轮不写 BigQuery 数据集、不改 ledger/runner/catalog/默认 profile、不标 accepted/promotion；大明细 CSV 已上传 GCS，小 metrics CSV 随 PR 入库。
 >
 > Model: GPT-5.5
+
+## 2026-06-13 GPT-5.5 - PRD_20260613_01 P1 市值规则修复双选项 paper
+
+日期: 2026-06-13
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-p1-paper`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/p1-rules-paper-batch`
+Run ID: prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`；official backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`
+相关 issue/PR: PRD `docs/prd/PRD_20260613_01_策略1P1市值规则修复双选项Paper批量.md`；PR #210
+
+### 已完成工作
+
+- 扩展 `scripts/strategy1/analyze_topdown_lot_phase0.py`：P1 null reason 从统一 `tail_risk:required_field_null` 细化为字段级 reason，市值字段归市值组、形态字段归形态组；T0/T1 原过滤语义保持不变。
+- 新增 T1a/T1b1/T1b2 三臂：T1a 仅形态组；T1b1 在当次调仓 walk_depth P1 标记率 `>0.60` 时退到 T1a；T1b2 在同阈值触发时退到 T0。回退只影响当次调仓新买入过滤。
+- 增加 0.50 / 0.70 阈值敏感性附表，主判读仍固定 matched official cost + `walk_depth=50` + `p1_marked_rate > 0.60`。
+- 生成报告 `docs/分析-策略1P1市值规则修复双选项-20260613.md` 与小 metrics CSV；大 daily / rebalance audit CSV 上传到 `gs://ashare-artifacts/reports/strategy1/p1_market_cap_rules/analysis_date=20260613/`。
+- 新增单测覆盖 P1 分组、字段级 NULL 分组、T1a/T1 语义差异、饱和阈值严格边界、回退局部性。
+- PR #210 Claude review low follow-up：报告 `方法与边界` 已补 Phase 0 对照说明，明确 Phase 0 用 effective-window prediction 流、本轮用 true5y CA-on resolver，T1-T0 gap 从 `-13.70pp` 到 `-15.95pp` 是 prediction 流切换导致，不是实现差异。
+
+### 重要上下文
+
+- 主结果 matched official cost / `walk_depth=50`：T0 CAGR=`11.81%`、MaxDD=`-58.67%`、Calmar=`0.201`；T1 CAGR=`-4.14%`、MaxDD=`-67.38%`、Calmar=`-0.061`；T1a CAGR=`6.26%`、MaxDD=`-59.80%`、Calmar=`0.105`；T1b1 CAGR=`4.24%`、MaxDD=`-60.11%`、Calmar=`0.070`；T1b2 CAGR=`4.11%`、MaxDD=`-63.99%`、Calmar=`0.064`。
+- 预登记判读：T1a/T1b1/T1b2 均未同时满足 CAGR gap、饱和 episode 现金、MaxDD 与 crunch excess 四门槛；结论为 P1 市值规则修复不足，若继续 Phase 2 建议以 T0 / no P1 口径进入，PRD_10 的 P1 profile 绑定条款需 owner 决策。
+- paper 为 raw 价格口径，不模拟 CA-on ledger 的分红送转与卖出失败降级；五臂内部对比可用，绝对值不与 CA-on official ledger 直接互比。
+- 本轮未写任何 BigQuery 数据集，未启动 Cloud Run，未改 ledger / runner / catalog / 默认 profile，未做 accepted / promotion / 默认 profile 变更。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_topdown_lot_phase0.py`
+- `tests/strategy1/test_topdown_lot_phase0.py`
+- `docs/分析-策略1P1市值规则修复双选项-20260613.md`
+- `docs/analysis_strategy1_p1_market_cap_rules_20260613_metrics.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_topdown_lot_phase0.py tests/strategy1/test_metric_definition_freeze.py`：14 passed。
+- `python3 -m py_compile scripts/strategy1/analyze_topdown_lot_phase0.py tests/strategy1/test_topdown_lot_phase0.py`：passed。
+- `PYTHONPATH=src python3 scripts/strategy1/analyze_topdown_lot_phase0.py`：completed，报告与 CSV 已生成。
+- `gcloud storage cp ... gs://ashare-artifacts/reports/strategy1/p1_market_cap_rules/analysis_date=20260613/`：daily / rebalance audit 上传成功。
+- 全量 pytest 与 `git diff --check`：提交前执行。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- owner 决定 PRD_10 Phase 2 是否改为 T0 / no P1 口径，或是否先做 CA 调整后的 paper/真实 ledger 证据。
+- 合并前如 `origin/main` 再变化，rebase 后重跑全量 pytest 与 `git diff --check`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
 
 ## 2026-06-13 GPT-5.5 - PRD_20260613_02 v3 Calmar gate feasibility analysis
 
@@ -136,80 +200,6 @@ Run ID: N/A
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-## 2026-06-12 GPT-5.5 - PRD_20260612_05 Batch 3 package cleanup
-
-日期: 2026-06-12
-Agent ID: Codex
-Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd05-b3`
-模型: GPT-5.5
-运行环境: macOS / zsh / branch `codex/prd05-batch3`
-Run ID: N/A
-相关 issue/PR: PRD `docs/prd/PRD_20260612_05_Strategy1包结构PhaseE收尾.md`；PR #206
-
-### 已完成工作
-
-- 将 `scripts/strategy1_cloudrun/feature_sets.py`、`preprocess.py`、`training_panel.py` 迁移到 `src/quant_ashare/strategy1/`，scripts 侧改为 thin re-export shim。
-- 将 src 内对 `scripts.strategy1_cloudrun.feature_sets` / `preprocess` 的 import 改为包内直连；Batch 3 后 src→`scripts.strategy1_cloudrun.*` 反向 import 为 0。
-- 新增 `src/quant_ashare/strategy1/annual_rolling_plan.py`，承载 annual rolling 计划层常量和 helper；scheduler 与脚本 orchestrator 均改从该模块 import。
-- 更新 `tests/strategy1/test_package_boundaries.py` 的 Batch 3 兼容符号快照、硬断言 src 不导入 scripts，并新增非仓库 cwd / `PYTHONPATH=src` 的 package self-contained import 测试。
-- 同步 `KNOWN_CONSTRAINTS.md` 兼容层条款、`docs/prd/PRD_20260610_02_项目结构重构方案.md` Phase E 状态注记、`IMPLEMENTATION_STATUS.md` 和 `TODO.md`。
-
-### 重要上下文
-
-- 本轮严格只做 PRD Batch 3；两个脚本 orchestrator 仍保留 CLI 主体和兼容导入面。
-- `orchestrate_annual_rolling_selection.py` 的 CLI 参数面、dry-run JSON 输出路径和非 dry-run 拒绝行为保持不变；迁出的计划函数通过脚本顶层 import 继续兼容旧测试/调用方。
-- 旧 `scripts.strategy1_cloudrun.feature_sets` / `preprocess` / `training_panel` 路径仍是合法兼容 shim，不应加入 retired-reference ban-list。
-- 本轮未改训练、回测、ledger、Cloud Run job spec、args、镜像或 IAM；未写 BigQuery/GCS。
-
-### 改动文件
-
-- `src/quant_ashare/strategy1/feature_sets.py`
-- `src/quant_ashare/strategy1/preprocess.py`
-- `src/quant_ashare/strategy1/training_panel.py`
-- `src/quant_ashare/strategy1/annual_rolling_plan.py`
-- `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`
-- `scripts/strategy1_cloudrun/feature_sets.py`
-- `scripts/strategy1_cloudrun/preprocess.py`
-- `scripts/strategy1_cloudrun/training_panel.py`
-- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`
-- 相关 `src/quant_ashare/strategy1/*.py` import
-- `tests/strategy1/test_package_boundaries.py`
-- `docs/prd/PRD_20260610_02_项目结构重构方案.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-### 测试 / 验证
-
-- `PYTHONPATH=src python3 -m pytest -q tests`：276 passed。
-- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`：7 passed。
-- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`：16 passed。
-- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：passed。
-- `python3 -m compileall -q src scripts tests`：passed。
-- `git diff --check`：passed。
-- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
-
-### 阻塞项
-
-- 无。
-
-### 下一步建议
-
-- 等待 Claude review；认可的 comment 在本分支修复，不认可的在 PR comment 说明理由。
-- 若合并前 `origin/main` 有新提交，rebase 后重跑关键验证。
-
-### 已更新记忆文件
-
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
 - `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
 - `TODO.md`

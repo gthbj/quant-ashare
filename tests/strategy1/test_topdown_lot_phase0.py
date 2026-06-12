@@ -48,7 +48,18 @@ def test_tail_risk_reason_matches_p1_rules_and_null_guard() -> None:
 
     assert phase0.tail_risk_reason(clean) is None
     assert phase0.tail_risk_reason(risky) == "tail_risk:ret_20d_lt_30pct;tail_risk:circ_mv_lt_20e8"
-    assert phase0.tail_risk_reason(missing) == "tail_risk:required_field_null"
+    assert phase0.tail_risk_reason(missing) == "tail_risk:null_total_mv_cny"
+    assert phase0.tail_risk_reason_groups(phase0.tail_risk_reason(missing)) == {"market_cap"}
+
+
+def test_tail_risk_reason_groups_split_market_cap_and_shape_nulls() -> None:
+    reason = "tail_risk:null_total_mv_cny;tail_risk:drawdown_20d_lt_30pct"
+
+    assert phase0.tail_risk_reason_groups(reason) == {"market_cap", "shape"}
+    assert phase0.p1_reason_blocked(reason, "full")
+    assert phase0.p1_reason_blocked(reason, "shape_only")
+    assert not phase0.p1_reason_blocked("tail_risk:null_circ_mv_cny", "shape_only")
+    assert not phase0.p1_reason_blocked(reason, "none")
 
 
 def test_min_buy_shares_ceil_to_lot_threshold() -> None:
@@ -152,6 +163,215 @@ def test_rebalance_t1_skips_p1_and_replaces_with_next_candidate() -> None:
     assert set(t1_state.holdings) == {"000001.SZ", "000003.SZ"}
     assert t0_audit["p1_skip_count"] == 0
     assert t1_audit["p1_skip_count"] == 1
+
+
+def test_rebalance_t1a_allows_market_cap_group_but_blocks_shape_group() -> None:
+    cfg = make_cfg(end_date="2026-01-05")
+    prices = pd.DataFrame(
+        {
+            "sec_code": ["000001.SZ", "000002.SZ", "000003.SZ"],
+            "trade_date": [date(2026, 1, 5)] * 3,
+            "open": [10.0, 10.0, 10.0],
+            "close": [10.0, 10.0, 10.0],
+            "can_buy_open": [True, True, True],
+            "can_sell_open": [True, True, True],
+        }
+    )
+    candidates = pd.DataFrame(
+        {
+            "rebalance_date": [date(2026, 1, 2)] * 3,
+            "sec_code": ["000001.SZ", "000002.SZ", "000003.SZ"],
+            "rank_raw": [1, 2, 3],
+            "tail_risk_reason": [
+                "tail_risk:total_mv_lt_30e8",
+                "tail_risk:ret_20d_lt_30pct",
+                None,
+            ],
+        }
+    )
+    state = phase0.PortfolioState(cash=30_000.0, holdings={}, previous_nav_value=100_000.0)
+
+    t1_state, _, _, t1_audit = phase0.rebalance_topdown(
+        cfg=cfg,
+        state=state,
+        trade_date=date(2026, 1, 5),
+        signal_date=date(2026, 1, 2),
+        arm="T1",
+        walk_depth=3,
+        cost_bps=0.0,
+        nav_before=100_000.0,
+        candidates=candidates,
+        price_book=phase0.PriceBook(prices),
+    )
+    t1a_state, _, _, t1a_audit = phase0.rebalance_topdown(
+        cfg=cfg,
+        state=state,
+        trade_date=date(2026, 1, 5),
+        signal_date=date(2026, 1, 2),
+        arm="T1a",
+        walk_depth=3,
+        cost_bps=0.0,
+        nav_before=100_000.0,
+        candidates=candidates,
+        price_book=phase0.PriceBook(prices),
+    )
+
+    assert set(t1_state.holdings) == {"000003.SZ"}
+    assert set(t1a_state.holdings) == {"000001.SZ", "000003.SZ"}
+    assert t1_audit["p1_skip_count"] == 2
+    assert t1a_audit["p1_skip_count"] == 1
+    assert t1a_audit["p1_relaxed_buy_filled_count"] == 1
+
+
+def test_rebalance_saturation_fallback_uses_strict_greater_than_threshold() -> None:
+    cfg = make_cfg(end_date="2026-01-05")
+    secs = [f"00000{i}.SZ" for i in range(1, 6)]
+    prices = pd.DataFrame(
+        {
+            "sec_code": secs,
+            "trade_date": [date(2026, 1, 5)] * 5,
+            "open": [10.0] * 5,
+            "close": [10.0] * 5,
+            "can_buy_open": [True] * 5,
+            "can_sell_open": [True] * 5,
+        }
+    )
+    base = {
+        "rebalance_date": [date(2026, 1, 2)] * 5,
+        "sec_code": secs,
+        "rank_raw": [1, 2, 3, 4, 5],
+    }
+    exact_threshold = pd.DataFrame(
+        {
+            **base,
+            "tail_risk_reason": [
+                "tail_risk:total_mv_lt_30e8",
+                "tail_risk:circ_mv_lt_20e8",
+                "tail_risk:null_total_mv_cny",
+                None,
+                None,
+            ],
+        }
+    )
+    above_threshold = exact_threshold.copy()
+    above_threshold.loc[3, "tail_risk_reason"] = "tail_risk:total_mv_lt_30e8"
+    state = phase0.PortfolioState(cash=30_000.0, holdings={}, previous_nav_value=100_000.0)
+    price_book = phase0.PriceBook(prices)
+
+    _, _, _, exact_audit = phase0.rebalance_topdown(
+        cfg=cfg,
+        state=state,
+        trade_date=date(2026, 1, 5),
+        signal_date=date(2026, 1, 2),
+        arm="T1b2",
+        walk_depth=5,
+        cost_bps=0.0,
+        nav_before=100_000.0,
+        candidates=exact_threshold,
+        price_book=price_book,
+        saturation_threshold=0.60,
+    )
+    above_state, _, _, above_audit = phase0.rebalance_topdown(
+        cfg=cfg,
+        state=state,
+        trade_date=date(2026, 1, 5),
+        signal_date=date(2026, 1, 2),
+        arm="T1b2",
+        walk_depth=5,
+        cost_bps=0.0,
+        nav_before=100_000.0,
+        candidates=above_threshold,
+        price_book=price_book,
+        saturation_threshold=0.60,
+    )
+
+    assert exact_audit["p1_marked_rate"] == 0.60
+    assert exact_audit["p1_saturation_triggered"] is False
+    assert exact_audit["effective_p1_policy"] == "full"
+    assert exact_audit["p1_skip_count"] == 3
+    assert above_audit["p1_marked_rate"] == 0.80
+    assert above_audit["p1_saturation_triggered"] is True
+    assert above_audit["effective_p1_policy"] == "none"
+    assert above_audit["p1_skip_count"] == 0
+    assert above_audit["p1_fallback_released_buy_filled_count"] == 4
+    assert set(above_state.holdings) >= set(secs[:4])
+
+
+def test_rebalance_saturation_fallback_is_local_to_current_rebalance() -> None:
+    cfg = make_cfg(end_date="2026-01-12")
+    first_secs = [f"00001{i}.SZ" for i in range(1, 6)]
+    second_secs = ["000021.SZ", "000022.SZ"]
+    prices = pd.DataFrame(
+        {
+            "sec_code": first_secs + second_secs,
+            "trade_date": [date(2026, 1, 5)] * 5 + [date(2026, 1, 12)] * 2,
+            "open": [10.0] * 7,
+            "close": [10.0] * 7,
+            "can_buy_open": [True] * 7,
+            "can_sell_open": [True] * 7,
+        }
+    )
+    first_candidates = pd.DataFrame(
+        {
+            "rebalance_date": [date(2026, 1, 2)] * 5,
+            "sec_code": first_secs,
+            "rank_raw": [1, 2, 3, 4, 5],
+            "tail_risk_reason": [
+                "tail_risk:total_mv_lt_30e8",
+                "tail_risk:circ_mv_lt_20e8",
+                "tail_risk:null_total_mv_cny",
+                "tail_risk:total_mv_lt_30e8",
+                None,
+            ],
+        }
+    )
+    second_candidates = pd.DataFrame(
+        {
+            "rebalance_date": [date(2026, 1, 9)] * 2,
+            "sec_code": second_secs,
+            "rank_raw": [1, 2],
+            "tail_risk_reason": ["tail_risk:total_mv_lt_30e8", None],
+        }
+    )
+    price_book = phase0.PriceBook(prices)
+    state = phase0.PortfolioState(cash=30_000.0, holdings={}, previous_nav_value=100_000.0)
+
+    first_state, _, _, first_audit = phase0.rebalance_topdown(
+        cfg=cfg,
+        state=state,
+        trade_date=date(2026, 1, 5),
+        signal_date=date(2026, 1, 2),
+        arm="T1b2",
+        walk_depth=5,
+        cost_bps=0.0,
+        nav_before=100_000.0,
+        candidates=first_candidates,
+        price_book=price_book,
+        saturation_threshold=0.60,
+    )
+    second_state, _, _, second_audit = phase0.rebalance_topdown(
+        cfg=cfg,
+        state=first_state,
+        trade_date=date(2026, 1, 12),
+        signal_date=date(2026, 1, 9),
+        arm="T1b2",
+        walk_depth=2,
+        cost_bps=0.0,
+        nav_before=100_000.0,
+        candidates=second_candidates,
+        price_book=price_book,
+        saturation_threshold=0.60,
+    )
+
+    assert first_audit["p1_saturation_triggered"] is True
+    assert first_audit["effective_p1_policy"] == "none"
+    assert first_audit["p1_fallback_released_buy_filled_count"] == 4
+    assert second_audit["p1_marked_rate"] == 0.50
+    assert second_audit["p1_saturation_triggered"] is False
+    assert second_audit["effective_p1_policy"] == "full"
+    assert second_audit["p1_skip_count"] == 1
+    assert "000021.SZ" not in second_state.holdings
+    assert "000022.SZ" in second_state.holdings
 
 
 def test_rebalance_sells_over_depth_holding_without_pending_simulation() -> None:
