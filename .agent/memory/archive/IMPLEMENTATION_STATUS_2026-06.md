@@ -2,6 +2,14 @@
 
 本文件归档从 `../IMPLEMENTATION_STATUS.md` 主文件滚动移出的 2026-06 编年史原文。
 
+### 最新补充（2026-06-12）：PRD_20260612_05 Batch 1 包结构收尾已实现
+
+- 分支 `codex/prd05-batch1` 已按 PRD §3 Batch 1 完成 Strategy1 包结构收尾并创建 PR #203：`scripts/strategy1_cloudrun/bq_io.py` 与 `config.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名文件改为 thin re-export shim；`runner_version.py` 在 src 内定义原 runner version 值，`scripts.strategy1_cloudrun.__version__` 改为 re-export。
+- src 内对 `scripts.strategy1_cloudrun.bq_io` / `config` / `dataset_roles` / `acceptance` / `__version__` 的 import 已改为包内直连；剩余 src→scripts import 仅限 Batch 2/3 范围 `state` / `task_fanout` / `feature_sets` / `preprocess` / `orchestrate_annual_rolling_selection`。
+- `tests/strategy1/test_package_boundaries.py` 新增 Batch 1 兼容符号快照与反向 import 计数断言，覆盖 `bq_io` / `config` shim 的跨文件引用符号和模块级常量；旧模块路径未加入 retired-lint ban-list。
+- 本轮不改训练、回测、ledger、orchestrator 调度语义，不触碰 Cloud Run job spec/args/镜像/IAM，不写 BigQuery/GCS。
+- 最终验证通过：`python3 -m pytest -q tests`（268 passed）；`python3 -m pytest -q tests/strategy1/test_package_boundaries.py`（6 passed）；`python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`（16 passed）；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`；`python3 -m compileall -q src scripts tests`；`git diff --check`；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`。
+
 ### 最新补充（2026-06-12）：PRD_20260612_04 工程护栏与测试补强已实现
 
 - 分支 `codex/prd04-guardrails` 按已定稿 PRD §2.1-§2.7 完成实现，分 7 个主题提交：dividend staleness 断言与恢复路径、active step catalog 必填键校验、指标定义 freeze pytest、11 对 window SQL 文本同构 guard、四入口 experiment resolver 合一、acceptance/selection/train_predict 纯函数表驱动测试、pytest scaffold 与仓库外 collect 支持。

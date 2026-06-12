@@ -1,4 +1,4 @@
-"""公司行为手工补采 endpoint group。"""
+"""公司行为采集 endpoint groups。"""
 
 from __future__ import annotations
 

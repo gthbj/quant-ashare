@@ -234,6 +234,54 @@ gcloud workflows execute ashare_warehouse_window_refresh \
   }'
 ```
 
+### 分红事件链路 / CA staleness
+
+`daily_current` 会在价格/市场窗口刷新链尾以 weak 方式自动重建
+`dwd_stock_dividend_event` 和 `qa/14`。这两步失败时，pipeline run 仍会
+finalize success，但 `pipeline_task_status` 会保留 failed task 并触发
+`task_failure` 告警。
+
+先查事件链 task：
+
+```sql
+SELECT
+  pipeline_run_id,
+  task_id,
+  status,
+  error_summary,
+  bigquery_job_url,
+  updated_at
+FROM `data-aquarium.ashare_meta.pipeline_task_status`
+WHERE task_id IN (
+  'windowed_weak_transform.dwd_stock_dividend_event',
+  'windowed_weak_qa.corporate_action_event_checks'
+)
+  AND updated_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+ORDER BY updated_at DESC;
+```
+
+如果 `qa_corporate_action_ledger_outputs` 的 staleness 断言失败，处理顺序是：
+
+1. 确认当日 scheduled ingestion 是否已有 `dividend` meta 行（`success` 或正常 `empty_return`）。
+2. 确认当日 `daily_current` 事件两步 task 是否成功；失败时先修 SQL / 数据问题后手工重跑 dwd/12 和 qa/14。
+3. 只有分区确实缺失、或需要恢复早于 5 个开市日 lookback 的历史缺口时，才运行 `dividend_backfill` 手工补采。
+
+手工补采最近一个缺口日示例：
+
+```bash
+gcloud run jobs execute ashare-ingest-current-scope \
+  --project=data-aquarium \
+  --region=asia-east2 \
+  --args="--manifest,configs/ingestion/ods_dividend_backfill_v0.yml,--endpoint-group,dividend_backfill,--business-date,2026-06-05,--allow-gcs-write"
+```
+
+补采后重建事件表和 QA：
+
+```bash
+bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/12_dwd_stock_dividend_event.sql
+bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/14_corporate_action_event_checks.sql
+```
+
 ## 5. Backfill
 
 适用场景：补采历史 ODS 分区后，需要重新刷新一段 DWD/DWS 窗口。

@@ -1,11 +1,88 @@
-> 当前交接摘要（2026-06-13，GPT-5.5，PRD_20260613_01 P1 市值规则修复双选项 paper）
-> - `codex/p1-rules-paper-batch` 已扩展 `analyze_topdown_lot_phase0.py`：字段级 P1 null reason、T1a/T1b1/T1b2 三新臂、0.60 饱和回退与 0.50/0.70 阈值敏感性附表。
-> - BigQuery 只读 + 本地 pandas 实跑完成，resolver 解析到 true5y CA-on：prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，official backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`。
-> - matched official cost / `walk_depth=50` 主判读下 T1a/T1b1/T1b2 均未满足预登记四门槛；若继续 Phase 2，建议用 T0 / no P1，PRD_10 的 P1 绑定条款需 owner 决策。
-> - PR #210 Claude review low follow-up 已补报告口径说明：Phase 0 effective-window 与本轮 true5y CA-on prediction 流不同，T1-T0 gap `-13.70pp -> -15.95pp` 不可直接横比。
-> - 本轮不写 BigQuery 数据集、不改 ledger/runner/catalog/默认 profile、不标 accepted/promotion；大明细 CSV 已上传 GCS，小 metrics CSV 随 PR 入库。
+> 当前交接摘要（2026-06-13，GPT-5.5，dividend daily scope）
+> - `codex/dividend-daily-scope` 已实现 PRD_20260613_03：`dividend` 进入 current_scope 的 `corporate_actions` 组，并按 `lookback_open_days=5` 从 `dim_trade_calendar` 展开最近 5 个 SSE 开市日逐日 `ex_date` 请求。
+> - `qa/09` 已把 dividend 注册为 weak endpoint，`empty_return` 不写 warning；`ashare_warehouse_window_refresh` 的 `daily_current` 链尾已接入 dwd/12 + qa/14，局部 try/except 保证事件链失败只写 task failed、不 rethrow。
+> - 本轮未改 ledger / 默认 profile / Cloud Run job spec / IAM / full_rebuild opt-in；未写 BigQuery/GCS 生产数据。
+> - 合并后必须重建 ingestion 镜像并记录 digest，用 `dividend_backfill` 最近开市日 smoke，部署 Workflows；2026-06-15 scheduled run 后核验新 digest、dividend meta、事件 task 与可见上界，连续两交易日全绿后收口。
 >
 > Model: GPT-5.5
+
+## 2026-06-13 GPT-5.5 - dividend daily scope and event workflow
+
+日期: 2026-06-13
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-div-daily`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/dividend-daily-scope`
+Run ID: N/A
+相关 issue/PR: PRD `docs/prd/PRD_20260613_03_dividend日常采集与事件链路编排接入.md`；PR #212
+
+### 已完成工作
+
+- 将 `dividend` 加入 `configs/ingestion/ods_current_scope_v0.yml`，归入 `corporate_actions`，并把 `current_scope` alias 显式追加该组；`dividend_backfill` 保持手工历史缺口组。
+- `run_ingestion_job.py` 新增 `lookback_open_days` 支持：生产从 `ashare_dim.dim_trade_calendar` 解析最近 5 个 SSE 开市日；`build_plan` 展开为逐日 `partition_date=ex_date` plan；`endpoint_runner` 按 plan item 的 logical date 发请求与产出结果。
+- `sql/qa/09_ods_daily_partition_readiness.sql` 将 dividend 注册为 weak endpoint，空返回豁免 warning。
+- `orchestration/workflows/ashare_warehouse_window_refresh.yaml` 在 `daily_current` 链尾新增 dwd/12 与 qa/14 两步；局部 try/except 捕获失败后写 task failed 并继续主链 finalize success，`backfill` / `qa_only` 不跑事件链。
+- 同步更新 `KNOWN_CONSTRAINTS.md`、`IMPLEMENTATION_STATUS.md`、`TODO.md`、`sql/README.md`、ingestion/workflows README 与 runbook。
+
+### 重要上下文
+
+- 本轮不改 ledger 代码、不改默认 `corporate_actions=none_v1`、不写 ADS/research/promotion，不触碰 Cloud Run job spec/IAM/full_rebuild opt-in。
+- PR 合并前只做代码和 dry-run 验证；PRD 要求的 ingestion 镜像重建、digest 记录、`dividend_backfill` smoke 与 2026-06-15 live scheduled run 核验必须在合并后执行。
+- 事件链 failure 通过既有 `v_alert_summary.alert_type='task_failure'` 承载；pipeline_run 仍应为 success。消费端 staleness 断言保持不变。
+
+### 改动文件
+
+- `configs/ingestion/ods_current_scope_v0.yml`
+- `scripts/ingestion/run_ingestion_job.py`
+- `scripts/ingestion/common/endpoint_runner.py`
+- `scripts/ingestion/endpoints/corporate_actions.py`
+- `sql/qa/09_ods_daily_partition_readiness.sql`
+- `orchestration/workflows/ashare_warehouse_window_refresh.yaml`
+- `tests/ingestion/test_dividend_backfill_manifest.py`
+- `tests/ingestion/test_ods_readiness_dividend.py`
+- `tests/workflows/test_dividend_event_chain.py`
+- `scripts/ingestion/README.md`
+- `orchestration/cloud_run_jobs/README.md`
+- `orchestration/workflows/README.md`
+- `docs/Pipeline-补跑与故障恢复-Runbook.md`
+- `sql/README.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/ingestion/test_dividend_backfill_manifest.py tests/ingestion/test_ods_readiness_dividend.py tests/workflows/test_dividend_event_chain.py`：10 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests`：294 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
+- `python3 -m compileall -q scripts tests`：passed。
+- `git diff --check`：passed。
+- `bq query --project_id=data-aquarium --location=asia-east2 --use_legacy_sql=false --dry_run --parameter=pipeline_run_id:STRING:dry_dividend_readiness --parameter=business_date:STRING:2026-06-16 --parameter=pipeline_dry_run:STRING:true --parameter=require_business_partition:STRING:false < sql/qa/09_ods_daily_partition_readiness.sql`：validated。
+- `bq query --project_id=data-aquarium --location=asia-east2 --use_legacy_sql=false --dry_run < sql/dwd/12_dwd_stock_dividend_event.sql`：validated。
+- `bq query --project_id=data-aquarium --location=asia-east2 --use_legacy_sql=false --dry_run < sql/qa/14_corporate_action_event_checks.sql`：validated。
+- `python3 scripts/ingestion/run_ingestion_job.py --endpoint-group corporate_actions --business-date 2026-06-16 --dry-run --output-json --project data-aquarium --bq-location asia-east2`：plan 展开为 `20260610/11/12/15/16` 五个 dividend 分区。
+- `python3 scripts/ingestion/run_ingestion_job.py --endpoint-group current_scope --business-date 2026-06-16 --dry-run --output-json --project data-aquarium --bq-location asia-east2`：current_scope dry-run 含 32 个 plan item，corporate_actions dividend 分区为 `20260610/11/12/15/16`。
+
+### 阻塞项
+
+- 无代码阻塞；生产镜像重建、Workflows 部署和 2026-06-15 live 验证需等 PR 合并后执行。
+
+### 下一步建议
+
+- 合并后立即重建 `ingestion:latest` 并记录 digest，用 `dividend_backfill` 最近开市日 smoke，随后通过 `deploy_workflows.sh` 部署 Workflows。
+- 2026-06-15 20:00 CST scheduled run 后核验 execution digest、dividend meta、`v_ingestion_meta_missing`、事件两步 task status 和 `dwd_stock_dividend_event` 可见上界；连续两个交易日全绿后收口本 PRD。
+
+### 已更新记忆文件
+
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
 
 ## 2026-06-13 GPT-5.5 - PRD_20260613_01 P1 市值规则修复双选项 paper
 
@@ -131,70 +208,6 @@ Run ID: N/A
 
 - owner 先决定 v3 acceptance 采用长 continuous 窗口、短 replay 窗口还是分层判读，再裁决 A/B/C/D 或改为正式/研究分级展示。
 - 合并前 rebase 到最新 `origin/main`；若上游改动影响 Strategy1 metric/replay/acceptance 相关文件，需要重跑全量验证。
-
-### 已更新记忆文件
-
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-## 2026-06-13 GPT-5.5 - ingestion meta incident follow-up
-
-日期: 2026-06-13
-Agent ID: Codex
-Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-meta-incident`
-模型: GPT-5.5
-运行环境: macOS / zsh / branch `codex/ingestion-meta-incident`
-Run ID: N/A
-相关 issue/PR: PR #196 事故修复复核；本分支待创建 PR
-
-### 已完成工作
-
-- 只读复核 `ashare-ingest-current-scope` job spec、execution image digest 历史、Cloud Build / Artifact Registry、git ingestion 代码演进、BigQuery `ingestion_run` / `ingestion_partition_status` 行分布和 alert checker 覆盖面。
-- 新增事故报告 `docs/分析-ingestion-meta-0行事故排查-20260613.md`，记录根因链、时间线、当前镜像状态、历史缺口处置建议和 2026-06-13 / 2026-06-15 验证计划。
-- 在 `sql/observability/01_pipeline_status_views.sql` 新增 `v_ingestion_meta_missing`，并把 `alert_type='ingestion_meta_missing'` 接入 `v_alert_summary`。
-- 在 `scripts/alerting/setup_alerts.py` 新增 `ashare_pipeline_ingestion_meta_missing` log metric 和 `Ashare Pipeline: Ingestion Meta Missing` policy；同步更新 alert README 与 active runbook。
-- 新增 `tests/alerting/test_ingestion_meta_missing_alert.py`，固定 SQL、setup 和 README 的告警接线。
-
-### 重要上下文
-
-- 当前 job spec image 仍是 `ingestion:latest`，不是 digest pin；execution 创建时解析 tag。本轮确认 2026-06-12 scheduled current_scope execution `ashare-ingest-current-scope-9wnh8` 使用修复镜像 `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 并落 27 条 meta。
-- Artifact Registry 当前 `latest` 指向 dividend 补采镜像 `sha256:35acbc363408d05dd758d70ba5f293e8b0d333a000c6dfe8e8143ddadd0b8bba`；该镜像后续 dividend executions 已实证写 meta。本轮无需、也未执行生产 job 更新。
-- 2026-06-13 是周六，SSE `is_open=0`；20:00 CST scheduled workflow 应走非交易日 gate，不会触发 live ingestion，不应期待 20260613 meta 行。下一次 live meta 验证应看 2026-06-15 20:00 CST 后的 current_scope 行。
-- 历史 2026-06-09/10/11 meta 缺口建议不回填，保留报告/PR/Cloud Run/pipeline status 作为审计记录，避免混淆真实运行时审计与事后重建记录。
-
-### 改动文件
-
-- `docs/分析-ingestion-meta-0行事故排查-20260613.md`
-- `sql/observability/01_pipeline_status_views.sql`
-- `scripts/alerting/setup_alerts.py`
-- `scripts/alerting/README.md`
-- `docs/Pipeline-补跑与故障恢复-Runbook.md`
-- `tests/alerting/test_ingestion_meta_missing_alert.py`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-### 测试 / 验证
-
-- `bq query --project_id=data-aquarium --location=asia-east2 --use_legacy_sql=false --dry_run < sql/observability/01_pipeline_status_views.sql`：validated。
-- `python3 -m pytest -q tests/alerting/test_ingestion_meta_missing_alert.py`：1 passed。
-- `python3 scripts/alerting/setup_alerts.py --dry-run`：新 metric/policy 可见。
-- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
-- `git diff --check`：passed。
-
-### 阻塞项
-
-- 无。
-
-### 下一步建议
-
-- PR 合并并部署观测 SQL / alert policy 后，2026-06-15 20:00 CST 后复核 `v_ingestion_meta_missing` 为空、`ingestion_run` 有 20260615 current_scope 行。
-- 2026-06-13 20:00 CST 只验证非交易日 gate；若触发 live ingestion，反而需要按非交易日 gate 异常处理。
 
 ### 已更新记忆文件
 

@@ -2,6 +2,70 @@
 
 本文件归档 2026-06 的历史交接条目。当前交接摘要和最近交接见 `../AGENT_HANDOFF.md`。
 
+## 2026-06-13 GPT-5.5 - ingestion meta incident follow-up
+
+日期: 2026-06-13
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-meta-incident`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/ingestion-meta-incident`
+Run ID: N/A
+相关 issue/PR: PR #196 事故修复复核；本分支待创建 PR
+
+### 已完成工作
+
+- 只读复核 `ashare-ingest-current-scope` job spec、execution image digest 历史、Cloud Build / Artifact Registry、git ingestion 代码演进、BigQuery `ingestion_run` / `ingestion_partition_status` 行分布和 alert checker 覆盖面。
+- 新增事故报告 `docs/分析-ingestion-meta-0行事故排查-20260613.md`，记录根因链、时间线、当前镜像状态、历史缺口处置建议和 2026-06-13 / 2026-06-15 验证计划。
+- 在 `sql/observability/01_pipeline_status_views.sql` 新增 `v_ingestion_meta_missing`，并把 `alert_type='ingestion_meta_missing'` 接入 `v_alert_summary`。
+- 在 `scripts/alerting/setup_alerts.py` 新增 `ashare_pipeline_ingestion_meta_missing` log metric 和 `Ashare Pipeline: Ingestion Meta Missing` policy；同步更新 alert README 与 active runbook。
+- 新增 `tests/alerting/test_ingestion_meta_missing_alert.py`，固定 SQL、setup 和 README 的告警接线。
+
+### 重要上下文
+
+- 当前 job spec image 仍是 `ingestion:latest`，不是 digest pin；execution 创建时解析 tag。本轮确认 2026-06-12 scheduled current_scope execution `ashare-ingest-current-scope-9wnh8` 使用修复镜像 `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 并落 27 条 meta。
+- Artifact Registry 当前 `latest` 指向 dividend 补采镜像 `sha256:35acbc363408d05dd758d70ba5f293e8b0d333a000c6dfe8e8143ddadd0b8bba`；该镜像后续 dividend executions 已实证写 meta。本轮无需、也未执行生产 job 更新。
+- 2026-06-13 是周六，SSE `is_open=0`；20:00 CST scheduled workflow 应走非交易日 gate，不会触发 live ingestion，不应期待 20260613 meta 行。下一次 live meta 验证应看 2026-06-15 20:00 CST 后的 current_scope 行。
+- 历史 2026-06-09/10/11 meta 缺口建议不回填，保留报告/PR/Cloud Run/pipeline status 作为审计记录，避免混淆真实运行时审计与事后重建记录。
+
+### 改动文件
+
+- `docs/分析-ingestion-meta-0行事故排查-20260613.md`
+- `sql/observability/01_pipeline_status_views.sql`
+- `scripts/alerting/setup_alerts.py`
+- `scripts/alerting/README.md`
+- `docs/Pipeline-补跑与故障恢复-Runbook.md`
+- `tests/alerting/test_ingestion_meta_missing_alert.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `bq query --project_id=data-aquarium --location=asia-east2 --use_legacy_sql=false --dry_run < sql/observability/01_pipeline_status_views.sql`：validated。
+- `python3 -m pytest -q tests/alerting/test_ingestion_meta_missing_alert.py`：1 passed。
+- `python3 scripts/alerting/setup_alerts.py --dry-run`：新 metric/policy 可见。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
+- `git diff --check`：passed。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- PR 合并并部署观测 SQL / alert policy 后，2026-06-15 20:00 CST 后复核 `v_ingestion_meta_missing` 为空、`ingestion_run` 有 20260615 current_scope 行。
+- 2026-06-13 20:00 CST 只验证非交易日 gate；若触发 live ingestion，反而需要按非交易日 gate 异常处理。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
 ## 2026-06-12 GPT-5.5 - dividend ODS backfill and CA resume
 
 日期: 2026-06-12

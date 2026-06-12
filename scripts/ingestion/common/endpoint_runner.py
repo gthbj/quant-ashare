@@ -40,10 +40,11 @@ def ingest_plan(
     existing report-period partition to avoid dropping historical versions.
     """
     results: list[dict[str, Any]] = []
-    logical_date = business_date.strftime("%Y%m%d")
+    default_logical_date = business_date.strftime("%Y%m%d")
     ingested_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     for item in plan:
+        logical_date = str(item.get("logical_date") or item.get("partition_date") or default_logical_date)
         contract = read_schema_contract(Path(item["schema_contract"]))
         item["schema_version"] = contract.get("version")
         item["request_params_hash"] = _request_params_hash(item, logical_date)
@@ -207,7 +208,7 @@ def _result(
         "variant": item["variant"],
         "partition_endpoint": item["partition_endpoint"],
         "partition_date": partition_date or item["partition_date"],
-        "logical_date": item["partition_date"],
+        "logical_date": item.get("logical_date", item["partition_date"]),
         "request_params_hash": item.get("request_params_hash"),
         "schema_version": item.get("schema_version"),
         "row_count": row_count,
