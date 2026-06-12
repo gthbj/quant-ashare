@@ -1,3 +1,52 @@
+<<<<<<< HEAD
+> 当前交接补充（2026-06-12，Claude Fable 5，ingestion 镜像 stale 修复）
+> - 确诊 `ashare_meta.ingestion_run` / `ingestion_partition_status` 0 行根因：采集 Cloud Run 镜像 `351dfd99...` 构建于 2026-06-04 11:50 UTC，早于 status_writer 接线 commit `60fb242`（15:57 UTC）约 4 小时，此后从未重建；live 采集成功但镜像内无写表代码。次生后果：镜像内打包的 manifest 缺 `2e4d29b` 新增的 000001.SH variant，ODS 000001.SH 自 06-10 停更，`dws_market_state_daily` 06-10/11 `sse_composite_*` 全 NULL（06-10 `risk_off` 判定为退化输入产物）。
+> - 已重建镜像（新 digest `5c78e862...`，build `8053b0d5`）推 `:latest`，job spec 未动；boot dry-run `4vq5v` 实证新 digest 生效、plan 27 端点含 000001.SH。已补采 000001.SH 06-10/11（executions `zh88k`/`q4prv`/`fr44m`/`v9k6h`），两张 meta 表落首批 4 行 success，ODS 可读。
+> - 待 2026-06-12 20:00 CST scheduled run 后验证：当日 `ingestion_run` 27 端点行、06-10/11 index DWD 与 market-state 被 `daily_current` 20 交易日写窗自动重写、`v_alert_summary` 采集分支恢复。`orchestration/cloud_run_jobs/README.md` 部署记录与 `KNOWN_CONSTRAINTS.md` 镜像重建约束已更新。
+>
+> Model: Claude Fable 5
+
+## 2026-06-12 Claude Fable 5 - ingestion 镜像 stale 修复（meta 审计静默 + 000001.SH 缺口）
+
+日期: 2026-06-12
+Agent ID: Claude Code
+Agent 实例 ID: 当前本地会话
+模型: Claude Fable 5
+运行环境: `/Users/fisher/Desktop/git/quant-ashare`（诊断/云端操作）；PR 分支 `claude/ingestion-image-stale-fix`
+Run ID: `manual_backfill_sse_composite_20260610_index_eod` / `manual_backfill_sse_composite_20260611_index_eod`（meta 表内完整 `ingestion_run_id` = CLI 传入值 + `_<endpoint_group>` 后缀）
+相关 issue/PR: 本次修复记录 PR（见分支）
+
+### 已完成工作
+
+- 诊断闭环：Cloud Build 历史 + Artifact Registry + execution describe 证明线上 9 次成功采集全部运行 `351dfd99...`（2026-06-04 11:50 UTC 构建），不含 `60fb242`（15:57 UTC）的 `IngestionStatusWriter` 接线；旧版 live 代码无任何 BigQuery 写入逻辑，与「execution 成功 + 两表零 DML」自洽。
+- 重建镜像：`gcloud builds submit`（cloudbuild.ingestion.yaml，build `8053b0d5`），新 digest `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b`；boot dry-run execution `ashare-ingest-current-scope-4vq5v` 验证新 digest 自动解析、plan 27 分区端点含 `index_daily_000001_SH` / `index_dailybasic_000001_SH`。
+- 补采 000001.SH 2026-06-10/11：4 个 live execution（`zh88k`/`q4prv`/`fr44m`/`v9k6h`，每次单 variant，`gcloud run jobs execute --args` 不允许重复 flag）；`ingestion_run` 4 行 success / `ingestion_partition_status` 4 行（两表首批生产行），ODS 外部表可读。
+- 部署前风险排除：两表 schema 与 INSERT/MERGE 列匹配（06-08 ALTER_TABLE 仅列描述）；`sa-ashare-ingestion` 有 jobs.create + `ashare_meta` 写权限（其 06-08 ALTER_TABLE 即实证）；requirements 含 `google-cloud-bigquery`；`60fb242..HEAD` ingestion 变更面：manifest 新增 000001.SH variants，`run_ingestion_job.py` / `common/logging.py` / `common/manifest.py` / `common/parquet_schema.py` 仅 docstring/描述文案改动，另新增独立辅助脚本 `scripts/ingestion/generate_index_external_table_uris.py`（随 `COPY scripts/ingestion` 打包进镜像，但不在 job ENTRYPOINT 运行路径）。
+
+### 重要上下文
+
+- job spec / scheduler / workflow / IAM 全部未动；job 引用 `:latest`，execution 创建时解析 digest，2026-06-12 20:00 CST scheduled run 自动用新镜像。
+- `dws_market_state_daily` 06-10/11 的 `sse_composite_*` 为 NULL、06-10 `market_regime='risk_off'` 是退化输入下的判定；当晚 `daily_current` 窗口刷新（`02`/`03` 写窗回看 20 个交易日）会自动重写，无需手工 backfill。正式研究窗口（至 06-09）未消费退化行。
+- `v_alert_summary` 当前 2 行 pipeline/task_failure 是 06-11 PRD_06 backfill 期间的历史 QA 失败记录（2019Q1 旗标断言），与本次无关。
+
+### 改动文件
+
+- `orchestration/cloud_run_jobs/README.md`（部署状态：新 digest + 镜像重建纪律）
+- `.agent/memory/IMPLEMENTATION_STATUS.md` / `.agent/memory/AGENT_HANDOFF.md` / `.agent/memory/KNOWN_CONSTRAINTS.md` / `TODO.md`
+
+### 测试 / 验证
+
+- boot dry-run execution 成功 + 日志含 000001.SH plan 行；4 个补采 execution 成功；`ingestion_run` / `ingestion_partition_status` / ODS 06-10/11 查询验证；`v_alert_summary` / `v_ingestion_failures` 可查询。
+
+### 阻塞项
+
+- 2026-06-12 20:00 CST scheduled run 的全链路验证尚未发生（验证清单见 TODO）。
+
+### 下一步建议
+
+- 20:00 CST 后按 TODO 验证清单复核；若 `ingestion_run` 当日仍无行，查 execution 日志与 BigQuery 写入错误。
+- 考虑给 `scripts/ingestion/**` / `configs/ingestion/**` 变更加 CI 或 PR checklist 强制「重建镜像」步骤（已写入 KNOWN_CONSTRAINTS，流程硬约束待 owner 决定形式）。
+=======
 > 当前交接补充（2026-06-12，GPT-5.5，PRD_20260612_01 Phase B implementation）
 > - 分支 `codex/bq-dataset-cleanup-impl` 已完成 PRD_20260612_01 Phase B 代码层：退役两个 windowed equivalence parity 脚本并移除空 `scripts/qa/`，清理契约测试、`sql/README.md` 示例和 Strategy1 Cloud Run runbook active 前置条件。
 > - `active_step_catalog.yml` 已加入两条退役脚本 ban-list，并补齐相关 `.agent/memory` 历史白名单；`KNOWN_CONSTRAINTS.md` 已把 OQ-005 window parity 与 true-five-year overlap parity 硬门改写为 PRD 定稿口径，BQML audit 条款补充面板裁剪后的复算入口。
@@ -57,12 +106,17 @@ Run ID: N/A
 
 - 提交并推送 `codex/bq-dataset-cleanup-impl`，创建 base `main` 的实现 PR。
 - 实现 PR 合并后，再按 PRD 手工执行 BigQuery Phase A/B/C 清理；执行时必须遵守 `--location=asia-east2`、分区过滤和删除前/后 manifest 对账要求。
+>>>>>>> origin/main
 
 ### 已更新记忆文件
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
+<<<<<<< HEAD
+- `TODO.md`
+
+=======
 - `.agent/memory/ARCHITECTURE_MEMORY.md`
 - `TODO.md`
 
@@ -75,6 +129,7 @@ Run ID: N/A
 >
 > Model: Claude Fable 5
 
+>>>>>>> origin/main
 > 当前交接补充（2026-06-12，GPT-5 Codex，PR #186 CSV cleanup）
 > - 已按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
 > - 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；CSV 视为可再生成的本地/临时分析产物，不再跟随 git。`docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。
