@@ -1,3 +1,10 @@
+> 当前交接补充（2026-06-11，GPT-5 Codex，true-five-year QA guard）
+> - PRD_06 / OQ-011 follow-up 已补两个防空过护栏：`sql/qa/13_true5y_historical_coverage_checks.sql` 的 `QA-TRUE5Y-1` 现在要求 `repaired_2019_full_history_candidates` 非空且 bad_count 为 0；`sql/qa/02_strategy1_dws_ads_checks.sql` 现在要求 canonical `strategy1_pv_v0_20260601` / `open_to_close_h1_5_10_20_v20260601` 的默认 trainable 样本非空。
+> - `dataform/definitions/assertions/02_strategy1_dws_ads_checks.sqlx` 已由 canonical SQL 重新生成；`tests/strategy1/test_true5y_prd06_contracts.py` 已钉住两个新 guard，防止后续回退成空集合恒真式。
+> - 验证：`generate_sqlx_from_sql.py --check`、`pytest tests/strategy1/test_true5y_prd06_contracts.py`、两个 QA SQL dry-run 均通过；实际只读执行 `02_strategy1_dws_ads_checks.sql` job `bqjob_r3cf451e3a7e348ec_0000019eb72f67f1_1` 与 `13_true5y_historical_coverage_checks.sql` job `bqjob_r32afd60ee7875b_0000019eb72f6833_1` 均通过，`price_flag_repair_window` row_count=`204751`。
+>
+> Model: GPT-5 Codex
+
 > 当前交接补充（2026-06-11，Claude Fable 5，PRD_10）
 > - 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 确认的结构性现金拖累（10 万 + 整手 + 等权 5% + 无再分配 → 25% 买单跳过、现金均值 29.4%），owner 决定重新设计构造规则而非修复等权。
 > - 核心规则：自上而下贪心买入，新开仓最小权重 5%（`position_floor_count=20` 仅作门槛基数，`target_holdings` 退役为观测指标 `realized_holdings_count`）；**无单票上限**（owner 决策 2026-06-11）；`walk_depth=50` 统一买入深度与卖出保留阈值；P1 六条规则以"跳过→下一名顶上"替换语义绑定进构造（实现红线：禁止复用 ledger 层跳过留现金语义，防止复活 #179 A1 的现金拖累）；可负担性与 P1 标记均只约束新增买入、不强制卖出。

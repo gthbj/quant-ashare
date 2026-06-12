@@ -55,9 +55,11 @@ WHERE f.trade_date BETWEEN p_repaired_2019_start AND p_repaired_2019_end
   AND f.history_obs_60d >= 61;
 
 ASSERT (
-  SELECT COUNTIF(NOT COALESCE(has_full_history_60d, FALSE)) = 0
+  SELECT
+    COUNT(*) > 0
+    AND COUNTIF(NOT COALESCE(has_full_history_60d, FALSE)) = 0
   FROM repaired_2019_full_history_candidates
-) AS 'QA-TRUE5Y-1: eligible 2019-01-02..2019-04-02 rows must have recomputed has_full_history_60d=TRUE';
+) AS 'QA-TRUE5Y-1: eligible 2019-01-02..2019-04-02 rows must be non-empty and have recomputed has_full_history_60d=TRUE';
 
 CREATE TEMP TABLE feature_day_coverage AS
 SELECT

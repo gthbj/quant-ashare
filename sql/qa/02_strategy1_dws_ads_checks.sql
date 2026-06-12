@@ -4,6 +4,8 @@
 
 DECLARE dws_start_date DATE DEFAULT DATE '2019-01-01';
 DECLARE dws_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
+DECLARE default_feature_version STRING DEFAULT 'strategy1_pv_v0_20260601';
+DECLARE default_label_version STRING DEFAULT 'open_to_close_h1_5_10_20_v20260601';
 
 ASSERT (
   SELECT COUNT(*) = 6
@@ -90,6 +92,15 @@ ASSERT (
     HAVING n > 1
   )
 ) AS 'dws_stock_sample_daily key must be unique';
+
+ASSERT (
+  SELECT COUNT(*) > 0
+  FROM `data-aquarium.ashare_dws.dws_stock_sample_daily`
+  WHERE trade_date BETWEEN dws_start_date AND dws_end_date
+    AND feature_version = default_feature_version
+    AND label_version = default_label_version
+    AND sample_trainable_default
+) AS 'default trainable samples must be non-empty for canonical feature/label versions';
 
 ASSERT (
   SELECT COUNT(*) > 0
