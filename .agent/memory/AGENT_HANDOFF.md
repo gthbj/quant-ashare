@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 > 当前交接补充（2026-06-12，Claude Fable 5，ingestion 镜像 stale 修复）
 > - 确诊 `ashare_meta.ingestion_run` / `ingestion_partition_status` 0 行根因：采集 Cloud Run 镜像 `351dfd99...` 构建于 2026-06-04 11:50 UTC，早于 status_writer 接线 commit `60fb242`（15:57 UTC）约 4 小时，此后从未重建；live 采集成功但镜像内无写表代码。次生后果：镜像内打包的 manifest 缺 `2e4d29b` 新增的 000001.SH variant，ODS 000001.SH 自 06-10 停更，`dws_market_state_daily` 06-10/11 `sse_composite_*` 全 NULL（06-10 `risk_off` 判定为退化输入产物）。
 > - 已重建镜像（新 digest `5c78e862...`，build `8053b0d5`）推 `:latest`，job spec 未动；boot dry-run `4vq5v` 实证新 digest 生效、plan 27 端点含 000001.SH。已补采 000001.SH 06-10/11（executions `zh88k`/`q4prv`/`fr44m`/`v9k6h`），两张 meta 表落首批 4 行 success，ODS 可读。
@@ -45,14 +46,90 @@ Run ID: `manual_backfill_sse_composite_20260610_index_eod` / `manual_backfill_ss
 
 - 20:00 CST 后按 TODO 验证清单复核；若 `ingestion_run` 当日仍无行，查 execution 日志与 BigQuery 写入错误。
 - 考虑给 `scripts/ingestion/**` / `configs/ingestion/**` 变更加 CI 或 PR checklist 强制「重建镜像」步骤（已写入 KNOWN_CONSTRAINTS，流程硬约束待 owner 决定形式）。
+=======
+> 当前交接补充（2026-06-12，GPT-5.5，PRD_20260612_01 Phase B implementation）
+> - 分支 `codex/bq-dataset-cleanup-impl` 已完成 PRD_20260612_01 Phase B 代码层：退役两个 windowed equivalence parity 脚本并移除空 `scripts/qa/`，清理契约测试、`sql/README.md` 示例和 Strategy1 Cloud Run runbook active 前置条件。
+> - `active_step_catalog.yml` 已加入两条退役脚本 ban-list，并补齐相关 `.agent/memory` 历史白名单；`KNOWN_CONSTRAINTS.md` 已把 OQ-005 window parity 与 true-five-year overlap parity 硬门改写为 PRD 定稿口径，BQML audit 条款补充面板裁剪后的复算入口。
+> - 验证已通过：`PYTHONPATH=src python3 -m pytest -q tests`（166 passed）、`python3 -m pytest -q tests/strategy1/test_retired_lint.py`（5 passed）、active scope grep 退役脚本 `.py` 路径零引用、`git diff --check`。
+> - 本轮未执行 BigQuery 操作；Phase A/Phase B scratch dataset/Phase C panel DELETE 仍是实现 PR 合并后的手工步骤。
+>
+> Model: GPT-5.5
+
+## 交接条目
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-bq-cleanup-impl`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/bq-dataset-cleanup-impl`
+Run ID: N/A
+相关 issue/PR: PR #193（PRD 已合并），实现 PR 待创建；PRD `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md`
+
+### 已完成工作
+
+- 实现 PRD_20260612_01 Phase B 第 1-7 项：删除退役 QA 脚本和空目录，移除对应契约测试，清理 `sql/README.md` windowed equivalence 示例，改写 Strategy1 Cloud Run runbook true-five-year refit 前置条件。
+- `configs/strategy1/active_step_catalog.yml` 增加退役脚本 ban-list，并补齐相关 `.agent/memory` 历史白名单。
+- `.agent/memory/KNOWN_CONSTRAINTS.md` 改写 OQ-005 window parity、true-five-year overlap parity 和 BQML historical panel 裁剪后的复算约束；`.agent/memory/ARCHITECTURE_MEMORY.md` 保留历史叙述并补退役注记。
+
+### 重要上下文
+
+- 本轮只做代码/文档/记忆改动，未执行任何 BigQuery 操作。
+- Phase A `ashare` 数据集硬删除、Phase B scratch dataset 删除和 Phase C `ads_ml_training_panel_daily` `s1_bqml%` DELETE 仍需在实现 PR 合并后按 PRD 手工执行并留对账证据。
+- 若未来需要恢复 full/window parity 工具，应从本实现 PR 的 parent commit 通过 git history 恢复脚本后另行评估。
+
+### 改动文件
+
+- `scripts/qa/run_windowed_refresh_equivalence.py`（删除）
+- `scripts/qa/run_index_market_windowed_equivalence.py`（删除）
+- `tests/strategy1/test_true5y_prd06_contracts.py`
+- `sql/README.md`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `configs/strategy1/active_step_catalog.yml`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests`：166 passed，5 warnings。
+- `python3 -m pytest -q tests/strategy1/test_retired_lint.py`：5 passed。
+- active scope grep 退役脚本 `.py` 路径：零引用；bare path 只保留在 catalog ban-list 和历史承载面。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无代码阻塞。
+
+### 下一步建议
+
+- 提交并推送 `codex/bq-dataset-cleanup-impl`，创建 base `main` 的实现 PR。
+- 实现 PR 合并后，再按 PRD 手工执行 BigQuery Phase A/B/C 清理；执行时必须遵守 `--location=asia-east2`、分区过滤和删除前/后 manifest 对账要求。
+>>>>>>> origin/main
 
 ### 已更新记忆文件
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
+<<<<<<< HEAD
 - `TODO.md`
 
+=======
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `TODO.md`
+
+> 当前交接补充（2026-06-12，Claude Fable 5，BigQuery 数据集清理 PRD）
+> - 完成 `data-aquarium` 全数据集盘点：核心分层（dim/dwd/dws/ads/research）与 `sql/` 契约双向零差异；杂物为遗留数据集 `ashare`（250.4 GiB、零引用、2026-05-25 后零写入）、`ashare_meta` 5 张 `_repair_val_*`、`ashare_qa_windowed_equivalence` 18 张 shadow 残留、ads 训练面板 12 个 `s1_bqml%` 旧 run（约 115 GB）。
+> - 第 1 类清理已执行（owner 批准）：上述 5 + 18 共 23 张表已删，`bq ls` 复核清空。18 张 native shadow 表 7 天 time travel 内可恢复；5 张 `_repair_val_*` 是外部表（time travel 不覆盖），删除仅移除 BQ definition，GCS 无涉，需要时由 repair 脚本重建。
+> - 新增 `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md`（分支 `claude/prd-bq-dataset-cleanup`）：Phase A `ashare` 硬删除（审计日志预检硬门）/ Phase B windowed equivalence QA 退役（两脚本 + 引用 + KNOWN_CONSTRAINTS 两处硬门改写 + scratch 数据集删除）/ Phase C 面板 `s1_bqml%` 行裁剪。owner 决策记入 DECISION-20260612-01；`tushare_api_catalog`/`params`、`ashare_backup`、50 个 BQML model、prediction、回测事实、ODS scope 外外部表均保留。
+> - 注意：KNOWN_CONSTRAINTS 的「双实现并存必须跑 equivalence QA」与「true5y 重跑必须先过 overlap parity」两条届时改写（随实现 PR），不是静默失效；两脚本恢复入口为实现 PR 的 parent commit。
+> - 盘点顺带发现 `ingestion_run` / `ingestion_partition_status` 0 行与 live 采集成功矛盾（疑似采集镜像 stale、采集级告警静默），已挂独立排查任务，本轮未修。
+>
+> Model: Claude Fable 5
+
+>>>>>>> origin/main
 > 当前交接补充（2026-06-12，GPT-5 Codex，PR #186 CSV cleanup）
 > - 已按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
 > - 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；CSV 视为可再生成的本地/临时分析产物，不再跟随 git。`docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。

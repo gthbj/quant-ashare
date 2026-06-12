@@ -5,7 +5,13 @@
 ## P0 — 当前优先
 
 - [ ] OQ-005：验证 2026-06-12 20:00 CST scheduled 采集后 ingestion 审计链路恢复
-  说明：2026-06-12 已确诊并修复采集镜像 stale（详见 `IMPLEMENTATION_STATUS.md` 同日小节）：重建镜像 digest `5c78e862...` 推 `:latest`（job spec 未动），补采 000001.SH 06-10/11 并实证 `ashare_meta.ingestion_run` / `ingestion_partition_status` 首批落行。待当晚 scheduled run 后验证：① `ingestion_run` 落 2026-06-12 业务日 27 个分区端点行（含 `index_daily_000001_SH` / `index_dailybasic_000001_SH`）；② `daily_current` 窗口刷新自动重写 06-10/11 的 `dwd_index_eod` 000001.SH 行与 `dws_market_state_daily` `sse_composite_*` 字段（06-10 `market_regime` 应基于完整输入重判，当前 `risk_off` 是退化输入产物）；③ `v_alert_summary` / `v_ingestion_failures` / `v_ingestion_empty_returns` 采集分支有真实数据来源。若 `ingestion_run` 当日无行，查 execution 日志与 BigQuery 写入错误。
+  说明：2026-06-12 已确诊并修复采集镜像 stale（详见 `IMPLEMENTATION_STATUS.md` 同日小节）：重建镜像 digest `5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 推 `:latest`（job spec 未动），补采 000001.SH 06-10/11 并实证 `ashare_meta.ingestion_run` / `ingestion_partition_status` 首批落行。待当晚 scheduled run 后验证：① `ingestion_run` 落 2026-06-12 业务日 27 个分区端点行（含 `index_daily_000001_SH` / `index_dailybasic_000001_SH`）；② `daily_current` 窗口刷新自动重写 06-10/11 的 `dwd_index_eod` 000001.SH 行与 `dws_market_state_daily` `sse_composite_*` 字段（06-10 `market_regime` 应基于完整输入重判，当前 `risk_off` 是退化输入产物）；③ `v_alert_summary` / `v_ingestion_failures` / `v_ingestion_empty_returns` 采集分支有真实数据来源。若 `ingestion_run` 当日无行，查 execution 日志与 BigQuery 写入错误。
+
+- [x] 排查 `ingestion_run` / `ingestion_partition_status` 零写入与采集告警断档
+  说明：已完成（PR #196，2026-06-12）：确诊为采集 Cloud Run 镜像 stale——镜像构建于 2026-06-04 11:50 UTC，早于 status_writer 接线 `60fb242`（15:57 UTC），此后未重建；已重建镜像并补采 000001.SH 06-10/11，meta 表首批落行实证。剩余验证见上一条。
+
+- [ ] 按 `PRD_20260612_01` 执行 BigQuery 数据集清理退役
+  说明：第 1 类清理已于 2026-06-12 完成（删除 `ashare_meta` 5 张 `_repair_val_*` 与 `ashare_qa_windowed_equivalence` 18 张 shadow 表）。Phase B 代码/文档/KNOWN_CONSTRAINTS 改写已在分支 `codex/bq-dataset-cleanup-impl` 完成：退役两个 windowed equivalence parity 脚本、清理 active 引用并加入 catalog ban-list。剩余：实现 PR 合并后手工执行 Phase A `ashare` 整库硬删除（先过 Data Access 审计日志预检）、Phase B scratch 数据集删除、Phase C `ads_ml_training_panel_daily` `s1_bqml%` 旧 run 裁剪（预期 12 run / 36,853,582 行），每步留删除时间戳与前后对账证据（7 天 UNDROP / time travel 窗口）。
 
 - [x] OQ-005：合并 2026-06-09 scheduled ODS run 暴露的 Cloud Run Job IAM bootstrap 修正
   说明：已由 PR #126 合并到 `main`。`orchestration/workflows/bootstrap_scheduler_iam.sh` 已固化 runtime SA 的 job-level `roles/run.jobsExecutorWithOverrides`、project-level `roles/run.viewer`，并移除旧 job-level `roles/run.invoker`，避免重新 bootstrap 后复现 scheduled ODS workflow 权限失败。
