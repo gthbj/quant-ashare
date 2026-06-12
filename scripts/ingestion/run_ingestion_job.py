@@ -42,13 +42,17 @@ ENDPOINT_GROUPS: dict[str, dict[str, Any]] = {
         "module": "scripts.ingestion.endpoints.finance",
         "endpoints": ["fina_indicator", "income", "balancesheet", "cashflow"],
     },
+    "corporate_actions": {
+        "module": "scripts.ingestion.endpoints.corporate_actions",
+        "endpoints": ["dividend"],
+    },
     "dividend_backfill": {
         "module": "scripts.ingestion.endpoints.corporate_actions",
         "endpoints": ["dividend"],
     },
 }
 ENDPOINT_GROUP_ALIASES: dict[str, list[str]] = {
-    "current_scope": ["market_eod", "index_eod", "dim_snapshot", "finance_recent"],
+    "current_scope": ["market_eod", "index_eod", "dim_snapshot", "finance_recent", "corporate_actions"],
 }
 
 
@@ -82,6 +86,95 @@ def _format_gcs_prefix(
     )
 
 
+def _parse_business_date(value: str) -> date:
+    value = value.strip()
+    if "-" in value:
+        return date.fromisoformat(value)
+    return date.fromisoformat(f"{value[:4]}-{value[4:6]}-{value[6:8]}")
+
+
+def _normalize_business_date(value: str) -> str:
+    return _parse_business_date(value).isoformat()
+
+
+def _lookback_open_days(endpoint_cfg: dict[str, Any]) -> int:
+    raw = endpoint_cfg.get("lookback_open_days") or 1
+    return max(1, int(raw))
+
+
+def _group_lookback_open_days(
+    manifest: dict[str, Any],
+    endpoint_group: str,
+    endpoint_filters: set[str] | None = None,
+) -> int:
+    endpoint_map = _endpoint_by_name(manifest)
+    lookback = 1
+    for endpoint_name in ENDPOINT_GROUPS[endpoint_group]["endpoints"]:
+        if endpoint_filters and endpoint_name not in endpoint_filters:
+            continue
+        endpoint_cfg = endpoint_map[endpoint_name]
+        lookback = max(lookback, _lookback_open_days(endpoint_cfg))
+    return lookback
+
+
+def resolve_open_business_dates(
+    *,
+    project: str,
+    location: str,
+    business_date: str,
+    lookback_open_days: int,
+) -> list[str]:
+    """Resolve recent SSE open days from dim_trade_calendar, newest bound inclusive."""
+    from google.cloud import bigquery
+
+    parsed_business_date = _parse_business_date(business_date)
+    query = f"""
+SELECT FORMAT_DATE('%Y-%m-%d', cal_date) AS business_date
+FROM `{project}.ashare_dim.dim_trade_calendar`
+WHERE exchange = 'SSE'
+  AND is_open = 1
+  AND cal_date <= @business_date
+ORDER BY cal_date DESC
+LIMIT @lookback_open_days
+"""
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("business_date", "DATE", parsed_business_date),
+            bigquery.ScalarQueryParameter("lookback_open_days", "INT64", lookback_open_days),
+        ]
+    )
+    client = bigquery.Client(project=project, location=location)
+    rows = list(client.query(query, job_config=job_config, location=location).result())
+    dates = [row.business_date for row in reversed(rows)]
+    if len(dates) != lookback_open_days:
+        raise RuntimeError(
+            "dim_trade_calendar did not return enough SSE open days for "
+            f"business_date={business_date}, lookback_open_days={lookback_open_days}: {dates}"
+        )
+    return dates
+
+
+def _partition_dates_for_endpoint(
+    endpoint_cfg: dict[str, Any],
+    business_date: str,
+    lookback_business_dates: list[str] | None,
+) -> list[str]:
+    lookback = _lookback_open_days(endpoint_cfg)
+    if lookback == 1:
+        return [_normalize_business_date(business_date)]
+    if lookback_business_dates is None:
+        raise RuntimeError(
+            f"Endpoint {endpoint_cfg['endpoint']} requires lookback_open_days={lookback} "
+            "but no resolved open-day calendar was provided."
+        )
+    if len(lookback_business_dates) != lookback:
+        raise RuntimeError(
+            f"Endpoint {endpoint_cfg['endpoint']} requires {lookback} open days, "
+            f"got {len(lookback_business_dates)}."
+        )
+    return [_normalize_business_date(value) for value in lookback_business_dates]
+
+
 def build_plan(
     manifest: dict[str, Any],
     endpoint_group: str,
@@ -89,6 +182,7 @@ def build_plan(
     ingestion_run_id: str,
     endpoint_filters: set[str] | None = None,
     variant_filters: set[str] | None = None,
+    lookback_business_dates: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Build the endpoint/partition plan that a Cloud Run job would execute."""
     if endpoint_group not in ENDPOINT_GROUPS:
@@ -97,13 +191,17 @@ def build_plan(
     defaults = manifest.get("defaults", {})
     contract_dir = Path(defaults["schema_contract_dir"])
     endpoint_map = _endpoint_by_name(manifest)
-    partition_date = _yyyymmdd(business_date)
     plan: list[dict[str, Any]] = []
 
     for endpoint_name in ENDPOINT_GROUPS[endpoint_group]["endpoints"]:
         if endpoint_filters and endpoint_name not in endpoint_filters:
             continue
         endpoint_cfg = endpoint_map[endpoint_name]
+        partition_business_dates = _partition_dates_for_endpoint(
+            endpoint_cfg=endpoint_cfg,
+            business_date=business_date,
+            lookback_business_dates=lookback_business_dates,
+        )
         request_variants = endpoint_cfg.get("request_variants") or [
             {
                 "variant": endpoint_cfg["endpoint"],
@@ -121,32 +219,36 @@ def build_plan(
                 endpoint_cfg.get("partition_endpoint", endpoint_cfg["endpoint"]),
             )
             contract_path = contract_dir / f"{endpoint_cfg['endpoint']}.json"
-            plan.append(
-                {
-                    "ingestion_run_id": ingestion_run_id,
-                    "source_system": defaults.get("source_system", "tushare"),
-                    "endpoint_group": endpoint_group,
-                    "endpoint": endpoint_cfg["endpoint"],
-                    "api": endpoint_cfg.get("api", endpoint_cfg["endpoint"]),
-                    "variant": variant_name,
-                    "partition_endpoint": partition_endpoint,
-                    "business_date_field": endpoint_cfg.get("business_date_field"),
-                    "request_date_param": endpoint_cfg.get("request_date_param"),
-                    "partition_date": partition_date,
-                    "partition_date_semantics": endpoint_cfg.get("partition_date_semantics"),
-                    "request_params": variant.get("params", {}),
-                    "schema_contract": str(contract_path),
-                    "schema_contract_exists": contract_path.exists(),
-                    "gcs_bucket": defaults.get("gcs_bucket"),
-                    "gcs_prefix": _format_gcs_prefix(
-                        manifest=manifest,
-                        endpoint_cfg=endpoint_cfg,
-                        partition_endpoint=partition_endpoint,
-                        partition_date=partition_date,
-                    ),
-                    "status": "planned",
-                }
-            )
+            for partition_business_date in partition_business_dates:
+                partition_date = _yyyymmdd(partition_business_date)
+                plan.append(
+                    {
+                        "ingestion_run_id": ingestion_run_id,
+                        "source_system": defaults.get("source_system", "tushare"),
+                        "endpoint_group": endpoint_group,
+                        "endpoint": endpoint_cfg["endpoint"],
+                        "api": endpoint_cfg.get("api", endpoint_cfg["endpoint"]),
+                        "variant": variant_name,
+                        "partition_endpoint": partition_endpoint,
+                        "business_date_field": endpoint_cfg.get("business_date_field"),
+                        "request_date_param": endpoint_cfg.get("request_date_param"),
+                        "partition_date": partition_date,
+                        "logical_date": partition_date,
+                        "partition_date_semantics": endpoint_cfg.get("partition_date_semantics"),
+                        "lookback_open_days": endpoint_cfg.get("lookback_open_days"),
+                        "request_params": variant.get("params", {}),
+                        "schema_contract": str(contract_path),
+                        "schema_contract_exists": contract_path.exists(),
+                        "gcs_bucket": defaults.get("gcs_bucket"),
+                        "gcs_prefix": _format_gcs_prefix(
+                            manifest=manifest,
+                            endpoint_cfg=endpoint_cfg,
+                            partition_endpoint=partition_endpoint,
+                            partition_date=partition_date,
+                        ),
+                        "status": "planned",
+                    }
+                )
 
     return plan
 
@@ -197,6 +299,19 @@ def main() -> int:
     all_plan: list[dict[str, Any]] = []
     for endpoint_group in endpoint_groups:
         group_run_id = ingestion_run_id if len(endpoint_groups) == 1 else f"{ingestion_run_id}_{endpoint_group}"
+        lookback_open_days = _group_lookback_open_days(
+            manifest=manifest,
+            endpoint_group=endpoint_group,
+            endpoint_filters=set(args.endpoint or []) or None,
+        )
+        lookback_business_dates = None
+        if lookback_open_days > 1:
+            lookback_business_dates = resolve_open_business_dates(
+                project=args.project,
+                location=args.bq_location,
+                business_date=args.business_date,
+                lookback_open_days=lookback_open_days,
+            )
         all_plan.extend(
             build_plan(
                 manifest=manifest,
@@ -205,6 +320,7 @@ def main() -> int:
                 ingestion_run_id=group_run_id,
                 endpoint_filters=set(args.endpoint or []) or None,
                 variant_filters=set(args.variant or []) or None,
+                lookback_business_dates=lookback_business_dates,
             )
         )
     plan = all_plan

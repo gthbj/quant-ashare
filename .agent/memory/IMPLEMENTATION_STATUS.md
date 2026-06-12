@@ -15,7 +15,7 @@ Last updated: 2026-06-13
 ### 采集与调度
 
 - 生产调度唯一入口已迁到 `Cloud Scheduler + Cloud Workflows`；`ashare-composer` 已删除，Composer 目录仅保留为 retired / audit-only 历史快照。
-- 2026-06-12 scheduled current_scope 已使用修复后 ingestion 镜像 `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 写入 `ashare_meta.ingestion_run` / `ingestion_partition_status` 27 行，采集审计链路恢复已验证；本轮新增 `v_ingestion_meta_missing` 与对应 alert policy 防复发。2026-06-13 是周六，20:00 scheduled run 应验证非交易日 gate；下一次 live meta 验证窗口是 2026-06-15 20:00 CST。OQ-005 仍剩 post-cutover 短观察窗与 2026-06-12 下游 window QA 独立失败跟进。
+- 2026-06-12 scheduled current_scope 已使用修复后 ingestion 镜像 `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 写入 `ashare_meta.ingestion_run` / `ingestion_partition_status` 27 行，采集审计链路恢复已验证；本轮新增 `v_ingestion_meta_missing` 与对应 alert policy 防复发。PRD_20260613_03 分支已把 `dividend` 纳入日常 current_scope 的 `corporate_actions` 组，按最近 5 个 SSE 开市日逐日重查，并在 `daily_current` 链尾以 non-blocking weak 方式接入 dwd/12 + qa/14。代码合并后必须重建 ingestion 镜像并在 2026-06-15 20:00 CST scheduled run 后核验新 digest、dividend meta、事件 task 和可见上界。OQ-005 仍剩 post-cutover 短观察窗与 2026-06-12 下游 window QA 独立失败跟进。
 
 ### Strategy1 执行层与 baseline
 
@@ -40,6 +40,14 @@ Last updated: 2026-06-13
 - PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；门/窗口/分级是否调整仍留 owner 决策。PRD_20260613_01 已完成 topdown Phase 2 前置 P1 双选项 paper 批量；按预登记判据，修复臂均未达标，Phase 2 若继续应以 T0（无 P1）口径进入并由 owner 决策是否修订 PRD_10 的 P1 绑定条款。尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
+
+### 最新补充（2026-06-13）：PRD_20260613_03 dividend 日常采集与事件链路接入已实现
+
+- 分支 `codex/dividend-daily-scope` 已按 PRD §2 实现 dividend 日常化：`configs/ingestion/ods_current_scope_v0.yml` 新增 `dividend` endpoint，归入 `corporate_actions`，`current_scope` alias 追加该组，`dividend_backfill` 仍保留为历史缺口手工组。
+- `run_ingestion_job.py` 新增 `lookback_open_days=5` 的日历解析，生产从 `ashare_dim.dim_trade_calendar` 取最近 5 个 SSE 开市日并展开为逐日 `ex_date` plan；`endpoint_runner` 改为按 plan item 的 `partition_date/logical_date` 发请求，确保每日期独立分区、独立结果/meta 行、幂等覆盖。
+- `sql/qa/09_ods_daily_partition_readiness.sql` 将 dividend 注册为 weak endpoint，淡季 `empty_return` 不写 warning、不阻断 strong endpoint readiness。
+- `orchestration/workflows/ashare_warehouse_window_refresh.yaml` 在 `daily_current` 主链尾部新增 dwd/12 与 qa/14 两步，并用局部 try/except 捕获事件链失败：失败写对应 task `failed`、不 rethrow、pipeline finalize success；`backfill` / `qa_only` 不跑事件链，告警沿用既有 `task_failure`。
+- 文档和约束已同步：`KNOWN_CONSTRAINTS.md`、`sql/README.md`、ingestion/workflows README、runbook 和 TODO。代码合并后后续动作是重建 ingestion 镜像、记录 digest、用 `dividend_backfill` 最近开市日 smoke，并在 2026-06-15 scheduled run 后核验新镜像、dividend meta、事件 task 与可见上界；连续两个交易日全绿作为 TODO 后续收口。
 
 ### 最新补充（2026-06-13）：PRD_20260613_02 v3 Calmar 门合理性分析已实现
 
@@ -89,11 +97,3 @@ Last updated: 2026-06-13
 - `GcsLeaseLock` / `GcsSchedulerLease` / `PipelineStateStore` docstring 已标注各自锁语义出处；未合并三类 lock 的 reclaim / heartbeat 语义。
 - `tests/strategy1/test_gcs_leases.py` 新增 fake GCS 直测，覆盖 `GcsLeaseLock` acquire 竞争、stale reclaim 的 execution-terminal 条件、heartbeat 失锁，以及 `GcsSchedulerLease` generation conflict、失 owner 停止、无 reclaim 行为。`tests/strategy1/test_package_boundaries.py` 更新 Batch 2 shim 符号快照与反向 import 计数断言；Batch 2 后 src→scripts import 仅剩 `feature_sets` / `preprocess` / `orchestrate_annual_rolling_selection`。
 - 本轮不改训练、回测、ledger、orchestrator 调度语义，不触碰 Cloud Run job spec/args/镜像/IAM，不写 BigQuery/GCS。最终验证通过：`PYTHONPATH=src python3 -m pytest -q tests`（275 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`（6 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`（16 passed）；retired linter / compileall / Dataform check / `git diff --check` 均通过。
-
-### 最新补充（2026-06-12）：PRD_20260612_05 Batch 1 包结构收尾已实现
-
-- 分支 `codex/prd05-batch1` 已按 PRD §3 Batch 1 完成 Strategy1 包结构收尾并创建 PR #203：`scripts/strategy1_cloudrun/bq_io.py` 与 `config.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名文件改为 thin re-export shim；`runner_version.py` 在 src 内定义原 runner version 值，`scripts.strategy1_cloudrun.__version__` 改为 re-export。
-- src 内对 `scripts.strategy1_cloudrun.bq_io` / `config` / `dataset_roles` / `acceptance` / `__version__` 的 import 已改为包内直连；剩余 src→scripts import 仅限 Batch 2/3 范围 `state` / `task_fanout` / `feature_sets` / `preprocess` / `orchestrate_annual_rolling_selection`。
-- `tests/strategy1/test_package_boundaries.py` 新增 Batch 1 兼容符号快照与反向 import 计数断言，覆盖 `bq_io` / `config` shim 的跨文件引用符号和模块级常量；旧模块路径未加入 retired-lint ban-list。
-- 本轮不改训练、回测、ledger、orchestrator 调度语义，不触碰 Cloud Run job spec/args/镜像/IAM，不写 BigQuery/GCS。
-- 最终验证通过：`python3 -m pytest -q tests`（268 passed）；`python3 -m pytest -q tests/strategy1/test_package_boundaries.py`（6 passed）；`python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`（16 passed）；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`；`python3 -m compileall -q src scripts tests`；`git diff --check`；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`。

@@ -13,6 +13,12 @@
 - [ ] OQ-005：部署并验证 ingestion_meta_missing 告警
   说明：分支 `codex/ingestion-meta-incident` 已新增 `v_ingestion_meta_missing` / `v_alert_summary` 分支、Cloud Monitoring log metric/policy 接线和 runbook。PR 合并后需部署 observability SQL、运行 `scripts/alerting/setup_alerts.py`，并在 2026-06-15 20:00 CST 下一个开市 scheduled run 后确认当日 ingestion meta 有行且 `v_ingestion_meta_missing` 为空；2026-06-13 是周六，20:00 run 只验证非交易日 gate，不验证 live meta 写入。
 
+- [ ] OQ-010 / 数据治理：合并 `PRD_20260613_03` dividend 日常采集接入后完成镜像 / Workflows 部署与 2026-06-15 live 核验
+  说明：分支 `codex/dividend-daily-scope` 已实现 current_scope `corporate_actions/dividend`、`lookback_open_days=5` 逐开市日重查、`qa/09` weak 空返回豁免，以及 `ashare_warehouse_window_refresh` daily_current 链尾 non-blocking dwd/12 + qa/14。合并后必须按 `orchestration/cloud_run_jobs/cloudbuild.ingestion.yaml` 重建 `ingestion:latest` 并记录 digest，用 `dividend_backfill` 组对最近一个开市日手工 smoke，随后用 `orchestration/workflows/deploy_workflows.sh` 部署 Workflows（不动 full_rebuild opt-in）。2026-06-15 20:00 CST scheduled run 后核验 execution digest、新 dividend meta 行、`v_ingestion_meta_missing` 为空、事件两步 task status 和 `dwd_stock_dividend_event` 可见上界推进。
+
+- [ ] OQ-010 / 数据治理：连续两个交易日 scheduled run 事件链路全绿后收口 `PRD_20260613_03`
+  说明：验收标准为两个连续 SSE 开市日的 scheduled current_scope 含 dividend `success` 或正常 `empty_return` meta，warehouse `daily_current` 的 `windowed_weak_transform.dwd_stock_dividend_event` 与 `windowed_weak_qa.corporate_action_event_checks` 均成功，无 `task_failure`、`ingestion_meta_missing` 或 CA staleness 断言失败。通过后可在记忆中标记 dividend 日常化收口。
+
 - [x] 排查 `ingestion_run` / `ingestion_partition_status` 零写入与采集告警断档
   说明：已完成（PR #196，2026-06-12）：确诊为采集 Cloud Run 镜像 stale——镜像构建于 2026-06-04 11:50 UTC，早于 status_writer 接线 `60fb242`（15:57 UTC），此后未重建；已重建镜像并补采 000001.SH 06-10/11，meta 表首批落行实证。剩余验证见上一条。
 

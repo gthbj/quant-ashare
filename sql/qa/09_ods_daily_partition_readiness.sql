@@ -14,10 +14,10 @@
 --
 --   Weak (non-blocking): suspend_d, stock_basic, trade_cal, namechange,
 --                         index_dailybasic, income_vip, balancesheet_vip,
---                         cashflow_vip, fina_indicator_vip
+--                         cashflow_vip, fina_indicator_vip, dividend
 --     - No strict hourly guarantee
 --     - Missing data logged but doesn't block pipeline
---     - API empty_return may be normal (e.g., no suspensions on a given day)
+--     - API empty_return may be normal (e.g., no suspensions or no dividend events on a given day)
 --
 -- Parameters:
 --   @pipeline_run_id: STRING, Composer DAG run id
@@ -37,6 +37,7 @@
 --   namechange:     https://tushare.pro/document/2?doc_id=100  无严格盘后保证
 --   index_dailybasic: https://tushare.pro/document/1?doc_id=108 盘后更新
 --   income/balancesheet/cashflow/fina_indicator: 财报实时更新
+--   dividend:        公司行为事件；淡季交易日可空返回
 -- =============================================================================
 
 DECLARE p_pipeline_run_id STRING DEFAULT @pipeline_run_id;
@@ -184,6 +185,12 @@ FROM (
       )
     ) AS pd
   )
+
+  UNION ALL
+  -- dividend
+  SELECT 'corporate_actions', 'dividend', 'weak', p_trade_partition, pd, FALSE, FALSE,
+    (SELECT COUNT(*) FROM `data-aquarium.ashare_ods.ods_tushare_dividend` WHERE endpoint = 'dividend' AND partition_date = pd AND (ex_date IS NULL OR ex_date IS NOT NULL))
+  FROM (SELECT IF(p_require_business_partition, p_trade_partition, (SELECT MAX(partition_date) FROM `data-aquarium.ashare_ods.ods_tushare_dividend` WHERE endpoint = 'dividend' AND partition_date BETWEEN p_recent_start AND p_trade_partition)) AS pd)
 
   UNION ALL
   -- stock_basic

@@ -15,6 +15,7 @@
 #     index.py         — index_daily, index_dailybasic
 #     dim_snapshot.py  — stock_basic, trade_cal, namechange
 #     finance.py       — fina_indicator, income, balancesheet, cashflow
+#     corporate_actions.py — dividend
 #
 # Cloud Run Job dry-run 示例：
 #
@@ -44,6 +45,9 @@
 # - 指数行情按 dim_index 中真实 ODS endpoint key 拆成多个 partition endpoint。
 # - 财务表调用 `*_vip` API，按返回的 `end_date` 写报告期分区；正式写入时会读取
 #   既有 `data.parquet` 并按业务主键 merge，避免公告日增量覆盖整个报告期历史。
+# - `corporate_actions` 的 `dividend` 按 `lookback_open_days=5` 从
+#   `ashare_dim.dim_trade_calendar` 解析最近 5 个 SSE 开市日，逐日请求 `ex_date`
+#   并覆盖对应 `partition_date=ex_date` 分区；`dividend_backfill` 保留为历史缺口手工组。
 # - 空返回只返回 `empty_return` 状态，不写伪空 Parquet。
 # - live 写入会写 `ashare_meta.ingestion_run` 和
 #   `ashare_meta.ingestion_partition_status`；dry-run / API 只读 smoke 不写 meta。

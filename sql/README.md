@@ -29,7 +29,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/08_dwd_fin_balan
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/09_dwd_fin_balancesheet_latest.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/10_dwd_fin_cashflow.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/11_dwd_fin_cashflow_latest.sql
-# 分红送转事件 DWD。ledger 消费视图由 qa/14 创建；重跑 dwd/12 后必须重跑 qa/14。
+# 分红送转事件 DWD。daily_current workflow 已在链尾自动执行；手工重跑 dwd/12 后必须重跑 qa/14。
 bq query --use_legacy_sql=false --location=asia-east2 < sql/dwd/12_dwd_stock_dividend_event.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/qa/14_corporate_action_event_checks.sql
 bq query --use_legacy_sql=false --location=asia-east2 < sql/metadata/01_core_table_column_descriptions.sql
@@ -73,7 +73,7 @@ bq query --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_corp
 - 历史 effective-window 策略配置曾以 `2019-04-03` 作为稳定训练起点；PRD_20260611_06 的 2010+ backfill / 2015Q1 / 2019 repair 后，当前 DWS 可支持 true-five-year refit 的更早训练窗口。`sql/qa/02_strategy1_dws_ads_checks.sql` 不再断言固定最早日期，而是断言默认可训练样本必须具备完整 60 日价格历史；true-five-year 覆盖用 `sql/qa/13_true5y_historical_coverage_checks.sql` 验收。
 - 财务 DWD：`fina_indicator` 从 `fin_start_period = 20170101` 起读取并写入，用于 2019+ PIT 和同比/基期特征。
 - 财务三大报表 DWD（OQ-003）：`income` / `balancesheet` / `cashflow` 同样从 `fin_start_period = 20170101` 起读取，可见日 `ann_date_eff = COALESCE(f_ann_date, ann_date)`；保留源 `report_type` 并派生 `report_caliber` / `is_default_report_caliber`，默认消费口径为合并报表 `report_type='1'`（实测当前 ODS 仅此一种口径）。默认 `_latest` 与 `dws_stock_feature_fin_daily` 只消费默认合并口径。
-- 分红送转事件 DWD：`dwd_stock_dividend_event` 由 `sql/dwd/12_dwd_stock_dividend_event.sql` 手工刷新，`sql/qa/14_corporate_action_event_checks.sql` 会重建 mismatch 表与 ledger 消费视图 `v_dwd_stock_dividend_event_ledger_consumable`。当前 `dividend` endpoint 不在 ODS 日常采集 scope；owner 决策采集 scope / 编排接入前，CA-on 实验的 `predict_end` 不得超过事件表可见上界。若 `qa_corporate_action_ledger_outputs` staleness 断言失败，完整恢复路径是先补采 `dividend` ODS 分区，再重跑 `sql/dwd/12_dwd_stock_dividend_event.sql`，再重跑 `sql/qa/14_corporate_action_event_checks.sql`，最后重跑该 ledger QA。
+- 分红送转事件 DWD：`dividend` endpoint 已进入 ODS 日常 `current_scope`，在 `corporate_actions` 组按最近 `lookback_open_days=5` 个 SSE 开市日逐日重查 `ex_date`，每个 `partition_date=ex_date` 幂等覆盖独立分区并写独立 meta 行。`ashare_warehouse_window_refresh` 的 `daily_current` 模式在股票/市场窗口链尾以 non-blocking weak 步骤自动执行 `sql/dwd/12_dwd_stock_dividend_event.sql` 和 `sql/qa/14_corporate_action_event_checks.sql`；事件链失败只写 task failed 并由 `task_failure` 告警承载，不阻断价格主链 finalize success。`backfill` / `qa_only` 不自动跑事件链。若 `qa_corporate_action_ledger_outputs` staleness 断言失败，先检查当日 pipeline 事件两步 task 状态；必要时用 `dividend_backfill` 手工补采缺口，再重跑 dwd/12、qa/14 和该 ledger QA。
 - `dws_stock_feature_fin_daily`：把 `dwd_fin_indicator` 与三大报表 PIT as-of 到每个 universe 交易日，主键 `(sec_code, trade_date, feature_version='fin_default_v0_20260602')`。as-of 限制 `visible_trade_date` 在 `[trade_date - asof_lookback_days, trade_date]`（默认 `asof_lookback_days = 900` 日 ≈ 2.5 年）以约束扇出；超窗未更新财报视为缺失（`has_fin_*=FALSE`）。`report_caliber`/`is_default_report_caliber` 为消费口径契约（恒 consolidated/TRUE），实际可用性见 `has_fin_*` 与各来源 `*_report_period`。
 - 维度/日历：使用最新快照或全量历史事件，不按 2019 分区截断。
 

@@ -761,6 +761,92 @@ main:
                   lock_name: ${lock_name}
                   owner: ${lock_owner}
                   lease_seconds: ${lock_lease_seconds}
+            - branch_corporate_action_event_chain:
+                switch:
+                  - condition: ${warehouse_mode == "daily_current"}
+                    next: run_corporate_action_event_chain
+                next: set_qa_after_window_prefix
+            - run_corporate_action_event_chain:
+                try:
+                  steps:
+                    - set_task_dwd_stock_dividend_event:
+                        assign:
+                          - current_task_id: "windowed_weak_transform.dwd_stock_dividend_event"
+                          - current_task_type: "bigquery"
+                    - run_dwd_stock_dividend_event:
+                        call: run_bigquery_task
+                        args:
+                          control_service_url: ${control_service_url}
+                          dag_id: ${dag_id}
+                          pipeline_run_id: ${pipeline_run_id}
+                          task_id: ${current_task_id}
+                          task_type: ${current_task_type}
+                          sql_path: "sql/dwd/12_dwd_stock_dividend_event.sql"
+                          query_parameters: []
+                          location: ${bq_location}
+                          business_date: ${business_date}
+                          date_from: ${date_from}
+                          date_to: ${date_to}
+                          run_label: ${run_label}
+                          warehouse_mode: ${warehouse_mode}
+                          transform_backend: ${transform_backend}
+                          workflow_id: ${workflow_id}
+                          workflow_execution_id: ${workflow_execution_id}
+                          orchestration_log_url: ${orchestration_log_url}
+                    - set_task_corporate_action_event_checks:
+                        assign:
+                          - current_task_id: "windowed_weak_qa.corporate_action_event_checks"
+                          - current_task_type: "bigquery"
+                    - run_corporate_action_event_checks:
+                        call: run_bigquery_task
+                        args:
+                          control_service_url: ${control_service_url}
+                          dag_id: ${dag_id}
+                          pipeline_run_id: ${pipeline_run_id}
+                          task_id: ${current_task_id}
+                          task_type: ${current_task_type}
+                          sql_path: "sql/qa/14_corporate_action_event_checks.sql"
+                          query_parameters: []
+                          location: ${bq_location}
+                          business_date: ${business_date}
+                          date_from: ${date_from}
+                          date_to: ${date_to}
+                          run_label: ${run_label}
+                          warehouse_mode: ${warehouse_mode}
+                          transform_backend: ${transform_backend}
+                          workflow_id: ${workflow_id}
+                          workflow_execution_id: ${workflow_execution_id}
+                          orchestration_log_url: ${orchestration_log_url}
+                except:
+                  as: corporate_action_error
+                  steps:
+                    - set_corporate_action_failure_error_fields:
+                        assign:
+                          - current_error_summary: ${text.substring(json.encode_to_string(corporate_action_error), 0, 1000)}
+                          - current_error_payload: ${corporate_action_error}
+                    - write_corporate_action_failed_task_status:
+                        call: write_task_status
+                        args:
+                          control_service_url: ${control_service_url}
+                          dag_id: ${dag_id}
+                          pipeline_run_id: ${pipeline_run_id}
+                          task_id: ${current_task_id}
+                          task_type: ${current_task_type}
+                          business_date: ${business_date}
+                          date_from: ${date_from}
+                          date_to: ${date_to}
+                          run_label: ${run_label}
+                          warehouse_mode: ${warehouse_mode}
+                          transform_backend: ${transform_backend}
+                          workflow_id: ${workflow_id}
+                          workflow_execution_id: ${workflow_execution_id}
+                          orchestration_log_url: ${orchestration_log_url}
+                          endpoint: ""
+                          status: "failed"
+                          error_summary: ${current_error_summary}
+                          error_payload: ${current_error_payload}
+                          resource_name: null
+                next: set_qa_after_window_prefix
             - set_qa_after_window_prefix:
                 assign:
                   - qa_task_prefix: "qa_after_window"
