@@ -142,6 +142,9 @@ Run ID: N/A
 ### 已更新记忆文件
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
 - `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
