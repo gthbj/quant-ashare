@@ -29,7 +29,7 @@ from .config import (
     load_runner_config,
 )
 from .dataset_roles import output_dataset_role_cli_args
-from scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection import (
+from .annual_rolling_plan import (
     DEFAULT_AS_OF_DATE,
     DEFAULT_CANDIDATE_SET_ID,
     DEFAULT_CONFIG_PATH,
