@@ -10,6 +10,64 @@ Last updated: 2026-06-12
 
 - 分支 `claude/prd-ledger-corporate-actions` 新增 `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`：PR #194 复权漏损量化触发预登记判据后，按约定立项。核心：`corporate_actions` 参数化（默认 `none_v1` 记账输出逐字节不变；`cash_div_and_split_v1` = 送转调股数 + `flat_10pct` 税后分红入账，tax-lot 列为非目标），正交于构造版本；Phase A DWD 事件表（`ods_tushare_dividend` canonical 聚合 + hfq 因子交叉校验硬门）→ Phase B ledger + 参数传播清单 + 默认回归 → Phase C true5y CA 重跑三方对照（六项偏差分解，验收卡 unexplained_residual）。排在 PRD_10 Phase 2 之前；Sharpe 单门通过不触发 accepted；baseline 数字是否切 CA 口径由 owner 在 Phase C 后决策。
 
+
+### 最新补充（2026-06-12）：official ledger 复权漏损量化已完成
+
+- 分支 `codex/official-ledger-adj-leak` 新增只读分析脚本 `scripts/strategy1/analyze_official_adj_leak.py`、报告 `docs/分析-官方Ledger复权漏损量化-20260612.md`、小结果 CSV `docs/analysis_official_ledger_adj_leak_20260612_metrics.csv`，用于量化 official ledger 家族"未复权价 + 恒定股数"约定造成的 NAV 漏损；未修改 ledger / 生产 SQL / 既有 run 数据，未 promotion，未替 owner 重开 `DECISION_LOG` 约定。
+- 分析对象为 true-five-year continuous `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`（主结果）和 effective-window continuous `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`（历史参照），窗口 `2021-01-04..2026-06-09`。方法为逐日 `SUM(prev_day_weight * (hfq_return - raw_return))` 加回 official `daily_return`，hfq 仅作为总回报代理，真实 ledger 修复仍应是现金入账。
+- 主结果 true-five-year：修正前 CAGR `13.85%`、MaxDD `-37.19%`、contract Sharpe `0.6076`、Calmar `0.3725`；hfq 代理修正后 CAGR `15.72%`、MaxDD `-36.76%`、contract Sharpe `0.6894`、Calmar `0.4275`。变化为 CAGR `+1.86pp`、MaxDD `+0.43pp`、Sharpe `+0.0818`、Calmar `+0.0550`；MaxDD peak 从 `2023-06-20` 移到 `2023-09-04`，trough 仍为 `2024-02-07`；2024-01-01~02-07 crunch 超额未变化。
+- effective-window 参照：修正前 CAGR `12.04%`、MaxDD `-45.48%`、contract Sharpe `0.5285`、Calmar `0.2646`；修正后 CAGR `13.56%`、MaxDD `-44.99%`、contract Sharpe `0.5961`、Calmar `0.3014`。变化为 CAGR `+1.52pp`、MaxDD `+0.49pp`、Sharpe `+0.0675`、Calmar `+0.0368`；MaxDD peak/trough 未移动。
+- 对账硬门通过：无交易日 `SUM(prev_day_weight * raw_return)` 与 official `daily_return` 残差在 true-five-year `n=1166`、`p99_abs=1.18e-16`、`max_abs=1.44e-16`；effective-window `n=1168`、`p99_abs=1.30e-16`、`max_abs=2.25e-16`。说明权重/时点口径与 official daily_return 对齐。
+- 漏损分解：true-five-year 全事件 114 个，累计 NAV 贡献 `8.4670pp`，其中送转型 2 个 `2.2118pp`、分红/小事件型 112 个 `6.2552pp`；effective-window 全事件 116 个，累计 `7.0161pp`，其中送转型 1 个 `0.6126pp`、分红/小事件型 115 个 `6.4035pp`。true-five-year 触发预登记判据（CAGR `+1.86pp >= +1pp` 且 Calmar `+0.0550 >= 0.05`），报告建议 owner 立 PRD 修 ledger 并排在 Phase 2 之前。
+- 逐日序列等大 CSV 已上传到 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`，共 13 个对象；本地大产物目录 `reports/strategy1/official_adj_leak/analysis_date=20260612/` 仅作分析缓存。
+
+
+### 最新补充（2026-06-12）：PR #190 Phase 0 resolver 已兼容 true-five-year research baseline 切换
+
+- 按 PR #192 review 发现 1，`scripts/strategy1/analyze_topdown_lot_phase0.py` 的默认 run/backtest id resolver 已从“effective-window official ids”改为“当前研究 baseline（从记忆解析）”：支持 `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_*` 与 `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_*`，并优先解析含 `DECISION-20260612-02` / “采纳/切换/研究 baseline”语义的记忆段落；找不到 baseline 语义时再回退全文首个匹配。
+- 新增 fixture 单测覆盖同一记忆文本同时存在旧 effective-window ids 与新 true5y ids 时，默认解析返回 true5y。本文只修 resolver 与测试/记忆，不重跑 Phase 0 数据、不改报告数字、不触碰 ledger v1 / Phase 1、不改默认 tail_risk profile、不 promotion。
+
+### 最新补充（2026-06-12）：PR #190 Phase 0 paper review follow-up 已完成
+
+- `scripts/strategy1/analyze_topdown_lot_phase0.py` 已按 PR #190 review 修订：主判读成本档改为 official matched 分腿费率（买 `6bps`、卖 `11bps`），保留 `0bps` / `20bps` 敏感性；输出逐票持仓审计 `holdings_detail_json`，新增 P1 饱和机制、四通道归因、2022-05 饱和 episode、最差 3 个 10 日窗口持仓明细；集中度主口径改为 NAV 分母并保留持仓内分母对照。
+- Phase 0 重新跑完（BigQuery 只读 + 本地 pandas；未训练模型、未改 prediction 流、未启动 Cloud Run、未写 `ashare_research` / ADS / promotion 表）。`walk_depth=50` / matched official cost 主结果：T0 CAGR=`10.91%`、MaxDD=`-63.66%`、Calmar=`0.171`；T1 CAGR=`-2.79%`、MaxDD=`-66.32%`、Calmar=`-0.042`；T1-T0 CAGR gap=`-13.70pp`，crunch excess 改善=`+8.96pp`。`single_20bps` 旧口径 gap=`-14.81pp` 已作为敏感性和 review 原始 gap 对照保留。
+- P1 主要问题改判为市值规则饱和而非替换语义本身：matched 主口径四通道归因中现金差约 `-8.93pp/年`、持仓构成差约 `-4.53pp/年`、成本/换手差约 `+0.07pp/年`、集中度差约 `-0.31pp/年`。2022-05-06 signal 的 T1 top-50 P1 标记率 `98%`、市值规则标记率 `96%`，2022-05-09 开始 10 个交易日 T1 平均现金 `94.48%`，窗口 T1-T0 return gap=`-9.07pp`。
+- 产物处置：小 CSV `docs/analysis_strategy1_topdown_lot_phase0_20260612_metrics.csv` 需随 PR 入库；大 CSV 已上传 GCS 并由报告引用：`gs://ashare-artifacts/reports/strategy1/topdown_phase0/analysis_date=20260612/analysis_strategy1_topdown_lot_phase0_20260612_daily.csv` 与 `..._rebalance_audit.csv`。本轮仍不动 ledger v1 / Phase 1 代码、不改默认 tail_risk profile、不 promotion；owner 决策问题改为是否剔除两条市值规则（保留崩盘形态规则）或增加饱和回退。
+
+### 最新补充（2026-06-12）：研究 baseline 切换为 true-five-year continuous（DECISION-20260612-02），OQ-011 关闭
+
+- Owner 采纳 true-five-year continuous 为策略 1 研究 baseline：run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`、backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`；effective-window continuous（`..._v20260610_02` 族）降级为历史参照。采纳依据为方法论性（effective-window 的覆盖约束前提已被 PRD_06 拆除且全部门禁通过），非结果驱动。
+- Baseline 指标锚点：compound CAGR=`0.13852596798718442`、MaxDD=`-0.37189972934558946`、v3 contract Sharpe=`0.6075887294330015`、contract Calmar=`0.3724820349585642`；仍未过 v3 hard gates，**baseline ≠ accepted、不得 promotion**。
+- 切换纪律：新实验的 prediction 流与对照 backtest 一律从记忆解析为 true5y ids；PRD_20260611_10 §6 基线兼容条款生效（Phase 0 后续重跑切 true5y 流）；复权漏损量化需覆盖 true5y backtest。既有 #179/#181/#186/#190 的机制级结论可迁移，数字级结论保留为旧 baseline 口径证据、引用时注明。
+- OQ-011 关闭并移入 closed archive；`OPEN_QUESTIONS.md` 仅剩 OQ-010。
+
+### 最新补充（2026-06-12）：ingestion 镜像 stale 事故修复（meta 审计静默 + 000001.SH 日更缺失）
+
+- 诊断确认：`ashare-ingest-current-scope` 等 5 个采集 Cloud Run Jobs 引用 `ingestion:latest`，自 2026-06-04 11:50 UTC（build `35bca022`，digest `351dfd99...`）后从未重建；而 status_writer 接线 commit `60fb242` 是同日 15:57 UTC——线上镜像从未包含 `IngestionStatusWriter`，live 采集成功但从不写 `ashare_meta.ingestion_run` / `ingestion_partition_status`（两表自建表起 0 行、近 7 天零 DML 的根因）。`v_ingestion_failures` / `v_ingestion_empty_returns` / `v_alert_summary` 的 `ingestion_failed` 分支因此一直读空表，采集级告警静默。
+- 第二个 stale 后果：manifest 打包在镜像内（Dockerfile `COPY configs/ingestion`），`2e4d29b`（2026-06-08）新增的 `index_daily_000001_SH` / `index_dailybasic_000001_SH` variant 从未生效——ODS 000001.SH 自 2026-06-10 起停更，`dwd_index_eod` 000001.SH 停在 `2026-06-09`，`dws_market_state_daily` 2026-06-10/11 的 `sse_composite_*` 全 NULL，其中 06-10 `market_regime='risk_off'` 是综指输入缺失下的判定，可信度存疑（06-09 输入完整时为 risk_neutral）。当前正式研究窗口（至 06-09）未消费这两天退化行。
+- 修复（2026-06-12 17:00-17:30 CST，Claude Fable 5）：按 `orchestration/cloud_run_jobs/cloudbuild.ingestion.yaml` 既有流程从 main 同源工作树重建镜像，新 digest `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b`（build `8053b0d5`）；job spec 未动（仍引用 `:latest`，execution 创建时自动解析新 digest，boot dry-run execution `ashare-ingest-current-scope-4vq5v` 已实证解析到新 digest，plan 27 个分区端点、含 000001.SH 两个 variant）。
+- 已用新镜像补采 000001.SH 的 2026-06-10/11（4 个 live execution：`zh88k` / `q4prv` / `fr44m` / `v9k6h`，meta 表内 `ingestion_run_id` 为 `manual_backfill_sse_composite_2026061{0,1}_index_eod`（CLI 传入值 + `_<endpoint_group>` 后缀））：`ingestion_run` 落 4 行 success、`ingestion_partition_status` MERGE 4 行（**两表自建表以来首批生产行，status_writer 全链路实证**）；ODS 外部表已可读 06-10/11 的 000001.SH 行。部署前已验证两表 schema 与 INSERT/MERGE 列完全匹配（06-08 ALTER_TABLE 仅恢复列描述）、runtime SA `sa-ashare-ingestion` 具备 jobs.create + `ashare_meta` 写权限。
+- 待今晚 2026-06-12 20:00 CST scheduled run 验证（今天开市）：①`ingestion_run` 落当日 27 端点行；②`daily_current` 窗口刷新自动重写 06-10/11 的 `dwd_index_eod` 000001.SH 与 `dws_market_state_daily` `sse_composite_*`（`02`/`03` 增量 SQL 写窗回看 20 个交易日，无需手工 backfill）；③`v_alert_summary` 采集分支恢复有数据来源。job spec / scheduler / workflow / IAM 均未改动。
+### 最新补充（2026-06-12）：PRD_20260612_01 Phase B 代码改动已完成
+
+- 分支 `codex/bq-dataset-cleanup-impl` 基于 `main@d9963cf` 实现 `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md` 的 Phase B 代码层：删除已退役 windowed equivalence parity 两个 QA 脚本并移除空 `scripts/qa/` 目录，清理对应 true-five-year 契约测试、`sql/README.md` 运行示例和 Strategy1 Cloud Run runbook 前置条件。
+- `configs/strategy1/active_step_catalog.yml` 已把两条退役脚本路径加入 `retired_reference_lint.banned_active_refs`，并补齐 `.agent/memory/ARCHITECTURE_MEMORY.md` / `DECISION_LOG.md` 历史白名单；`KNOWN_CONSTRAINTS.md` 已将 OQ-005 window parity 硬门改为窗口 QA + 发布前 review，将 true-five-year overlap parity 改为 2026-06-11 一次性验收完成且工具退役，后续硬门收敛为 `13_true5y` + 逐年 refit panel coverage QA。
+- BQML reference/audit 约束已补充：`ads_ml_training_panel_daily` 中 `run_id LIKE 's1_bqml%'` 的 historical BQML panel 行将按 DECISION-20260612-01 / PRD §3-C 裁剪；如需复算 historical BQML run，先按 PRD §3-C-3 从 `90ccc41:sql/ml/strategy1/01_build_training_panel.sql`、registry 参数和删除前快照重建/对账面板。
+- 验证已通过：`PYTHONPATH=src python3 -m pytest -q tests`（166 passed）、`python3 -m pytest -q tests/strategy1/test_retired_lint.py`（5 passed）、active scope grep 退役脚本 `.py` 路径零引用、`git diff --check`。本轮未执行 BigQuery 操作，未改 `docs/prd/**`、`sql/incremental/**` 或 `.agent/memory/archive/**`。
+
+### 最新补充（2026-06-12）：PRD_20260612_01 三个 BigQuery 清理操作已执行完毕并通过对账
+
+- PRD 已经 PR #193 三轮 Codex review 收敛定稿合并（merge `d9963cf`）；Phase B 实现由 Codex 完成并经 Claude review 零发现后由 PR #197 合并（merge `2312f30`，166 pytest 通过）。
+- Phase A 审计日志预检通过：`gcloud logging read` 30 天窗口内仅 owner 账号（最后活动 2026-05-26）与项目默认 compute SA（44 条全部为 2026-05-24 `InsertJob` 写入遗留表自身），`2026-05-27` 起零活动，无外部项目 / 未知 principal。随后删除数据集 `ashare` @ `2026-06-12T09:41:45Z`、`ashare_qa_windowed_equivalence` @ `2026-06-12T09:41:48Z`，`bq show` 均确认 Not found；项目剩余 9 个数据集。
+- Phase C 已执行：DELETE `ads_ml_training_panel_daily` 中 `run_id LIKE 's1_bqml%'` 行（带全范围 `trade_date` 分区过滤），affected rows=`36,853,582`，与 PRD 预期精确一致。pre/post manifest 13 项全部 IDENTICAL：panel 剩 61 run / `184,596,703` 行且 `s1_bqml%` 为 0，prediction/candidate/target/order/trade/position/NAV/ledger/signal monitor 逐表不变，registry 151 行（52 行 s1_bqml 引用完整）、summary 90 行、BQML model 50 个不变。证据已贴 PR #197 comment，manifest CSV 留存执行机 `/tmp/phaseC/`。
+- 回滚窗口：UNDROP / `FOR SYSTEM_TIME AS OF` 自助恢复截止 `2026-06-19` ~`09:4x`Z（均须 `--location=asia-east2`，DML 恢复另需分区过滤）；过窗仅剩 7 天 fail-safe。`TODO.md` 对应项已勾选。
+
+### 最新补充（2026-06-12）：BigQuery 数据集盘点完成、第 1 类清理已执行、清理退役 PRD 已新增
+
+- 2026-06-12 完成 `data-aquarium` 全数据集盘点（11 个数据集逐表清点 + 仓库 SQL 契约双向比对 + `INFORMATION_SCHEMA.JOBS` 作业审计 + 对抗复核）。结论：`ashare_dim/dwd/dws/ads/research` 与 `sql/` 契约双向零差异；`research_*` 与 `ads_*` 同构属 D2/D3 research-first 设计，不是冗余。杂物集中在：遗留数据集 `ashare`（约 250.4 GiB、118 对象、2026-05-25 后零写入、仓库零引用、近 14 天作业仅盘点自身 SELECT）、`ashare_meta` 5 张 `_repair_val_*` 泄漏外部表、`ashare_qa_windowed_equivalence` 18 张 shadow 残留、`ads_ml_training_panel_daily` 中 `run_id LIKE 's1_bqml%'` 旧 run 12 个共 36,853,582 行（约 115 GB）。
+- 第 1 类清理已执行（owner 2026-06-12 批准）：删除 `ashare_meta` 5 张 `_repair_val_*` 外部表与 `ashare_qa_windowed_equivalence` 18 张 shadow 表，共 23 张，`bq ls` 复核两处均已清空。恢复语义分两类：18 张 native shadow 表在 7 天 time travel 窗口内（`maxTimeTravelHours=168`）可恢复；5 张 `_repair_val_*` 为外部表，time travel 不覆盖外部表，本次删除仅移除 BigQuery definition（GCS 数据无涉），如需恢复由 `scripts/ods_repair/repair_parquet_schema.py` 按需重建。
+- 新增 `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md`（分支 `claude/prd-bq-dataset-cleanup`）：Phase A 遗留数据集 `ashare` 硬删除（删除前 Data Access 审计日志预检为唯一硬门）；Phase B windowed equivalence QA 退役（删 `scripts/qa/` 两脚本 + 清理 tests/README/runbook/catalog 引用 + 改写 KNOWN_CONSTRAINTS 两处硬门 + 删 scratch 数据集）；Phase C `ads_ml_training_panel_daily` 裁剪 `s1_bqml%` 面板行（registry/prediction/回测事实/50 个 BQML model 全保留）。owner 决策已记入 `DECISION-20260612-01`：`tushare_api_catalog`/`tushare_api_params` 保留；`ashare_backup`、ODS 43 张 scope 外外部表不动。
+- 盘点顺带发现生产问题（不在本 PRD 范围，已挂独立排查任务）：`ashare_meta.ingestion_run` / `ingestion_partition_status` 自 2026-06-04 建表以来 0 行，与 2026-06-08 起 9 次成功 live 采集矛盾，疑似 Cloud Run 采集镜像 stale（status_writer 接线 commit `60fb242` 与镜像推送同日），导致 `v_ingestion_failures` / `v_alert_summary` 采集级告警分支静默。
 ### 最新补充（2026-06-12）：PR #186 分析 CSV 已从 main 清理
 
 - 按 owner 要求，直接在 `main` 清理 PR #186 带入的四份可再生成分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
@@ -521,10 +579,10 @@ Last updated: 2026-06-12
 - `scripts/strategy1/replay_acceptance_gate_v3.py` 与 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 已按最新 contract 真执行通过；当前结果仍为 `25` 个候选里 `1 accepted / 24 rejected`。
 - `24_qa_acceptance_gate_v3_replay_outputs.sql` 已不再依赖手工镜像默认值：replay scope、Top-K、benchmark 集合、窗口、阈值和允许的 `score_orientation` 都由 helper 从 contract 渲染。
 
-### 最新补充（2026-06-08，2026-06-11 更新）：当前仍开放的主线是 OQ-010 与 OQ-011
+### 最新补充（2026-06-08，2026-06-12 更新）：当前仍开放的主线只剩 OQ-010
 
 - OQ-010：Cloud Run Python 路径已打通，但当前仍没有 accepted Python baseline；后续重点仍是寻找可接受模型 / 特征 / 风险控制组合。
-- OQ-011：true-five-year / 2019 年初 60 日窗口完整性仍是 owner 数据覆盖决策；当前已关闭的 OQ-014 只接受本轮 effective-window 研究口径，不等于修复 lookback-capable 构建输入。
+- OQ-011：~~true-five-year / 2019 年初 60 日窗口完整性仍是 owner 数据覆盖决策~~——已被 DECISION-20260612-02 superseded：PRD_06 完成历史修复与 true-five-year 重跑后，owner 已采纳 true-five-year continuous 为研究 baseline，OQ-011 关闭归档（见本文件顶部 2026-06-12 条目）。
 - OQ-012：2026-06-11 已正式关闭归档。schema contract、修复/验证脚本和 `06_ods_parquet_schema_checks.sql` 都已具备；2026-06-05 只读复核对 P0 与 all 范围均通过，当前 BigQuery 读层无 mismatch 暴露。防复发口径保留为长期约束：新增/修复 ODS Parquet 必须按 schema contract 显式 cast 并跑 QA。
 
 ## 已完成（Completed）
