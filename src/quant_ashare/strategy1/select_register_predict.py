@@ -36,7 +36,7 @@ from .config import (
     load_runner_config,
 )
 from .dataset_roles import TableResolver
-from scripts.strategy1_cloudrun.task_fanout import (
+from .task_fanout import (
     ensure_matrix_local,
     read_json,
 )

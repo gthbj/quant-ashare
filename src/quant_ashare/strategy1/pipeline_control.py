@@ -28,7 +28,7 @@ from .config import (
 )
 from .bq_io import join_gs_uri
 from quant_ashare.strategy1.dataset_roles import output_dataset_role_cli_args
-from scripts.strategy1_cloudrun.state import (
+from .state import (
     GcsLeaseLock,
     LockConfig,
     OrchestratorStatusTable,
@@ -42,7 +42,7 @@ from scripts.strategy1_cloudrun.state import (
     scheduler_instance_id,
     status_table_ref,
 )
-from scripts.strategy1_cloudrun.task_fanout import default_matrix_id, matrix_artifact_uri
+from .task_fanout import default_matrix_id, matrix_artifact_uri
 
 
 LOGGER = logging.getLogger("strategy1_cloudrun.orchestrator")

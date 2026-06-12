@@ -42,14 +42,14 @@ from scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection import (
     parse_iso_date,
     validate_config,
 )
-from scripts.strategy1_cloudrun.task_fanout import (
+from .task_fanout import (
     candidate_grid_hash,
     candidate_output_uri,
     default_matrix_id,
     matrix_artifact_uri,
 )
 from quant_ashare.strategy1.pipeline_control import gcloud_execute_command
-from scripts.strategy1_cloudrun.state import (
+from .state import (
     cloud_run_execution_state,
     extract_cloud_run_execution_id,
 )

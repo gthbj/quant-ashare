@@ -43,7 +43,7 @@ from scripts.strategy1_cloudrun.feature_sets import (
     risk_feature_names,
 )
 from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
-from scripts.strategy1_cloudrun.task_fanout import (
+from .task_fanout import (
     MATRIX_MANIFEST_VERSION,
     build_work_units,
     candidate_grid_hash,

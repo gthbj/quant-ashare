@@ -22,7 +22,7 @@ from .bq_io import (
     write_json,
 )
 from .config import add_common_args, apply_cli_overrides, load_runner_config
-from scripts.strategy1_cloudrun.task_fanout import (
+from .task_fanout import (
     candidate_local_dir,
     ensure_matrix_local,
     file_sha256,
