@@ -1,3 +1,11 @@
+> 当前交接补充（2026-06-12，GPT-5.5，official ledger 复权漏损量化）
+> - 已在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-adj-leak`、分支 `codex/official-ledger-adj-leak` 完成 official ledger "未复权价 + 恒定股数"复权漏损测量；新增只读脚本 `scripts/strategy1/analyze_official_adj_leak.py`、报告 `docs/分析-官方Ledger复权漏损量化-20260612.md`、小结果 CSV `docs/analysis_official_ledger_adj_leak_20260612_metrics.csv`。
+> - 主结果 true-five-year continuous 修正前/后：CAGR `13.85% -> 15.72%`、MaxDD `-37.19% -> -36.76%`、contract Sharpe `0.6076 -> 0.6894`、Calmar `0.3725 -> 0.4275`；CAGR `+1.86pp` 且 Calmar `+0.0550` 触发预登记判据，报告建议 owner 立 PRD 修 ledger 并排在 Phase 2 之前。
+> - effective-window 参照修正前/后：CAGR `12.04% -> 13.56%`、MaxDD `-45.48% -> -44.99%`、contract Sharpe `0.5285 -> 0.5961`、Calmar `0.2646 -> 0.3014`。无交易日对账残差通过硬门（两条 backtest `max_abs` 均约 `1e-16`），逐日/事件/年度大 CSV 已上传到 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`。
+> - 本轮仅测量，不修改 ledger / 生产 SQL / 既有 run 数据，不 promotion，不替 owner 重开 `DECISION_LOG` 中已接受的未复权/除权简化约定。
+>
+> Model: GPT-5.5
+
 > 当前交接补充（2026-06-12，GPT-5 Codex，PR #186 CSV cleanup）
 > - 已按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
 > - 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；CSV 视为可再生成的本地/临时分析产物，不再跟随 git。`docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。
@@ -112,6 +120,59 @@ Model: Claude Fable 5
 > - DECISION-20260611-02 已关闭 OQ-014：接受 effective-window result 作为研究复盘口径，暂不修 pre-2019 DWS/lookback；但 result 未过 v3 absolute gates，不得标 accepted baseline 或 promotion。
 
 Model: GPT-5 Codex
+
+## 2026-06-12 GPT-5.5 - Official ledger adjustment leakage quantification
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local Codex session
+模型: GPT-5.5
+运行环境: `/Users/fisher/Desktop/git/worktrees/quant-ashare-adj-leak`
+Run ID: `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`, `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`
+相关 issue/PR: PR #194（draft）
+
+### 已完成工作
+
+- 新增 `scripts/strategy1/analyze_official_adj_leak.py`，以 BigQuery 只读查询 + 本地 pandas 量化 official ledger "未复权价 + 恒定股数"约定造成的漏损。脚本参数化 backtest_id、时间窗口、本地输出目录和 GCS 前缀，并为查询附带 readonly labels。
+- 新增报告 `docs/分析-官方Ledger复权漏损量化-20260612.md`，按预登记判据先写后填，覆盖修正前/后指标、年度分解、事件类型拆分、Top10 单事件、无交易日残差对账和口径声明。
+- 新增小结果 CSV `docs/analysis_official_ledger_adj_leak_20260612_metrics.csv`；逐日序列、事件明细、年度分解、残差统计和 BigQuery job audit JSON 上传至 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`。
+- 新增轻量单测 `tests/strategy1/test_official_adj_leak.py`，覆盖 NAV 复合、N-1 年化波动/Sharpe、事件分类、残差硬门和预登记判读。
+
+### 关键结果
+
+- true-five-year 主结果：修正前 CAGR `13.85%`、MaxDD `-37.19%`、contract Sharpe `0.6076`、Calmar `0.3725`；hfq 代理修正后 CAGR `15.72%`、MaxDD `-36.76%`、contract Sharpe `0.6894`、Calmar `0.4275`。变化为 CAGR `+1.86pp`、Calmar `+0.0550`，触发预登记判据，报告建议 owner 立 PRD 修 ledger 并排在 Phase 2 之前。
+- effective-window 参照：修正前 CAGR `12.04%`、MaxDD `-45.48%`、contract Sharpe `0.5285`、Calmar `0.2646`；修正后 CAGR `13.56%`、MaxDD `-44.99%`、contract Sharpe `0.5961`、Calmar `0.3014`。
+- 对账硬门：无交易日上 `SUM(prev_day_weight * raw_return)` 与 official `daily_return` 残差通过，true-five-year `max_abs=1.44e-16`，effective-window `max_abs=2.25e-16`。
+- 漏损分解：true-five-year 事件累计 `8.4670pp`（送转型 `2.2118pp`，分红/小事件型 `6.2552pp`）；effective-window 事件累计 `7.0161pp`（送转型 `0.6126pp`，分红/小事件型 `6.4035pp`）。
+
+### 重要边界
+
+- 本轮只做 measurement，不修改 ledger / 生产 SQL / Cloud Run job spec / 既有 run 数据，不执行 promotion。
+- hfq 修正近似总回报口径，隐含分红再投资；真实 ledger 修复应是现金入账，不能把本报告直接当作 production ledger 实现方案。
+- 不关闭 OQ、不替 owner 重开 `DECISION_LOG` 中已接受的未复权/除权简化约定。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_official_adj_leak.py`
+- `tests/strategy1/test_official_adj_leak.py`
+- `docs/分析-官方Ledger复权漏损量化-20260612.md`
+- `docs/analysis_official_ledger_adj_leak_20260612_metrics.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 scripts/strategy1/analyze_official_adj_leak.py`
+- `gcloud storage ls -l 'gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/**'`
+- `python3 -m pytest -q tests/strategy1/test_official_adj_leak.py`
+- `python3 -m py_compile scripts/strategy1/analyze_official_adj_leak.py tests/strategy1/test_official_adj_leak.py`
+- `git diff --check`
+
+### 下一步建议
+
+- owner 决定是否按报告建议立 ledger 修复 PRD，并明确该修复与 PRD_10 topdown / Phase 2 的排序。
+- 若暂不修 ledger，应把量化后的漏损幅度写入 `KNOWN_CONSTRAINTS.md` 做永久披露；本轮未提前执行该决策。
 
 ## 2026-06-12 GPT-5 Codex - Current-scope ODS checkpoint archive
 

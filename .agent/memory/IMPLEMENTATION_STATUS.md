@@ -6,6 +6,16 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：official ledger 复权漏损量化已完成
+
+- 分支 `codex/official-ledger-adj-leak` 新增只读分析脚本 `scripts/strategy1/analyze_official_adj_leak.py`、报告 `docs/分析-官方Ledger复权漏损量化-20260612.md`、小结果 CSV `docs/analysis_official_ledger_adj_leak_20260612_metrics.csv`，用于量化 official ledger 家族"未复权价 + 恒定股数"约定造成的 NAV 漏损；未修改 ledger / 生产 SQL / 既有 run 数据，未 promotion，未替 owner 重开 `DECISION_LOG` 约定。
+- 分析对象为 true-five-year continuous `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`（主结果）和 effective-window continuous `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`（历史参照），窗口 `2021-01-04..2026-06-09`。方法为逐日 `SUM(prev_day_weight * (hfq_return - raw_return))` 加回 official `daily_return`，hfq 仅作为总回报代理，真实 ledger 修复仍应是现金入账。
+- 主结果 true-five-year：修正前 CAGR `13.85%`、MaxDD `-37.19%`、contract Sharpe `0.6076`、Calmar `0.3725`；hfq 代理修正后 CAGR `15.72%`、MaxDD `-36.76%`、contract Sharpe `0.6894`、Calmar `0.4275`。变化为 CAGR `+1.86pp`、MaxDD `+0.43pp`、Sharpe `+0.0818`、Calmar `+0.0550`；MaxDD peak 从 `2023-06-20` 移到 `2023-09-04`，trough 仍为 `2024-02-07`；2024-01-01~02-07 crunch 超额未变化。
+- effective-window 参照：修正前 CAGR `12.04%`、MaxDD `-45.48%`、contract Sharpe `0.5285`、Calmar `0.2646`；修正后 CAGR `13.56%`、MaxDD `-44.99%`、contract Sharpe `0.5961`、Calmar `0.3014`。变化为 CAGR `+1.52pp`、MaxDD `+0.49pp`、Sharpe `+0.0675`、Calmar `+0.0368`；MaxDD peak/trough 未移动。
+- 对账硬门通过：无交易日 `SUM(prev_day_weight * raw_return)` 与 official `daily_return` 残差在 true-five-year `n=1166`、`p99_abs=1.18e-16`、`max_abs=1.44e-16`；effective-window `n=1168`、`p99_abs=1.30e-16`、`max_abs=2.25e-16`。说明权重/时点口径与 official daily_return 对齐。
+- 漏损分解：true-five-year 全事件 114 个，累计 NAV 贡献 `8.4670pp`，其中送转型 2 个 `2.2118pp`、分红/小事件型 112 个 `6.2552pp`；effective-window 全事件 116 个，累计 `7.0161pp`，其中送转型 1 个 `0.6126pp`、分红/小事件型 115 个 `6.4035pp`。true-five-year 触发预登记判据（CAGR `+1.86pp >= +1pp` 且 Calmar `+0.0550 >= 0.05`），报告建议 owner 立 PRD 修 ledger 并排在 Phase 2 之前。
+- 逐日序列等大 CSV 已上传到 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`，共 13 个对象；本地大产物目录 `reports/strategy1/official_adj_leak/analysis_date=20260612/` 仅作分析缓存。
+
 ### 最新补充（2026-06-12）：PR #186 分析 CSV 已从 main 清理
 
 - 按 owner 要求，直接在 `main` 清理 PR #186 带入的四份可再生成分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
