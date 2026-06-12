@@ -4,6 +4,8 @@
 
 本表按改动前 `KNOWN_CONSTRAINTS.md` 的每个 bullet / 子 bullet 列出处置方式。`拆分重排` 仅改变 Markdown 行形态，原句顺序和操作性语义保留。
 
+拆分行的子条款清单 = After 区间内各 bullet，按行号核对。
+
 | Before 行 | 原条款摘要 | 处置方式 | After 落点 |
 |---|---|---|---|
 | 5 | `- ODS 全部为 Hive 分区外部表，**查询必须带 `partition_date`/`endpoint` 过滤**（强制分区裁剪），否则报错。`partition_date` 是 `YYYYMMDD` 字符串。` | 原文保留 | KNOWN_CONSTRAINTS.md:5 |

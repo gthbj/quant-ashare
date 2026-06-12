@@ -63,24 +63,6 @@ Last updated: 2026-06-12
 - v3 gates：Sharpe 距 0.70 门 0.032、Calmar 0.4101 < 1.0——baseline ≠ accepted、不得 promotion；测量仪已修正，剩余缺口为真实 alpha/结构缺口（OQ-010）。
 - 纪律：后续实验一律显式 CA-on（代码默认 none_v1 不变）；PRD_20260611_10 Phase 2 等后续工作的对照与参数随之切换。
 
-### 最新补充（2026-06-11）：PRD_10 自上而下整手构造代码准备已实现，尚未 live 跑数
-
-### 最新补充（2026-06-11）：PR #189 top-down lot-aware review follow-up 已修复
-
-- 按 Claude review 的 6 条发现完成修复：v1 语义保护（`ledger_params_hash` 对 topdown-only 参数隔离）、topdown 卖出回款仅在实际可卖情况下结算（避免 `SELL_SKIPPED_UNTRADABLE` 再入账）、topdown 需要 individual 风控 profile、`LedgerParams.cash_redistribution` 与 summary 统一为 `topdown_whole_order_skip_v2`，以及 `qa_topdown_construction_outputs` 的 topdown 专用断言增强。二轮复核指出 `QA-TOPDOWN-4` 第一版仍取当日 NAV，本轮已改为 `bt.trade_date -> cal -> prev -> nav.trade_date = prev.cal_date`。
-- 关键单测补齐：
-  - topdown marker 严格验证 only when individual guard enabled（diagnostic-only 不触发跳买）；
-  - 新增 topdown hash 依赖性测试（`walk_depth / position_floor_count / min_position_weight`）与 v1 hash 不变性测试；
-  - validate 约束测试防未启用 individual 风控，运行入口测试防 topdown cash redistribution 与 summary 自述分裂。
-- 全量验证通过：`tests/strategy1 + tests/strategy1_cloudrun` 共 `173` 项、`quant_ashare.strategy1.retired_lint`、`compileall`、`generate_sqlx_from_sql.py --check`、`git diff --check`。二轮修复后 focused pytest `58 passed`，`git diff --check` 通过。
-- `qa_topdown_construction_outputs.sql` 已按 research 口径渲染；本地 bq dry-run 因当前环境无活跃 gcloud account 受限，已由 Claude 在授权环境代跑通过。
-
-- 分支 `codex/topdown-lot-construction` 基于 `origin/main@a21cf97` 实现 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md` 的 Phase 1 代码准备：新增 Python ledger version `ledger_exec_v2_lot100_topdown` 与 resume policy `cloudrun_lot100_topdown_resume_v1`，通过 `backtest_report --use-topdown-ledger` 显式 opt-in；默认 `ledger_exec_v1_lot100` 不变。
-- v2 ledger 直接读取 `stock_candidate_daily.rank_raw <= walk_depth` 的 full ranked candidates，不再消费 `portfolio_target_daily` 的 TopN 等权目标作为构造输入；构造规则为自上而下按 rank 行走，新开仓最小权重默认 `1/position_floor_count=5%`，整手买入且禁止现金缩股，现金不足时从低排名整笔放弃买入。
-- P1 个股尾部风险在 v2 中是 profile 驱动的替换语义：只有 `tail_risk_profile_id` 启用 individual guard 时，`filter_reason LIKE 'tail_risk:%'` 的新增候选才会跳过并由后续排名顶上；`diagnostic_only` 下 marker 不会导致跳买。P2 market risk-off 则在 risk-off 次日跳过所有新增买入。持仓保留阈值统一为 `walk_depth`，超深度持仓必须卖出；若仍持有只能由 `SELL_SKIPPED_UNTRADABLE` / `PENDING_SELL_CARRY` 追溯。
-- 新增 `sql/strategy1/qa/qa_topdown_construction_outputs.sql` 并登记 catalog，由 `backtest_report` 在 topdown 模式自动运行；QA 覆盖 summary 参数、零 `FILLED_SCALED_CASH` / `BUY_SKIPPED_BELOW_LOT_AFTER_SCALE`、整手成交、最小新仓权重、full-rank 输入覆盖、P1 生效、非负现金/long-only、超深度持仓卖出失败追溯。`09` summary metrics_json 补记录 `portfolio_construction_method`、`position_floor_count`、`min_position_weight`、`walk_depth`、实际持仓数和最大单票权重统计，report/runbook 已同步展示。
-- 验证已通过：focused ledger/render/catalog tests、Strategy1/Cloud Run 全量 pytest、retired linter、compileall、Dataform SQLX check、`git diff --check`。本轮未重建镜像、未更新 Cloud Run jobs、未执行 BigQuery/Cloud Run live run；Phase 0 paper 原型、Phase 2 research-only continuous 重跑、三方对比和 owner accepted/promotion 决策仍未完成。
-
 ### 最新补充（2026-06-12）：Ledger 分红送转 Phase C research-only 重跑完成
 
 - 分支 `codex/ledger-corporate-actions` 已按 `PRD_20260612_02` Phase C 完成 true-five-year CA-on continuous 重跑。新 Cloud Run runner 镜像使用 one-off tag `ledger-ca-phasec-43404e6-20260612-01`，不可变 digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`；未更新 `latest` tag。`strategy1-backtest-report-job` 仅 pin 到该 digest（generation `51`），boot smoke execution `strategy1-backtest-report-job-97b5v` 成功。
@@ -110,3 +92,20 @@ Last updated: 2026-06-12
 ### 最新补充（2026-06-12）：Ledger 分红送转记账修复 PRD 已新增
 
 - 分支 `claude/prd-ledger-corporate-actions` 新增 `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`：PR #194 复权漏损量化触发预登记判据后，按约定立项。核心：`corporate_actions` 参数化（默认 `none_v1` 记账输出逐字节不变；`cash_div_and_split_v1` = 送转调股数 + `flat_10pct` 税后分红入账，tax-lot 列为非目标），正交于构造版本；Phase A DWD 事件表（`ods_tushare_dividend` canonical 聚合 + hfq 因子交叉校验硬门）→ Phase B ledger + 参数传播清单 + 默认回归 → Phase C true5y CA 重跑三方对照（六项偏差分解，验收卡 unexplained_residual）。排在 PRD_10 Phase 2 之前；Sharpe 单门通过不触发 accepted；baseline 数字是否切 CA 口径由 owner 在 Phase C 后决策。
+
+
+### 最新补充（2026-06-12）：official ledger 复权漏损量化已完成
+
+- 分支 `codex/official-ledger-adj-leak` 新增只读分析脚本 `scripts/strategy1/analyze_official_adj_leak.py`、报告 `docs/分析-官方Ledger复权漏损量化-20260612.md`、小结果 CSV `docs/analysis_official_ledger_adj_leak_20260612_metrics.csv`，用于量化 official ledger 家族"未复权价 + 恒定股数"约定造成的 NAV 漏损；未修改 ledger / 生产 SQL / 既有 run 数据，未 promotion，未替 owner 重开 `DECISION_LOG` 约定。
+- 分析对象为 true-five-year continuous `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`（主结果）和 effective-window continuous `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`（历史参照），窗口 `2021-01-04..2026-06-09`。方法为逐日 `SUM(prev_day_weight * (hfq_return - raw_return))` 加回 official `daily_return`，hfq 仅作为总回报代理，真实 ledger 修复仍应是现金入账。
+- 主结果 true-five-year：修正前 CAGR `13.85%`、MaxDD `-37.19%`、contract Sharpe `0.6076`、Calmar `0.3725`；hfq 代理修正后 CAGR `15.72%`、MaxDD `-36.76%`、contract Sharpe `0.6894`、Calmar `0.4275`。变化为 CAGR `+1.86pp`、MaxDD `+0.43pp`、Sharpe `+0.0818`、Calmar `+0.0550`；MaxDD peak 从 `2023-06-20` 移到 `2023-09-04`，trough 仍为 `2024-02-07`；2024-01-01~02-07 crunch 超额未变化。
+- effective-window 参照：修正前 CAGR `12.04%`、MaxDD `-45.48%`、contract Sharpe `0.5285`、Calmar `0.2646`；修正后 CAGR `13.56%`、MaxDD `-44.99%`、contract Sharpe `0.5961`、Calmar `0.3014`。变化为 CAGR `+1.52pp`、MaxDD `+0.49pp`、Sharpe `+0.0675`、Calmar `+0.0368`；MaxDD peak/trough 未移动。
+- 对账硬门通过：无交易日 `SUM(prev_day_weight * raw_return)` 与 official `daily_return` 残差在 true-five-year `n=1166`、`p99_abs=1.18e-16`、`max_abs=1.44e-16`；effective-window `n=1168`、`p99_abs=1.30e-16`、`max_abs=2.25e-16`。说明权重/时点口径与 official daily_return 对齐。
+- 漏损分解：true-five-year 全事件 114 个，累计 NAV 贡献 `8.4670pp`，其中送转型 2 个 `2.2118pp`、分红/小事件型 112 个 `6.2552pp`；effective-window 全事件 116 个，累计 `7.0161pp`，其中送转型 1 个 `0.6126pp`、分红/小事件型 115 个 `6.4035pp`。true-five-year 触发预登记判据（CAGR `+1.86pp >= +1pp` 且 Calmar `+0.0550 >= 0.05`），报告建议 owner 立 PRD 修 ledger 并排在 Phase 2 之前。
+- 逐日序列等大 CSV 已上传到 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`，共 13 个对象；本地大产物目录 `reports/strategy1/official_adj_leak/analysis_date=20260612/` 仅作分析缓存。
+
+
+### 最新补充（2026-06-12）：PR #190 Phase 0 resolver 已兼容 true-five-year research baseline 切换
+
+- 按 PR #192 review 发现 1，`scripts/strategy1/analyze_topdown_lot_phase0.py` 的默认 run/backtest id resolver 已从“effective-window official ids”改为“当前研究 baseline（从记忆解析）”：支持 `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_*` 与 `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_*`，并优先解析含 `DECISION-20260612-02` / “采纳/切换/研究 baseline”语义的记忆段落；找不到 baseline 语义时再回退全文首个匹配。
+- 新增 fixture 单测覆盖同一记忆文本同时存在旧 effective-window ids 与新 true5y ids 时，默认解析返回 true5y。本文只修 resolver 与测试/记忆，不重跑 Phase 0 数据、不改报告数字、不触碰 ledger v1 / Phase 1、不改默认 tail_risk profile、不 promotion。

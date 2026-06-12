@@ -74,30 +74,30 @@ Related files:
 | DECISION-20260606-04 | 2026-06-06 | 策略 1 production acceptance 必须先切到整数手 ledger | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260607-01 | 2026-06-07 | dws_market_state_daily 采用备份表 + 双版本行承接上证指数补充 | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260608-01 | 2026-06-08 | index benchmark QA 默认终点对齐 DWD 已可用日期 | active | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-02 | 20260608 | 策略 1 runner 与默认验收 benchmark 切换为上证指数 | unknown | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-02 | 2026-06-08 | 策略 1 runner 与默认验收 benchmark 切换为上证指数 | unknown（归档原文无 Date / Status 字段） | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260608-24 | 2026-06-08 | OQ-005 长期编排层迁出 Cloud Composer | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260608-03 | 2026-06-08 | OQ-005 Workflows 实现必须显式补回 Airflow 免费语义 | active | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-04 | 20260608 | 策略 1 runner 与默认验收 benchmark 切换为上证指数 | unknown | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-04 | 2026-06-08 | 策略 1 runner 与默认验收 benchmark 切换为上证指数 | unknown（归档原文无 Date / Status 字段） | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260608-05 | 2026-06-08 | benchmark 切换后的历史 replay 保留旧审计产物并使用新 run 身份 | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260608-06 | 2026-06-08 | OQ-005 phase 1 采用薄 pipeline-control 服务承接 Workflows 公共能力 | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260608-07 | 2026-06-08 | OQ-005 Workflows cutover 前必须先过最小锁测试与真实 qa_only/daily_current smoke | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260608-08 | 2026-06-08 | Composer 迁移期告警检查统一限频到每小时，airflow_monitoring 不单独调优 | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260608-09 | 2026-06-08 | full_rebuild 保持默认不部署，Scheduler alert-check cutover 必须停 Composer checker | active | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-25 | 20260608 | Strategy1 Cloud Run JSON 布尔特征解包必须使用 `BOOL -> INT64` | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-10 | 20260608 | Strategy1 Cloud Run 布尔解包白名单仅限真实 JSON 布尔字段 | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-11 | 20260608 | 策略 1 验收门切换路线直接从 v1 到 v3，不经过 v2 | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-12 | 20260608 | 策略 1 v3 gate 的公式、符号与窗口约定必须在 PRD/contract 中显式冻结 | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-13 | 20260608 | OQ-005 alert checker cutover 改为 `Cloud Scheduler -> Workflows`，并废止旧的直连 Cloud Run scheduler 路径 | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-14 | 20260608 | Strategy1 v3 切门先以独立 contract 固化规则，不提前改 replay 或 live gate | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-15 | 20260608 | Strategy1 v3 replay 必须作为独立只读 artifact 路径存在，不能覆盖历史 v1 结论 | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-16 | 20260608 | `ashare_pipeline_alert_checker` workflow 不写 `pipeline_run` / `pipeline_task_status` | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-17 | 20260608 | `ashare_warehouse_full_rebuild` 改为 async BigQuery submit+poll，并继续保持 manual opt-in 部署 | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-18 | 20260608 | Strategy1 v3 replay / QA 对历史 search 缺失信号字段采用 source-derivable fallback，不回填 registry | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-19 | 20260608 | OQ-005 跳过 shadow run，直接切到 Scheduler + Workflows 生产入口 | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-21 | 20260608 | 首轮 sklearn native search 的 v3 replay 允许用 valid 证据代理缺失的 CV confirmation | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-22 | 20260608 | Strategy1 v3 的 final_holdout 仅作诊断，不再作为 hard veto | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-26 | 20260608 | Strategy1 v3 的 replay QA 必须由 contract-driven helper 执行 | unknown | archive/DECISION_LOG_2026-06.md |
-| DECISION-20260608-23 | 20260608 | Strategy1 v3 replay QA 的业务口径必须完整从 contract 派生 | unknown | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-25 | 2026-06-08 | Strategy1 Cloud Run JSON 布尔特征解包必须使用 `BOOL -> INT64` | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-10 | 2026-06-08 | Strategy1 Cloud Run 布尔解包白名单仅限真实 JSON 布尔字段 | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-11 | 2026-06-08 | 策略 1 验收门切换路线直接从 v1 到 v3，不经过 v2 | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-12 | 2026-06-08 | 策略 1 v3 gate 的公式、符号与窗口约定必须在 PRD/contract 中显式冻结 | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-13 | 2026-06-08 | OQ-005 alert checker cutover 改为 `Cloud Scheduler -> Workflows`，并废止旧的直连 Cloud Run scheduler 路径 | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-14 | 2026-06-08 | Strategy1 v3 切门先以独立 contract 固化规则，不提前改 replay 或 live gate | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-15 | 2026-06-08 | Strategy1 v3 replay 必须作为独立只读 artifact 路径存在，不能覆盖历史 v1 结论 | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-16 | 2026-06-08 | `ashare_pipeline_alert_checker` workflow 不写 `pipeline_run` / `pipeline_task_status` | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-17 | 2026-06-08 | `ashare_warehouse_full_rebuild` 改为 async BigQuery submit+poll，并继续保持 manual opt-in 部署 | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-18 | 2026-06-08 | Strategy1 v3 replay / QA 对历史 search 缺失信号字段采用 source-derivable fallback，不回填 registry | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-19 | 2026-06-08 | OQ-005 跳过 shadow run，直接切到 Scheduler + Workflows 生产入口 | unknown（归档原文无 Date / Status 字段） | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-21 | 2026-06-08 | 首轮 sklearn native search 的 v3 replay 允许用 valid 证据代理缺失的 CV confirmation | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-22 | 2026-06-08 | Strategy1 v3 的 final_holdout 仅作诊断，不再作为 hard veto | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-26 | 2026-06-08 | Strategy1 v3 的 replay QA 必须由 contract-driven helper 执行 | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260608-23 | 2026-06-08 | Strategy1 v3 replay QA 的业务口径必须完整从 contract 派生 | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260608-30 | 2026-06-08 | `orchestration/composer/` 只保留为历史审计快照 | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260609-01 | 2026-06-09 | Strategy1 Cloud Run live acceptance gate 切到 v3 | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260609-02 | 2026-06-09 | 显式 backfill 可写入 2019 年以前历史训练窗口 | active | archive/DECISION_LOG_2026-06.md |
