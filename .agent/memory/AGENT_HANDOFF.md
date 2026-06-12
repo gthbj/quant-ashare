@@ -2,7 +2,7 @@
 > - `codex/prd05-batch2` 已完成 Batch 2 代码与测试：`state.py` / `task_fanout.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径保留兼容 shim。
 > - src 对 `scripts.strategy1_cloudrun.state` / `task_fanout` 的反向 import 已清零；Batch 2 后剩余 src→scripts import 仅限 Batch 3 范围 `feature_sets` / `preprocess` / `orchestrate_annual_rolling_selection`。
 > - `annual_pipeline_scheduler.py` 已复用迁入后的 state helpers，并恢复 `GcloudExecutionClient.describe` 失败 `LOGGER.warning`；三类锁语义仅补 docstring 出处注记，未合并 reclaim/heartbeat 行为。
-> - 新增 fake GCS lease 单测与 Batch 2 兼容符号快照；本轮未触碰 Cloud Run job spec/args/镜像/IAM，未写 BigQuery/GCS，完整验证将在 PR 创建前记录。
+> - 新增 fake GCS lease 单测与 Batch 2 兼容符号快照；本轮未触碰 Cloud Run job spec/args/镜像/IAM，未写 BigQuery/GCS；全量验证已通过，PR #204 已创建。
 >
 > Model: GPT-5.5
 
@@ -14,7 +14,7 @@ Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashar
 模型: GPT-5.5
 运行环境: macOS / zsh / branch `codex/prd05-batch2`
 Run ID: N/A
-相关 issue/PR: PRD `docs/prd/PRD_20260612_05_Strategy1包结构PhaseE收尾.md`
+相关 issue/PR: PRD `docs/prd/PRD_20260612_05_Strategy1包结构PhaseE收尾.md`；PR #204
 
 ### 已完成工作
 
@@ -51,8 +51,13 @@ Run ID: N/A
 
 ### 测试 / 验证
 
-- 目标验证已通过：`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_annual_pipeline_scheduler.py tests/strategy1/test_gcs_leases.py tests/strategy1/test_package_boundaries.py`（26 passed）。
-- 完整验证将在 PR 创建前执行并记录。
+- `PYTHONPATH=src python3 -m pytest -q tests`：275 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`：6 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`：16 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：passed。
+- `python3 -m compileall -q src scripts tests`：passed。
+- `git diff --check`：passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
 
 ### 阻塞项
 
@@ -60,7 +65,7 @@ Run ID: N/A
 
 ### 下一步建议
 
-- 跑完整验证清单，若合并前 `origin/main` 有新提交则 rebase 后重跑关键验证；push 并创建 PRD_05 Batch 2 独立 PR。
+- 等待 Claude review；认可的 comment 在本分支修复，不认可的在 PR comment 说明理由。若合并前 `origin/main` 有新提交，rebase 后重跑关键验证。
 
 ### 已更新记忆文件
 
