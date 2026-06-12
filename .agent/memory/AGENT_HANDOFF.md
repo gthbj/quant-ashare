@@ -1,10 +1,76 @@
-> 当前交接摘要（2026-06-12，GPT-5.5，PR #201 pre-merge rebase）
-> - `codex/prd03-memory-archive` 已 rebase 到 `origin/main@a5ca9e5`（PR #202 已合并），#202 新记忆内容已按 PRD_03 滚动结构处置。
-> - `IMPLEMENTATION_STATUS.md` 保留最近 7 条（含 PR #202 两条）；`AGENT_HANDOFF.md` 保留当前 rebase 条目 + PR #202 两条交接；超出条目按月归档。
-> - `KNOWN_CONSTRAINTS.md` 保留 #202 dividend 过渡政策条款；`TODO.md` 继承 PRD_04 完成项与 dividend backfill 待办。
-> - 本轮未改 resolver 代码、未写 BigQuery/GCS、未触碰 Cloud Run job spec/镜像/IAM；对账和全量 pytest 已通过，结果见当前交接条目和 PR #201 comment。
+> 当前交接摘要（2026-06-12，GPT-5.5，PRD_20260612_05 Batch 1）
+> - `codex/prd05-batch1` 已完成 Batch 1 代码与测试：`bq_io.py` / `config.py` / runner `__version__` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径保留兼容 shim。
+> - src 对 `scripts.strategy1_cloudrun.bq_io` / `config` / `dataset_roles` / `acceptance` / `__version__` 的反向 import 已清零；剩余反向 import 仅限 Batch 2/3 范围。
+> - 兼容符号快照与反向 import 计数断言已加入 `tests/strategy1/test_package_boundaries.py`；旧 `bq_io/config` scripts 路径未加入 retired-lint ban-list。
+> - 本轮未改运行语义，未触碰 Cloud Run job spec/args/镜像/IAM，未写 BigQuery/GCS；全量验证已通过，PR #203 已创建。
 >
 > Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - PRD_20260612_05 Batch 1 package cleanup
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd05-b1`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/prd05-batch1`
+Run ID: N/A
+相关 issue/PR: PRD `docs/prd/PRD_20260612_05_Strategy1包结构PhaseE收尾.md`；PR #203
+
+### 已完成工作
+
+- 将 `scripts/strategy1_cloudrun/bq_io.py` 与 `config.py` 迁移到 `src/quant_ashare/strategy1/`，scripts 侧改为 thin re-export shim。
+- 新增 `src/quant_ashare/strategy1/runner_version.py`，保持 `strategy1_cloudrun_runner_v0_20260606_lot100` 值不变，并让 `scripts.strategy1_cloudrun.__version__` 从 src re-export。
+- 将 src 内对 `scripts.strategy1_cloudrun.bq_io` / `config` / `dataset_roles` / `acceptance` / `__version__` 的 import 改为包内直连。
+- 在 `tests/strategy1/test_package_boundaries.py` 固化 Batch 1 兼容符号快照与反向 import 计数断言。
+
+### 重要上下文
+
+- 本轮严格只做 PRD Batch 1；`state` / `task_fanout` / `feature_sets` / `preprocess` / `training_panel` / `orchestrate_annual_rolling_selection` 留给 Batch 2/3。
+- 旧 `scripts.strategy1_cloudrun.bq_io` / `config` 路径仍是合法兼容 shim，不应加入 retired-reference ban-list。
+- 本轮未改训练、回测、ledger、orchestrator 调度语义；未触碰 Cloud Run job spec、args、镜像或 IAM；未写 BigQuery/GCS。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/bq_io.py`
+- `src/quant_ashare/strategy1/config.py`
+- `src/quant_ashare/strategy1/runner_version.py`
+- `scripts/strategy1_cloudrun/bq_io.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `scripts/strategy1_cloudrun/__init__.py`
+- 相关 `src/quant_ashare/strategy1/*.py` import
+- `tests/strategy1/test_package_boundaries.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests`：268 passed。
+- `python3 -m pytest -q tests/strategy1/test_package_boundaries.py`：6 passed。
+- `python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`：16 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：passed。
+- `python3 -m compileall -q src scripts tests`：passed。
+- `git diff --check`：passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
+- `PYTHONPATH=src` import smoke：passed。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 等待 Claude review；认可的 comment 在本分支修复，不认可的在 PR comment 说明理由。若合并前 `origin/main` 有新提交，rebase 后重跑关键验证。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
 
 ## 2026-06-12 GPT-5.5 - PR #201 pre-merge rebase after PR #202
 
@@ -120,63 +186,4 @@ Run ID: N/A
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
-- `TODO.md`
-
-## 2026-06-12 GPT-5.5 - PRD_04 工程护栏与测试补强实现
-
-日期: 2026-06-12
-Agent ID: Codex
-Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd04`
-模型: GPT-5.5
-运行环境: macOS / zsh / branch `codex/prd04-guardrails`
-Run ID: N/A
-相关 issue/PR: PRD `docs/prd/PRD_20260612_04_工程护栏与测试补强.md`；PR #200 为 PRD 定稿来源
-
-### 已完成工作
-
-- §2.1：`qa_corporate_action_ledger_outputs` 增加 CA-on dividend staleness fail-fast 断言；`sql/README.md` 补 dwd/12、qa/14 与 ledger QA 的完整恢复路径；catalog 声明 `v_dwd_stock_dividend_event_ledger_consumable` 输入；`KNOWN_CONSTRAINTS.md` 增加过渡政策。
-- §2.2：补齐 `qa_topdown_construction_outputs` / `qa_corporate_action_ledger_outputs` 的 active step catalog 必填键，并让 `validate_catalog()` 对非 retired step 强制校验。
-- §2.3：新增 AST-based metric definition freeze pytest 与显式 allowlist；`DOC_CONVENTIONS.md` 增加指标/格式函数不得在新脚本本地重定义的规则。
-- §2.4：新增 11 对 canonical/window SQL 文本同构 guard，包含显式归一化映射、无扩大豁免清单、seeded mutation 负向自检。
-- §2.5：新增 `experiment_resolution.py` 统一四入口 resolver；`train_predict` resolved manifest 分支保持旧语义，`backtest_report/reporting --manifest-resolved` 改为显式 fail-fast，并补兼容测试与当前 command builder 扫描。
-- §2.6：只新增 acceptance / selection / train_predict 纯函数表驱动测试；未改生产逻辑。
-- §2.7：`tests/conftest.py` 插入 repo root + `src`，新增 `run_module` fixture；`pyproject.toml` 增加 pytest `testpaths` / `pythonpath`；替换 5+ 处重复 subprocess/PYTHONPATH scaffold。
-
-### 重要上下文
-
-- 本轮没有改回测、训练、组合或 ledger 默认语义；`corporate_actions='none_v1'` 默认不变。
-- 未触碰 Cloud Run job spec、镜像或 IAM；除 BigQuery dry-run 外未执行 BigQuery 写入。
-- reporting 的 `--manifest-resolved` 选择 fail-fast，理由是该入口原先静默忽略 resolved manifest，且当前 orchestrator/backtest command builder 不下发该参数；若未来要支持，应单独定义完整语义与测试。
-
-### 改动文件
-
-- `.agent/memory/KNOWN_CONSTRAINTS.md`、`.agent/memory/DOC_CONVENTIONS.md`、`.agent/memory/IMPLEMENTATION_STATUS.md`、`.agent/memory/AGENT_HANDOFF.md`、`TODO.md`
-- `configs/strategy1/active_step_catalog.yml`
-- `sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`、`sql/README.md`
-- `src/quant_ashare/strategy1/catalog.py`、`experiment_resolution.py`、`train_predict.py`、`prepare_matrix.py`、`select_register_predict.py`、`reporting.py`
-- `tests/conftest.py`、`pyproject.toml`、相关 Strategy1/warehouse 测试
-
-### 测试 / 验证
-
-- `python3 -m pytest -q tests`：243 passed。
-- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
-- `git diff --check`：passed。
-- `cd /tmp && python3 -m pytest /Users/fisher/Desktop/git/worktrees/quant-ashare-prd04/tests --collect-only -q`：243 collected。
-- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`：Query successfully validated。
-
-### 阻塞项
-
-- 无。
-
-### 下一步建议
-
-- 提交第七个 commit 后 push `codex/prd04-guardrails`，创建 base `main` 的实现 PR。
-- PR 创建后在 PR #200 回帖一行：`PRD_04 实现 PR #<number>`。
-
-### 已更新记忆文件
-
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/DOC_CONVENTIONS.md`
 - `TODO.md`

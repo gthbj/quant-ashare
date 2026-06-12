@@ -13,8 +13,8 @@ import threading
 import time
 from pathlib import Path
 
-from scripts.strategy1_cloudrun import __version__
-from scripts.strategy1_cloudrun.config import (
+from .runner_version import __version__
+from .config import (
     add_common_args,
     apply_cli_overrides,
     dump_resolved_manifest,
@@ -26,7 +26,7 @@ from scripts.strategy1_cloudrun.config import (
     manifest_hash,
     resolve_parallel_count,
 )
-from scripts.strategy1_cloudrun.bq_io import join_gs_uri
+from .bq_io import join_gs_uri
 from quant_ashare.strategy1.dataset_roles import output_dataset_role_cli_args
 from scripts.strategy1_cloudrun.state import (
     GcsLeaseLock,

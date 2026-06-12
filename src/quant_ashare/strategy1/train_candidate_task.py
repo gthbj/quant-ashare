@@ -13,15 +13,15 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from scripts.strategy1_cloudrun import __version__
-from scripts.strategy1_cloudrun.bq_io import (
+from .runner_version import __version__
+from .bq_io import (
     env_container_image,
     get_git_commit,
     join_gs_uri,
     upload_directory_to_gcs,
     write_json,
 )
-from scripts.strategy1_cloudrun.config import add_common_args, apply_cli_overrides, load_runner_config
+from .config import add_common_args, apply_cli_overrides, load_runner_config
 from scripts.strategy1_cloudrun.task_fanout import (
     candidate_local_dir,
     ensure_matrix_local,

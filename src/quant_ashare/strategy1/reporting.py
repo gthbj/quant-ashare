@@ -9,8 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from scripts.strategy1_cloudrun.bq_io import make_client
-from scripts.strategy1_cloudrun.config import (
+from .bq_io import make_client
+from .config import (
     Experiment,
     add_common_args,
     apply_cli_overrides,

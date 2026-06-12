@@ -13,7 +13,7 @@ from typing import Any
 
 from google.cloud import bigquery
 
-from scripts.strategy1_cloudrun.bq_io import (
+from .bq_io import (
     execute_query,
     get_git_commit,
     join_gs_uri,
@@ -24,8 +24,8 @@ from scripts.strategy1_cloudrun.bq_io import (
     upload_directory_to_gcs,
     write_json,
 )
-from scripts.strategy1_cloudrun.config import add_common_args, apply_cli_overrides, load_runner_config
-from scripts.strategy1_cloudrun.dataset_roles import TableResolver, validate_output_dataset_role
+from .config import add_common_args, apply_cli_overrides, load_runner_config
+from .dataset_roles import TableResolver, validate_output_dataset_role
 
 
 @dataclass(frozen=True)
