@@ -94,6 +94,13 @@ fields:
     semantic_type: date
     unit_note: "YYYYMMDD 派息日"
     repair_policy: cast_preserve_value
+  - field_name: div_listdate
+    bigquery_type: STRING
+    pyarrow_type: string
+    nullable: true
+    semantic_type: date
+    unit_note: "YYYYMMDD 红股上市日"
+    repair_policy: cast_preserve_value
   - field_name: imp_ann_date
     bigquery_type: STRING
     pyarrow_type: string

@@ -117,7 +117,8 @@ def _build_request_groups(item: dict[str, Any], logical_date: str) -> list[dict[
     endpoint = item["endpoint"]
 
     if item["partition_date_semantics"] == "business_date":
-        params.setdefault("trade_date", logical_date)
+        request_date_param = item.get("request_date_param") or item.get("business_date_field") or "trade_date"
+        params.setdefault(request_date_param, logical_date)
         return [params]
 
     if item["partition_date_semantics"] == "report_period":

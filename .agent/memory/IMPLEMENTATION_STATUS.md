@@ -20,8 +20,8 @@ Last updated: 2026-06-12
 ### Strategy1 执行层与 baseline
 
 - Strategy1 普通实验默认写 `ashare_research.research_*`，ADS 正式发布只能走 owner-approved promotion；旧 BQML / SQL ledger runner 仅作 historical reference / audit。
-- 当前研究 baseline 数字为 true-five-year CA-on：prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，CAGR `15.35%`、v3 contract Sharpe `0.6682`、Calmar `0.4101`。
-- baseline 仍不等于 accepted：Sharpe 距 0.70 门约 `0.032`，Calmar `< 1.0`；不得 promotion。后续实验一律显式 `corporate_actions=cash_div_and_split_v1` / `dividend_tax_mode=flat_10pct`。
+- 当前研究 baseline 数字为 true-five-year CA-on：prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，CAGR `15.36%` (`0.153578`)、v3 contract Sharpe `0.6685`、Calmar `0.4103`、MaxDD 不变；2026-06-12 dividend 补采后 resume 修正，child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，详见 `docs/分析-dividend-ODS补采与CA-Resume补跑-20260612.md`。
+- baseline 仍不等于 accepted：Sharpe 距 0.70 门约 `0.0315`，Calmar `< 1.0`；不得 promotion。后续实验一律显式 `corporate_actions=cash_div_and_split_v1` / `dividend_tax_mode=flat_10pct`。
 
 ### QA 与契约
 
@@ -40,6 +40,15 @@ Last updated: 2026-06-12
 - PRD_20260611_10 topdown Phase 0 / Phase 2、尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
+
+### 最新补充（2026-06-12）：dividend ODS 缺口补采与 CA-on baseline resume 补跑完成
+
+- 分支 `codex/dividend-backfill-resume` 已按 owner 批准执行 dividend 缺口补采：新增独立 manifest / endpoint group `dividend_backfill`，`current_scope` alias 显式排除该 group，`dividend` business date 请求参数使用 `ex_date`；每日调度行为不变，默认 `corporate_actions=none_v1` 不变。
+- Cloud Run job `ashare-ingest-current-scope` 补采 SSE 开市日 `2026-05-28..2026-06-12` 共 12 个分区，`ods_tushare_dividend` 新增窗口合计 `1215` 行，`ex_date` 与 partition_date 全匹配；2024/2025 同期行数分别为 `1182`/`1184`。本轮 ingestion meta 正常落 `12` 条 success。
+- 已重跑 `sql/dwd/12_dwd_stock_dividend_event.sql` 与 `sql/qa/14_corporate_action_event_checks.sql`，QA-CA-EVENT-1..6 通过；baseline resume gap `2026-05-28..2026-06-09` 得到 canonical events=`902`、source rows=`905`，ledger-consumable view `unclassified_rows=0`。
+- 已从 parent `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 的 `2026-05-27` state resume 到 child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，Cloud Run execution `strategy1-backtest-report-job-tjn4j` 成功，输出仅写 `ashare_research`。`qa_lot_aware_ledger_outputs` job `b697f4dc-1eaf-4eff-9df1-23e04fb809ac` 与 `qa_corporate_action_ledger_outputs` job `beefe3d8-0022-4aa9-a224-37eb82931760` 通过；ADS 反查和 promotion manifest 均为 0 行。
+- parent/child 差异归因闭合：新增两条 `CORPORATE_ACTION_CASH_DIVIDEND`（`002756.SZ` 2026-05-29、`001314.SZ` 2026-06-02），税前 `76.0`、税 `7.6`、净现金 `68.4` 元；position/share 差异为 0。非 CA 只有两条未成交 `BUY_SKIPPED_BELOW_LOT` planned_shares 尾差，filled/cash/turnover/fee/tax/slippage 均为 0。
+- 拼接 parent NAV `2021-01-04..2026-05-27` + child NAV `2026-05-28..2026-06-09` 后，v3 contract 口径 CAGR=`0.15357789449949522`、contract Sharpe=`0.668539787795112`、Calmar=`0.41030930550903105`、MaxDD=`-0.3742978588042647`。Claude review 已通过 PR #205 技术面，owner 预先决策影响很小则采纳；本轮采纳展示数字修正，但不改 `DECISION-20260612-03` 数字文本。
 
 ### 最新补充（2026-06-12）：PRD_20260612_05 Batch 2 包结构收尾已实现
 
@@ -89,11 +98,3 @@ Last updated: 2026-06-12
 - 三方对照报告已新增 `docs/分析-Ledger CA 重跑对照-20260612.md`。CA-on 结果：total return `1.1044714853774122`、compound CAGR `0.15350594766603387`、MaxDD `-0.3742978588042647`、v3 contract Sharpe `0.6682084282261871`、Calmar `0.4101170873817589`、IR `0.6971241900405605`。相对 raw baseline 改善但仍未过 v3 hard gates（Sharpe `<0.70`、Calmar `<1.0`），不得标 accepted / promotion。
 - Phase C 六项分解已闭合：hfq proxy 相对 CA-on terminal total return 高 `3.5066pp`；`tax_effect=+0.7283pp`，`cash_not_reinvested_effect=+2.7920pp`，`split_fractional_rounding_effect=0`，`same_ex_date_event_aggregation_effect=0`，`event_vs_adj_factor_residual=-0.0138pp`，`unexplained_residual=0`。Phase A mismatch 在 Phase C 窗口全部已分类：event_to_factor data_anomaly `1106`、special_dividend `1`、factor_to_event same_day_orphan_corporate_action `350`、unclassified `0`。
 - 本阶段未改现役 baseline 数据、未 promotion、未改全局默认 profile、未跑 PRD_10 Phase 2。owner 仍需按报告中三组选项裁决是否切换 baseline 口径、如何 supersede 旧未复权约定，以及后续实验是否一律 CA-on。
-
-### 最新补充（2026-06-12）：Ledger 分红送转 Phase B 已实现并完成本地验证
-
-- 分支 `codex/ledger-corporate-actions` 在 Phase A 事件层之上完成 ledger 侧实现：`LedgerParams` / `Experiment` / CLI / Cloud Run dry-run plan / `build_sql_params` / `build_metrics_and_report_inputs` / catalog / QA / resume 两套 QA 均已接入 `corporate_actions` 与 `dividend_tax_mode`。默认仍为 `none_v1` / `flat_10pct`，`ledger_params_hash` 只在非默认值时写入新增参数，默认黄金 hash 保持 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d`。
-- `run_ledger` 在每个 `ex_date` 开盘前先消费 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`，先按 record_date entitlement 做送转调股数 `floor` 并写 `CORPORATE_ACTION_SPLIT` 审计行，再按 record_date 股数和 flat 10% 税率写 `CORPORATE_ACTION_CASH_DIVIDEND` 现金入账；同日调仓仍是 CA 后交易。ledger 不直读 ODS，也不读 mismatch/anomaly 明细表。
-- 新增 `qa_corporate_action_ledger_outputs`，并让 `qa_runner_outputs` / `qa_lot_aware_ledger_outputs` / `qa_ledger_resume_consistency` / `qa_cloudrun_ledger_resume_outputs` 用 COALESCE 兼容旧 summary key，同时校验父子 CA 参数一致。默认不变量用固定时间戳小 fixture 逐表 JSON 字节比较，并锁定 hash 黄金值。
-- 验证：`python3 -m pytest tests` 176 passed；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过；`python3 -m compileall src scripts` 通过；Dataform generator `--check` 和 `npx --yes @dataform/cli compile dataform` 通过；`qa_corporate_action_ledger_outputs` research BigQuery dry-run 通过；`git diff --check` 通过。
-- 本阶段未执行 Phase C、未跑 live backtest、未改既有 run、未 promotion、未改全局默认 profile、未触碰 `scripts/strategy1_cloudrun/bq_io.py`。下一步是提交/推送并等待 Claude review，review 通过后才可进入 Phase C research-only 重跑。
