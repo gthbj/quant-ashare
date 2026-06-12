@@ -16228,3 +16228,157 @@ Model: GPT-5 Codex
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
 - `TODO.md`
+
+## 2026-06-12 PR #201 pre-merge rebase archived handoff entries
+
+## 2026-06-12 GPT-5.5 - PR #199 确认轮复核与微修
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-decision`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `claude/decision-ca-baseline`
+Run ID: N/A
+相关 issue/PR: PR #199
+
+### 已完成工作
+
+- 按 owner 要求拉取 Claude 裁决回帖并同步 `claude/decision-ca-baseline` 到 commit `1fa12c4`。
+- 逐条复核 5 条 review 发现：tail_risk_overlay_ab 显式 CA-on、KNOWN_CONSTRAINTS 去重/拆黏、AGENT_HANDOFF 完整条目已到位；复核时发现 resolver 真实记忆解析仍回落 CA-off，且 TODO 仍残留旧 true-five-year baseline open 项。
+- 直接微修 resolver：`find_baseline_ids()` 允许从最高优先级 CA-on baseline 段落取 backtest，再从后续最佳 baseline 段补 prediction；新增 fixture 覆盖“DECISION-20260612-03 只有 CA-on backtest、DECISION-20260612-02 同时有 prediction+CA-off backtest”的真实记忆形态。
+- 删除 `TODO.md` 残留旧 true-five-year baseline open 路线项，保留已纳入 CA-on 的当前 OQ-010 路线项。
+
+### 重要上下文
+
+- 本轮未改 ledger 默认值：`corporate_actions` 代码默认仍为 `none_v1`；只在实验编排/解析纪律上保证 CA-on。
+- 未执行 live / BigQuery 写入，未 promotion，未改默认 profile。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_topdown_lot_phase0.py`
+- `tests/strategy1/test_topdown_lot_phase0.py`
+- `TODO.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_topdown_lot_phase0.py`：9 passed。
+- 真实项目记忆解析实测返回 `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`。
+- `PYTHONPATH=src python3 -m pytest -q tests`：201 passed。
+- `python3 -m compileall -q src scripts tests`：passed。
+- `git diff --check`：passed。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提交、push，并在 PR #199 comment 给出确认轮结论。
+
+### 已更新记忆文件
+
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+## 2026-06-12 Claude Fable 5 - 六 PR 合并队列 + DECISION-20260612-03 CA-on baseline 落地（PR #199）
+
+日期: 2026-06-12
+Agent ID: Claude Code
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-decision`
+模型: Claude Fable 5
+运行环境: macOS / zsh / branch `claude/decision-ca-baseline`
+Run ID: 无（决策落地与记忆同步，未跑新 run）
+相关 issue/PR: PR #199；已合并 #192、#190、#194、#195、#198、#189
+
+### 已完成工作
+
+- 按 owner 指令完成六 PR 合并队列（#192→#190→#194→#195→#198→#189）；#189 与 CA 链路的集成冲突以 union 方式收口：`ledger.py` 常量/参数/hash/校验合并、`active_step_catalog.yml` required_params 合一、删除过时 QA 断言与 reporting 重复 dict key、重建被黏连的测试函数，合并后全量 pytest 200 passed。
+- 新建 PR #199 落地 DECISION-20260612-03：研究 baseline 数字切换为 CA-on 口径（`bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，CAGR `15.35%`/contract Sharpe `0.6682`/Calmar `0.4101`），supersede v1 ledger"未复权口径、持有期除权简化"约定，后续实验一律显式 `corporate_actions=cash_div_and_split_v1` / `dividend_tax_mode=flat_10pct`（代码默认 `none_v1` 不变）。
+- 同步记忆与 TODO：DECISION_LOG 追加 -03；KNOWN_CONSTRAINTS / IMPLEMENTATION_STATUS / MEMORY_INDEX 刷新 baseline 锚点；TODO 勾掉已裁决三项并删除重复旧路线项。
+- 按 Codex review（GPT-5.5 xhigh，5 条发现全采纳）修复：`analyze_topdown_lot_phase0.py` resolver 支持 `_ca01` id 形状且 baseline 段落优先级从硬编码 -02 改为"最新 DECISION id 优先"；`tail_risk_overlay_ab.py` 编排层显式 CA-on；KNOWN_CONSTRAINTS 去重并拆开与 IAM 黏连行；TODO 三处过时待定项收口；本 handoff 条目补全。
+
+### 重要上下文
+
+- v3 gates 仍未过：contract Sharpe 距 0.70 门 `0.032`、Calmar `0.4101 < 1.0`——baseline ≠ accepted，不得 promotion；剩余缺口判定为真实 alpha/结构问题（OQ-010 唯一开放主线）。
+- 同日并行会话撞号（DECISION/PRD 编号）教训已固化进 CLAUDE.md 操作要点：创建前 fetch 并实查 origin/main 最新编号，撞号时未合并方让号并连锁更新字面引用。
+- Codex review 会话续接纪律：同一 PR 复用同一会话（`codex exec resume`），review 结论与逐条裁决都落 PR comment。
+
+### 改动文件
+
+- `.agent/memory/DECISION_LOG.md`、`KNOWN_CONSTRAINTS.md`、`IMPLEMENTATION_STATUS.md`、`MEMORY_INDEX.md`、`AGENT_HANDOFF.md`、`TODO.md`
+- `scripts/strategy1/analyze_topdown_lot_phase0.py`、`tests/strategy1/test_topdown_lot_phase0.py`、`src/quant_ashare/strategy1/tail_risk_overlay_ab.py`
+
+### 后续
+
+- PR #199：回帖逐条裁决 → Codex 确认轮 → 合并（先 `gh pr ready`）。
+- 合并后：PRD_20260611_10 Phase 2 重跑与 P1 市值规则两选项 paper batch 仍是 OQ-010 下的 owner 路线项。
+
+Model: Claude Fable 5
+
+## 2026-06-12 GPT-5.5 - PRD_03 记忆体系归档压缩实现
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd03`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/prd03-memory-archive`
+Run ID: N/A
+相关 issue/PR: PRD_20260612_03；PR #201
+
+### 已完成工作
+
+- 按 PRD_20260612_03 将主记忆文件改为滚动压缩结构：`IMPLEMENTATION_STATUS.md` 快照 + 最近 7 条补充，`AGENT_HANDOFF.md` 当前摘要 + 最近 3 条交接，`DECISION_LOG.md` 全量索引 + 最近 10 条全文。
+- 将移出的实现状态编年史与决策全文原文归档到 `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`、`DECISION_LOG_2026-05.md`、`DECISION_LOG_2026-06.md`；旧 handoff 按滚动规则继续归档到 `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`。
+- 保守重构 `KNOWN_CONSTRAINTS.md`：只对超长条款做拆行重排，未删除操作性语义；全量映射附件已生成。
+- 更新 `PROJECT_CONTEXT.md` 当前阶段、`UPDATE_PROTOCOL.md` 滚动瘦身规则、`MEMORY_INDEX.md` archive 登记。
+- PR #201 Claude review F1-F5 已全采纳修复：`DECISION-20260608-10..18/-21/-22/-23/-25/-26` 索引改回 `2026-06-08 / active`，`-02/-04/-19` 保留 unknown 并注明归档原文无 Date / Status；`IMPLEMENTATION_STATUS.md` 最近 7 条改按小节日期重切；`UPDATE_PROTOCOL.md` 补日期口径和已归档全文不改写边界；PRD_10 的 5 条 Phase 1 bullet 已归回对应小节；映射表补充拆分行核对说明。
+
+### 重要上下文
+
+- `DECISION_LOG.md` 主文件仍可 grep 命中全部 `DECISION-YYYYMMDD-NN`，并指向归档全文。
+- `IMPLEMENTATION_STATUS.md` 与 `DECISION_LOG.md` 主文件保留 CA-on baseline 段落；`tests/strategy1/test_topdown_lot_phase0.py` 的 resolver 不应因本次重排失效。本轮已实测真实记忆解析仍返回 CA-on backtest。
+- 本轮不产生新的持久决策，不更新 `DECISION_LOG.md` 决策条目，不改 `TODO.md` 实质内容。
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/UPDATE_PROTOCOL.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/archive/*`
+- `docs/prd/PRD_20260612_03_KNOWN_CONSTRAINTS映射表.md`
+
+### 测试 / 验证
+
+- DECISION id 集合对账：before=`99`、after main=`99`、missing=`0`、extra=`0`。
+- `IMPLEMENTATION_STATUS.md` 编年史小节对账：before=`73`、after main=`7`、archive=`66`、total=`73`，heading multiset match=`True`，nonblank body line multiset match=`True`。
+- PRD_10 / PR #189 小节边界对账：PRD_10 moved bullets=`5`，PR #189 bullets=`4`，正文非空行集合未变化。
+- 决策全文归档按 ID 对账：before=`99`、archive=`99`、missing=`0`、extra=`0`、text_mismatches=`0`。
+- Handoff 归档存在性对账：原主文件 33 条，移出 31 条，archive missing=`0`。
+- 最终发布前已 rebase `origin/main`；期间新增 main 提交为 PRD 文档合入，未新增 `.agent/memory` 条目，无需追加归档处置。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_topdown_lot_phase0.py`：9 passed。
+- 真实项目记忆解析实测返回 CA-on baseline：`s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`。
+- `PYTHONPATH=src python3 -m pytest -q tests`：201 passed。
+- `git diff --check`：passed。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 等待 Claude review；认可的 comment 继续在本分支修复，不认可的在 PR comment 说明理由。合并前如 `origin/main` 再变化，按 PRD §6 rebase 并重新跑对账。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/DECISION_LOG.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/UPDATE_PROTOCOL.md`
+- `.agent/memory/MEMORY_INDEX.md`

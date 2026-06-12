@@ -20,6 +20,22 @@
 - 全量验证通过：`tests/strategy1 + tests/strategy1_cloudrun` 共 `173` 项、`quant_ashare.strategy1.retired_lint`、`compileall`、`generate_sqlx_from_sql.py --check`、`git diff --check`。二轮修复后 focused pytest `58 passed`，`git diff --check` 通过。
 - `qa_topdown_construction_outputs.sql` 已按 research 口径渲染；本地 bq dry-run 因当前环境无活跃 gcloud account 受限，已由 Claude 在授权环境代跑通过。
 
+### 最新补充（2026-06-12）：official ledger 复权漏损量化已完成
+
+- 分支 `codex/official-ledger-adj-leak` 新增只读分析脚本 `scripts/strategy1/analyze_official_adj_leak.py`、报告 `docs/分析-官方Ledger复权漏损量化-20260612.md`、小结果 CSV `docs/analysis_official_ledger_adj_leak_20260612_metrics.csv`，用于量化 official ledger 家族"未复权价 + 恒定股数"约定造成的 NAV 漏损；未修改 ledger / 生产 SQL / 既有 run 数据，未 promotion，未替 owner 重开 `DECISION_LOG` 约定。
+- 分析对象为 true-five-year continuous `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`（主结果）和 effective-window continuous `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`（历史参照），窗口 `2021-01-04..2026-06-09`。方法为逐日 `SUM(prev_day_weight * (hfq_return - raw_return))` 加回 official `daily_return`，hfq 仅作为总回报代理，真实 ledger 修复仍应是现金入账。
+- 主结果 true-five-year：修正前 CAGR `13.85%`、MaxDD `-37.19%`、contract Sharpe `0.6076`、Calmar `0.3725`；hfq 代理修正后 CAGR `15.72%`、MaxDD `-36.76%`、contract Sharpe `0.6894`、Calmar `0.4275`。变化为 CAGR `+1.86pp`、MaxDD `+0.43pp`、Sharpe `+0.0818`、Calmar `+0.0550`；MaxDD peak 从 `2023-06-20` 移到 `2023-09-04`，trough 仍为 `2024-02-07`；2024-01-01~02-07 crunch 超额未变化。
+- effective-window 参照：修正前 CAGR `12.04%`、MaxDD `-45.48%`、contract Sharpe `0.5285`、Calmar `0.2646`；修正后 CAGR `13.56%`、MaxDD `-44.99%`、contract Sharpe `0.5961`、Calmar `0.3014`。变化为 CAGR `+1.52pp`、MaxDD `+0.49pp`、Sharpe `+0.0675`、Calmar `+0.0368`；MaxDD peak/trough 未移动。
+- 对账硬门通过：无交易日 `SUM(prev_day_weight * raw_return)` 与 official `daily_return` 残差在 true-five-year `n=1166`、`p99_abs=1.18e-16`、`max_abs=1.44e-16`；effective-window `n=1168`、`p99_abs=1.30e-16`、`max_abs=2.25e-16`。说明权重/时点口径与 official daily_return 对齐。
+- 漏损分解：true-five-year 全事件 114 个，累计 NAV 贡献 `8.4670pp`，其中送转型 2 个 `2.2118pp`、分红/小事件型 112 个 `6.2552pp`；effective-window 全事件 116 个，累计 `7.0161pp`，其中送转型 1 个 `0.6126pp`、分红/小事件型 115 个 `6.4035pp`。true-five-year 触发预登记判据（CAGR `+1.86pp >= +1pp` 且 Calmar `+0.0550 >= 0.05`），报告建议 owner 立 PRD 修 ledger 并排在 Phase 2 之前。
+- 逐日序列等大 CSV 已上传到 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`，共 13 个对象；本地大产物目录 `reports/strategy1/official_adj_leak/analysis_date=20260612/` 仅作分析缓存。
+
+
+### 最新补充（2026-06-12）：PR #190 Phase 0 resolver 已兼容 true-five-year research baseline 切换
+
+- 按 PR #192 review 发现 1，`scripts/strategy1/analyze_topdown_lot_phase0.py` 的默认 run/backtest id resolver 已从“effective-window official ids”改为“当前研究 baseline（从记忆解析）”：支持 `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_*` 与 `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_*`，并优先解析含 `DECISION-20260612-02` / “采纳/切换/研究 baseline”语义的记忆段落；找不到 baseline 语义时再回退全文首个匹配。
+- 新增 fixture 单测覆盖同一记忆文本同时存在旧 effective-window ids 与新 true5y ids 时，默认解析返回 true5y。本文只修 resolver 与测试/记忆，不重跑 Phase 0 数据、不改报告数字、不触碰 ledger v1 / Phase 1、不改默认 tail_risk profile、不 promotion。
+
 ### 最新补充（2026-06-12）：PR #190 Phase 0 paper review follow-up 已完成
 
 - `scripts/strategy1/analyze_topdown_lot_phase0.py` 已按 PR #190 review 修订：主判读成本档改为 official matched 分腿费率（买 `6bps`、卖 `11bps`），保留 `0bps` / `20bps` 敏感性；输出逐票持仓审计 `holdings_detail_json`，新增 P1 饱和机制、四通道归因、2022-05 饱和 episode、最差 3 个 10 日窗口持仓明细；集中度主口径改为 NAV 分母并保留持仓内分母对照。
