@@ -34,9 +34,12 @@
 
 ## 归档与瘦身
 
-1. `AGENT_HANDOFF.md` 只保留当前交接摘要和最近 2-3 条交接；更早条目按月归档到 `archive/AGENT_HANDOFF_YYYY-MM.md`。
+1. `AGENT_HANDOFF.md` 只保留当前交接摘要和最近 3 条交接；追加新条目时若主文件超过摘要 + 3 条，当场把最旧条目按月归档到 `archive/AGENT_HANDOFF_YYYY-MM.md`。
 2. `OPEN_QUESTIONS.md` 只保留 open 问题；closed 问题移入 `archive/CLOSED_QUESTIONS.md`。
-3. `DECISION_LOG.md` 只追加重要且持久的决策；普通执行记录写入 `IMPLEMENTATION_STATUS.md` / `AGENT_HANDOFF.md`。已被 superseded 的决策可压缩为摘要，但必须保留替代决策编号和相关文件。
+3. `IMPLEMENTATION_STATUS.md` 只保留当前状态快照 + 最近 7 条「最新补充」；追加新小节时，同步刷新快照区，并把超出窗口的小节原文搬入对应月份 `archive/IMPLEMENTATION_STATUS_YYYY-MM.md`。
+4. `DECISION_LOG.md` 主文件 = 全量决策索引行 + 最近 10 条决策全文；追加新决策时同步写索引行，超过 10 条的旧全文搬入对应月份 `archive/DECISION_LOG_YYYY-MM.md`，主文件索引必须继续保留全部 DECISION id。
+5. `KNOWN_CONSTRAINTS.md` 新增 / 修改约束时只写操作性语义 + 出处指针（PRD / DECISION 编号），不内嵌论证与实跑记录；单条约束以一个短段落为上限。
+6. `DECISION_LOG.md` 只追加重要且持久的决策；普通执行记录写入 `IMPLEMENTATION_STATUS.md` / `AGENT_HANDOFF.md`。已被 superseded 的决策可压缩为摘要，但必须保留替代决策编号和相关文件。
 
 ## 更新风格
 
