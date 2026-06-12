@@ -7,8 +7,8 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from scripts.strategy1_cloudrun.bq_io import json_dumps_strict
-from scripts.strategy1_cloudrun.config import read_mapping
+from .bq_io import json_dumps_strict
+from .config import read_mapping
 
 
 DEFAULT_CONTRACT_PATH = "configs/strategy1/model_acceptance_contract_v3.yml"

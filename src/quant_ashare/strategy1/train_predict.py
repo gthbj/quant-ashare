@@ -23,9 +23,9 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
-from scripts.strategy1_cloudrun import __version__
-from scripts.strategy1_cloudrun.acceptance import load_acceptance_contract
-from scripts.strategy1_cloudrun.bq_io import (
+from .runner_version import __version__
+from .acceptance import load_acceptance_contract
+from .bq_io import (
     ADS,
     env_container_image,
     execute_query,
@@ -40,14 +40,14 @@ from scripts.strategy1_cloudrun.bq_io import (
     write_json,
     write_text,
 )
-from scripts.strategy1_cloudrun.config import (
+from .config import (
     Experiment,
     RunnerConfig,
     add_common_args,
     apply_cli_overrides,
     load_runner_config,
 )
-from scripts.strategy1_cloudrun.dataset_roles import TableResolver
+from .dataset_roles import TableResolver
 from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
 from quant_ashare.strategy1.experiment_resolution import resolve_experiment_from_args
 

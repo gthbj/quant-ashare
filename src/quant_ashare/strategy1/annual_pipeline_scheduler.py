@@ -20,15 +20,15 @@ from typing import Any, Iterable
 
 from google.cloud import storage
 
-from scripts.strategy1_cloudrun import __version__
-from scripts.strategy1_cloudrun.bq_io import join_gs_uri, json_dumps_strict, parse_gs_uri
-from scripts.strategy1_cloudrun.config import (
+from .runner_version import __version__
+from .bq_io import join_gs_uri, json_dumps_strict, parse_gs_uri
+from .config import (
     add_common_args,
     apply_cli_overrides,
     experiment_to_b64,
     load_runner_config,
 )
-from scripts.strategy1_cloudrun.dataset_roles import output_dataset_role_cli_args
+from .dataset_roles import output_dataset_role_cli_args
 from scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection import (
     DEFAULT_AS_OF_DATE,
     DEFAULT_CANDIDATE_SET_ID,

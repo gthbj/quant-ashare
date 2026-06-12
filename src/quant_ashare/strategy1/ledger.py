@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
-from scripts.strategy1_cloudrun.bq_io import execute_query, load_dataframe, query_dataframe
+from .bq_io import execute_query, load_dataframe, query_dataframe
 from quant_ashare.strategy1.dataset_roles import DEFAULT_OUTPUT_DATASET_ROLE, TableResolver
 
 ALLOWED_TAIL_RISK_PROFILES = frozenset({

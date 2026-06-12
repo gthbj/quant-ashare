@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
-from scripts.strategy1_cloudrun import __version__
-from scripts.strategy1_cloudrun.bq_io import (
+from .runner_version import __version__
+from .bq_io import (
     bq_label_value,
     execute_query,
     get_git_commit,
@@ -29,13 +29,13 @@ from scripts.strategy1_cloudrun.bq_io import (
     write_json,
     write_text,
 )
-from scripts.strategy1_cloudrun.config import (
+from .config import (
     Experiment,
     add_common_args,
     apply_cli_overrides,
     load_runner_config,
 )
-from scripts.strategy1_cloudrun.dataset_roles import TableResolver
+from .dataset_roles import TableResolver
 from scripts.strategy1_cloudrun.task_fanout import (
     ensure_matrix_local,
     read_json,

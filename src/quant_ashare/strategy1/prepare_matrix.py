@@ -14,8 +14,8 @@ import joblib
 import pandas as pd
 from google.cloud import bigquery
 
-from scripts.strategy1_cloudrun import __version__
-from scripts.strategy1_cloudrun.bq_io import (
+from .runner_version import __version__
+from .bq_io import (
     env_container_image,
     get_git_commit,
     job_audit_dict,
@@ -25,14 +25,14 @@ from scripts.strategy1_cloudrun.bq_io import (
     upload_directory_to_gcs,
     write_json,
 )
-from scripts.strategy1_cloudrun.config import (
+from .config import (
     Experiment,
     add_common_args,
     apply_cli_overrides,
     effective_candidate_parallelism,
     load_runner_config,
 )
-from scripts.strategy1_cloudrun.dataset_roles import TableResolver
+from .dataset_roles import TableResolver
 from scripts.strategy1_cloudrun.feature_sets import (
     PV_FIN_RISK_FEATURE_SET_ID,
     boolean_feature_names,

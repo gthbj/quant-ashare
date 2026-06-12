@@ -10,8 +10,8 @@ from typing import Any
 
 from google.cloud import bigquery
 
-from scripts.strategy1_cloudrun.bq_io import make_client, query_dataframe
-from scripts.strategy1_cloudrun.config import (
+from .bq_io import make_client, query_dataframe
+from .config import (
     Experiment,
     add_common_args,
     apply_cli_overrides,
@@ -25,7 +25,7 @@ from quant_ashare.strategy1.dataset_roles import (
 )
 from quant_ashare.strategy1.pipeline_control import gcloud_execute_command
 from quant_ashare.strategy1.sql_runner import run_sql_step
-from scripts.strategy1_cloudrun.dataset_roles import TableResolver
+from .dataset_roles import TableResolver
 from scripts.strategy1_cloudrun.state import (
     cloud_run_execution_state,
     describe_cloud_run_execution,

@@ -13,21 +13,21 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
-from scripts.strategy1_cloudrun.bq_io import (
+from .bq_io import (
     join_gs_uri,
     make_client,
     query_dataframe,
     upload_directory_to_gcs,
     write_json,
 )
-from scripts.strategy1_cloudrun.config import (
+from .config import (
     Experiment,
     add_common_args,
     apply_cli_overrides,
     experiment_from_b64,
     load_runner_config,
 )
-from scripts.strategy1_cloudrun.dataset_roles import TableResolver
+from .dataset_roles import TableResolver
 from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
 
 from quant_ashare.strategy1.train_predict import (

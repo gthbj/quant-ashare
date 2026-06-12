@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from scripts.strategy1_cloudrun.config import (
+from .config import (
     Experiment,
     experiment_from_b64,
     filter_experiments,
