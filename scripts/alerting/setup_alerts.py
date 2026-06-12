@@ -72,6 +72,11 @@ LOG_METRICS = [
         "filter": 'jsonPayload.alert_type="ingestion_failed"',
     },
     {
+        "name": "ashare_pipeline_ingestion_meta_missing",
+        "description": "Live ODS ingestion task succeeded but ingestion meta rows are missing",
+        "filter": 'jsonPayload.alert_type="ingestion_meta_missing"',
+    },
+    {
         "name": "ashare_pipeline_warehouse_refresh_missing",
         "description": "ODS ingestion succeeded but linked warehouse window refresh is missing",
         "filter": 'jsonPayload.alert_type="warehouse_refresh_missing"',
@@ -155,6 +160,24 @@ ALERT_POLICIES = [
         "condition_display_name": "warehouse_refresh_missing",
         "condition_type": "threshold",
         "log_metric_name": "ashare_pipeline_warehouse_refresh_missing",
+        "threshold_value": 0,
+        "duration_seconds": 0,
+        "severity": "ERROR",
+    },
+    {
+        "policy_key": "ingestion_meta_missing",
+        "display_name": "Ashare Pipeline: Ingestion Meta Missing",
+        "description": (
+            "Live ODS ingestion task 已成功，但对应 business_date 没有 "
+            "`ashare_meta.ingestion_run` 行。\n\n"
+            "这通常表示采集镜像 stale、meta 写入路径损坏，或 ingestion task 成功状态"
+            "与实际 live 写入链路脱节。先查 `ashare_meta.v_ingestion_meta_missing`，"
+            "再核对 Cloud Run execution 使用的镜像 digest 与 ingestion logs。\n\n"
+            "Runbook：docs/Pipeline-补跑与故障恢复-Runbook.md"
+        ),
+        "condition_display_name": "ingestion_meta_missing",
+        "condition_type": "threshold",
+        "log_metric_name": "ashare_pipeline_ingestion_meta_missing",
         "threshold_value": 0,
         "duration_seconds": 0,
         "severity": "ERROR",

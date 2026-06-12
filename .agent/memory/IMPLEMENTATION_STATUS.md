@@ -2,7 +2,7 @@
 
 这是实现状态的唯一事实来源。面向「已完成/进行中/受阻的整体状态」；「下一步要做什么」见根目录 `TODO.md`。
 
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 ## 当前状态快照
 
@@ -15,7 +15,7 @@ Last updated: 2026-06-12
 ### 采集与调度
 
 - 生产调度唯一入口已迁到 `Cloud Scheduler + Cloud Workflows`；`ashare-composer` 已删除，Composer 目录仅保留为 retired / audit-only 历史快照。
-- OQ-005 当前只剩 post-cutover 观察记录与 2026-06-12 scheduled ingestion 审计链路验证；窗口刷新正确性依赖 `sql/qa/10_windowed_stock_refresh_checks.sql` 与 review。
+- 2026-06-12 scheduled current_scope 已使用修复后 ingestion 镜像 `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 写入 `ashare_meta.ingestion_run` / `ingestion_partition_status` 27 行，采集审计链路恢复已验证；本轮新增 `v_ingestion_meta_missing` 与对应 alert policy 防复发。2026-06-13 是周六，20:00 scheduled run 应验证非交易日 gate；下一次 live meta 验证窗口是 2026-06-15 20:00 CST。OQ-005 仍剩 post-cutover 短观察窗与 2026-06-12 下游 window QA 独立失败跟进。
 
 ### Strategy1 执行层与 baseline
 
@@ -40,6 +40,14 @@ Last updated: 2026-06-12
 - PRD_20260611_10 topdown Phase 0 / Phase 2、尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
+
+### 最新补充（2026-06-13）：ingestion meta 0 行事故复核与防复发告警已实现
+
+- 分支 `codex/ingestion-meta-incident` 已完成 ashare_meta ingestion meta 0 行事故独立复核并产出报告 `docs/分析-ingestion-meta-0行事故排查-20260613.md`。根因仍成立：旧 ingestion 镜像 `sha256:351dfd996b6ec066135d68c40f84eb1c2a52e43ea8e28208ba1711be90a7652d` 构建早于 `60fb242` 接入 `IngestionStatusWriter`，2026-06-09/10/11 live ingestion task success 但 meta rows=0。
+- 当前 `ashare-ingest-current-scope` job spec 仍是 `ingestion:latest`、generation=1；不需要更新 job spec。本轮只读确认 2026-06-12 20:00 CST scheduled execution `ashare-ingest-current-scope-9wnh8` 使用 `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 并写入 27 条 current_scope meta。随后 dividend 补采镜像 `sha256:35acbc363408d05dd758d70ba5f293e8b0d333a000c6dfe8e8143ddadd0b8bba` 成为 `latest`，后续 dividend executions 也已写 meta。
+- 新增 `ashare_meta.v_ingestion_meta_missing`，并把 `alert_type='ingestion_meta_missing'` 接入 `v_alert_summary`、`scripts/alerting/setup_alerts.py` log metric / Cloud Monitoring policy、alert README 与 runbook；历史回放显示 2026-06-09/10/11 会告警，2026-06-12 修复后 `meta_rows=27` 不会误报。
+- 2026-06-13 是周六，SSE `is_open=0`；20:00 CST scheduled workflow 应验证 `non_trading_day_gate` / `skip_non_trading_day`，不会触发 live ingestion，也不应期待 20260613 meta 行。下一次 live meta 验证应看 2026-06-15 20:00 CST 后是否使用当前 `latest` digest 并写 20260615 current_scope meta。
+- 验证通过：`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/observability/01_pipeline_status_views.sql`；`python3 -m pytest -q tests/alerting/test_ingestion_meta_missing_alert.py`；`python3 scripts/alerting/setup_alerts.py --dry-run`；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`；`git diff --check`。本轮未改生产 job spec/IAM/Workflows/Scheduler，未补写历史 meta。
 
 ### 最新补充（2026-06-12）：PRD_20260612_05 Batch 3 包结构收尾已实现
 
@@ -88,10 +96,3 @@ Last updated: 2026-06-12
 - `resolve_experiment` 公共逻辑迁至 `src/quant_ashare/strategy1/experiment_resolution.py`；`train_predict` 的 `--manifest-resolved` 旧语义保留，`backtest_report/reporting` 对 `--manifest-resolved` 选择 fail-fast，并用测试确认当前 orchestrator/backtest command builder 不传该参数。
 - 新增测试覆盖：catalog contract、metric definition allowlist、window SQL 同构负向 seeded mutation、v3 acceptance / legacy helper 阈值边界、candidate ranking / selection 边界、valid signal / orientation / complexity / CV missing path、CLI module runner fixture 和仓库外 pytest collect。
 - 验证通过：`python3 -m pytest -q tests`（243 passed）；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`；`git diff --check`；`cd /tmp && python3 -m pytest /Users/fisher/Desktop/git/worktrees/quant-ashare-prd04/tests --collect-only -q`（243 collected）；`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`。本轮未改回测/训练/组合语义，未改默认 `corporate_actions='none_v1'`，未触碰 Cloud Run job spec/镜像/IAM，未写 BigQuery 生产数据。
-
-### 最新补充（2026-06-12）：baseline 数字切换为 CA-on 口径（DECISION-20260612-03），PRD_20260612_02 全三阶段收口
-
-- Phase C CA-on 重跑完成：backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`（execution `strategy1-backtest-report-job-dnt4b`），continuous/lot-aware/CA 三套 QA 通过，ADS 反向 0 行。新锚点：CAGR=`15.35%`、contract Sharpe=`0.6682`、Calmar=`0.4101`。
-- 六项偏差分解桥精确闭合（hfq 估计 − CA-on = 3.5066pp = 税 0.7283 + 现金滞留 2.7920 + 取整 0 + 聚合 0 + 因子残差 -0.0138，unexplained < 1e-9pp）。
-- v3 gates：Sharpe 距 0.70 门 0.032、Calmar 0.4101 < 1.0——baseline ≠ accepted、不得 promotion；测量仪已修正，剩余缺口为真实 alpha/结构缺口（OQ-010）。
-- 纪律：后续实验一律显式 CA-on（代码默认 none_v1 不变）；PRD_20260611_10 Phase 2 等后续工作的对照与参数随之切换。
