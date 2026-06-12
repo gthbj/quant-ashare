@@ -2,10 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-from pathlib import Path
-import subprocess
-import sys
 
 import pytest
 
@@ -28,9 +24,6 @@ from quant_ashare.strategy1.annual_pipeline_scheduler import (
     select_admissible_tasks,
     simulate_dry_run_schedule,
 )
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _args(**overrides) -> argparse.Namespace:
@@ -194,16 +187,10 @@ def test_generation_conditioned_state_rejects_stale_update() -> None:
         store.update({"status": "stale"}, expected_generation=generation)
 
 
-def test_annual_pipeline_scheduler_cli_dry_run_outputs_json() -> None:
-    env = os.environ.copy()
-    src_path = str(REPO_ROOT / "src")
-    env["PYTHONPATH"] = src_path if not env.get("PYTHONPATH") else f"{src_path}{os.pathsep}{env['PYTHONPATH']}"
-
-    proc = subprocess.run(
+def test_annual_pipeline_scheduler_cli_dry_run_outputs_json(run_module) -> None:
+    proc = run_module(
+        "quant_ashare.strategy1.annual_pipeline_scheduler",
         [
-            sys.executable,
-            "-m",
-            "quant_ashare.strategy1.annual_pipeline_scheduler",
             "--start-year",
             "2021",
             "--end-year",
@@ -212,12 +199,6 @@ def test_annual_pipeline_scheduler_cli_dry_run_outputs_json() -> None:
             "v20260611_test",
             "--dry-run",
         ],
-        cwd=REPO_ROOT,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=60,
     )
 
     assert proc.returncode == 0, proc.stderr

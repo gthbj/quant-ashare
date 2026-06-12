@@ -1,3 +1,10 @@
+> 当前交接补充（2026-06-12，GPT-5.5，PRD_04 工程护栏与测试补强）
+> - 分支 `codex/prd04-guardrails` 已按 PRD §2.1-§2.7 实现七项工程护栏：CA 数据陈旧断言、catalog 必填键、metric freeze、window SQL 同构 guard、resolver 合一、纯函数表驱动测试、pytest scaffold。
+> - `backtest_report/reporting --manifest-resolved` 选择 fail-fast；`train_predict` resolved manifest 旧语义保留，且测试确认当前 orchestrator/backtest command builder 不传该参数。
+> - 验证通过：全量 pytest 243 passed、Dataform SQLX check、`git diff --check`、仓库外 collect-only 243 collected、`qa_corporate_action_ledger_outputs.sql` BigQuery dry-run。未改训练/回测/组合语义，未写生产 BQ，未触碰 Cloud Run job spec/镜像/IAM。
+>
+> Model: GPT-5.5
+
 > 当前交接补充（2026-06-12，GPT-5.5，PR #199 确认轮微修）
 > - 复核 Claude commit `1fa12c4` 时发现 resolver 真实记忆解析仍回落 CA-off：已改为可从最高优先级 CA-on 段取 backtest、从后续段补 prediction，并新增真实记忆形态 fixture；实测解析到 `bt_..._ca01`。
 > - `TODO.md` 删除残留的旧 true-five-year baseline open 路线项；本轮未改 ledger 默认值、未跑 live/BigQuery 写入、未 promotion、未改默认 profile。
@@ -17,6 +24,65 @@
 > - Phase C QA 全过：continuous job `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware job `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger job `37674e4f-06ee-4998-9d1e-75ace14cb965`。报告 `docs/分析-Ledger CA 重跑对照-20260612.md` 已产出；CA-on contract Sharpe `0.6682`、Calmar `0.4101`，仍未 accepted / promotion。
 >
 > Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - PRD_04 工程护栏与测试补强实现
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd04`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/prd04-guardrails`
+Run ID: N/A
+相关 issue/PR: PRD `docs/prd/PRD_20260612_04_工程护栏与测试补强.md`；PR #200 为 PRD 定稿来源
+
+### 已完成工作
+
+- §2.1：`qa_corporate_action_ledger_outputs` 增加 CA-on dividend staleness fail-fast 断言；`sql/README.md` 补 dwd/12、qa/14 与 ledger QA 的完整恢复路径；catalog 声明 `v_dwd_stock_dividend_event_ledger_consumable` 输入；`KNOWN_CONSTRAINTS.md` 增加过渡政策。
+- §2.2：补齐 `qa_topdown_construction_outputs` / `qa_corporate_action_ledger_outputs` 的 active step catalog 必填键，并让 `validate_catalog()` 对非 retired step 强制校验。
+- §2.3：新增 AST-based metric definition freeze pytest 与显式 allowlist；`DOC_CONVENTIONS.md` 增加指标/格式函数不得在新脚本本地重定义的规则。
+- §2.4：新增 11 对 canonical/window SQL 文本同构 guard，包含显式归一化映射、无扩大豁免清单、seeded mutation 负向自检。
+- §2.5：新增 `experiment_resolution.py` 统一四入口 resolver；`train_predict` resolved manifest 分支保持旧语义，`backtest_report/reporting --manifest-resolved` 改为显式 fail-fast，并补兼容测试与当前 command builder 扫描。
+- §2.6：只新增 acceptance / selection / train_predict 纯函数表驱动测试；未改生产逻辑。
+- §2.7：`tests/conftest.py` 插入 repo root + `src`，新增 `run_module` fixture；`pyproject.toml` 增加 pytest `testpaths` / `pythonpath`；替换 5+ 处重复 subprocess/PYTHONPATH scaffold。
+
+### 重要上下文
+
+- 本轮没有改回测、训练、组合或 ledger 默认语义；`corporate_actions='none_v1'` 默认不变。
+- 未触碰 Cloud Run job spec、镜像或 IAM；除 BigQuery dry-run 外未执行 BigQuery 写入。
+- reporting 的 `--manifest-resolved` 选择 fail-fast，理由是该入口原先静默忽略 resolved manifest，且当前 orchestrator/backtest command builder 不下发该参数；若未来要支持，应单独定义完整语义与测试。
+
+### 改动文件
+
+- `.agent/memory/KNOWN_CONSTRAINTS.md`、`.agent/memory/DOC_CONVENTIONS.md`、`.agent/memory/IMPLEMENTATION_STATUS.md`、`.agent/memory/AGENT_HANDOFF.md`、`TODO.md`
+- `configs/strategy1/active_step_catalog.yml`
+- `sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`、`sql/README.md`
+- `src/quant_ashare/strategy1/catalog.py`、`experiment_resolution.py`、`train_predict.py`、`prepare_matrix.py`、`select_register_predict.py`、`reporting.py`
+- `tests/conftest.py`、`pyproject.toml`、相关 Strategy1/warehouse 测试
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests`：243 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
+- `git diff --check`：passed。
+- `cd /tmp && python3 -m pytest /Users/fisher/Desktop/git/worktrees/quant-ashare-prd04/tests --collect-only -q`：243 collected。
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`：Query successfully validated。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 提交第七个 commit 后 push `codex/prd04-guardrails`，创建 base `main` 的实现 PR。
+- PR 创建后在 PR #200 回帖一行：`PRD_04 实现 PR #<number>`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/DOC_CONVENTIONS.md`
+- `TODO.md`
 
 ## 2026-06-12 GPT-5.5 - PR #199 确认轮复核与微修
 

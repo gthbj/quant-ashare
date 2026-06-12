@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 import json
-import os
 from pathlib import Path
-import subprocess
-import sys
 from types import SimpleNamespace
 
 import pandas as pd
@@ -21,9 +18,6 @@ from quant_ashare.strategy1.synthetic_continuous import (
     default_synthetic_model_id,
     load_synthetic_manifest,
 )
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _manifest(path: Path) -> Path:
@@ -50,14 +44,6 @@ def _manifest(path: Path) -> Path:
         encoding="utf-8",
     )
     return path
-
-
-def _pythonpath_env() -> dict[str, str]:
-    env = os.environ.copy()
-    src_path = str(REPO_ROOT / "src")
-    existing = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = src_path if not existing else f"{src_path}{os.pathsep}{existing}"
-    return env
 
 
 def test_synthetic_manifest_is_normalized_and_hashed(tmp_path: Path) -> None:
@@ -236,26 +222,18 @@ def test_synthetic_manifest_rejects_overlapping_windows(tmp_path: Path) -> None:
         load_synthetic_manifest(path)
 
 
-def test_synthetic_entrypoint_rejects_ads_output_role_even_in_dry_run(tmp_path: Path) -> None:
+def test_synthetic_entrypoint_rejects_ads_output_role_even_in_dry_run(tmp_path: Path, run_module) -> None:
     manifest = _manifest(tmp_path / "manifest.json")
 
-    proc = subprocess.run(
+    proc = run_module(
+        "quant_ashare.strategy1.synthetic_continuous",
         [
-            sys.executable,
-            "-m",
-            "quant_ashare.strategy1.synthetic_continuous",
             "--dry-run",
             "--manifest-json",
             str(manifest),
             "--output-dataset-role",
             "ads",
         ],
-        cwd=REPO_ROOT,
-        env=_pythonpath_env(),
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=60,
     )
 
     assert proc.returncode != 0

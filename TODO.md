@@ -152,6 +152,9 @@
 - [x] 工程治理：修复 Dataform generated SQLX drift
   说明：已在单独 cleanup 分支重新运行 `scripts/dataform/generate_sqlx_from_sql.py`，同步 6 个 stale generated SQLX 文件，并新增 pytest 防复发检查；`--check`、Dataform compile、`python3 -m pytest tests` 和 `git diff --check` 已通过。
 
+- [x] OQ-010 / 工程治理：实现 `PRD_20260612_04` 工程护栏与测试补强
+  说明：分支 `codex/prd04-guardrails` 已完成七项护栏：CA dividend staleness fail-fast、active step catalog 必填键、指标定义 freeze、11 对 window SQL 同构 guard、四入口 experiment resolver 合一、acceptance/selection/train_predict 纯函数表驱动测试、pytest repo-root/src scaffold 与仓库外 collect-only 支持。验证：全量 pytest 243 passed、Dataform SQLX check、`git diff --check`、仓库外 collect-only 243 collected、`qa_corporate_action_ledger_outputs.sql` BigQuery dry-run 通过；未改训练/回测/组合语义，未写生产 BQ。
+
 - [ ] OQ-005：如真实运行暴露 stale-lock 边界，再为 `ashare-pipeline-control` 的 stale-lock reclaim 增加 Workflows execution liveness 检查
 
 - [ ] 若继续推进数据扩展，补 `lookback-capable` 价格构建输入

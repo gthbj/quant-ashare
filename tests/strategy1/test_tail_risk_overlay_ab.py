@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-import subprocess
-import sys
 from types import SimpleNamespace
 
 from quant_ashare.strategy1 import tail_risk_overlay_ab
@@ -15,20 +12,10 @@ from quant_ashare.strategy1.sql_render import render_sql_step
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _pythonpath_env() -> dict[str, str]:
-    env = os.environ.copy()
-    src_path = str(REPO_ROOT / "src")
-    existing = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = src_path if not existing else f"{src_path}{os.pathsep}{existing}"
-    return env
-
-
-def test_tail_risk_overlay_ab_dry_run_uses_three_research_arms() -> None:
-    proc = subprocess.run(
+def test_tail_risk_overlay_ab_dry_run_uses_three_research_arms(run_module) -> None:
+    proc = run_module(
+        "quant_ashare.strategy1.tail_risk_overlay_ab",
         [
-            sys.executable,
-            "-m",
-            "quant_ashare.strategy1.tail_risk_overlay_ab",
             "--dry-run",
             "--run-version",
             "vunit",
@@ -43,12 +30,6 @@ def test_tail_risk_overlay_ab_dry_run_uses_three_research_arms() -> None:
             "--baseline-backtest-id",
             "bt_unit_synth",
         ],
-        cwd=REPO_ROOT,
-        env=_pythonpath_env(),
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=60,
     )
 
     assert proc.returncode == 0, proc.stderr
@@ -67,12 +48,10 @@ def test_tail_risk_overlay_ab_dry_run_uses_three_research_arms() -> None:
     assert all("--skip-qa" in command for command in joined_commands)
 
 
-def test_tail_risk_overlay_ab_rejects_ads_role_offline() -> None:
-    proc = subprocess.run(
+def test_tail_risk_overlay_ab_rejects_ads_role_offline(run_module) -> None:
+    proc = run_module(
+        "quant_ashare.strategy1.tail_risk_overlay_ab",
         [
-            sys.executable,
-            "-m",
-            "quant_ashare.strategy1.tail_risk_overlay_ab",
             "--dry-run",
             "--run-version",
             "vunit",
@@ -87,12 +66,6 @@ def test_tail_risk_overlay_ab_rejects_ads_role_offline() -> None:
             "--output-dataset-role",
             "ads",
         ],
-        cwd=REPO_ROOT,
-        env=_pythonpath_env(),
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=60,
     )
 
     assert proc.returncode != 0
