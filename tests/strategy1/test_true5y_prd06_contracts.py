@@ -92,67 +92,6 @@ def test_true_five_year_refit_requires_explicit_nondefault_suffix() -> None:
     assert "requires an explicit non-default --final-refit-run-suffix" in proc.stderr
 
 
-def test_windowed_stock_equivalence_dry_run_exposes_summary_and_sample_outputs(tmp_path: Path) -> None:
-    summary = tmp_path / "stock_summary.jsonl"
-    samples = tmp_path / "stock_samples.jsonl"
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "scripts/qa/run_windowed_refresh_equivalence.py",
-            "--dry-run",
-            "--summary-output-jsonl",
-            str(summary),
-            "--diff-sample-output-jsonl",
-            str(samples),
-            "--max-diff-samples",
-            "2",
-        ],
-        cwd=REPO_ROOT,
-        env=_pythonpath_env(),
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=60,
-    )
-
-    assert proc.returncode == 0, proc.stderr
-    assert f"Write per-table mismatch summaries to {summary}" in proc.stdout
-    assert f"Write up to 2 mismatch samples per failing table to {samples}" in proc.stdout
-
-    script = (REPO_ROOT / "scripts/qa/run_windowed_refresh_equivalence.py").read_text(encoding="utf-8")
-    assert "f AS full_row" in script
-    assert "w AS window_row" in script
-    assert "diff_sample_json" in script
-
-
-def test_index_market_equivalence_dry_run_exposes_summary_and_sample_outputs(tmp_path: Path) -> None:
-    summary = tmp_path / "index_market_summary.jsonl"
-    samples = tmp_path / "index_market_samples.jsonl"
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "scripts/qa/run_index_market_windowed_equivalence.py",
-            "--dry-run",
-            "--summary-output-jsonl",
-            str(summary),
-            "--diff-sample-output-jsonl",
-            str(samples),
-        ],
-        cwd=REPO_ROOT,
-        env=_pythonpath_env(),
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=60,
-    )
-
-    assert proc.returncode == 0, proc.stderr
-    assert "sql/incremental/02_refresh_index_dwd_window.sql" in proc.stdout
-    assert "sql/incremental/03_refresh_market_state_window.sql" in proc.stdout
-    assert f"Write per-table mismatch summaries to {summary}" in proc.stdout
-    assert f"Write up to 5 mismatch samples per failing table to {samples}" in proc.stdout
-
-
 def test_true5y_historical_coverage_sql_pins_repair_window_and_internal_gaps() -> None:
     sql = (REPO_ROOT / "sql/qa/13_true5y_historical_coverage_checks.sql").read_text(encoding="utf-8")
 

@@ -102,20 +102,8 @@ bq query \
   < sql/qa/10_windowed_stock_refresh_checks.sql
 ```
 
-窗口刷新和全量 CTAS 逻辑并存期间，定期或发布前运行等价 QA，防止两条路径静默漂移。该 QA 会先用生产 DWD 估值表校验 `build_start_date` 足够早，避免 full shadow 与 window shadow 被同样截断后假通过；随后把 canonical full SQL 渲染到 scratch `_full` 表，再把 `_full` 复制为 `_window` 表，重写窗口 SQL 刷 `_window`，最后逐列比较受影响窗口内 `_window` 与 `_full` 的数值。
+历史 full-vs-window parity 工具已按 `DECISION-20260612-01` 退役；当前窗口刷新发布前检查以窗口 QA SQL 和 review 为准。
 
-```bash
-python3 scripts/qa/run_windowed_refresh_equivalence.py --dry-run
-
-python3 scripts/qa/run_windowed_refresh_equivalence.py \
-  --project data-aquarium \
-  --location asia-east2 \
-  --scratch-dataset ashare_qa_windowed_equivalence \
-  --build-start-date 2024-01-01 \
-  --lookback-start-date 2023-01-01 \
-  --date-from 2025-06-02 \
-  --date-to 2025-06-13
-```
 
 ## 产出表
 

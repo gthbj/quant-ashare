@@ -59,8 +59,9 @@ Codex 必须使用 **GPT-5.5 + reasoning effort `xhigh`**。CLI 显式传 `-m gp
 
 1. 优先用 codex plugin 命令（如 `/codex:setup --enable-review-gate`）；plugin 命令在当前会话不可用时，直接用 `codex` CLI（已在 PATH）。
 2. 定位该 PR 的既有 Codex 会话：记录在 `~/.codex/sessions/YYYY/MM/DD/rollout-*-<session-id>.jsonl`，按分支名 / worktree 路径 / PR 号 grep 定位。**首轮交接后把 session id 记入 PR body 或 `AGENT_HANDOFF.md`**，后续轮次免检索。
-3. 续接会话：`codex exec resume <session-id> "<prompt>"`，后台运行（预期十几分钟以上），完成后拉取其 PR 回帖与新 commit 复核。
-4. 交接 prompt 必须自包含：review comment 的 URL 及拉取命令（`gh api repos/<owner>/<repo>/issues/comments/<id> --jq .body`）、协作规则原文（认可→改；不认可→PR comment 说明理由）、修复后必须重跑的验证清单、记忆/TODO 同步要求、署名 commit + push + PR 回帖要求、该任务的红线约束（如"默认语义不可变 / 不跑 live 写入 / 不改默认 profile"）。
+3. 续接会话：`codex exec resume <session-id> "<prompt>"`，后台运行（预期十几分钟以上），完成后拉取其 PR 回帖与新 commit 复核。`resume` 子命令不收 `--sandbox` 旗标，沙箱用 `-c sandbox_mode="..."` 传。
+4. **非交互派发三个硬性细节（2026-06-12 实踩）**：① 命令必须 `</dev/null` 重定向 stdin——否则 codex 会等待管道 stdin 追加为 `<stdin>` 块，后台任务的 stdin 永不关闭 → 进程无限挂起（零 CPU、无会话文件）；② cwd 必须是 git 仓库（或加 `--skip-git-repo-check`），否则目录信任检查直接退出；③ 派发后必须**解码新会话文件内容**确认归属（grep 任务关键词），不能用"取最新文件"认领——owner 可能在并行使用 Codex。会话文件在 `~/.codex/sessions/`，CLI 升级会把旧会话迁去 `~/.codex/archived_sessions/`。
+5. 交接 prompt 必须自包含：review comment 的 URL 及拉取命令（`gh api repos/<owner>/<repo>/issues/comments/<id> --jq .body`）、协作规则原文（认可→改；不认可→PR comment 说明理由）、修复后必须重跑的验证清单、记忆/TODO 同步要求、署名 commit + push + PR 回帖要求、该任务的红线约束（如"默认语义不可变 / 不跑 live 写入 / 不改默认 profile"）。
 
 ## 🔴 署名：标明你的模型名
 

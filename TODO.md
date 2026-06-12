@@ -4,6 +4,15 @@
 
 ## P0 — 当前优先
 
+- [ ] OQ-005：验证 2026-06-12 20:00 CST scheduled 采集后 ingestion 审计链路恢复
+  说明：2026-06-12 已确诊并修复采集镜像 stale（详见 `IMPLEMENTATION_STATUS.md` 同日小节）：重建镜像 digest `5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 推 `:latest`（job spec 未动），补采 000001.SH 06-10/11 并实证 `ashare_meta.ingestion_run` / `ingestion_partition_status` 首批落行。待当晚 scheduled run 后验证：① `ingestion_run` 落 2026-06-12 业务日 27 个分区端点行（含 `index_daily_000001_SH` / `index_dailybasic_000001_SH`）；② `daily_current` 窗口刷新自动重写 06-10/11 的 `dwd_index_eod` 000001.SH 行与 `dws_market_state_daily` `sse_composite_*` 字段（06-10 `market_regime` 应基于完整输入重判，当前 `risk_off` 是退化输入产物）；③ `v_alert_summary` / `v_ingestion_failures` / `v_ingestion_empty_returns` 采集分支有真实数据来源。若 `ingestion_run` 当日无行，查 execution 日志与 BigQuery 写入错误。
+
+- [x] 排查 `ingestion_run` / `ingestion_partition_status` 零写入与采集告警断档
+  说明：已完成（PR #196，2026-06-12）：确诊为采集 Cloud Run 镜像 stale——镜像构建于 2026-06-04 11:50 UTC，早于 status_writer 接线 `60fb242`（15:57 UTC），此后未重建；已重建镜像并补采 000001.SH 06-10/11，meta 表首批落行实证。剩余验证见上一条。
+
+- [x] 按 `PRD_20260612_01` 执行 BigQuery 数据集清理退役
+  说明：全部完成。第 1 类清理 2026-06-12 完成（5 张 `_repair_val_*` + 18 张 shadow 表）；Phase B 代码由 PR #197 合并（退役两个 windowed equivalence 脚本、清理 active 引用、catalog ban-list、KNOWN_CONSTRAINTS 三处改写）；三个 BigQuery 手工操作 2026-06-12 执行完毕并通过对账（证据见 PR #197 comment）：Phase A 审计日志预检通过（30 天仅 owner 与项目 compute SA 的 2026-05-24 遗留写入，05-27 起零活动）后删除 `ashare`（09:41:45Z）；Phase B 删除 `ashare_qa_windowed_equivalence`（09:41:48Z）；Phase C DELETE 36,853,582 行（09:43:35Z，与预期精确一致），post-manifest 13 项全部 IDENTICAL（panel 剩 61 run / 184,596,703 行，registry 151/52、summary 90、models 50 不变）。回滚窗口截止 2026-06-19 ~09:4xZ（UNDROP / time travel，均须 `--location=asia-east2`）。
+
 - [x] OQ-005：合并 2026-06-09 scheduled ODS run 暴露的 Cloud Run Job IAM bootstrap 修正
   说明：已由 PR #126 合并到 `main`。`orchestration/workflows/bootstrap_scheduler_iam.sh` 已固化 runtime SA 的 job-level `roles/run.jobsExecutorWithOverrides`、project-level `roles/run.viewer`，并移除旧 job-level `roles/run.invoker`，避免重新 bootstrap 后复现 scheduled ODS workflow 权限失败。
 
@@ -50,7 +59,7 @@
   说明：PRD_07 candidate-only live smoke 已在正式 runner 镜像上完成：run-version `v20260611_prd07smoke01`，2021/2022 matrix artifact 预置后，scheduler live path 提交 fanout executions `strategy1-train-candidate-fanout-job-g65hx` / `strategy1-train-candidate-fanout-job-btvgv`，各 `3/3` tasks succeeded。dry-run plan hash 与 live state 均为 `7ef90a481f0e64ad`，12 个候选 artifact 文件均可读；已覆盖 state recovery 同 run 不重复提交、artifact-skip 新 run 不提交、missing-matrix preflight 本地失败且不提交 Cloud Run、真实 GCS lease competition、以及 `gcloud --wait` 非零后 describe/artifact 成功的回归测试。完整 2021-2026 live pipeline / Phase 3 仍需 owner 另批，不在本项范围。
 
 - [ ] OQ-010：基于 true-five-year baseline 决定下一轮策略改进或 accepted baseline 路线
-  说明：2021-2026 effective-window official continuous 与 true-five-year continuous 都已成为 research evidence，但都尚未 accepted。Effective-window：compound CAGR=`0.12036528993503204`，MaxDD=`-0.4548151193656952`，legacy Sharpe=`0.6132671411257953`，v3 contract Sharpe=`0.5285475500566089`，contract Calmar=`0.26464663290635254`。True-five-year：compound CAGR=`0.13852596798718442`，MaxDD=`-0.37189972934558946`，legacy Sharpe=`0.6834026126199905`，v3 contract Sharpe=`0.6075887294330015`，contract Calmar=`0.3724820349585642`。True-five-year 明显改善但仍未过 v3 hard gates（contract Sharpe `<0.70`、contract Calmar `<1.0`）。DECISION-20260612-01 已采纳 true-five-year 为研究 baseline（effective-window 降级为历史参照，OQ-011 关闭）；下一步围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案。不得把任一结果直接 promotion 或标 accepted。
+  说明：2021-2026 effective-window official continuous 与 true-five-year continuous 都已成为 research evidence，但都尚未 accepted。Effective-window：compound CAGR=`0.12036528993503204`，MaxDD=`-0.4548151193656952`，legacy Sharpe=`0.6132671411257953`，v3 contract Sharpe=`0.5285475500566089`，contract Calmar=`0.26464663290635254`。True-five-year：compound CAGR=`0.13852596798718442`，MaxDD=`-0.37189972934558946`，legacy Sharpe=`0.6834026126199905`，v3 contract Sharpe=`0.6075887294330015`，contract Calmar=`0.3724820349585642`。True-five-year 明显改善但仍未过 v3 hard gates（contract Sharpe `<0.70`、contract Calmar `<1.0`）。DECISION-20260612-02 已采纳 true-five-year 为研究 baseline（effective-window 降级为历史参照，OQ-011 关闭）；下一步围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案。不得把任一结果直接 promotion 或标 accepted。
 
 - [x] OQ-010：实现回测复合年化收益字段
   说明：PR #134 已扩展 ADS summary 契约并在 `09` 写出 `compound_annual_return` / `return_period_count` / annualization metadata，`10` 和 `24` QA 校验 `NAV 有效交易日数 - 1` 口径，report 默认展示复合年化；旧 `annual_return` / `sharpe` 保留 legacy 语义，不回填历史 run。
