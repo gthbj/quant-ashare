@@ -18,7 +18,7 @@ DECISION-20260612-03 要求后续所有实验 CA-on，`qa_corporate_action_ledge
 
 1. 在 `configs/ingestion/ods_current_scope_v0.yml` 新增 dividend endpoint 条目（口径照搬 `ods_dividend_backfill_v0.yml`：`partition_date_semantics=business_date`、`business_date_field/request_date_param=ex_date`），归入 endpoint group **`corporate_actions`**（复用既有 module `scripts.ingestion.endpoints.corporate_actions`）。
 2. `run_ingestion_job.py`：`ENDPOINT_GROUPS` 新增 `corporate_actions` 正式组（dividend），`current_scope` alias 显式列表追加 `corporate_actions`（PR #205 把 alias 改为显式列表正是为此刻服务——本次是**有意**纳入，与当时排除 `dividend_backfill` 不矛盾；`dividend_backfill` 手工组保留用于历史补采）。
-3. **语义辨析（review 重点）**：dividend 的 `partition_date == ex_date`，每日 scheduled run 以 `business_date=当日` 请求 `ex_date=当日`——采集的是"当日除权除息的事件"。已实施分红预案的 `ex_date` 公布通常早于除权日，但我们按 ex_date 分区只在除权日当天采到该事件，**事件可见上界 = 最近已采集的 ex_date 日**，与 staleness 断言的全表 MAX 口径一致；回看窗口缺口（如停采几天）用 `dividend_backfill` 手工组补。无需为 dividend 引入 ann_date 维度采集（Phase A 契约只消费 `div_proc='实施'` + ex_date，PIT 语义由 DWD 层保证）。
+3. **回看窗口兜底（review 后硬要求）**：单日 `ex_date=当日` 拉取**不能**保证完整——历史数据中存在 `imp_ann_date >= ex_date` 的迟到/修订行（实查：2014 年有 `imp_ann_date > ex_date` 案例，2024 年有 `= ex_date` 案例），除权日当天单次拉取可能漏数且 staleness 断言无法发现"分区已采但内容不完整"。因此 `corporate_actions` 组对单个 `business_date` 必须**展开为最近 `lookback_open_days=5` 个 SSE 开市日**（含当日）的逐日 `ex_date` 请求，每个日期幂等覆盖写同一 `partition_date=ex_date` 分区并各写一条 meta 行（GCS publish 本就是 staging 校验后覆盖正式 `data.parquet`，KNOWN_CONSTRAINTS 既有口径）；迟到/修订行由后续 4 个交易日的重查自然补上。`lookback_open_days` 作为 manifest 字段（仅 corporate_actions 组消费），开市日从 `dim_trade_calendar` 解析。更早的缺口仍用 `dividend_backfill` 手工组补。无需引入 ann_date 维度采集（Phase A 契约只消费 `div_proc='实施'` + ex_date，PIT 语义由 DWD 层保证）。
 4. **readiness QA（`sql/qa/09`）**：dividend 注册为 **weak** endpoint（绝不进 blocking strong 清单）。特殊性：淡季交易日零事件是常态，API 空返回（`empty_return`）**不写 warning**——实现上把 dividend 加入"允许空返回不告警"的豁免清单（若 qa/09 无此机制则新增，措辞与既有 weak endpoint 警告语义区分）；非交易日不采（scheduled gate 已覆盖）。
 5. meta：沿用 `IngestionStatusWriter`（PR #208 后已正常），`ingestion_partition_status.endpoint` 存 `dividend`。
 
@@ -27,7 +27,7 @@ DECISION-20260612-03 要求后续所有实验 CA-on，`qa_corporate_action_ledge
 1. `ashare_warehouse_window_refresh`（`daily_current` 模式）在既有股票 DWD/DWS 窗口刷新成功后追加两步：
    - `sql/dwd/12_dwd_stock_dividend_event.sql` 全量重建（CTAS，当前 4.8 万行量级，秒级成本，不做窗口化）；
    - `sql/qa/14_corporate_action_event_checks.sql`（重建 mismatch 表 + ledger 消费视图 + 断言）。
-2. **失败语义（review 重点）**：这两步为 **non-blocking weak 步骤**——失败写 `pipeline_task_status.status='failed'`（由既有 pipeline failure 告警报出），但**不阻断**主链其余部分也不使整个 run 失败（价格 DWD 是关键路径，事件链路失败的影响由 staleness 断言在消费端兜底）。Workflows 实现用既有的非致命分支模式；若现有 workflow 无该模式则实现"捕获-记录-继续"。
+2. **失败语义（review 后修正）**：这两步为 **non-blocking weak 步骤**。实查确认 `ashare_warehouse_window_refresh.yaml` **没有**现成非致命分支模式（所有 transform/QA 在外层 try/except 下，任一失败 → `pipeline_run.status='failed'` 并 rethrow；`run_sql_task` 异常时先写 task failed 再抛）——实现必须在事件两步周围**新增局部 try/except**：捕获后记录 task `failed`、继续 finalize 主链 success，不 rethrow。告警口径为 **`task_failure`**（`v_alert_summary` 既有分支按 `pipeline_task_status.status='failed'` 报警），不是 pipeline_failure。**验收硬断言**：人为注入事件步失败时，child workflow / `pipeline_run` 仍 success、对应 task 为 failed、`v_alert_summary.alert_type='task_failure'` 可见该行。价格 DWD 主链不受影响；消费端由 staleness 断言兜底。
 3. 顺序约束：qa/14 的 hfq 交叉校验依赖当日 `adj_factor`（已在 strong endpoint 主链先行），故两步置于 transform 链尾。
 4. `backfill` 模式不自动跑事件链路（历史补采仍走手工 runbook，避免大区间重复重建）；`qa_only` 模式不跑（qa/14 有写副作用——mismatch 表与视图重建，违反 qa_only 只读约定）。
 
@@ -46,8 +46,8 @@ DECISION-20260612-03 要求后续所有实验 CA-on，`qa_corporate_action_ledge
 
 ## 3. 预登记验收
 
-1. 全量 pytest + 既有 ingestion manifest 测试扩展（current_scope 含 corporate_actions、dividend_backfill 仍被排除在外的断言改为新口径）；
-2. dry-run plan 显示 dividend 进入 current_scope 执行计划；qa/09 dry-run 编译通过；
+1. 全量 pytest + 既有 ingestion manifest 测试扩展（current_scope 含 corporate_actions、dividend_backfill 仍被排除在外的断言改为新口径；新增回看窗口展开单测：`lookback_open_days=5` 按开市日展开、每日期独立分区与 meta、幂等覆盖语义）；
+2. dry-run plan 显示 dividend 进入 current_scope 执行计划且展开为 5 个开市日请求；qa/09 dry-run 编译通过；non-blocking 语义按 §2.2.2 验收硬断言验证（可注入失败的单测/本地模拟，live 不要求人为注入）；迟到行兜底证据：用既有补采窗口数据或合成 fixture 证明"D 日漏采的行在 D+1..D+4 重查中被覆盖写入"；
 3. live 验证按 §2.3.2 序列（第一个交易日即 2026-06-15 周一，与 PR #208 的 meta 验证窗口合并执行）；
 4. 连续两个交易日 scheduled run 事件链路全绿后，本 PRD 收口。
 
