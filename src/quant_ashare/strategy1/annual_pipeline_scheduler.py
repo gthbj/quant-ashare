@@ -42,16 +42,20 @@ from scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection import (
     parse_iso_date,
     validate_config,
 )
-from scripts.strategy1_cloudrun.task_fanout import (
+from .task_fanout import (
     candidate_grid_hash,
     candidate_output_uri,
     default_matrix_id,
     matrix_artifact_uri,
 )
 from quant_ashare.strategy1.pipeline_control import gcloud_execute_command
-from scripts.strategy1_cloudrun.state import (
+from .state import (
     cloud_run_execution_state,
+    describe_cloud_run_execution,
     extract_cloud_run_execution_id,
+    utc_now,
+    _is_not_found_error,
+    _is_precondition_error,
 )
 
 
@@ -302,7 +306,10 @@ class GcsGenerationStateStore:
 
 
 class GcsSchedulerLease:
-    """Lightweight annual-scheduler lease using GCS generation preconditions."""
+    """Lightweight annual-scheduler lease using GCS generation preconditions.
+
+    PRD_20260611_07 Section 4.1 keeps this lease non-reclaiming; lost owner stops submission.
+    """
 
     def __init__(
         self,
@@ -436,22 +443,7 @@ class GcloudExecutionClient:
         )
 
     def describe(self, *, project: str, region: str, execution_id: str) -> dict[str, Any] | None:
-        proc = subprocess.run(
-            [
-                "gcloud", "run", "jobs", "executions", "describe", execution_id,
-                f"--project={project}",
-                f"--region={region}",
-                "--format=json",
-            ],
-            text=True,
-            capture_output=True,
-        )
-        if proc.returncode != 0:
-            return None
-        try:
-            return json.loads(proc.stdout)
-        except Exception:
-            return None
+        return describe_cloud_run_execution(project, region, execution_id)
 
 
 class GcsArtifactStore:
@@ -1512,22 +1504,8 @@ def stable_plan_hash(tasks: Iterable[PipelineTask]) -> str:
     return hashlib.sha256(json_dumps_strict(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def join_object_name(prefix: str, name: str) -> str:
     return "/".join([prefix.rstrip("/"), name.strip("/")]) if prefix else name.strip("/")
-
-
-def _is_precondition_error(exc: Exception) -> bool:
-    text = str(exc)
-    return any(token in text for token in ("conditionNotMet", "PreconditionFailed", "GenerationDoesNotMatch", "412"))
-
-
-def _is_not_found_error(exc: Exception) -> bool:
-    text = str(exc)
-    return any(token in text for token in ("NotFound", "404", "No such object"))
 
 
 if __name__ == "__main__":

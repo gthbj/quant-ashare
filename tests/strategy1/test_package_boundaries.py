@@ -15,7 +15,7 @@ from quant_ashare.strategy1.legacy_names import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_STRATEGY1_ROOT = REPO_ROOT / "src/quant_ashare/strategy1"
 
-BATCH1_COMPAT_SYMBOLS = {
+BATCH2_COMPAT_SYMBOLS = {
     "bq_io": (
         "ADS",
         "LABEL_SAFE_RE",
@@ -73,24 +73,58 @@ BATCH1_COMPAT_SYMBOLS = {
         "read_mapping",
         "resolve_parallel_count",
     ),
+    "state": (
+        "GcsLeaseLock",
+        "LockConfig",
+        "OrchestratorStatusTable",
+        "StepStateSpec",
+        "build_lock_key",
+        "cancel_cloud_run_execution",
+        "cloud_run_execution_state",
+        "describe_cloud_run_execution",
+        "experiment_params_json",
+        "extract_cloud_run_execution_id",
+        "scheduler_instance_id",
+        "status_table_ref",
+    ),
+    "task_fanout": (
+        "MATRIX_MANIFEST_VERSION",
+        "build_work_units",
+        "candidate_grid_hash",
+        "candidate_local_dir",
+        "candidate_output_uri",
+        "default_matrix_id",
+        "ensure_matrix_local",
+        "file_sha256",
+        "load_work_unit",
+        "matrix_artifact_uri",
+        "matrix_local_dir",
+        "read_json",
+        "resolve_global_unit_index",
+        "resolve_task_index",
+        "sha256_json",
+        "stamp_work_units",
+        "write_manifest",
+        "write_parquet",
+    ),
 }
 
-EXPECTED_BATCH1_REVERSE_IMPORT_COUNTS = Counter(
+EXPECTED_BATCH2_REVERSE_IMPORT_COUNTS = Counter(
     {
         "feature_sets": 1,
         "orchestrate_annual_rolling_selection": 1,
         "preprocess": 3,
-        "state": 3,
-        "task_fanout": 5,
     }
 )
 
-BATCH1_REVERSE_IMPORT_ZERO_MODULES = {
+BATCH2_REVERSE_IMPORT_ZERO_MODULES = {
     "__version__",
     "acceptance",
     "bq_io",
     "config",
     "dataset_roles",
+    "state",
+    "task_fanout",
 }
 
 
@@ -111,13 +145,17 @@ def test_strategy1_package_import_smoke_for_phase_e_boundaries() -> None:
         "quant_ashare.strategy1.reporting",
         "quant_ashare.strategy1.runner_version",
         "quant_ashare.strategy1.select_register_predict",
+        "quant_ashare.strategy1.state",
         "quant_ashare.strategy1.synthetic_continuous",
         "quant_ashare.strategy1.tail_risk_overlay_ab",
+        "quant_ashare.strategy1.task_fanout",
         "quant_ashare.strategy1.train_candidate_task",
         "quant_ashare.strategy1.train_predict",
         "scripts.strategy1_cloudrun.bq_io",
         "scripts.strategy1_cloudrun.config",
         "scripts.strategy1_cloudrun.dataset_roles",
+        "scripts.strategy1_cloudrun.state",
+        "scripts.strategy1_cloudrun.task_fanout",
         "scripts.strategy1.promote_research_to_ads",
     ):
         assert importlib.import_module(module_name)
@@ -136,8 +174,8 @@ def test_cloudrun_wrappers_reexport_package_implementations() -> None:
     assert __version__ == package_version == "strategy1_cloudrun_runner_v0_20260606_lot100"
 
 
-def test_batch1_cloudrun_shims_reexport_compatibility_symbol_snapshot() -> None:
-    for module_name, symbols in BATCH1_COMPAT_SYMBOLS.items():
+def test_batch2_cloudrun_shims_reexport_compatibility_symbol_snapshot() -> None:
+    for module_name, symbols in BATCH2_COMPAT_SYMBOLS.items():
         wrapper_module = importlib.import_module(f"scripts.strategy1_cloudrun.{module_name}")
         package_module = importlib.import_module(f"quant_ashare.strategy1.{module_name}")
         for symbol in symbols:
@@ -148,7 +186,7 @@ def test_batch1_cloudrun_shims_reexport_compatibility_symbol_snapshot() -> None:
                 assert wrapper_value.__module__ == f"quant_ashare.strategy1.{module_name}"
 
 
-def test_batch1_src_reverse_import_counts_are_limited_to_later_batches() -> None:
+def test_batch2_src_reverse_import_counts_are_limited_to_batch3() -> None:
     counts: Counter[str] = Counter()
     for path in SRC_STRATEGY1_ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -169,8 +207,8 @@ def test_batch1_src_reverse_import_counts_are_limited_to_later_batches() -> None
                         name = alias.name.removeprefix("scripts.strategy1_cloudrun.").split(".")[0]
                         counts[name] += 1
 
-    assert counts == EXPECTED_BATCH1_REVERSE_IMPORT_COUNTS
-    for module_name in BATCH1_REVERSE_IMPORT_ZERO_MODULES:
+    assert counts == EXPECTED_BATCH2_REVERSE_IMPORT_COUNTS
+    for module_name in BATCH2_REVERSE_IMPORT_ZERO_MODULES:
         assert counts[module_name] == 0
 
 

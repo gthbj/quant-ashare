@@ -26,7 +26,7 @@ from quant_ashare.strategy1.dataset_roles import (
 from quant_ashare.strategy1.pipeline_control import gcloud_execute_command
 from quant_ashare.strategy1.sql_runner import run_sql_step
 from .dataset_roles import TableResolver
-from scripts.strategy1_cloudrun.state import (
+from .state import (
     cloud_run_execution_state,
     describe_cloud_run_execution,
     extract_cloud_run_execution_id,

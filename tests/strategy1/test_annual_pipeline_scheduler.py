@@ -5,9 +5,11 @@ import json
 
 import pytest
 
+from quant_ashare.strategy1 import state as state_module
 from scripts.strategy1_cloudrun.config import RunnerConfig
 from quant_ashare.strategy1.annual_pipeline_scheduler import (
     CloudRunSubmitResult,
+    GcloudExecutionClient,
     InMemoryGenerationStateStore,
     LiveExecutionUnit,
     LiveSchedulerOwnershipLost,
@@ -363,6 +365,25 @@ def test_gcs_state_generation_conflict_reread_preserves_winner() -> None:
     payload, current_generation = store.read()
     assert current_generation == generation + 1
     assert payload == {"status": "running"}
+
+
+def test_gcloud_execution_client_describe_logs_failure(monkeypatch, caplog) -> None:
+    class Proc:
+        returncode = 1
+        stdout = ""
+        stderr = "permission denied"
+
+    monkeypatch.setattr(state_module.subprocess, "run", lambda *args, **kwargs: Proc())
+
+    with caplog.at_level("WARNING", logger="strategy1_cloudrun.state"):
+        payload = GcloudExecutionClient().describe(
+            project="unit-test-project",
+            region="asia-east2",
+            execution_id="execution-1",
+        )
+
+    assert payload is None
+    assert "Cloud Run execution describe failed: execution-1" in caplog.text
 
 
 def test_live_scheduler_lost_ownership_stops_before_submit() -> None:

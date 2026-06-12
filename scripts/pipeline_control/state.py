@@ -140,6 +140,11 @@ class ControlConfig:
 
 
 class PipelineStateStore:
+    """Workflows pipeline state store and warehouse-write lock owner.
+
+    KNOWN_CONSTRAINTS owns the shared warehouse lock heartbeat and stale-reclaim semantics.
+    """
+
     def __init__(self, config: ControlConfig):
         self.config = config
         self._bq_client: bigquery.Client | None = None

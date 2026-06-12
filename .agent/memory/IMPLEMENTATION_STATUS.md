@@ -31,7 +31,7 @@ Last updated: 2026-06-12
 ### 工程治理与记忆体系
 
 - PRD_20260612_03 已把主记忆文件压缩为快照 / 索引 / 近期条目结构；历史编年史和决策全文原文归档到 `.agent/memory/archive/`。
-- PRD_20260612_05 Strategy1 包结构 Phase E 收尾已完成 Batch 1：`bq_io.py` / `config.py` / runner `__version__` 已迁入 `src/quant_ashare/strategy1/`，scripts 侧保留兼容 shim，src 对 `bq_io` / `config` / `dataset_roles` / `acceptance` / `__version__` 的反向 import 已清零；Batch 2/3 仍待单独 PR。
+- PRD_20260612_05 Strategy1 包结构 Phase E 收尾已完成 Batch 1/2：`bq_io.py` / `config.py` / `state.py` / `task_fanout.py` / runner `__version__` 已迁入 `src/quant_ashare/strategy1/`，scripts 侧保留兼容 shim，src 对这些模块及 `dataset_roles` / `acceptance` / `__version__` 的反向 import 已清零；Batch 3 仍待单独 PR，剩余 src→scripts import 仅限 `feature_sets` / `preprocess` / `orchestrate_annual_rolling_selection`。
 - `KNOWN_CONSTRAINTS.md` 只做保守拆行和结构化映射，操作性语义不删除；全量 before/after 映射见 `docs/prd/PRD_20260612_03_KNOWN_CONSTRAINTS映射表.md`。
 
 ### 开放主线
@@ -40,6 +40,14 @@ Last updated: 2026-06-12
 - PRD_20260611_10 topdown Phase 0 / Phase 2、尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
+
+### 最新补充（2026-06-12）：PRD_20260612_05 Batch 2 包结构收尾已实现
+
+- 分支 `codex/prd05-batch2` / PR #204 已按 PRD §3 Batch 2 完成 Strategy1 包结构收尾：`scripts/strategy1_cloudrun/state.py` 与 `task_fanout.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名文件改为 thin re-export shim；src 内对两模块的反向 import 已改为包内直连。
+- `annual_pipeline_scheduler.py` 去重使用迁入后的 `state.utc_now` / `_is_precondition_error` / `_is_not_found_error` / `describe_cloud_run_execution`；`GcloudExecutionClient.describe` 复用 state helper，恢复失败路径的 `LOGGER.warning`，这是本 Batch 唯一行为差异修复。
+- `GcsLeaseLock` / `GcsSchedulerLease` / `PipelineStateStore` docstring 已标注各自锁语义出处；未合并三类 lock 的 reclaim / heartbeat 语义。
+- `tests/strategy1/test_gcs_leases.py` 新增 fake GCS 直测，覆盖 `GcsLeaseLock` acquire 竞争、stale reclaim 的 execution-terminal 条件、heartbeat 失锁，以及 `GcsSchedulerLease` generation conflict、失 owner 停止、无 reclaim 行为。`tests/strategy1/test_package_boundaries.py` 更新 Batch 2 shim 符号快照与反向 import 计数断言；Batch 2 后 src→scripts import 仅剩 `feature_sets` / `preprocess` / `orchestrate_annual_rolling_selection`。
+- 本轮不改训练、回测、ledger、orchestrator 调度语义，不触碰 Cloud Run job spec/args/镜像/IAM，不写 BigQuery/GCS。最终验证通过：`PYTHONPATH=src python3 -m pytest -q tests`（275 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`（6 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`（16 passed）；retired linter / compileall / Dataform check / `git diff --check` 均通过。
 
 ### 最新补充（2026-06-12）：PRD_20260612_05 Batch 1 包结构收尾已实现
 
@@ -89,11 +97,3 @@ Last updated: 2026-06-12
 - 新增 `qa_corporate_action_ledger_outputs`，并让 `qa_runner_outputs` / `qa_lot_aware_ledger_outputs` / `qa_ledger_resume_consistency` / `qa_cloudrun_ledger_resume_outputs` 用 COALESCE 兼容旧 summary key，同时校验父子 CA 参数一致。默认不变量用固定时间戳小 fixture 逐表 JSON 字节比较，并锁定 hash 黄金值。
 - 验证：`python3 -m pytest tests` 176 passed；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过；`python3 -m compileall src scripts` 通过；Dataform generator `--check` 和 `npx --yes @dataform/cli compile dataform` 通过；`qa_corporate_action_ledger_outputs` research BigQuery dry-run 通过；`git diff --check` 通过。
 - 本阶段未执行 Phase C、未跑 live backtest、未改既有 run、未 promotion、未改全局默认 profile、未触碰 `scripts/strategy1_cloudrun/bq_io.py`。下一步是提交/推送并等待 Claude review，review 通过后才可进入 Phase C research-only 重跑。
-
-### 最新补充（2026-06-12）：Ledger 分红送转 Phase A 已落地并通过 QA
-
-- 分支 `codex/ledger-corporate-actions` 已按 `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md` Phase A 完成事件层实现：`sql/dwd/12_dwd_stock_dividend_event.sql` 从 `ods_tushare_dividend` 已实施事件 canonical 聚合到 `(sec_code, ex_date)`；`sql/qa/14_corporate_action_event_checks.sql` 落 `ashare_meta.qa_stock_dividend_event_hfq_mismatch`，并创建 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`。
-- OQ-015 owner 裁决已落实：不修 `stk_co_rate` 口径、不设人工 allowlist；hfq 对账保留 abs/rel 容差并叠加 `0.01 / prev_close` 的除权参考价舍入下限；mismatch 双向落表并自动归类，QA 硬门改为 `unclassified mismatch = 0`。
-- BigQuery 已执行并通过：`sql/meta/04_ods_field_unit_map.sql` job `bqjob_r4bf6b56437413e50_0000019ebb5cc600_1`；`sql/dwd/12_dwd_stock_dividend_event.sql` job `bqjob_r323943fdb6fe8d66_0000019ebb4706b9_1`；`sql/metadata/01_core_table_column_descriptions.sql` job `bqjob_r5bcddfc324d985c8_0000019ebb4741ce_1`；`sql/qa/05_unit_contract_checks.sql` job `bqjob_r63dbdce269a7fb79_0000019ebb5d3981_1`；`sql/qa/14_corporate_action_event_checks.sql` dry-run + real run job `bqjob_r1aadacca42b9e6_0000019ebb47ed1f_1`，`QA-CA-EVENT-1..6` 全部通过。
-- 落库结果：2010+ canonical events=`46431`、source rows=`46470`、同股同 ex_date 聚合键=`37`；2021+ QA 窗口 canonical events=`22009`、source rows=`22029`、同股同 ex_date 聚合键=`20`。mismatch 明细共 `1512` 行：event_to_factor `data_anomaly=1106`（其中 `missing_prev_price=1033`、`factor_jump_mismatch=73`）、`special_dividend=1`；factor_to_event `same_day_orphan_corporate_action=405`；`unclassified=0`。ledger-consumable view 行数=`46431`、未归类行=`0`。
-- 本阶段未改 ledger 代码，未写 ADS/research/promotion，不改变 accepted / baseline 状态。Phase B 仍需按 PRD 单独实现 `LedgerParams`、run loop CA 应用、resume/hash/QA 接线与默认逐字节回归。
