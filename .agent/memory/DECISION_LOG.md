@@ -3095,7 +3095,7 @@ Agent ID: Claude Code（quant-ashare 会话）
 ### 影响
 
 - KNOWN_CONSTRAINTS「双实现并存期间必须运行 windowed equivalence QA」与「true-five-year 重跑必须先过 overlap parity」两条随实现 PR 改写；未来大规模历史重写如需 parity，从 git history 恢复脚本另行评估。
-- 各删除动作仅有 7 天 time travel / UNDROP 自助回滚窗口（`maxTimeTravelHours=168`），BQML model 不受 time travel 保护。
+- 回滚语义按对象区分（自助窗口均为 7 天，`maxTimeTravelHours=168`）：native 表（含已删 18 张 shadow 表、Phase C DML 删行）可在 time travel 内恢复（`FOR SYSTEM_TIME AS OF`，须 `--location=asia-east2` 并带分区过滤）；数据集级删除（`ashare`、`ashare_qa_windowed_equivalence`）可在窗口内 `UNDROP SCHEMA`，恢复命令必须显式指定原 location `asia-east2`；外部表（含已删 5 张 `_repair_val_*`、`ashare` 的 48 张）不受 time travel 覆盖，删除仅移除 BigQuery definition（GCS 数据无涉），恢复靠 DDL / git / 脚本重建；BQML model 不受 time travel 保护，删除即不可恢复。
 
 ### 备选方案
 
