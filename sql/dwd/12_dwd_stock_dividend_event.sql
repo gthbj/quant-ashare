@@ -1,0 +1,114 @@
+-- 文档维护：GPT-5.5（最近更新 2026-06-12）
+-- BigQuery Standard SQL
+-- 股票分红送转事件 DWD：把 Tushare dividend 已实施事件 canonical 化为
+-- ledger 可直接消费的 `(sec_code, ex_date)` 唯一事件。
+
+DECLARE event_start_date DATE DEFAULT DATE '2010-01-01';
+DECLARE event_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
+
+CREATE OR REPLACE TABLE `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
+PARTITION BY DATE_TRUNC(ex_date, MONTH)
+CLUSTER BY sec_code
+OPTIONS (
+  description = '股票分红送转事件 DWD。消费键为 (sec_code, ex_date)，同股同除权日多条实施事件按现金分红、送股和转增比例 canonical 聚合。',
+  require_partition_filter = TRUE
+) AS
+WITH raw_events AS (
+  SELECT
+    ts_code AS sec_code,
+    SAFE.PARSE_DATE('%Y%m%d', NULLIF(end_date, '')) AS report_period,
+    SAFE.PARSE_DATE('%Y%m%d', NULLIF(ann_date, '')) AS ann_date,
+    SAFE.PARSE_DATE('%Y%m%d', NULLIF(record_date, '')) AS record_date,
+    SAFE.PARSE_DATE('%Y%m%d', NULLIF(ex_date, '')) AS ex_date,
+    SAFE.PARSE_DATE('%Y%m%d', NULLIF(pay_date, '')) AS pay_date,
+    SAFE.PARSE_DATE('%Y%m%d', NULLIF(imp_ann_date, '')) AS imp_ann_date,
+    SAFE.PARSE_DATE('%Y%m%d', NULLIF(base_date, '')) AS base_date,
+    SAFE_CAST(cash_div_tax AS FLOAT64) AS cash_div_per_share_pretax,
+    SAFE_CAST(stk_bo_rate AS FLOAT64) AS bonus_ratio,
+    SAFE_CAST(stk_co_rate AS FLOAT64) AS conversion_ratio,
+    SAFE_CAST(stk_div AS FLOAT64) AS stock_dividend_ratio,
+    SAFE_CAST(cash_div AS FLOAT64) AS source_cash_div,
+    SAFE_CAST(base_share AS FLOAT64) AS base_share,
+    div_proc,
+    partition_date AS source_partition_date,
+    SAFE_CAST(_ingested_at AS TIMESTAMP) AS ingested_at
+  FROM `data-aquarium.ashare_ods.ods_tushare_dividend`
+  WHERE endpoint = 'dividend'
+    AND partition_date BETWEEN FORMAT_DATE('%Y%m%d', event_start_date) AND FORMAT_DATE('%Y%m%d', event_end_date)
+    AND TRIM(COALESCE(div_proc, '')) = '实施'
+    AND ex_date IS NOT NULL
+),
+canonical AS (
+  SELECT
+    sec_code,
+    ex_date,
+    ARRAY_AGG(record_date IGNORE NULLS ORDER BY record_date DESC LIMIT 1)[SAFE_OFFSET(0)] AS record_date,
+    MIN(ann_date) AS ann_date,
+    SUM(COALESCE(cash_div_per_share_pretax, 0.0)) AS cash_div_per_share_pretax,
+    SUM(COALESCE(bonus_ratio, 0.0)) AS bonus_ratio,
+    SUM(COALESCE(conversion_ratio, 0.0)) AS conversion_ratio,
+    SUM(COALESCE(bonus_ratio, 0.0) + COALESCE(conversion_ratio, 0.0)) AS split_ratio,
+    COUNT(*) AS source_event_count,
+    ARRAY_AGG(DISTINCT report_period IGNORE NULLS ORDER BY report_period) AS source_end_dates,
+    ARRAY_AGG(DISTINCT ann_date IGNORE NULLS ORDER BY ann_date) AS source_ann_dates,
+    ARRAY_AGG(DISTINCT record_date IGNORE NULLS ORDER BY record_date) AS source_record_dates,
+    ARRAY_AGG(DISTINCT pay_date IGNORE NULLS ORDER BY pay_date) AS source_pay_dates,
+    ARRAY_AGG(DISTINCT imp_ann_date IGNORE NULLS ORDER BY imp_ann_date) AS source_imp_ann_dates,
+    ARRAY_AGG(DISTINCT base_date IGNORE NULLS ORDER BY base_date) AS source_base_dates,
+    MIN(source_partition_date) AS source_partition_date_min,
+    MAX(source_partition_date) AS source_partition_date_max,
+    MAX(ingested_at) AS ingested_at
+  FROM raw_events
+  WHERE sec_code IS NOT NULL
+    AND ex_date IS NOT NULL
+  GROUP BY sec_code, ex_date
+)
+SELECT
+  sec_code,
+  ex_date,
+  record_date,
+  ann_date,
+  cash_div_per_share_pretax,
+  bonus_ratio,
+  conversion_ratio,
+  split_ratio,
+  cash_div_per_share_pretax > 0 AS has_cash_dividend,
+  split_ratio > 0 AS has_split_event,
+  source_event_count,
+  source_end_dates,
+  source_ann_dates,
+  source_record_dates,
+  source_pay_dates,
+  source_imp_ann_dates,
+  source_base_dates,
+  'tushare' AS source_system,
+  source_partition_date_min,
+  source_partition_date_max,
+  ingested_at
+FROM canonical
+WHERE ABS(cash_div_per_share_pretax) > 1e-12
+   OR ABS(bonus_ratio) > 1e-12
+   OR ABS(conversion_ratio) > 1e-12;
+
+ALTER TABLE `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
+ALTER COLUMN sec_code SET OPTIONS (description = '统一证券代码，Tushare ts_code 格式'),
+ALTER COLUMN ex_date SET OPTIONS (description = '除权除息日，月分区字段；ledger 在该日开盘前消费事件'),
+ALTER COLUMN record_date SET OPTIONS (description = '股权登记日；同股同除权日多事件取最新非空登记日，并保留 source_record_dates 审计数组'),
+ALTER COLUMN ann_date SET OPTIONS (description = '最早公告日，用于 PIT 审计，不作为 ledger 消费日期'),
+ALTER COLUMN cash_div_per_share_pretax SET OPTIONS (description = '每股现金分红税前金额，元/股；同股同除权日按 cash_div_tax 求和'),
+ALTER COLUMN bonus_ratio SET OPTIONS (description = '每股送股比例；同股同除权日按 stk_bo_rate 求和'),
+ALTER COLUMN conversion_ratio SET OPTIONS (description = '每股转增比例；同股同除权日按 stk_co_rate 求和'),
+ALTER COLUMN split_ratio SET OPTIONS (description = '送转总比例，bonus_ratio + conversion_ratio'),
+ALTER COLUMN has_cash_dividend SET OPTIONS (description = '是否有现金分红事件'),
+ALTER COLUMN has_split_event SET OPTIONS (description = '是否有送股或转增事件'),
+ALTER COLUMN source_event_count SET OPTIONS (description = '聚合前同 sec_code/ex_date 的实施事件行数'),
+ALTER COLUMN source_end_dates SET OPTIONS (description = '聚合前报告期数组，用于多事件审计'),
+ALTER COLUMN source_ann_dates SET OPTIONS (description = '聚合前公告日数组，用于多事件审计'),
+ALTER COLUMN source_record_dates SET OPTIONS (description = '聚合前股权登记日数组，用于多事件审计'),
+ALTER COLUMN source_pay_dates SET OPTIONS (description = '聚合前派息日数组，用于多事件审计'),
+ALTER COLUMN source_imp_ann_dates SET OPTIONS (description = '聚合前实施公告日数组，用于多事件审计'),
+ALTER COLUMN source_base_dates SET OPTIONS (description = '聚合前基准日数组，用于多事件审计'),
+ALTER COLUMN source_system SET OPTIONS (description = '源系统标识，当前为 tushare'),
+ALTER COLUMN source_partition_date_min SET OPTIONS (description = '聚合前来源 ODS 最小分区日期，YYYYMMDD 字符串'),
+ALTER COLUMN source_partition_date_max SET OPTIONS (description = '聚合前来源 ODS 最大分区日期，YYYYMMDD 字符串'),
+ALTER COLUMN ingested_at SET OPTIONS (description = '聚合前来源 ODS 最大摄入时间');

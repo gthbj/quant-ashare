@@ -24,6 +24,15 @@
 - [ ] OQ-010：继续寻找 accepted 的 Cloud Run Python baseline
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
 
+- [x] OQ-010：完成 `PRD_20260612_02` Ledger 分红送转 Phase A 事件表落地
+  说明：Phase A 已完成并实跑 BigQuery：新增/替换 `ashare_dwd.dwd_stock_dividend_event`、`ashare_meta.qa_stock_dividend_event_hfq_mismatch` 与 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`，并刷新单位映射/字段说明、通过单位 QA 与 CA QA。OQ-015 裁决已落实：不修 `stk_co_rate` 口径，不设人工 allowlist；QA 使用结构化容差（abs/rel + `0.01/prev_close` 下限），双向落表并自动归类，硬门为未归类 mismatch=0。结果：2010+ canonical events=`46431`；2021+ canonical events=`22009`、same-ex_date 聚合键=`20`、source rows=`22029`；mismatch 分布为 event_to_factor data_anomaly=`1106`（含 missing_prev_price=`1033`、factor_jump_mismatch=`73`）、special_dividend=`1`、factor_to_event same_day_orphan_corporate_action=`405`，unclassified=`0`。本阶段未改 ledger 代码、未写 ADS/research/promotion。
+
+- [x] OQ-010：完成 `PRD_20260612_02` Ledger 分红送转 Phase B ledger 实现
+  说明：分支 `codex/ledger-corporate-actions` 已实现 `corporate_actions` / `dividend_tax_mode` 参数链和 run_ledger ex_date 开盘前公司行为结算；默认 `none_v1` 保持 trade/position/NAV/ledger state/hash 逐字节不变量，默认 hash 黄金值 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d` 未变。新 QA `qa_corporate_action_ledger_outputs` 已登记 catalog，两套 resume QA 校验父子参数一致。验证：`python3 -m pytest tests` 176 passed，retired linter / compileall / Dataform check / new QA research dry-run / `git diff --check` 均通过。本阶段未跑 Phase C、未写既有 run、未 promotion、不改默认 profile。
+
+- [x] OQ-010：完成 `PRD_20260612_02` Ledger 分红送转 Phase C research-only CA 重跑
+  说明：Phase C 已完成（分支 `codex/ledger-corporate-actions`）。Cloud Run runner 使用不可变 digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`，正式 execution `strategy1-backtest-report-job-dnt4b` 成功；新 run/backtest `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 写 `ashare_research`，参数 `corporate_actions=cash_div_and_split_v1` / `dividend_tax_mode=flat_10pct`。三条 QA 全过：continuous `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger `37674e4f-06ee-4998-9d1e-75ace14cb965`；ADS 反向验证与 promotion manifest 均为 0 行。报告 `docs/分析-Ledger CA 重跑对照-20260612.md` 已产出；CA-on CAGR=`0.15350594766603387`、contract Sharpe=`0.6682084282261871`、Calmar=`0.4101170873817589`，仍未过 v3 hard gates，不得 promotion。
+
 - [x] OQ-010：量化 official ledger 未复权/除权漏损
   说明：分支 `codex/official-ledger-adj-leak` 已完成只读测量并生成 `docs/分析-官方Ledger复权漏损量化-20260612.md`、`scripts/strategy1/analyze_official_adj_leak.py` 和小结果 CSV。true-five-year 主结果按 hfq 总回报代理修正后 CAGR `13.85% -> 15.72%`（`+1.86pp`）、Calmar `0.3725 -> 0.4275`（`+0.0550`），effective-window 参照 CAGR `12.04% -> 13.56%`、Calmar `0.2646 -> 0.3014`；无交易日残差对账通过（max abs 约 `1e-16`）。逐日/事件/年度大 CSV 已上传到 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`。本项只测量，不改 ledger、不 promotion、不重开既有决策。
 
@@ -63,6 +72,9 @@
 
 - [x] OQ-010：按 `PRD_20260611_07` 做年度滚动调度 Phase 2 live 化
   说明：PRD_07 candidate-only live smoke 已在正式 runner 镜像上完成：run-version `v20260611_prd07smoke01`，2021/2022 matrix artifact 预置后，scheduler live path 提交 fanout executions `strategy1-train-candidate-fanout-job-g65hx` / `strategy1-train-candidate-fanout-job-btvgv`，各 `3/3` tasks succeeded。dry-run plan hash 与 live state 均为 `7ef90a481f0e64ad`，12 个候选 artifact 文件均可读；已覆盖 state recovery 同 run 不重复提交、artifact-skip 新 run 不提交、missing-matrix preflight 本地失败且不提交 Cloud Run、真实 GCS lease competition、以及 `gcloud --wait` 非零后 describe/artifact 成功的回归测试。完整 2021-2026 live pipeline / Phase 3 仍需 owner 另批，不在本项范围。
+
+- [ ] OQ-010：基于 official / true-five-year / CA-on continuous 结果决定下一轮策略改进或 accepted baseline 路线
+  说明：2021-2026 effective-window official continuous、true-five-year continuous 与 true-five-year CA-on continuous 都已成为 research evidence，但都尚未 accepted。Effective-window：compound CAGR=`0.12036528993503204`，MaxDD=`-0.4548151193656952`，legacy Sharpe=`0.6132671411257953`，v3 contract Sharpe=`0.5285475500566089`，contract Calmar=`0.26464663290635254`。True-five-year raw ledger：compound CAGR=`0.13852596798718442`，MaxDD=`-0.37189972934558946`，legacy Sharpe=`0.6834026126199905`，v3 contract Sharpe=`0.6075887294330015`，contract Calmar=`0.3724820349585642`。True-five-year CA-on：compound CAGR=`0.15350594766603387`，MaxDD=`-0.3742978588042647`，legacy Sharpe=`0.7369151400001442`，v3 contract Sharpe=`0.6682084282261871`，contract Calmar=`0.4101170873817589`；仍未过 v3 hard gates（contract Sharpe `<0.70`、Calmar `<1.0`）。下一步需 owner 决定是否切换 baseline 口径、是否 supersede 旧未复权约定、后续实验是否一律 CA-on，以及围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案。不得把任一结果直接 promotion 或标 accepted。
 
 - [ ] OQ-010：按 `PRD_20260612_02` 实现 Ledger 分红送转记账修复
   说明：PR #194 量化触发预登记判据（true5y 修正 CAGR +1.86pp、Calmar +0.055）。`corporate_actions` 参数化（默认 `none_v1` 记账输出逐字节不变），红利税主口径 `flat_10pct`；Phase A DWD 事件表（canonical 聚合）+ hfq 交叉校验 → Phase B ledger + 参数传播清单 + 默认回归 → Phase C true5y CA 重跑三方对照（六项偏差分解）。排在 PRD_10 Phase 2 之前；单门通过不触发 accepted。

@@ -10,8 +10,18 @@ DECLARE p_lot_size INT64 DEFAULT 100;
 DECLARE p_min_buy_lot INT64 DEFAULT 1;
 DECLARE p_min_buy_shares INT64 DEFAULT 100;
 DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
+DECLARE p_corporate_actions STRING DEFAULT 'none_v1';
+DECLARE p_dividend_tax_mode STRING DEFAULT 'flat_10pct';
 
 SET p_min_buy_shares = p_lot_size * p_min_buy_lot;
+
+IF p_corporate_actions NOT IN ('none_v1', 'cash_div_and_split_v1') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_corporate_actions: ', p_corporate_actions);
+END IF;
+
+IF p_dividend_tax_mode NOT IN ('flat_10pct') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_dividend_tax_mode: ', p_dividend_tax_mode);
+END IF;
 
 ASSERT (
   SELECT COUNT(*) = 1
@@ -22,9 +32,11 @@ ASSERT (
     AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.sell_odd_lot_policy') = 'allow_full_exit_odd_lot', FALSE))
     AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.partial_sell_rounding') = 'floor_to_lot_keep_residual', FALSE))
     AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.cash_redistribution') = 'none_v1', FALSE))
+    AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.corporate_actions'), 'none_v1') = p_corporate_actions)
+    AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.dividend_tax_mode'), 'flat_10pct') = p_dividend_tax_mode)
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
-) AS 'QA-LOT-1: summary must record lot-aware ledger version and parameters';
+) AS 'QA-LOT-1: summary must record lot-aware ledger version, parameters and corporate action params';
 
 ASSERT (
   SELECT COUNT(*) = 0
@@ -52,7 +64,9 @@ ASSERT (
       'SELL_SKIPPED_BELOW_LOT_PARTIAL',
       'PENDING_SELL_CARRY',
       'CANCELLED_BY_NETTING',
-      'NOOP_ALREADY_TARGET'
+      'NOOP_ALREADY_TARGET',
+      'CORPORATE_ACTION_SPLIT',
+      'CORPORATE_ACTION_CASH_DIVIDEND'
     )
 ) AS 'QA-LOT-3: fill_status must be in lot-aware allowed set';
 

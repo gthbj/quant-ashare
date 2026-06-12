@@ -1,0 +1,107 @@
+{
+  "source": "BigQuery read-only sample from data-aquarium.ashare_ods.ods_tushare_dividend on 2026-06-12; filtered by endpoint='dividend' and partition_date in ('20230717','20250710').",
+  "cases": [
+    {
+      "sec_code": "600188.SH",
+      "ex_date": "2023-07-17",
+      "expected": {
+        "source_event_count": 2,
+        "cash_div_per_share_pretax": "4.30",
+        "bonus_ratio": "0.50",
+        "conversion_ratio": "0.0",
+        "record_date": "2023-07-14",
+        "source_end_dates": ["2022-12-31", "2023-03-25"],
+        "source_ann_dates": ["2023-03-25"]
+      },
+      "rows": [
+        {
+          "ts_code": "600188.SH",
+          "end_date": "20221231",
+          "ann_date": "20230325",
+          "div_proc": "实施",
+          "stk_div": "0.5",
+          "stk_bo_rate": "0.5",
+          "stk_co_rate": null,
+          "cash_div": "3.07",
+          "cash_div_tax": "3.07",
+          "record_date": "20230714",
+          "ex_date": "20230717",
+          "pay_date": "20230717",
+          "imp_ann_date": "20230710",
+          "base_date": "20230710",
+          "base_share": "496136.048",
+          "partition_date": "20230717"
+        },
+        {
+          "ts_code": "600188.SH",
+          "end_date": "20230325",
+          "ann_date": "20230325",
+          "div_proc": "实施",
+          "stk_div": "0.0",
+          "stk_bo_rate": null,
+          "stk_co_rate": null,
+          "cash_div": "1.23",
+          "cash_div_tax": "1.23",
+          "record_date": "20230714",
+          "ex_date": "20230717",
+          "pay_date": "20230717",
+          "imp_ann_date": "20230710",
+          "base_date": "20230710",
+          "base_share": "496136.048",
+          "partition_date": "20230717"
+        }
+      ]
+    },
+    {
+      "sec_code": "601966.SH",
+      "ex_date": "2025-07-10",
+      "expected": {
+        "source_event_count": 2,
+        "cash_div_per_share_pretax": "0.084",
+        "bonus_ratio": "0.0",
+        "conversion_ratio": "0.0",
+        "record_date": "2025-07-09",
+        "source_end_dates": ["2024-12-31", "2025-03-31"],
+        "source_ann_dates": ["2025-04-25"]
+      },
+      "rows": [
+        {
+          "ts_code": "601966.SH",
+          "end_date": "20241231",
+          "ann_date": "20250425",
+          "div_proc": "实施",
+          "stk_div": "0.0",
+          "stk_bo_rate": null,
+          "stk_co_rate": null,
+          "cash_div": "0.014",
+          "cash_div_tax": "0.014",
+          "record_date": "20250709",
+          "ex_date": "20250710",
+          "pay_date": "20250710",
+          "imp_ann_date": "20250703",
+          "base_date": "20250703",
+          "base_share": "146350.2683",
+          "partition_date": "20250710"
+        },
+        {
+          "ts_code": "601966.SH",
+          "end_date": "20250331",
+          "ann_date": "20250425",
+          "div_proc": "实施",
+          "stk_div": "0.0",
+          "stk_bo_rate": null,
+          "stk_co_rate": null,
+          "cash_div": "0.07",
+          "cash_div_tax": "0.07",
+          "record_date": "20250709",
+          "ex_date": "20250710",
+          "pay_date": "20250710",
+          "imp_ann_date": "20250703",
+          "base_date": "20250703",
+          "base_share": "146350.2683",
+          "partition_date": "20250710"
+        }
+      ]
+    }
+  ]
+}

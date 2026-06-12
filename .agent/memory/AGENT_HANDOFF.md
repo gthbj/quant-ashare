@@ -1,3 +1,195 @@
+> 当前交接补充（2026-06-12，GPT-5.5，Ledger CA Phase C）
+> - `codex/ledger-corporate-actions` 已完成 PRD_20260612_02 Phase C research-only CA-on 重跑：Cloud Run runner digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`，正式 execution `strategy1-backtest-report-job-dnt4b` 成功。
+> - 新 run/backtest：`s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，参数 `cash_div_and_split_v1` / `flat_10pct`，只写 `ashare_research`；ADS 反向验证和 promotion manifest 均为 0 行。
+> - Phase C QA 全过：continuous job `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware job `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger job `37674e4f-06ee-4998-9d1e-75ace14cb965`。报告 `docs/分析-Ledger CA 重跑对照-20260612.md` 已产出；CA-on contract Sharpe `0.6682`、Calmar `0.4101`，仍未 accepted / promotion。
+>
+> Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase C research-only 重跑
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-ledger`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
+Run ID: `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`
+相关 issue/PR: PR #198；PRD `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`
+
+### 已完成工作
+
+- 按不可变 digest 纪律构建并部署 Phase C runner：Cloud Build `6de3b089-5574-4a15-9097-331696fcb6e5`，tag `ledger-ca-phasec-43404e6-20260612-01`，digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`；未更新 `latest` tag。`strategy1-backtest-report-job` pin 到该 digest，boot smoke `strategy1-backtest-report-job-97b5v` 成功。
+- 执行 CA-on true-five-year continuous research run：formal execution `strategy1-backtest-report-job-dnt4b` 成功，run/backtest 为 `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，复用 synthetic prediction run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`。
+- 完成三条 QA 实跑与 ADS 反向验证：continuous `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger `37674e4f-06ee-4998-9d1e-75ace14cb965`；ADS run/backtest scoped 表 0 行，`research_promotion_manifest` 0 行。
+- 新增报告 `docs/分析-Ledger CA 重跑对照-20260612.md`，包含原 true5y baseline / CA-on / PR #194 hfq proxy 三方对照、六项偏差分解、税率 0%/20% 敏感性、v3 gate 重评与 owner 三项待决选项。
+
+### 重要上下文
+
+- CA-on 指标：total return `1.1044714853774122`、compound CAGR `0.15350594766603387`、MaxDD `-0.3742978588042647`、contract Sharpe `0.6682084282261871`、Calmar `0.4101170873817589`、IR `0.6971241900405605`。
+- CA 审计：75 行（现金分红 73、送转 2），税后现金入账 `6554.9556` 元，flat 10% 税 `728.3284` 元，送转增股 `90` 股。
+- 六项分解闭合：tax `+0.7283pp`、cash_not_reinvested bridge `+2.7920pp`、split fractional `0`、same ex-date held aggregation `0`、event-vs-adj-factor residual `-0.0138pp`、unexplained residual `0`。
+- 本轮没有改现役 baseline 数据、没有 promotion、没有改全局默认 profile、没有进入 PRD_10 Phase 2。
+
+### 改动文件
+
+- `tests/strategy1_cloudrun/test_lot_aware_ledger.py`（Claude Low：默认 CA 参数中性测试改名/docstring）
+- `docs/分析-Ledger CA 重跑对照-20260612.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest tests/strategy1_cloudrun/test_lot_aware_ledger.py -q`：16 passed。
+- Cloud Run boot smoke `strategy1-backtest-report-job-97b5v`：Completed=True。
+- Cloud Run formal execution `strategy1-backtest-report-job-dnt4b`：Completed=True，succeededCount=1。
+- `qa_continuous_backtest_outputs` / `qa_lot_aware_ledger_outputs` / `qa_corporate_action_ledger_outputs`：dry-run 与实跑均通过。
+- ADS 反向验证：model registry / prediction / candidate / target / order / summary / NAV / ledger_state / trade / position 均为 0 行；promotion manifest 0 行。
+
+### 阻塞项
+
+- 无工程阻塞。结果是否切换 baseline 口径、是否 supersede 旧未复权约定、后续实验是否一律 CA-on，均等待 owner 决策。
+
+### 下一步建议
+
+- 提交并推送 `codex/ledger-corporate-actions`，在 PR #198 comment 报告 Phase C 结果、QA、ADS 反查、三方对照和六项分解。
+- owner 裁决前，不把 CA-on 结果标 accepted，不 promotion，不改默认 profile。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase B 实现
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-ledger`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
+Run ID: N/A
+相关 issue/PR: PR #198（Phase A + Phase B 实现分支），PR #195（PRD）；PRD `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`
+
+### 已完成工作
+
+- 实现 `corporate_actions` / `dividend_tax_mode` 参数链：Experiment/manifest、`backtest_report` CLI、Cloud Run dry-run plan、`build_sql_params`、`LedgerParams`、`ledger_params_hash`、summary metrics_json、catalog required_params、runner QA、lot-aware QA、新 CA QA、两套 resume QA。
+- `run_ledger` 新增 ex_date 开盘前 CA 结算：只读 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`；先按 record_date entitlement 送转调股数并写 `CORPORATE_ACTION_SPLIT` 审计行，再按 record_date 股数和 `flat_10pct` 税率写 `CORPORATE_ACTION_CASH_DIVIDEND` 现金入账；调仓日先 CA 后交易。
+- 新增 `sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`，覆盖 summary 参数、送转审计、现金分红审计、事件日 NAV 跳变基本护栏、`none_v1` 零 CA 审计行。
+- 默认不变量已用固定时间戳小 fixture 做逐表 JSON 字节比较，并锁定默认 `ledger_params_hash` 黄金值 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d`。
+
+### 重要上下文
+
+- Phase B 未执行任何 live backtest / Phase C 重跑；只做 BigQuery dry-run。
+- 未写既有 run、未 promotion、未修改全局默认 profile、未触碰 `scripts/strategy1_cloudrun/bq_io.py`。
+- 新 CA 审计行写入既有 trade 表，状态为 `CORPORATE_ACTION_SPLIT` / `CORPORATE_ACTION_CASH_DIVIDEND`；它们不进入 `FILLED` 成交状态，因此不计入成交换手/交易成本汇总。
+- Resume Python 与两套 SQL QA 均用 summary `metrics_json` 的 COALESCE 默认值兼容旧 `none_v1` parent；CA-on/off 或 tax mode 不一致会 fail-fast。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/ledger.py`
+- `src/quant_ashare/strategy1/reporting.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `src/quant_ashare/strategy1/tail_risk_overlay_ab.py`
+- `sql/strategy1/reporting/build_metrics_and_report_inputs.sql`
+- `sql/strategy1/qa/qa_runner_outputs.sql`
+- `sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql`
+- `sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`
+- `sql/strategy1/qa/qa_ledger_resume_consistency.sql`
+- `sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql`
+- `configs/strategy1/active_step_catalog.yml`
+- related tests and memory/TODO
+
+### 测试 / 验证
+
+- `python3 -m pytest tests`：176 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `python3 -m compileall src scripts`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform > /tmp/quant_ashare_dataform_compile.json`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.sql_runner --step qa_corporate_action_ledger_outputs --output-dataset-role research --dry-run ...`：通过（dry_run status）。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无 Phase B 代码阻塞；Phase C 必须等待 Claude review 通过后再执行。
+
+### 下一步建议
+
+- 提交并推送 `codex/ledger-corporate-actions`，在 PR #198 comment/body 报告 11 项传播清单与验证结果。
+- Claude review 通过后，再按 PRD Phase C 做 research-only CA-on continuous 重跑与三方对照；不得提前 promotion 或覆盖现有 baseline。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase A 落地
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-ledger`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
+Run ID: N/A
+相关 issue/PR: PR #195（PRD review/裁决）；实现 PR 待创建；PRD `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`
+
+### 已完成工作
+
+- 实现 Phase A DWD：`sql/dwd/12_dwd_stock_dividend_event.sql` 过滤 `TRIM(div_proc)='实施'`，按 `(sec_code, ex_date)` canonical 聚合 `cash_div_tax`、`stk_bo_rate`、`stk_co_rate`，保留多事件审计数组与 `source_event_count`。
+- 实现 Phase A QA：`sql/qa/14_corporate_action_event_checks.sql` 覆盖键唯一、范围、ex_date 开市日、record_date 边界、重复样例 fixture，以及 hfq factor 双向交叉校验；落 `ashare_meta.qa_stock_dividend_event_hfq_mismatch`，创建 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`。
+- OQ-015 裁决已应用：不修 `stk_co_rate` 口径；不使用人工 allowlist；容差为 abs/rel 加 `0.01 / prev_close` floor；mismatch 机制化归类，QA ASSERT 语义为 `unclassified mismatch = 0`。
+- 同步 Dataform manifest/generated SQLX、ODS dividend schema consumer、单位契约、metadata、重复样例 fixture 和 warehouse 测试。
+
+### 重要上下文
+
+- BigQuery 已执行：`04_ods_field_unit_map` job `bqjob_r4bf6b56437413e50_0000019ebb5cc600_1`；DWD event table job `bqjob_r323943fdb6fe8d66_0000019ebb4706b9_1`；metadata job `bqjob_r5bcddfc324d985c8_0000019ebb4741ce_1`；unit QA job `bqjob_r63dbdce269a7fb79_0000019ebb5d3981_1`；CA QA job `bqjob_r1aadacca42b9e6_0000019ebb47ed1f_1`。
+- 2010+ event table：canonical events=`46431`、source rows=`46470`、同股同 ex_date 聚合键=`37`。2021+ QA 窗口：canonical events=`22009`、source rows=`22029`、同股同 ex_date 聚合键=`20`。
+- mismatch 明细：event_to_factor `data_anomaly=1106`（`missing_prev_price=1033`、`factor_jump_mismatch=73`）、`special_dividend=1`；factor_to_event `same_day_orphan_corporate_action=405`；`unclassified=0`。ledger-consumable view 行数=`46431`、未归类行=`0`。
+- 本轮未改 `src/quant_ashare/strategy1/ledger.py` 或任何 ledger 代码，未写 ADS/research/promotion，不改变 accepted / baseline 状态。
+
+### 改动文件
+
+- `sql/dwd/12_dwd_stock_dividend_event.sql`
+- `sql/qa/14_corporate_action_event_checks.sql`
+- `configs/ods_schema_contracts/dividend.yml`
+- `sql/meta/04_ods_field_unit_map.sql`
+- `sql/metadata/01_core_table_column_descriptions.sql`
+- `sql/qa/05_unit_contract_checks.sql`
+- `dataform/action_manifest.json` 与 generated SQLX
+- `tests/fixtures/corporate_actions/dividend_duplicate_events.json`
+- `tests/warehouse/test_dwd_stock_dividend_event.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md` / `.agent/memory/AGENT_HANDOFF.md` / `.agent/memory/OPEN_QUESTIONS.md` / `.agent/memory/KNOWN_CONSTRAINTS.md` / `.agent/memory/ARCHITECTURE_MEMORY.md` / `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests/warehouse/test_dwd_stock_dividend_event.py tests/dataform/test_generated_sqlx.py`：5 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform`：37 actions。
+- `bq query --dry_run < sql/dwd/12_dwd_stock_dividend_event.sql`：通过。
+- `bq query --dry_run < sql/qa/14_corporate_action_event_checks.sql`：通过。
+- BigQuery 实跑 `sql/qa/05_unit_contract_checks.sql` 与 `sql/qa/14_corporate_action_event_checks.sql`：全部 ASSERT successful。
+
+### 阻塞项
+
+- 无 Phase A 阻塞。
+
+### 下一步建议
+
+- Phase B 单独实现 ledger 参数、run loop “先 CA 后交易”、resume/hash/QA 接线与默认逐字节回归；不得把 Phase A 事件表直接视为策略结果或 promotion 依据。
+- Phase C 对照报告需要解释 `special_dividend`、`same_day_orphan_corporate_action`、零股取整、现金滞留与事件/adj_factor residual，不得把孤儿因子跳变静默混入 unexplained residual。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `TODO.md`
+
 > 当前交接补充（2026-06-12，Claude Fable 5，PRD_20260612_01 执行收口）
 > - PRD 经 PR #193 三轮 Codex review 收敛合并（merge `d9963cf`）；Phase B 实现 PR #197 经 Claude review 零发现合并（merge `2312f30`，166 pytest 通过）。
 > - 三个 BigQuery 操作已执行并通过对账（证据贴 PR #197 comment）：Phase A 审计日志预检通过（30 天窗口仅 owner 与项目 compute SA 的 2026-05-24 遗留 InsertJob，2026-05-27 起零活动，无外部消费方）后删除 `ashare` @ `2026-06-12T09:41:45Z`；Phase B 删除 `ashare_qa_windowed_equivalence` @ `09:41:48Z`；两者 `bq show` 复核 Not found，项目剩 9 个数据集。

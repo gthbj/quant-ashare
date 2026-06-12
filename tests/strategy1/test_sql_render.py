@@ -9,8 +9,9 @@ from quant_ashare.strategy1.sql_render import (
     table_role_replacements,
 )
 from quant_ashare.strategy1.backtest_report import build_sql_params
-from scripts.strategy1_cloudrun.config import Experiment, load_runner_config
+from scripts.strategy1_cloudrun.config import Experiment, experiment_from_b64, experiment_to_b64, load_runner_config
 from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_LOT100
+from quant_ashare.strategy1.ledger import CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT, DIVIDEND_TAX_FLAT_10PCT
 
 
 def _sql_value_for_type(sql_type: str) -> object:
@@ -186,6 +187,29 @@ def test_lot_aware_qa_params_include_min_buy_shares() -> None:
 
     assert "DECLARE p_min_buy_shares INT64 DEFAULT 100;" in rendered
     assert LEDGER_VERSION_LOT100 in rendered
+
+
+def test_corporate_action_params_propagate_to_sql_and_experiment_payload() -> None:
+    exp = Experiment(
+        experiment_id="unit_exp",
+        run_id="unit_run",
+        prediction_run_id="unit_pred",
+        backtest_id="unit_bt",
+        corporate_actions=CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT,
+        dividend_tax_mode=DIVIDEND_TAX_FLAT_10PCT,
+    )
+    args = type("Args", (), {"lot_size": 100, "min_buy_lot": 1})()
+
+    roundtrip = experiment_from_b64(experiment_to_b64(exp))
+    params = build_sql_params(roundtrip, force_replace=False, use_float_ledger=False, args=args)
+    rendered = render_sql_step("qa_corporate_action_ledger_outputs", params)
+
+    assert roundtrip.corporate_actions == CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT
+    assert roundtrip.dividend_tax_mode == DIVIDEND_TAX_FLAT_10PCT
+    assert params["p_corporate_actions"] == CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT
+    assert params["p_dividend_tax_mode"] == DIVIDEND_TAX_FLAT_10PCT
+    assert "DECLARE p_corporate_actions STRING DEFAULT 'cash_div_and_split_v1';" in rendered
+    assert "DECLARE p_dividend_tax_mode STRING DEFAULT 'flat_10pct';" in rendered
 
 
 def test_model_diagnosis_pool_qa_uses_explicit_valid_test_windows() -> None:

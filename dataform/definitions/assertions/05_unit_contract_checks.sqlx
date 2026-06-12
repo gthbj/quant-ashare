@@ -5,7 +5,7 @@ config {
   type: "operations",
   name: "unit_contract_checks",
   tags: ["qa_contract"],
-  dependencies: ["ods_field_unit_map", "dwd_stock_eod_price", "dwd_stock_eod_valuation", "dwd_index_eod", "dwd_fin_indicator", "dwd_fin_income", "dwd_fin_balancesheet", "dwd_fin_cashflow"]
+  dependencies: ["ods_field_unit_map", "dwd_stock_eod_price", "dwd_stock_eod_valuation", "dwd_stock_dividend_event", "dwd_index_eod", "dwd_fin_indicator", "dwd_fin_income", "dwd_fin_balancesheet", "dwd_fin_cashflow"]
 }
 
 -- 文档维护：GPT-5（最近更新 2026-06-02）
@@ -55,6 +55,10 @@ ASSERT (
     SELECT 'dwd_stock_eod_price', 'low_hfq' UNION ALL
     SELECT 'dwd_stock_eod_price', 'close_hfq' UNION ALL
     SELECT 'dwd_stock_eod_price', 'adj_factor' UNION ALL
+    SELECT 'dwd_stock_dividend_event', 'cash_div_per_share_pretax' UNION ALL
+    SELECT 'dwd_stock_dividend_event', 'bonus_ratio' UNION ALL
+    SELECT 'dwd_stock_dividend_event', 'conversion_ratio' UNION ALL
+    SELECT 'dwd_stock_dividend_event', 'split_ratio' UNION ALL
     SELECT 'dwd_stock_eod_valuation', 'total_share' UNION ALL
     SELECT 'dwd_stock_eod_valuation', 'float_share' UNION ALL
     SELECT 'dwd_stock_eod_valuation', 'free_share' UNION ALL

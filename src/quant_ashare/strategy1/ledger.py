@@ -33,6 +33,9 @@ DEFAULT_MARKET_STATE_VERSION = "market_state_v0_20260606"
 LEDGER_VERSION_FLOAT = "ledger_exec_v1"
 LEDGER_VERSION_LOT100 = "ledger_exec_v1_lot100"
 RESUME_POLICY_CLOUDRUN_LOT100 = "cloudrun_lot100_resume_v1"
+CORPORATE_ACTIONS_NONE = "none_v1"
+CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT = "cash_div_and_split_v1"
+DIVIDEND_TAX_FLAT_10PCT = "flat_10pct"
 FILLED_STATUSES = frozenset({"FILLED", "FILLED_SCALED_CASH"})
 LOT_AWARE_ZERO_FILL_STATUSES = frozenset({
     "BUY_SKIPPED_UNTRADABLE",
@@ -73,6 +76,8 @@ class LedgerParams:
     partial_sell_rounding: str = "floor_to_lot_keep_residual"
     buy_rounding: str = "floor_to_lot"
     cash_redistribution: str = "none_v1"
+    corporate_actions: str = CORPORATE_ACTIONS_NONE
+    dividend_tax_mode: str = DIVIDEND_TAX_FLAT_10PCT
     min_notional_cny: float = 0.0
     force_replace: bool = False
     rebalance_frequency: str = "weekly"
@@ -100,6 +105,8 @@ class ResumeSnapshot:
     active_signal_date: Any | None
     ledger_params_hash: str
     rebalance_anchor_start: Any
+    corporate_actions: str = CORPORATE_ACTIONS_NONE
+    dividend_tax_mode: str = DIVIDEND_TAX_FLAT_10PCT
 
 
 def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
@@ -141,6 +148,14 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
     prices = load_prices(client, params, sorted(sec_codes), price_start, calendar_end)
     px = PriceBook(prices)
     benchmark = load_benchmark(client, params, params.predict_start, calendar_end)
+    corporate_events = load_corporate_action_events(
+        client,
+        params,
+        sorted(sec_codes),
+        params.predict_start,
+        params.predict_end,
+    )
+    corporate_events_by_ex_date = build_corporate_action_events_by_ex_date(corporate_events)
 
     if resume_snapshot is not None:
         cash = float(resume_snapshot.cash_cny)
@@ -156,6 +171,9 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
         pending_sell: set[str] = set()
         previous_nav_value = None
         active_signal_date = None
+    holdings_history: dict[Any, dict[str, float]] = {}
+    if resume_snapshot is not None and params.state_as_of_date:
+        holdings_history[pd.to_datetime(params.state_as_of_date).date()] = dict(holdings)
 
     trade_rows: list[dict[str, Any]] = []
     position_rows: list[dict[str, Any]] = []
@@ -170,6 +188,15 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
     market_risk_off_signal_dates = load_market_risk_off_signal_dates(client, params)
 
     for exec_date in exec_days["trade_date"]:
+        cash, holdings, corporate_action_rows = apply_corporate_actions(
+            exec_date,
+            cash,
+            holdings,
+            holdings_history,
+            corporate_events_by_ex_date.get(exec_date, []),
+            params,
+        )
+        trade_rows.extend(corporate_action_rows)
         period = periods_by_exec.get(exec_date)
         is_rebalance = period is not None
         if is_rebalance:
@@ -193,6 +220,7 @@ def run_ledger(client: bigquery.Client, params: LedgerParams) -> dict[str, int]:
         trade_rows.extend(daily_trade_rows)
         holdings = update_holdings(plan)
         pending_sell = update_pending_sell(plan, is_rebalance)
+        holdings_history[exec_date] = dict(holdings)
 
         position_value = 0.0
         for sec, shares in sorted(holdings.items()):
@@ -645,6 +673,39 @@ def trade_row(
     }
 
 
+def corporate_action_trade_row(
+    params: LedgerParams,
+    trade_date: Any,
+    sec_code: str,
+    side: str,
+    planned_shares: float,
+    filled_shares: float,
+    fill_price: float | None,
+    turnover: float,
+    fee: float,
+    tax: float,
+    cash_effect: float,
+    fill_status: str,
+) -> dict[str, Any]:
+    return {
+        "backtest_id": params.backtest_id,
+        "trade_date": trade_date,
+        "sec_code": sec_code,
+        "side": side,
+        "planned_shares": planned_shares,
+        "filled_shares": filled_shares,
+        "fill_price": fill_price,
+        "turnover_cny": turnover,
+        "fee_cny": fee,
+        "tax_cny": tax,
+        "slippage_cny": 0.0,
+        "cash_effect_cny": cash_effect,
+        "fill_status": fill_status,
+        "run_id": params.run_id,
+        "created_at": datetime.now(timezone.utc),
+    }
+
+
 def clear_ledger_outputs(client: bigquery.Client, params: LedgerParams) -> None:
     tables = TableResolver(dataset_role=params.output_dataset_role, project=params.project)
     calendar_end = (pd.Timestamp(params.predict_end) + pd.Timedelta(days=90)).date().isoformat()
@@ -746,6 +807,10 @@ def ledger_params_hash(params: LedgerParams) -> str:
         "tail_risk_profile_id": params.tail_risk_profile_id,
         "target_holdings": params.target_holdings,
     }
+    if params.corporate_actions != CORPORATE_ACTIONS_NONE:
+        payload["corporate_actions"] = params.corporate_actions
+    if params.dividend_tax_mode != DIVIDEND_TAX_FLAT_10PCT:
+        payload["dividend_tax_mode"] = params.dividend_tax_mode
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -761,6 +826,10 @@ def hash_holdings(holdings: dict[str, float]) -> str:
 
 
 def validate_ledger_params(params: LedgerParams) -> None:
+    if params.corporate_actions not in {CORPORATE_ACTIONS_NONE, CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT}:
+        raise ValueError(f"unsupported corporate_actions: {params.corporate_actions}")
+    if params.dividend_tax_mode != DIVIDEND_TAX_FLAT_10PCT:
+        raise ValueError(f"unsupported dividend_tax_mode: {params.dividend_tax_mode}")
     if params.initial_state_mode not in {"fresh", "resume_from_backtest"}:
         raise ValueError(f"Unsupported initial_state_mode={params.initial_state_mode}")
     if params.resume_policy_id != RESUME_POLICY_CLOUDRUN_LOT100:
@@ -854,6 +923,20 @@ def load_resume_snapshot(
 
     state_row = state.iloc[0]
     expected_hash = ledger_params_hash(params)
+    summary = query_dataframe(
+        client,
+        f"""
+        SELECT metrics_json
+        FROM `{tables.fqn('backtest_summary')}`
+        WHERE backtest_id = @parent_backtest_id
+        """,
+        [bigquery.ScalarQueryParameter("parent_backtest_id", "STRING", params.parent_backtest_id)],
+    )
+    parent_corporate_actions, parent_dividend_tax_mode = parent_summary_corporate_action_params(summary)
+    if parent_corporate_actions != params.corporate_actions:
+        raise RuntimeError("Parent corporate_actions does not match resume child")
+    if parent_dividend_tax_mode != params.dividend_tax_mode:
+        raise RuntimeError("Parent dividend_tax_mode does not match resume child")
     if str(state_row["ledger_version"]) != params.ledger_version:
         raise RuntimeError("Parent ledger_version does not match resume child")
     if str(state_row["resume_policy_id"]) != params.resume_policy_id:
@@ -896,6 +979,21 @@ def load_resume_snapshot(
         active_signal_date=active_signal_date,
         ledger_params_hash=str(state_row["ledger_params_hash"]),
         rebalance_anchor_start=state_row["rebalance_anchor_start"],
+        corporate_actions=parent_corporate_actions,
+        dividend_tax_mode=parent_dividend_tax_mode,
+    )
+
+
+def parent_summary_corporate_action_params(summary: pd.DataFrame) -> tuple[str, str]:
+    if summary.empty:
+        raise RuntimeError("Parent summary not found for resume corporate action parameter check")
+    if len(summary.index) != 1:
+        raise RuntimeError("Parent summary must exist exactly once for resume corporate action parameter check")
+    metrics_raw = summary.iloc[0].get("metrics_json")
+    metrics = json.loads(metrics_raw or "{}")
+    return (
+        str(metrics.get("corporate_actions") or CORPORATE_ACTIONS_NONE),
+        str(metrics.get("dividend_tax_mode") or DIVIDEND_TAX_FLAT_10PCT),
     )
 
 
@@ -1038,6 +1136,150 @@ def load_benchmark(client: bigquery.Client, params: LedgerParams, start: str, en
     return dict(zip(frame["trade_date"], frame["benchmark_return"]))
 
 
+def load_corporate_action_events(
+    client: bigquery.Client,
+    params: LedgerParams,
+    sec_codes: list[str],
+    start: str,
+    end: str,
+) -> pd.DataFrame:
+    if params.corporate_actions == CORPORATE_ACTIONS_NONE or not sec_codes:
+        return pd.DataFrame()
+    sql = """
+    SELECT
+      sec_code,
+      ex_date,
+      record_date,
+      cash_div_per_share_pretax,
+      bonus_ratio,
+      conversion_ratio,
+      split_ratio,
+      source_event_count,
+      hfq_mismatch_count,
+      unclassified_mismatch_count
+    FROM `data-aquarium.ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`
+    WHERE ex_date BETWEEN @start AND @end
+      AND sec_code IN UNNEST(@sec_codes)
+    ORDER BY ex_date, sec_code
+    """
+    return normalize_dates(query_dataframe(client, sql, [
+        bigquery.ScalarQueryParameter("start", "DATE", start),
+        bigquery.ScalarQueryParameter("end", "DATE", end),
+        bigquery.ArrayQueryParameter("sec_codes", "STRING", sec_codes),
+    ]), ["ex_date", "record_date"])
+
+
+def build_corporate_action_events_by_ex_date(frame: pd.DataFrame) -> dict[Any, list[Any]]:
+    if frame.empty:
+        return {}
+    events: dict[Any, list[Any]] = {}
+    for row in frame.sort_values(["ex_date", "sec_code"]).itertuples(index=False):
+        events.setdefault(row.ex_date, []).append(row)
+    return events
+
+
+def apply_corporate_actions(
+    exec_date: Any,
+    cash: float,
+    holdings: dict[str, float],
+    holdings_history: dict[Any, dict[str, float]],
+    events: list[Any],
+    params: LedgerParams,
+) -> tuple[float, dict[str, float], list[dict[str, Any]]]:
+    if params.corporate_actions == CORPORATE_ACTIONS_NONE or not events:
+        return cash, holdings, []
+    updated = dict(holdings)
+    pre_event_holdings = dict(holdings)
+    rows: list[dict[str, Any]] = []
+
+    for event in events:
+        sec_code = str(event.sec_code)
+        split_ratio = finite_or_zero(getattr(event, "split_ratio", 0.0))
+        record_shares = record_date_shares(event, sec_code, holdings_history, pre_event_holdings)
+        if split_ratio <= 0.0 or record_shares <= 0.000001:
+            continue
+        theoretical_post_shares = record_shares * (1.0 + split_ratio)
+        entitled_post_shares = float(math.floor(theoretical_post_shares))
+        share_delta = entitled_post_shares - record_shares
+        final_shares = float(pre_event_holdings.get(sec_code, 0.0)) + share_delta
+        if final_shares > 0.000001:
+            updated[sec_code] = final_shares
+        else:
+            updated.pop(sec_code, None)
+        rows.append(corporate_action_trade_row(
+            params,
+            exec_date,
+            sec_code,
+            "CA_SPLIT",
+            theoretical_post_shares,
+            share_delta,
+            split_ratio,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            "CORPORATE_ACTION_SPLIT",
+        ))
+
+    tax_rate = dividend_tax_rate(params)
+    for event in events:
+        sec_code = str(event.sec_code)
+        cash_div_per_share = finite_or_zero(getattr(event, "cash_div_per_share_pretax", 0.0))
+        record_shares = record_date_shares(event, sec_code, holdings_history, pre_event_holdings)
+        if cash_div_per_share <= 0.0 or record_shares <= 0.000001:
+            continue
+        pretax_cash = record_shares * cash_div_per_share
+        tax = pretax_cash * tax_rate
+        cash_effect = pretax_cash - tax
+        cash += cash_effect
+        rows.append(corporate_action_trade_row(
+            params,
+            exec_date,
+            sec_code,
+            "CA_CASH_DIVIDEND",
+            record_shares,
+            0.0,
+            cash_div_per_share * (1.0 - tax_rate),
+            pretax_cash,
+            0.0,
+            tax,
+            cash_effect,
+            "CORPORATE_ACTION_CASH_DIVIDEND",
+        ))
+
+    return cash, updated, rows
+
+
+def record_date_shares(
+    event: Any,
+    sec_code: str,
+    holdings_history: dict[Any, dict[str, float]],
+    pre_event_holdings: dict[str, float],
+) -> float:
+    record_date = getattr(event, "record_date", None)
+    if record_date is None or pd.isna(record_date):
+        return float(pre_event_holdings.get(sec_code, 0.0))
+    record_date = pd.to_datetime(record_date).date()
+    snapshot = holdings_history.get(record_date)
+    if snapshot is None:
+        return float(pre_event_holdings.get(sec_code, 0.0))
+    return float(snapshot.get(sec_code, 0.0))
+
+
+def dividend_tax_rate(params: LedgerParams) -> float:
+    if params.dividend_tax_mode == DIVIDEND_TAX_FLAT_10PCT:
+        return 0.10
+    raise ValueError(f"unsupported dividend_tax_mode: {params.dividend_tax_mode}")
+
+
+def finite_or_zero(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if math.isfinite(number) else 0.0
+
+
 def normalize_dates(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     for col in columns:
         if col in frame.columns:
@@ -1067,6 +1309,10 @@ def safe_divide(numerator: Any, denominator: Any) -> float:
 
 
 def validate_ledger_params(params: LedgerParams) -> None:
+    if params.corporate_actions not in {CORPORATE_ACTIONS_NONE, CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT}:
+        raise ValueError(f"unsupported corporate_actions: {params.corporate_actions}")
+    if params.dividend_tax_mode != DIVIDEND_TAX_FLAT_10PCT:
+        raise ValueError(f"unsupported dividend_tax_mode: {params.dividend_tax_mode}")
     if params.ledger_version not in {LEDGER_VERSION_FLOAT, LEDGER_VERSION_LOT100}:
         raise ValueError(f"unsupported ledger_version: {params.ledger_version}")
     if params.initial_state_mode not in {"fresh", "resume_from_backtest"}:

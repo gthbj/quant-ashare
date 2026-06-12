@@ -6,6 +6,32 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：Ledger 分红送转 Phase C research-only 重跑完成
+
+- 分支 `codex/ledger-corporate-actions` 已按 `PRD_20260612_02` Phase C 完成 true-five-year CA-on continuous 重跑。新 Cloud Run runner 镜像使用 one-off tag `ledger-ca-phasec-43404e6-20260612-01`，不可变 digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`；未更新 `latest` tag。`strategy1-backtest-report-job` 仅 pin 到该 digest（generation `51`），boot smoke execution `strategy1-backtest-report-job-97b5v` 成功。
+- 正式 research-only execution `strategy1-backtest-report-job-dnt4b` 成功；run `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 复用 synthetic prediction run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，参数为 `corporate_actions=cash_div_and_split_v1`、`dividend_tax_mode=flat_10pct`，输出仅写 `ashare_research`。
+- 产物行数：candidate `279625`、target `2780`、order `4830`、trade `4856`、position `21162`、NAV `1314`、ledger_state `1314`、summary `1`。summary CA 审计：audit rows `75`（现金分红 `73`、送转 `2`），税后现金入账 `6554.9556` 元，flat 10% 税 `728.3284` 元，送转增股 `90` 股。
+- QA 全部通过：`qa_continuous_backtest_outputs` job `06273525-830b-4603-8503-2dc8f3091ca4`；`qa_lot_aware_ledger_outputs` job `1eec4250-5da4-44c1-bab7-ba3183dc14d5`；`qa_corporate_action_ledger_outputs` job `37674e4f-06ee-4998-9d1e-75ace14cb965`。三条 QA 的 research dry-run 也均通过。ADS run/backtest scoped 10 表反向验证为 `0` 行，`research_promotion_manifest` 为 `0` 行。
+- 三方对照报告已新增 `docs/分析-Ledger CA 重跑对照-20260612.md`。CA-on 结果：total return `1.1044714853774122`、compound CAGR `0.15350594766603387`、MaxDD `-0.3742978588042647`、v3 contract Sharpe `0.6682084282261871`、Calmar `0.4101170873817589`、IR `0.6971241900405605`。相对 raw baseline 改善但仍未过 v3 hard gates（Sharpe `<0.70`、Calmar `<1.0`），不得标 accepted / promotion。
+- Phase C 六项分解已闭合：hfq proxy 相对 CA-on terminal total return 高 `3.5066pp`；`tax_effect=+0.7283pp`，`cash_not_reinvested_effect=+2.7920pp`，`split_fractional_rounding_effect=0`，`same_ex_date_event_aggregation_effect=0`，`event_vs_adj_factor_residual=-0.0138pp`，`unexplained_residual=0`。Phase A mismatch 在 Phase C 窗口全部已分类：event_to_factor data_anomaly `1106`、special_dividend `1`、factor_to_event same_day_orphan_corporate_action `350`、unclassified `0`。
+- 本阶段未改现役 baseline 数据、未 promotion、未改全局默认 profile、未跑 PRD_10 Phase 2。owner 仍需按报告中三组选项裁决是否切换 baseline 口径、如何 supersede 旧未复权约定，以及后续实验是否一律 CA-on。
+
+### 最新补充（2026-06-12）：Ledger 分红送转 Phase B 已实现并完成本地验证
+
+- 分支 `codex/ledger-corporate-actions` 在 Phase A 事件层之上完成 ledger 侧实现：`LedgerParams` / `Experiment` / CLI / Cloud Run dry-run plan / `build_sql_params` / `build_metrics_and_report_inputs` / catalog / QA / resume 两套 QA 均已接入 `corporate_actions` 与 `dividend_tax_mode`。默认仍为 `none_v1` / `flat_10pct`，`ledger_params_hash` 只在非默认值时写入新增参数，默认黄金 hash 保持 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d`。
+- `run_ledger` 在每个 `ex_date` 开盘前先消费 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`，先按 record_date entitlement 做送转调股数 `floor` 并写 `CORPORATE_ACTION_SPLIT` 审计行，再按 record_date 股数和 flat 10% 税率写 `CORPORATE_ACTION_CASH_DIVIDEND` 现金入账；同日调仓仍是 CA 后交易。ledger 不直读 ODS，也不读 mismatch/anomaly 明细表。
+- 新增 `qa_corporate_action_ledger_outputs`，并让 `qa_runner_outputs` / `qa_lot_aware_ledger_outputs` / `qa_ledger_resume_consistency` / `qa_cloudrun_ledger_resume_outputs` 用 COALESCE 兼容旧 summary key，同时校验父子 CA 参数一致。默认不变量用固定时间戳小 fixture 逐表 JSON 字节比较，并锁定 hash 黄金值。
+- 验证：`python3 -m pytest tests` 176 passed；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过；`python3 -m compileall src scripts` 通过；Dataform generator `--check` 和 `npx --yes @dataform/cli compile dataform` 通过；`qa_corporate_action_ledger_outputs` research BigQuery dry-run 通过；`git diff --check` 通过。
+- 本阶段未执行 Phase C、未跑 live backtest、未改既有 run、未 promotion、未改全局默认 profile、未触碰 `scripts/strategy1_cloudrun/bq_io.py`。下一步是提交/推送并等待 Claude review，review 通过后才可进入 Phase C research-only 重跑。
+
+### 最新补充（2026-06-12）：Ledger 分红送转 Phase A 已落地并通过 QA
+
+- 分支 `codex/ledger-corporate-actions` 已按 `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md` Phase A 完成事件层实现：`sql/dwd/12_dwd_stock_dividend_event.sql` 从 `ods_tushare_dividend` 已实施事件 canonical 聚合到 `(sec_code, ex_date)`；`sql/qa/14_corporate_action_event_checks.sql` 落 `ashare_meta.qa_stock_dividend_event_hfq_mismatch`，并创建 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`。
+- OQ-015 owner 裁决已落实：不修 `stk_co_rate` 口径、不设人工 allowlist；hfq 对账保留 abs/rel 容差并叠加 `0.01 / prev_close` 的除权参考价舍入下限；mismatch 双向落表并自动归类，QA 硬门改为 `unclassified mismatch = 0`。
+- BigQuery 已执行并通过：`sql/meta/04_ods_field_unit_map.sql` job `bqjob_r4bf6b56437413e50_0000019ebb5cc600_1`；`sql/dwd/12_dwd_stock_dividend_event.sql` job `bqjob_r323943fdb6fe8d66_0000019ebb4706b9_1`；`sql/metadata/01_core_table_column_descriptions.sql` job `bqjob_r5bcddfc324d985c8_0000019ebb4741ce_1`；`sql/qa/05_unit_contract_checks.sql` job `bqjob_r63dbdce269a7fb79_0000019ebb5d3981_1`；`sql/qa/14_corporate_action_event_checks.sql` dry-run + real run job `bqjob_r1aadacca42b9e6_0000019ebb47ed1f_1`，`QA-CA-EVENT-1..6` 全部通过。
+- 落库结果：2010+ canonical events=`46431`、source rows=`46470`、同股同 ex_date 聚合键=`37`；2021+ QA 窗口 canonical events=`22009`、source rows=`22029`、同股同 ex_date 聚合键=`20`。mismatch 明细共 `1512` 行：event_to_factor `data_anomaly=1106`（其中 `missing_prev_price=1033`、`factor_jump_mismatch=73`）、`special_dividend=1`；factor_to_event `same_day_orphan_corporate_action=405`；`unclassified=0`。ledger-consumable view 行数=`46431`、未归类行=`0`。
+- 本阶段未改 ledger 代码，未写 ADS/research/promotion，不改变 accepted / baseline 状态。Phase B 仍需按 PRD 单独实现 `LedgerParams`、run loop CA 应用、resume/hash/QA 接线与默认逐字节回归。
+
 ### 最新补充（2026-06-12）：Ledger 分红送转记账修复 PRD 已新增
 
 - 分支 `claude/prd-ledger-corporate-actions` 新增 `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`：PR #194 复权漏损量化触发预登记判据后，按约定立项。核心：`corporate_actions` 参数化（默认 `none_v1` 记账输出逐字节不变；`cash_div_and_split_v1` = 送转调股数 + `flat_10pct` 税后分红入账，tax-lot 列为非目标），正交于构造版本；Phase A DWD 事件表（`ods_tushare_dividend` canonical 聚合 + hfq 因子交叉校验硬门）→ Phase B ledger + 参数传播清单 + 默认回归 → Phase C true5y CA 重跑三方对照（六项偏差分解，验收卡 unexplained_residual）。排在 PRD_10 Phase 2 之前；Sharpe 单门通过不触发 accepted；baseline 数字是否切 CA 口径由 owner 在 Phase C 后决策。

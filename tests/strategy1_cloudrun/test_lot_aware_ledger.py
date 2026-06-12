@@ -1,21 +1,32 @@
 from __future__ import annotations
 
 import datetime as dt
+import dataclasses
+import json
 import math
+from types import SimpleNamespace
 import unittest
 
+import pandas as pd
 import pytest
 
+import quant_ashare.strategy1.ledger as ledger_mod
 from scripts.strategy1_cloudrun.ledger import (
+    CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT,
+    CORPORATE_ACTIONS_NONE,
+    DIVIDEND_TAX_FLAT_10PCT,
     LEDGER_VERSION_LOT100,
     RESUME_POLICY_CLOUDRUN_LOT100,
     LedgerParams,
     PlanRow,
+    apply_corporate_actions,
     build_daily_plan,
     execute_plan,
     validate_ledger_params,
     ledger_params_hash,
     hash_holdings,
+    parent_summary_corporate_action_params,
+    run_ledger,
     update_holdings,
     update_pending_sell,
 )
@@ -318,7 +329,265 @@ def test_ledger_params_hash_ignores_backtest_identity_but_keeps_anchor() -> None
     assert ledger_params_hash(parent) != ledger_params_hash(shifted_anchor)
 
 
+def test_default_ledger_params_hash_keeps_pre_corporate_action_golden_value() -> None:
+    assert ledger_params_hash(params()) == "2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d"
+    ca_on = dataclasses.replace(params(), corporate_actions=CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT)
+
+    assert ledger_params_hash(params()) != ledger_params_hash(ca_on)
+
+
 def test_hash_holdings_is_order_invariant() -> None:
     assert hash_holdings({"000001.SZ": 200, "000002.SZ": 100}) == hash_holdings(
         {"000002.SZ": 100, "000001.SZ": 200}
     )
+
+
+def test_corporate_action_split_floor_and_flat_tax_use_record_date_shares() -> None:
+    p = dataclasses.replace(params(), corporate_actions=CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT)
+    event = SimpleNamespace(
+        sec_code="000001.SZ",
+        ex_date=dt.date(2024, 1, 3),
+        record_date=dt.date(2024, 1, 2),
+        cash_div_per_share_pretax=1.0,
+        split_ratio=0.5,
+        source_event_count=2,
+    )
+
+    cash, holdings, rows = apply_corporate_actions(
+        dt.date(2024, 1, 3),
+        1_000.0,
+        {"000001.SZ": 200.0},
+        {dt.date(2024, 1, 2): {"000001.SZ": 100.0}},
+        [event],
+        p,
+    )
+
+    assert holdings == {"000001.SZ": 250.0}
+    assert math.isclose(cash, 1_090.0, abs_tol=1e-9)
+    assert [row["fill_status"] for row in rows] == [
+        "CORPORATE_ACTION_SPLIT",
+        "CORPORATE_ACTION_CASH_DIVIDEND",
+    ]
+    assert rows[0]["planned_shares"] == 150.0
+    assert rows[0]["filled_shares"] == 50.0
+    assert rows[1]["planned_shares"] == 100.0
+    assert rows[1]["turnover_cny"] == 100.0
+    assert rows[1]["tax_cny"] == 10.0
+    assert rows[1]["cash_effect_cny"] == 90.0
+
+
+def test_parent_summary_corporate_action_params_default_old_rows_and_fail_fast() -> None:
+    old_summary = pd.DataFrame([{"metrics_json": json.dumps({"ledger_version": LEDGER_VERSION_LOT100})}])
+    ca_summary = pd.DataFrame([
+        {
+            "metrics_json": json.dumps({
+                "corporate_actions": CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT,
+                "dividend_tax_mode": DIVIDEND_TAX_FLAT_10PCT,
+            })
+        }
+    ])
+
+    assert parent_summary_corporate_action_params(old_summary) == (
+        CORPORATE_ACTIONS_NONE,
+        DIVIDEND_TAX_FLAT_10PCT,
+    )
+    assert parent_summary_corporate_action_params(ca_summary) == (
+        CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT,
+        DIVIDEND_TAX_FLAT_10PCT,
+    )
+    with pytest.raises(RuntimeError, match="exactly once"):
+        parent_summary_corporate_action_params(pd.DataFrame([
+            {"metrics_json": "{}"},
+            {"metrics_json": "{}"},
+        ]))
+
+
+def test_explicit_none_v1_params_preserve_default_run_ledger_outputs(monkeypatch) -> None:
+    """Proves default CA params are neutral; golden hash covers pre-CA payload parity."""
+
+    class FixedDatetime(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt.datetime(2026, 1, 1, 0, 0, tzinfo=tz)
+
+    calendar = pd.DataFrame([
+        {"trade_date": dt.date(2024, 1, 2), "trade_date_seq": 1},
+        {"trade_date": dt.date(2024, 1, 3), "trade_date_seq": 2},
+    ])
+    targets = pd.DataFrame([
+        {
+            "rebalance_date": dt.date(2024, 1, 2),
+            "sec_code": "000001.SZ",
+            "target_weight": 0.50,
+            "rank_raw": 1,
+        }
+    ])
+    prices = pd.DataFrame([
+        {
+            "sec_code": "000001.SZ",
+            "trade_date": dt.date(2024, 1, 2),
+            "open": 10.0,
+            "close": 10.0,
+            "can_buy_open": True,
+            "can_sell_open": True,
+        },
+        {
+            "sec_code": "000001.SZ",
+            "trade_date": dt.date(2024, 1, 3),
+            "open": 10.0,
+            "close": 10.0,
+            "can_buy_open": True,
+            "can_sell_open": True,
+        },
+    ])
+
+    monkeypatch.setattr(ledger_mod, "datetime", FixedDatetime)
+    monkeypatch.setattr(ledger_mod, "benchmark_assert", lambda client, params: None)
+    monkeypatch.setattr(ledger_mod, "load_calendar", lambda client, start, end: calendar.copy())
+    monkeypatch.setattr(ledger_mod, "load_targets", lambda client, params: targets.copy())
+    monkeypatch.setattr(ledger_mod, "load_prices", lambda client, params, sec_codes, start, end: prices.copy())
+    monkeypatch.setattr(ledger_mod, "load_benchmark", lambda client, params, start, end: {dt.date(2024, 1, 3): 0.0})
+    monkeypatch.setattr(ledger_mod, "load_tail_risk_buy_guards", lambda client, params: {})
+    monkeypatch.setattr(ledger_mod, "load_market_risk_off_signal_dates", lambda client, params: set())
+    monkeypatch.setattr(ledger_mod, "load_corporate_action_events", lambda client, params, sec_codes, start, end: pd.DataFrame())
+
+    def capture_outputs(ledger_params: LedgerParams) -> dict[str, str]:
+        captured: dict[str, pd.DataFrame] = {}
+
+        def fake_load_dataframe(client, frame, table_id):
+            captured[table_id.rsplit(".", 1)[-1]] = frame.copy()
+
+        monkeypatch.setattr(ledger_mod, "load_dataframe", fake_load_dataframe)
+        run_ledger(object(), ledger_params)
+        return {
+            table_name: frame.sort_index(axis=1).to_json(
+                orient="records",
+                date_format="iso",
+                default_handler=str,
+            )
+            for table_name, frame in sorted(captured.items())
+        }
+
+    default_params = LedgerParams(
+        project="data-aquarium",
+        run_id="unit_run",
+        backtest_id="unit_backtest",
+        predict_start="2024-01-02",
+        predict_end="2024-01-03",
+    )
+    explicit_none_params = dataclasses.replace(
+        default_params,
+        corporate_actions=CORPORATE_ACTIONS_NONE,
+        dividend_tax_mode=DIVIDEND_TAX_FLAT_10PCT,
+    )
+
+    assert capture_outputs(default_params) == capture_outputs(explicit_none_params)
+
+
+def test_corporate_actions_are_applied_before_same_day_rebalance(monkeypatch) -> None:
+    class FixedDatetime(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt.datetime(2026, 1, 1, 0, 0, tzinfo=tz)
+
+    calendar = pd.DataFrame([
+        {"trade_date": dt.date(2024, 1, 1), "trade_date_seq": 1},
+        {"trade_date": dt.date(2024, 1, 2), "trade_date_seq": 2},
+        {"trade_date": dt.date(2024, 1, 3), "trade_date_seq": 3},
+    ])
+    targets = pd.DataFrame([
+        {
+            "rebalance_date": dt.date(2024, 1, 1),
+            "sec_code": "000001.SZ",
+            "target_weight": 0.10,
+            "rank_raw": 1,
+        },
+        {
+            "rebalance_date": dt.date(2024, 1, 2),
+            "sec_code": "000002.SZ",
+            "target_weight": 0.10,
+            "rank_raw": 1,
+        },
+    ])
+    prices = pd.DataFrame([
+        {
+            "sec_code": "000001.SZ",
+            "trade_date": dt.date(2024, 1, 2),
+            "open": 10.0,
+            "close": 10.0,
+            "can_buy_open": True,
+            "can_sell_open": True,
+        },
+        {
+            "sec_code": "000001.SZ",
+            "trade_date": dt.date(2024, 1, 3),
+            "open": 9.1,
+            "close": 9.1,
+            "can_buy_open": True,
+            "can_sell_open": True,
+        },
+        {
+            "sec_code": "000002.SZ",
+            "trade_date": dt.date(2024, 1, 3),
+            "open": 20.0,
+            "close": 20.0,
+            "can_buy_open": True,
+            "can_sell_open": True,
+        },
+    ])
+    corporate_events = pd.DataFrame([
+        {
+            "sec_code": "000001.SZ",
+            "ex_date": dt.date(2024, 1, 3),
+            "record_date": dt.date(2024, 1, 2),
+            "cash_div_per_share_pretax": 1.0,
+            "bonus_ratio": 0.0,
+            "conversion_ratio": 0.1,
+            "split_ratio": 0.1,
+            "source_event_count": 1,
+            "hfq_mismatch_count": 0,
+            "unclassified_mismatch_count": 0,
+        }
+    ])
+    captured: dict[str, pd.DataFrame] = {}
+
+    monkeypatch.setattr(ledger_mod, "datetime", FixedDatetime)
+    monkeypatch.setattr(ledger_mod, "benchmark_assert", lambda client, params: None)
+    monkeypatch.setattr(ledger_mod, "load_calendar", lambda client, start, end: calendar.copy())
+    monkeypatch.setattr(ledger_mod, "load_targets", lambda client, params: targets.copy())
+    monkeypatch.setattr(ledger_mod, "load_prices", lambda client, params, sec_codes, start, end: prices.copy())
+    monkeypatch.setattr(ledger_mod, "load_benchmark", lambda client, params, start, end: {dt.date(2024, 1, 3): 0.0})
+    monkeypatch.setattr(ledger_mod, "load_tail_risk_buy_guards", lambda client, params: {})
+    monkeypatch.setattr(ledger_mod, "load_market_risk_off_signal_dates", lambda client, params: set())
+    monkeypatch.setattr(
+        ledger_mod,
+        "load_corporate_action_events",
+        lambda client, params, sec_codes, start, end: corporate_events.copy(),
+    )
+    monkeypatch.setattr(
+        ledger_mod,
+        "load_dataframe",
+        lambda client, frame, table_id: captured.setdefault(table_id.rsplit(".", 1)[-1], frame.copy()),
+    )
+
+    run_ledger(
+        object(),
+        LedgerParams(
+            project="data-aquarium",
+            run_id="unit_run",
+            backtest_id="unit_backtest",
+            predict_start="2024-01-02",
+            predict_end="2024-01-03",
+            corporate_actions=CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT,
+        ),
+    )
+
+    trade_key = next(key for key in captured if key.endswith("backtest_trade_daily"))
+    trades = captured[trade_key]
+    day2_trades = trades[trades["trade_date"] == dt.date(2024, 1, 3)].reset_index(drop=True)
+
+    assert day2_trades.loc[0, "fill_status"] == "CORPORATE_ACTION_SPLIT"
+    assert day2_trades.loc[1, "fill_status"] == "CORPORATE_ACTION_CASH_DIVIDEND"
+    assert day2_trades.loc[2, "side"] == "SELL"
+    assert day2_trades.loc[2, "fill_status"] == "FILLED"
+    assert day2_trades.loc[2, "filled_shares"] == 1100.0
