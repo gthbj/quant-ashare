@@ -45,13 +45,11 @@ from scripts.strategy1_cloudrun.config import (
     RunnerConfig,
     add_common_args,
     apply_cli_overrides,
-    filter_experiments,
-    load_manifest,
     load_runner_config,
-    experiment_from_b64,
 )
 from scripts.strategy1_cloudrun.dataset_roles import TableResolver
 from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
+from quant_ashare.strategy1.experiment_resolution import resolve_experiment_from_args
 
 
 def main() -> int:
@@ -92,37 +90,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_experiment(args: argparse.Namespace) -> Experiment:
-    if args.experiment_json:
-        exp = experiment_from_b64(args.experiment_json)
-        if not exp.requires_retrain:
-            raise ValueError(f"{exp.experiment_id} is portfolio-only and does not require train_predict")
-        if not exp.is_executable:
-            raise ValueError(f"{exp.experiment_id} contains unresolved placeholders or blocked status")
-        return exp
-    if args.manifest_resolved:
-        resolved = json.loads(Path(args.manifest_resolved).read_text(encoding="utf-8"))
-        matches = [item for item in resolved.get("experiments", []) if item.get("experiment_id") == args.experiment_id]
-        if not matches:
-            raise ValueError(f"experiment_id {args.experiment_id} not found in resolved manifest")
-        raw = matches[0]
-        manifest = {"default_windows": {}}
-        _, base_experiments = load_manifest(args.manifest)
-        by_id = {exp.experiment_id: exp for exp in base_experiments}
-        if args.experiment_id in by_id:
-            exp = by_id[args.experiment_id]
-            return dataclasses.replace(exp, **{k: raw[k] for k in raw if hasattr(exp, k)})
-    _, experiments = load_manifest(args.manifest)
-    matches = filter_experiments(experiments, experiment_id=args.experiment_id, include_blocked=True)
-    if not matches:
-        raise ValueError(f"experiment_id {args.experiment_id} not found in {args.manifest}")
-    exp = matches[0]
-    if args.run_id and args.run_id != exp.run_id:
-        exp = dataclasses.replace(exp, run_id=args.run_id, prediction_run_id=args.run_id)
-    if not exp.requires_retrain:
-        raise ValueError(f"{exp.experiment_id} is portfolio-only and does not require train_predict")
-    if not exp.is_executable:
-        raise ValueError(f"{exp.experiment_id} contains unresolved placeholders or blocked status")
-    return exp
+    return resolve_experiment_from_args(
+        args,
+        step_name="train_predict",
+        require_retrain=True,
+        support_resolved_manifest=True,
+        run_id_updates_prediction=True,
+    )
 
 
 def run_train_predict(
