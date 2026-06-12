@@ -33,7 +33,7 @@ from .config import (
     load_runner_config,
 )
 from .dataset_roles import TableResolver
-from scripts.strategy1_cloudrun.feature_sets import (
+from .feature_sets import (
     PV_FIN_RISK_FEATURE_SET_ID,
     boolean_feature_names,
     expected_feature_columns,
@@ -42,7 +42,7 @@ from scripts.strategy1_cloudrun.feature_sets import (
     market_state_feature_names,
     risk_feature_names,
 )
-from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
+from .preprocess import build_preprocessor, feature_frame_from_panel
 from .task_fanout import (
     MATRIX_MANIFEST_VERSION,
     build_work_units,
