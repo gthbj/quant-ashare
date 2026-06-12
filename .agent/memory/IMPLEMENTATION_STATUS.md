@@ -6,6 +6,13 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：PRD_20260612_01 Phase B 代码改动已完成
+
+- 分支 `codex/bq-dataset-cleanup-impl` 基于 `main@d9963cf` 实现 `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md` 的 Phase B 代码层：删除已退役 windowed equivalence parity 两个 QA 脚本并移除空 `scripts/qa/` 目录，清理对应 true-five-year 契约测试、`sql/README.md` 运行示例和 Strategy1 Cloud Run runbook 前置条件。
+- `configs/strategy1/active_step_catalog.yml` 已把两条退役脚本路径加入 `retired_reference_lint.banned_active_refs`，并补齐 `.agent/memory/ARCHITECTURE_MEMORY.md` / `DECISION_LOG.md` 历史白名单；`KNOWN_CONSTRAINTS.md` 已将 OQ-005 window parity 硬门改为窗口 QA + 发布前 review，将 true-five-year overlap parity 改为 2026-06-11 一次性验收完成且工具退役，后续硬门收敛为 `13_true5y` + 逐年 refit panel coverage QA。
+- BQML reference/audit 约束已补充：`ads_ml_training_panel_daily` 中 `run_id LIKE 's1_bqml%'` 的 historical BQML panel 行将按 DECISION-20260612-01 / PRD §3-C 裁剪；如需复算 historical BQML run，先按 PRD §3-C-3 从 `90ccc41:sql/ml/strategy1/01_build_training_panel.sql`、registry 参数和删除前快照重建/对账面板。
+- 验证已通过：`PYTHONPATH=src python3 -m pytest -q tests`（166 passed）、`python3 -m pytest -q tests/strategy1/test_retired_lint.py`（5 passed）、active scope grep 退役脚本 `.py` 路径零引用、`git diff --check`。本轮未执行 BigQuery 操作，未改 `docs/prd/**`、`sql/incremental/**` 或 `.agent/memory/archive/**`。
+
 ### 最新补充（2026-06-12）：BigQuery 数据集盘点完成、第 1 类清理已执行、清理退役 PRD 已新增
 
 - 2026-06-12 完成 `data-aquarium` 全数据集盘点（11 个数据集逐表清点 + 仓库 SQL 契约双向比对 + `INFORMATION_SCHEMA.JOBS` 作业审计 + 对抗复核）。结论：`ashare_dim/dwd/dws/ads/research` 与 `sql/` 契约双向零差异；`research_*` 与 `ads_*` 同构属 D2/D3 research-first 设计，不是冗余。杂物集中在：遗留数据集 `ashare`（约 250.4 GiB、118 对象、2026-05-25 后零写入、仓库零引用、近 14 天作业仅盘点自身 SELECT）、`ashare_meta` 5 张 `_repair_val_*` 泄漏外部表、`ashare_qa_windowed_equivalence` 18 张 shadow 残留、`ads_ml_training_panel_daily` 中 `run_id LIKE 's1_bqml%'` 旧 run 12 个共 36,853,582 行（约 115 GB）。
