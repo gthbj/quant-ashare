@@ -1,6 +1,6 @@
 # Cloud Run Jobs - ODS 采集
 
-> 文档维护：GPT-5（2026-06-04）；Claude Fable 5（最近更新 2026-06-12）
+> 文档维护：GPT-5（2026-06-04）；Claude Fable 5（最近更新 2026-06-12）；GPT-5.5（最近更新 2026-06-13）
 
 本目录定义每日 ODS 采集的 Cloud Run Jobs 部署入口。当前只覆盖现有 SQL 消费的 15 个 ODS endpoint。生产 DAG 使用单个 `ashare-ingest-current-scope` execution 顺序执行 5 个作业组，避免同一 Tushare token 在短时间内从多个 Cloud Run 出口 IP 请求 Tushare 兼容 API。分组 Job 保留为诊断和单组补救入口：
 
@@ -122,10 +122,10 @@ static_ip=ashare-cloudrun-nat-ip-asia-east2
 - `ashare-ingest-dim-snapshot`
 - `ashare-ingest-finance-recent`
 
-镜像：`asia-east2-docker.pkg.dev/data-aquarium/ashare/ingestion@sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b`（2026-06-12 重建，含 `60fb242` status_writer 接线与 `2e4d29b` 000001.SH variant）
+镜像（当前 `latest` digest）：`asia-east2-docker.pkg.dev/data-aquarium/ashare/ingestion@sha256:49bc7e1b59c88a78869238d3d3a8433b99fafb82a577f750eabcb797809ae493`（2026-06-13 从 `main@3f017d5` 重建，Cloud Build `9a6a778f-8942-49ac-93ec-9cb15b6596af`，含 PRD_20260613_03 dividend daily scope）
 
 ⚠️ 镜像重建纪律：本镜像把 `scripts/ingestion/**` 与 `configs/ingestion/**`（含采集 manifest）打包进镜像，job 引用 `:latest` 并在 execution 创建时解析 digest。任何改动这两个路径的 PR 合并后**必须重建并推送本镜像**，否则生产采集继续运行旧代码/旧 manifest 且无显式报错（2026-06-12 事故：2026-06-04 旧镜像导致 `ashare_meta.ingestion_run` 8 天 0 行、000001.SH 自 06-10 停更）。
 
-本 PRD_20260613_03 类采集 scope 变更合并后，还必须用同一 Cloud Build 流程重建 `ingestion:latest`、记录新 digest，并用 `dividend_backfill` 组对最近一个开市日做一次手工 smoke，确认新镜像能读取 dividend manifest / schema。
+PRD_20260613_03 合并后部署记录（2026-06-13）：已用同一 Cloud Build 流程重建 `ingestion:latest`，并用 `dividend_backfill` 组对最近一个开市日 `2026-06-12` 做手工 smoke。Cloud Run execution `ashare-ingest-current-scope-zzbfj` 使用 digest `sha256:49bc7e1b59c88a78869238d3d3a8433b99fafb82a577f750eabcb797809ae493`，写入 dividend meta run `ing_dividend_backfill_20260612_20260612T173304Z`，`row_count=94`，`partition_date=20260612`。同轮只部署 `ashare_warehouse_window_refresh` 到 revision `000013-140`，未改 full_rebuild opt-in、Cloud Run job spec、IAM 或 scheduler。
 
 已完成 4 个分组 Cloud Run Job dry-run execution 验证；本地已用 Secret Manager token + `--skip-gcs-write` 对 4 个 endpoint group 做 API 只读 smoke。已完成小范围 GCS 写入 smoke：`index_daily_000852_SH / partition_date=20260603` 写入 1 行，并通过 `ashare_ods.ods_tushare_index_daily` 按 `_run_id` 读取验证。2026-06-04 生产写入 smoke 发现分组 Job 连续执行可能触发同一 Tushare token 多 IP 限制，因此新增 `ashare-ingest-current-scope` 并将 Composer DAG 默认采集任务收敛为单 execution。Direct VPC egress + Cloud NAT 固定出口已部署；`2026-05-20` 至 `2026-06-03` 的 SSE 开市日生产 GCS 回填均成功并通过 `sql/qa/09_ods_daily_partition_readiness.sql`，`manual_pipeline_daily_prod_20260604_01` 已通过 Composer 生产路径写入 `2026-06-04` 并成功完成 readiness。

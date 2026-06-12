@@ -1,10 +1,67 @@
-> 当前交接摘要（2026-06-13，GPT-5.5，dividend daily scope）
-> - `codex/dividend-daily-scope` 已实现 PRD_20260613_03：`dividend` 进入 current_scope 的 `corporate_actions` 组，并按 `lookback_open_days=5` 从 `dim_trade_calendar` 展开最近 5 个 SSE 开市日逐日 `ex_date` 请求。
-> - `qa/09` 已把 dividend 注册为 weak endpoint，`empty_return` 不写 warning；`ashare_warehouse_window_refresh` 的 `daily_current` 链尾已接入 dwd/12 + qa/14，局部 try/except 保证事件链失败只写 task failed、不 rethrow。
-> - 本轮未改 ledger / 默认 profile / Cloud Run job spec / IAM / full_rebuild opt-in；未写 BigQuery/GCS 生产数据。
-> - 合并后必须重建 ingestion 镜像并记录 digest，用 `dividend_backfill` 最近开市日 smoke，部署 Workflows；2026-06-15 scheduled run 后核验新 digest、dividend meta、事件 task 与可见上界，连续两交易日全绿后收口。
+> 当前交接摘要（2026-06-13，GPT-5.5，dividend post-merge live deploy）
+> - PR #212 已合并；已从 `main@3f017d5` 用 `cloudbuild.ingestion.yaml` 重建 `ingestion:latest`，Cloud Build `9a6a778f-8942-49ac-93ec-9cb15b6596af`，新 digest `sha256:49bc7e1b59c88a78869238d3d3a8433b99fafb82a577f750eabcb797809ae493`。
+> - 手工 smoke `ashare-ingest-current-scope-zzbfj` 已用该 digest 对 `dividend_backfill` / `2026-06-12` 写入 dividend meta run `ing_dividend_backfill_20260612_20260612T173304Z`，`row_count=94`。
+> - 只部署 `ashare_warehouse_window_refresh` 到 revision `000013-140`；`ashare_ods_ingestion_daily` / `ashare_pipeline_alert_checker` revision 未变，full_rebuild opt-in、Cloud Run job spec、IAM、scheduler 未动。
+> - TODO 已记录 2026-06-15 scheduled run 核验清单与连续两个交易日全绿收口项；这两项仍待后续真实 scheduled run。
 >
 > Model: GPT-5.5
+
+## 2026-06-13 GPT-5.5 - dividend post-merge live deployment
+
+日期: 2026-06-13
+Agent ID: Codex
+Agent 实例 ID: local checkout `/Users/fisher/Desktop/git/quant-ashare`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/dividend-live-deploy-note`
+Run ID: Cloud Build `9a6a778f-8942-49ac-93ec-9cb15b6596af`；Cloud Run execution `ashare-ingest-current-scope-zzbfj`；Workflow revision `ashare_warehouse_window_refresh@000013-140`
+相关 issue/PR: PRD `docs/prd/PRD_20260613_03_dividend日常采集与事件链路编排接入.md`；PR #212
+
+### 已完成工作
+
+- PR #212 合并后，从最新 `main@3f017d5` 按 `orchestration/cloud_run_jobs/cloudbuild.ingestion.yaml` 重建并推送 `asia-east2-docker.pkg.dev/data-aquarium/ashare/ingestion:latest`；Artifact Registry digest 为 `sha256:49bc7e1b59c88a78869238d3d3a8433b99fafb82a577f750eabcb797809ae493`。
+- 执行 `ashare-ingest-current-scope` 手工 smoke，参数限定为 `--manifest configs/ingestion/ods_dividend_backfill_v0.yml --endpoint-group dividend_backfill --business-date 2026-06-12 --allow-gcs-write`；execution `ashare-ingest-current-scope-zzbfj` 成功完成，解析到同一 digest。
+- 复核 `ashare_meta.ingestion_run` / `ingestion_partition_status`：dividend `partition_date=20260612`、run `ing_dividend_backfill_20260612_20260612T173304Z`、`status=success`、`row_count=94`；ODS 读取同分区 94 行且 `ex_date` 匹配。
+- 按 `deploy_workflows.sh` 的 control URL render 与 deploy 参数，单独部署 `ashare_warehouse_window_refresh` 到 revision `000013-140`。因脚本会同时部署三条 workflow，本轮为遵守红线未部署 `ashare_ods_ingestion_daily` / `ashare_pipeline_alert_checker`，其 revision 保持 `000010-141` / `000004-f7b`。
+- 更新 `orchestration/cloud_run_jobs/README.md`、`IMPLEMENTATION_STATUS.md`、`AGENT_HANDOFF.md` 与 `TODO.md`，记录 digest、smoke、workflow revision、06-15 scheduled run 核验清单和连续两个交易日全绿收口项。
+
+### 重要上下文
+
+- 本轮只动 ingestion 镜像与 `ashare_warehouse_window_refresh` workflow 部署；未改 full_rebuild opt-in、Cloud Run job spec、IAM 或 scheduler。
+- 2026-06-15 20:00 CST scheduled run 尚未发生，不能标记 live scheduled 验收完成；后续需核验 execution digest、dividend meta、`v_ingestion_meta_missing`、事件两步 task status 和 `dwd_stock_dividend_event` 可见上界。
+
+### 改动文件
+
+- `orchestration/cloud_run_jobs/README.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `gcloud builds submit . --project=data-aquarium --config=orchestration/cloud_run_jobs/cloudbuild.ingestion.yaml`：Cloud Build `9a6a778f-8942-49ac-93ec-9cb15b6596af` success。
+- Artifact Registry describe：`ingestion:latest` digest `sha256:49bc7e1b59c88a78869238d3d3a8433b99fafb82a577f750eabcb797809ae493`。
+- Cloud Run smoke execution `ashare-ingest-current-scope-zzbfj`：success，digest 与新镜像一致。
+- BigQuery meta / ODS 复核：dividend `20260612` meta `row_count=94`，ODS 同分区 `ex_date` 行数 94。
+- Workflows describe：`ashare_warehouse_window_refresh` revision `000013-140`；`ashare_ods_ingestion_daily` / `ashare_pipeline_alert_checker` revision 仍为 `000010-141` / `000004-f7b`。
+
+### 阻塞项
+
+- 无部署阻塞；2026-06-15 scheduled run 和连续两个交易日收口只能在未来交易日后验证。
+
+### 下一步建议
+
+- 2026-06-15 20:00 CST scheduled run 后按 TODO 清单核验新 digest、dividend meta、`v_ingestion_meta_missing`、事件两步 task status 和可见上界。
+- 连续两个交易日 scheduled run 全绿后关闭 PRD_20260613_03 后续收口项。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
 
 ## 2026-06-13 GPT-5.5 - dividend daily scope and event workflow
 
@@ -138,76 +195,6 @@ Run ID: prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v2
 
 - owner 决定 PRD_10 Phase 2 是否改为 T0 / no P1 口径，或是否先做 CA 调整后的 paper/真实 ledger 证据。
 - 合并前如 `origin/main` 再变化，rebase 后重跑全量 pytest 与 `git diff --check`。
-
-### 已更新记忆文件
-
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-## 2026-06-13 GPT-5.5 - PRD_20260613_02 v3 Calmar gate feasibility analysis
-
-日期: 2026-06-13
-Agent ID: Codex
-Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-calmar-gate`
-模型: GPT-5.5
-运行环境: macOS / zsh / branch `codex/calmar-gate-analysis`
-Run ID: N/A
-相关 issue/PR: PRD `docs/prd/PRD_20260613_02_策略1v3Calmar门合理性分析.md`；PR #211
-
-### 已完成工作
-
-- 新增只读分析脚本 `scripts/strategy1/analyze_calmar_gate_feasibility.py`，复用 v3 replay metric helper 与 `simulate_exposure_overlay_upper_bound.py` 路径，不新增 metric freeze 清单内本地定义。
-- 梳理 v3 gate 契约组合语义，引用 `acceptance.py`、`model_acceptance_contract_v3.yml`、`PRD_20260608_02` 与 `DECISION-20260608-11/-12` 的设计意图。
-- 对八个 benchmark candidate 指数计算 `2021-01-04..2026-06-09` 与 `2024-01-02..2026-04-30` 双窗口 CAGR / Sharpe / MaxDD / Calmar，并生成 3 年滚动 Calmar。
-- 拼接当前 true5y CA-on parent/child NAV，复算 baseline 指标，并在该 NAV 上跑 48 个零摩擦 exposure overlay 上界变体。
-- 按 PRD 数据契约读取 ADS 三表、从 NAV 复算指标、只把 canonical `bt_s1_<search_id>__<candidate_id>` 纳入候选，portfolio 变体单独附表；产出 A/B/C/D 反事实回放、全 gate 失败原因矩阵和满仓持指数误放行底线检查。
-- 生成报告 `docs/分析-策略1v3Calmar门合理性-20260613.md` 与 6 份小 CSV 入库产物。
-
-### 重要上下文
-
-- 本轮严格只读：未改 contract / acceptance / registry，未写 BigQuery/GCS，反事实结果只落报告和 CSV。
-- 当前 true5y CA-on stitched baseline 长窗口 CAGR=`15.36%`、Sharpe=`0.6685`、MaxDD=`-37.43%`、Calmar=`0.4103`；短窗口 Calmar=`1.1041`。
-- 八指数长窗口 Calmar 区间为 `-0.1024..0.1089`，短窗口为 `0.6557..1.3868`；3 年滚动最高 Calmar=`0.5535`。
-- exposure overlay 零摩擦最优变体 `two_state_biweekly_elow0_cost0bps` Calmar=`0.6455`、Sharpe=`0.7478`，说明 `Calmar > 1.0` 仍远，但“不存在任何择时上界可达 0.5”的强物理不可达结论不成立。
-- 历史短窗口 canonical 回放中现行 v3 有 `1 accepted / 24 rejected`；该 accepted 是历史短窗口候选，不改变当前 true5y CA-on baseline 未 accepted / 不 promotion 的事实。
-- 四选项都存在短窗口纯指数误放行风险，必须保留 pure-index guard / alpha evidence guard；owner 需要先裁决 acceptance 窗口口径，再决定 A/B/C/D 或分级展示。
-
-### 改动文件
-
-- `scripts/strategy1/analyze_calmar_gate_feasibility.py`
-- `tests/strategy1/test_calmar_gate_feasibility.py`
-- `docs/分析-策略1v3Calmar门合理性-20260613.md`
-- `docs/analysis_strategy1_v3_calmar_gate_20260613_index_metrics.csv`
-- `docs/analysis_strategy1_v3_calmar_gate_20260613_rolling_3y.csv`
-- `docs/analysis_strategy1_v3_calmar_gate_20260613_exposure_overlay.csv`
-- `docs/analysis_strategy1_v3_calmar_gate_20260613_reachability_ladder.csv`
-- `docs/analysis_strategy1_v3_calmar_gate_20260613_counterfactual_matrix.csv`
-- `docs/analysis_strategy1_v3_calmar_gate_20260613_portfolio_variants.csv`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-### 测试 / 验证
-
-- `PYTHONPATH=src python3 scripts/strategy1/analyze_calmar_gate_feasibility.py`：成功生成报告与 CSV。
-- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_calmar_gate_feasibility.py`：3 passed。
-- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_metric_definition_freeze.py`：1 passed。
-- `PYTHONPATH=src python3 -m pytest -q tests`：281 passed。
-- `git diff --check`：passed。
-
-### 阻塞项
-
-- 无。
-
-### 下一步建议
-
-- owner 先决定 v3 acceptance 采用长 continuous 窗口、短 replay 窗口还是分层判读，再裁决 A/B/C/D 或改为正式/研究分级展示。
-- 合并前 rebase 到最新 `origin/main`；若上游改动影响 Strategy1 metric/replay/acceptance 相关文件，需要重跑全量验证。
 
 ### 已更新记忆文件
 
