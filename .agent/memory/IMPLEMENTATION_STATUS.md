@@ -6,6 +6,13 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：baseline 数字切换为 CA-on 口径（DECISION-20260612-03），PRD_20260612_02 全三阶段收口
+
+- Phase C CA-on 重跑完成：backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`（execution `strategy1-backtest-report-job-dnt4b`），continuous/lot-aware/CA 三套 QA 通过，ADS 反向 0 行。新锚点：CAGR=`15.35%`、contract Sharpe=`0.6682`、Calmar=`0.4101`。
+- 六项偏差分解桥精确闭合（hfq 估计 − CA-on = 3.5066pp = 税 0.7283 + 现金滞留 2.7920 + 取整 0 + 聚合 0 + 因子残差 -0.0138，unexplained < 1e-9pp）。
+- v3 gates：Sharpe 距 0.70 门 0.032、Calmar 0.4101 < 1.0——baseline ≠ accepted、不得 promotion；测量仪已修正，剩余缺口为真实 alpha/结构缺口（OQ-010）。
+- 纪律：后续实验一律显式 CA-on（代码默认 none_v1 不变）；PRD_20260611_10 Phase 2 等后续工作的对照与参数随之切换。
+
 ### 最新补充（2026-06-11）：PRD_10 自上而下整手构造代码准备已实现，尚未 live 跑数
 
 ### 最新补充（2026-06-11）：PR #189 top-down lot-aware review follow-up 已修复

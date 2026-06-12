@@ -3147,3 +3147,39 @@ DECISION-20260611-02 接受 effective-window annual final refit / continuous 作
 ### 相关文件
 
 `.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/archive/CLOSED_QUESTIONS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/MEMORY_INDEX.md`, `TODO.md`, `docs/prd/PRD_20260611_06_策略1历史数据回填与TrueFiveYearRefit.md`, `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`
+
+## DECISION-20260612-03: 研究 baseline 数字切换为 CA-on 口径，"未复权简化"约定 superseded，后续实验一律 CA-on
+
+日期: 2026-06-12
+状态: active
+负责人: owner
+Agent ID: Claude
+模型: Claude Fable 5
+
+### 背景
+
+PRD_20260612_02（Ledger 分红送转记账修复）三阶段全部完成并通过逐阶段 review：Phase A DWD 事件表（双向 hfq 交叉校验，OQ-015 预演拦截 74 条经裁决机制化处理）、Phase B ledger `corporate_actions` 参数实现（11 接缝传播、默认逐字节回归）、Phase C true5y CA-on 重跑（execution `strategy1-backtest-report-job-dnt4b`，三套 QA 通过，ADS 反向 0 行）。六项偏差分解桥精确闭合（`unexplained_residual < 1e-9pp`），证明 Phase A 数据、Phase B 记账与 PR #194 独立测量三者一致。
+
+### 决策
+
+1. 策略 1 研究 baseline 数字切换为 **CA-on 口径**：backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，锚点 compound CAGR=`15.35%`、v3 contract Sharpe=`0.6682`、contract Calmar=`0.4101`、平均现金分红税后入账（flat 10%）。true5y CA-off 与 effective-window 口径降级为历史参照。
+2. DECISION_LOG 中 v1 ledger 验收决策所含"未复权口径、持有期除权简化"约定自本决策起 **superseded**（其余 v1 简化如不可交易腿 carry 语义不受影响）。
+3. **后续所有策略实验一律 CA-on**：显式传 `corporate_actions=cash_div_and_split_v1` / `dividend_tax_mode=flat_10pct`；代码默认值保持 `none_v1` 不变（历史可复现性），纪律靠 run 参数与 QA 断言执行。
+4. v3 gates 现状如实记录：contract Sharpe `0.6682 < 0.70`（距门 0.032）、Calmar `0.4101 < 1.0`——**baseline ≠ accepted、不得 promotion**；测量仪已修正，剩余缺口为真实 alpha/结构缺口（OQ-010 范畴）。
+
+### 理由
+
+预登记判据（PR #194 触发）与逐阶段验收全部满足；偏差桥闭合证明新口径可信。继续以漏记分红的数字为锚会让后续所有实验背上已知且已修复的测量偏差。
+
+### 影响
+
+PRD_20260611_10 Phase 2 及后续实验的对照基线与运行参数随之切换；对比旧 baseline 的历史结论标注口径；超额/IR 叙事需注意基准 000852 为价格指数（不含分红），跨口径对比时考虑全收益指数。
+
+### 备选方案
+
+- 维持 CA-off baseline：不采用——保留已修复的已知偏差无收益。
+- 把代码默认值改为 CA-on：不采用——破坏历史 run 可复现性与默认逐字节回归承诺，纪律由参数+QA 承担即可。
+
+### 相关文件
+
+`docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/MEMORY_INDEX.md`, `TODO.md`

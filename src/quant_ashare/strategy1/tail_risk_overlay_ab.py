@@ -461,7 +461,8 @@ def run_standard_arm_qa(
         "p_min_buy_lot": 1,
         "p_min_buy_shares": 100,
         "p_resume_policy_id": RESUME_POLICY_ID,
-        "p_corporate_actions": "none_v1",
+        # DECISION-20260612-03：实验编排层一律显式 CA-on（ledger 代码默认仍为 none_v1）
+        "p_corporate_actions": "cash_div_and_split_v1",
         "p_dividend_tax_mode": "flat_10pct",
     }
     outputs = []

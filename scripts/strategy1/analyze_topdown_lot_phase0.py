@@ -63,7 +63,7 @@ PREDICTION_RUN_ID_PATTERN = re.compile(
     r"\bs1_annual_roll_synth_continuous(?:_true5y)?_2021_2026_n20_w075_v\d{8}_\d+\b"
 )
 BACKTEST_ID_PATTERN = re.compile(
-    r"\bbt_s1_annual_roll_continuous(?:_true5y)?_2021_2026_n20_w075_v\d{8}_\d+\b"
+    r"\bbt_s1_annual_roll_continuous(?:_true5y)?_2021_2026_n20_w075_v\d{8}_\d+(?:_ca\d+)?\b"
 )
 BASELINE_CONTEXT_PATTERN = re.compile(
     r"DECISION-20260612-02|研究 baseline|baseline|采纳|切换|current baseline",
@@ -191,14 +191,17 @@ def resolve_run_ids_from_memory_text(
 
 
 def find_baseline_ids(memory_text: str) -> tuple[str | None, str | None]:
+    baseline_prediction_id: str | None = None
+    baseline_backtest_id: str | None = None
     for chunk in baseline_context_chunks(memory_text):
-        prediction_id = first_pattern_match(PREDICTION_RUN_ID_PATTERN, chunk)
-        backtest_id = first_pattern_match(BACKTEST_ID_PATTERN, chunk)
-        if prediction_id and backtest_id:
-            return prediction_id, backtest_id
-    return first_pattern_match(PREDICTION_RUN_ID_PATTERN, memory_text), first_pattern_match(
-        BACKTEST_ID_PATTERN,
-        memory_text,
+        if baseline_prediction_id is None:
+            baseline_prediction_id = first_pattern_match(PREDICTION_RUN_ID_PATTERN, chunk)
+        if baseline_backtest_id is None:
+            baseline_backtest_id = first_pattern_match(BACKTEST_ID_PATTERN, chunk)
+        if baseline_prediction_id and baseline_backtest_id:
+            return baseline_prediction_id, baseline_backtest_id
+    return baseline_prediction_id or first_pattern_match(PREDICTION_RUN_ID_PATTERN, memory_text), (
+        baseline_backtest_id or first_pattern_match(BACKTEST_ID_PATTERN, memory_text)
     )
 
 
@@ -211,8 +214,12 @@ def baseline_context_chunks(memory_text: str) -> list[str]:
         if not PREDICTION_RUN_ID_PATTERN.search(chunk) and not BACKTEST_ID_PATTERN.search(chunk):
             continue
         score = 0
-        if "DECISION-20260612-02" in chunk:
-            score += 100
+        decision_ids = re.findall(r"DECISION-(\d{8})-(\d{2})", chunk)
+        if decision_ids:
+            # 最新的 baseline 决策优先：按 (日期, 序号) 取该 chunk 内最大决策号入分，
+            # 避免字面锚定旧决策 id（DECISION-20260612-03 撞号教训的延伸）。
+            latest = max(int(d + n) for d, n in decision_ids)
+            score += 100 + (latest - 2026061200)
         if "true5y" in chunk or "true-five-year" in chunk:
             score += 80
         if re.search(r"研究 baseline|current baseline|baseline", chunk, flags=re.IGNORECASE):
