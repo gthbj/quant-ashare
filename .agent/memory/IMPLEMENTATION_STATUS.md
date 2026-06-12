@@ -6,6 +6,18 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：PR #190 Phase 0 resolver 已兼容 true-five-year research baseline 切换
+
+- 按 PR #192 review 发现 1，`scripts/strategy1/analyze_topdown_lot_phase0.py` 的默认 run/backtest id resolver 已从“effective-window official ids”改为“当前研究 baseline（从记忆解析）”：支持 `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_*` 与 `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_*`，并优先解析含 `DECISION-20260612-02` / “采纳/切换/研究 baseline”语义的记忆段落；找不到 baseline 语义时再回退全文首个匹配。
+- 新增 fixture 单测覆盖同一记忆文本同时存在旧 effective-window ids 与新 true5y ids 时，默认解析返回 true5y。本文只修 resolver 与测试/记忆，不重跑 Phase 0 数据、不改报告数字、不触碰 ledger v1 / Phase 1、不改默认 tail_risk profile、不 promotion。
+
+### 最新补充（2026-06-12）：PR #190 Phase 0 paper review follow-up 已完成
+
+- `scripts/strategy1/analyze_topdown_lot_phase0.py` 已按 PR #190 review 修订：主判读成本档改为 official matched 分腿费率（买 `6bps`、卖 `11bps`），保留 `0bps` / `20bps` 敏感性；输出逐票持仓审计 `holdings_detail_json`，新增 P1 饱和机制、四通道归因、2022-05 饱和 episode、最差 3 个 10 日窗口持仓明细；集中度主口径改为 NAV 分母并保留持仓内分母对照。
+- Phase 0 重新跑完（BigQuery 只读 + 本地 pandas；未训练模型、未改 prediction 流、未启动 Cloud Run、未写 `ashare_research` / ADS / promotion 表）。`walk_depth=50` / matched official cost 主结果：T0 CAGR=`10.91%`、MaxDD=`-63.66%`、Calmar=`0.171`；T1 CAGR=`-2.79%`、MaxDD=`-66.32%`、Calmar=`-0.042`；T1-T0 CAGR gap=`-13.70pp`，crunch excess 改善=`+8.96pp`。`single_20bps` 旧口径 gap=`-14.81pp` 已作为敏感性和 review 原始 gap 对照保留。
+- P1 主要问题改判为市值规则饱和而非替换语义本身：matched 主口径四通道归因中现金差约 `-8.93pp/年`、持仓构成差约 `-4.53pp/年`、成本/换手差约 `+0.07pp/年`、集中度差约 `-0.31pp/年`。2022-05-06 signal 的 T1 top-50 P1 标记率 `98%`、市值规则标记率 `96%`，2022-05-09 开始 10 个交易日 T1 平均现金 `94.48%`，窗口 T1-T0 return gap=`-9.07pp`。
+- 产物处置：小 CSV `docs/analysis_strategy1_topdown_lot_phase0_20260612_metrics.csv` 需随 PR 入库；大 CSV 已上传 GCS 并由报告引用：`gs://ashare-artifacts/reports/strategy1/topdown_phase0/analysis_date=20260612/analysis_strategy1_topdown_lot_phase0_20260612_daily.csv` 与 `..._rebalance_audit.csv`。本轮仍不动 ledger v1 / Phase 1 代码、不改默认 tail_risk profile、不 promotion；owner 决策问题改为是否剔除两条市值规则（保留崩盘形态规则）或增加饱和回退。
+
 ### 最新补充（2026-06-12）：研究 baseline 切换为 true-five-year continuous（DECISION-20260612-02），OQ-011 关闭
 
 - Owner 采纳 true-five-year continuous 为策略 1 研究 baseline：run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`、backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`；effective-window continuous（`..._v20260610_02` 族）降级为历史参照。采纳依据为方法论性（effective-window 的覆盖约束前提已被 PRD_06 拆除且全部门禁通过），非结果驱动。
