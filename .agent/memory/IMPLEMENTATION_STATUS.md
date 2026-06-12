@@ -6,6 +6,14 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：ingestion 镜像 stale 事故修复（meta 审计静默 + 000001.SH 日更缺失）
+
+- 诊断确认：`ashare-ingest-current-scope` 等 5 个采集 Cloud Run Jobs 引用 `ingestion:latest`，自 2026-06-04 11:50 UTC（build `35bca022`，digest `351dfd99...`）后从未重建；而 status_writer 接线 commit `60fb242` 是同日 15:57 UTC——线上镜像从未包含 `IngestionStatusWriter`，live 采集成功但从不写 `ashare_meta.ingestion_run` / `ingestion_partition_status`（两表自建表起 0 行、近 7 天零 DML 的根因）。`v_ingestion_failures` / `v_ingestion_empty_returns` / `v_alert_summary` 的 `ingestion_failed` 分支因此一直读空表，采集级告警静默。
+- 第二个 stale 后果：manifest 打包在镜像内（Dockerfile `COPY configs/ingestion`），`2e4d29b`（2026-06-08）新增的 `index_daily_000001_SH` / `index_dailybasic_000001_SH` variant 从未生效——ODS 000001.SH 自 2026-06-10 起停更，`dwd_index_eod` 000001.SH 停在 `2026-06-09`，`dws_market_state_daily` 2026-06-10/11 的 `sse_composite_*` 全 NULL，其中 06-10 `market_regime='risk_off'` 是综指输入缺失下的判定，可信度存疑（06-09 输入完整时为 risk_neutral）。当前正式研究窗口（至 06-09）未消费这两天退化行。
+- 修复（2026-06-12 17:00-17:30 CST，Claude Fable 5）：按 `orchestration/cloud_run_jobs/cloudbuild.ingestion.yaml` 既有流程从 main 同源工作树重建镜像，新 digest `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b`（build `8053b0d5`）；job spec 未动（仍引用 `:latest`，execution 创建时自动解析新 digest，boot dry-run execution `ashare-ingest-current-scope-4vq5v` 已实证解析到新 digest，plan 27 个分区端点、含 000001.SH 两个 variant）。
+- 已用新镜像补采 000001.SH 的 2026-06-10/11（4 个 live execution：`zh88k` / `q4prv` / `fr44m` / `v9k6h`，run_id `manual_backfill_sse_composite_2026061{0,1}`）：`ingestion_run` 落 4 行 success、`ingestion_partition_status` MERGE 4 行（**两表自建表以来首批生产行，status_writer 全链路实证**）；ODS 外部表已可读 06-10/11 的 000001.SH 行。部署前已验证两表 schema 与 INSERT/MERGE 列完全匹配（06-08 ALTER_TABLE 仅恢复列描述）、runtime SA `sa-ashare-ingestion` 具备 jobs.create + `ashare_meta` 写权限。
+- 待今晚 2026-06-12 20:00 CST scheduled run 验证（今天开市）：①`ingestion_run` 落当日 27 端点行；②`daily_current` 窗口刷新自动重写 06-10/11 的 `dwd_index_eod` 000001.SH 与 `dws_market_state_daily` `sse_composite_*`（`02`/`03` 增量 SQL 写窗回看 20 个交易日，无需手工 backfill）；③`v_alert_summary` 采集分支恢复有数据来源。job spec / scheduler / workflow / IAM 均未改动。
+
 ### 最新补充（2026-06-12）：PR #186 分析 CSV 已从 main 清理
 
 - 按 owner 要求，直接在 `main` 清理 PR #186 带入的四份可再生成分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
