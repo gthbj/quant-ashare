@@ -15,7 +15,7 @@ Last updated: 2026-06-13
 ### 采集与调度
 
 - 生产调度唯一入口已迁到 `Cloud Scheduler + Cloud Workflows`；`ashare-composer` 已删除，Composer 目录仅保留为 retired / audit-only 历史快照。
-- 2026-06-12 scheduled current_scope 已使用修复后 ingestion 镜像 `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 写入 `ashare_meta.ingestion_run` / `ingestion_partition_status` 27 行，采集审计链路恢复已验证；本轮新增 `v_ingestion_meta_missing` 与对应 alert policy 防复发。PRD_20260613_03 分支已把 `dividend` 纳入日常 current_scope 的 `corporate_actions` 组，按最近 5 个 SSE 开市日逐日重查，并在 `daily_current` 链尾以 non-blocking weak 方式接入 dwd/12 + qa/14。代码合并后必须重建 ingestion 镜像并在 2026-06-15 20:00 CST scheduled run 后核验新 digest、dividend meta、事件 task 和可见上界。OQ-005 仍剩 post-cutover 短观察窗与 2026-06-12 下游 window QA 独立失败跟进。
+- 2026-06-12 scheduled current_scope 已使用修复后 ingestion 镜像 `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 写入 `ashare_meta.ingestion_run` / `ingestion_partition_status` 27 行，采集审计链路恢复已验证；本轮新增 `v_ingestion_meta_missing` 与对应 alert policy 防复发。PRD_20260613_03 已合并，`dividend` 纳入日常 current_scope 的 `corporate_actions` 组，按最近 5 个 SSE 开市日逐日重查，并在 `daily_current` 链尾以 non-blocking weak 方式接入 dwd/12 + qa/14；合并后已重建 ingestion 镜像到 `sha256:49bc7e1b59c88a78869238d3d3a8433b99fafb82a577f750eabcb797809ae493`、完成 `dividend_backfill` 2026-06-12 smoke，并把 `ashare_warehouse_window_refresh` 部署到 revision `000013-140`。下一步是 2026-06-15 20:00 CST scheduled run 后核验新 digest、dividend meta、事件 task 和可见上界；OQ-005 仍剩 post-cutover 短观察窗与 2026-06-12 下游 window QA 独立失败跟进。
 
 ### Strategy1 执行层与 baseline
 
@@ -40,6 +40,13 @@ Last updated: 2026-06-13
 - PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；门/窗口/分级是否调整仍留 owner 决策。PRD_20260613_01 已完成 topdown Phase 2 前置 P1 双选项 paper 批量；按预登记判据，修复臂均未达标，Phase 2 若继续应以 T0（无 P1）口径进入并由 owner 决策是否修订 PRD_10 的 P1 绑定条款。尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
+
+### 最新补充（2026-06-13）：PRD_20260613_03 合并后 ingestion 镜像和 window_refresh 已部署
+
+- PR #212 已合并到 `main`（merge commit `3f017d5`）；已从最新 main 按 `orchestration/cloud_run_jobs/cloudbuild.ingestion.yaml` 重建 `ingestion:latest`，Cloud Build `9a6a778f-8942-49ac-93ec-9cb15b6596af` 成功，新 digest `sha256:49bc7e1b59c88a78869238d3d3a8433b99fafb82a577f750eabcb797809ae493`。
+- 手工 smoke execution `ashare-ingest-current-scope-zzbfj` 使用该 digest 对 `dividend_backfill` / `2026-06-12` 采集，写入 dividend meta run `ing_dividend_backfill_20260612_20260612T173304Z`；`ingestion_run` / `ingestion_partition_status` 均为 `row_count=94`、`status=success`，ODS 读取 `partition_date=20260612` 与 `ex_date` 匹配 94 行。
+- `ashare_warehouse_window_refresh` 已按部署脚本的 render/deploy 参数单独部署到 revision `000013-140`；因 `deploy_workflows.sh` 会同时部署三条 workflow，本轮为遵守红线只部署 window_refresh，`ashare_ods_ingestion_daily` / `ashare_pipeline_alert_checker` revision 仍为 `000010-141` / `000004-f7b`。
+- 本轮未改 full_rebuild opt-in、Cloud Run job spec、IAM 或 scheduler；TODO 已保留 2026-06-15 scheduled run 核验清单和连续两个交易日全绿收口项。
 
 ### 最新补充（2026-06-13）：PRD_20260613_03 dividend 日常采集与事件链路接入已实现
 
@@ -89,11 +96,3 @@ Last updated: 2026-06-13
 - 已从 parent `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 的 `2026-05-27` state resume 到 child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，Cloud Run execution `strategy1-backtest-report-job-tjn4j` 成功，输出仅写 `ashare_research`。`qa_lot_aware_ledger_outputs` job `b697f4dc-1eaf-4eff-9df1-23e04fb809ac` 与 `qa_corporate_action_ledger_outputs` job `beefe3d8-0022-4aa9-a224-37eb82931760` 通过；ADS 反查和 promotion manifest 均为 0 行。
 - parent/child 差异归因闭合：新增两条 `CORPORATE_ACTION_CASH_DIVIDEND`（`002756.SZ` 2026-05-29、`001314.SZ` 2026-06-02），税前 `76.0`、税 `7.6`、净现金 `68.4` 元；position/share 差异为 0。非 CA 只有两条未成交 `BUY_SKIPPED_BELOW_LOT` planned_shares 尾差，filled/cash/turnover/fee/tax/slippage 均为 0。
 - 拼接 parent NAV `2021-01-04..2026-05-27` + child NAV `2026-05-28..2026-06-09` 后，v3 contract 口径 CAGR=`0.15357789449949522`、contract Sharpe=`0.668539787795112`、Calmar=`0.41030930550903105`、MaxDD=`-0.3742978588042647`。Claude review 已通过 PR #205 技术面，owner 预先决策影响很小则采纳；本轮采纳展示数字修正，但不改 `DECISION-20260612-03` 数字文本。
-
-### 最新补充（2026-06-12）：PRD_20260612_05 Batch 2 包结构收尾已实现
-
-- 分支 `codex/prd05-batch2` / PR #204 已按 PRD §3 Batch 2 完成 Strategy1 包结构收尾：`scripts/strategy1_cloudrun/state.py` 与 `task_fanout.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名文件改为 thin re-export shim；src 内对两模块的反向 import 已改为包内直连。
-- `annual_pipeline_scheduler.py` 去重使用迁入后的 `state.utc_now` / `_is_precondition_error` / `_is_not_found_error` / `describe_cloud_run_execution`；`GcloudExecutionClient.describe` 复用 state helper，恢复失败路径的 `LOGGER.warning`，这是本 Batch 唯一行为差异修复。
-- `GcsLeaseLock` / `GcsSchedulerLease` / `PipelineStateStore` docstring 已标注各自锁语义出处；未合并三类 lock 的 reclaim / heartbeat 语义。
-- `tests/strategy1/test_gcs_leases.py` 新增 fake GCS 直测，覆盖 `GcsLeaseLock` acquire 竞争、stale reclaim 的 execution-terminal 条件、heartbeat 失锁，以及 `GcsSchedulerLease` generation conflict、失 owner 停止、无 reclaim 行为。`tests/strategy1/test_package_boundaries.py` 更新 Batch 2 shim 符号快照与反向 import 计数断言；Batch 2 后 src→scripts import 仅剩 `feature_sets` / `preprocess` / `orchestrate_annual_rolling_selection`。
-- 本轮不改训练、回测、ledger、orchestrator 调度语义，不触碰 Cloud Run job spec/args/镜像/IAM，不写 BigQuery/GCS。最终验证通过：`PYTHONPATH=src python3 -m pytest -q tests`（275 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`（6 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`（16 passed）；retired linter / compileall / Dataform check / `git diff --check` 均通过。

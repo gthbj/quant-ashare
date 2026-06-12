@@ -315,6 +315,76 @@ Run ID: N/A
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 
+## 2026-06-13 GPT-5.5 - PRD_20260613_02 v3 Calmar gate feasibility analysis
+
+日期: 2026-06-13
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-calmar-gate`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/calmar-gate-analysis`
+Run ID: N/A
+相关 issue/PR: PRD `docs/prd/PRD_20260613_02_策略1v3Calmar门合理性分析.md`；PR #211
+
+### 已完成工作
+
+- 新增只读分析脚本 `scripts/strategy1/analyze_calmar_gate_feasibility.py`，复用 v3 replay metric helper 与 `simulate_exposure_overlay_upper_bound.py` 路径，不新增 metric freeze 清单内本地定义。
+- 梳理 v3 gate 契约组合语义，引用 `acceptance.py`、`model_acceptance_contract_v3.yml`、`PRD_20260608_02` 与 `DECISION-20260608-11/-12` 的设计意图。
+- 对八个 benchmark candidate 指数计算 `2021-01-04..2026-06-09` 与 `2024-01-02..2026-04-30` 双窗口 CAGR / Sharpe / MaxDD / Calmar，并生成 3 年滚动 Calmar。
+- 拼接当前 true5y CA-on parent/child NAV，复算 baseline 指标，并在该 NAV 上跑 48 个零摩擦 exposure overlay 上界变体。
+- 按 PRD 数据契约读取 ADS 三表、从 NAV 复算指标、只把 canonical `bt_s1_<search_id>__<candidate_id>` 纳入候选，portfolio 变体单独附表；产出 A/B/C/D 反事实回放、全 gate 失败原因矩阵和满仓持指数误放行底线检查。
+- 生成报告 `docs/分析-策略1v3Calmar门合理性-20260613.md` 与 6 份小 CSV 入库产物。
+
+### 重要上下文
+
+- 本轮严格只读：未改 contract / acceptance / registry，未写 BigQuery/GCS，反事实结果只落报告和 CSV。
+- 当前 true5y CA-on stitched baseline 长窗口 CAGR=`15.36%`、Sharpe=`0.6685`、MaxDD=`-37.43%`、Calmar=`0.4103`；短窗口 Calmar=`1.1041`。
+- 八指数长窗口 Calmar 区间为 `-0.1024..0.1089`，短窗口为 `0.6557..1.3868`；3 年滚动最高 Calmar=`0.5535`。
+- exposure overlay 零摩擦最优变体 `two_state_biweekly_elow0_cost0bps` Calmar=`0.6455`、Sharpe=`0.7478`，说明 `Calmar > 1.0` 仍远，但“不存在任何择时上界可达 0.5”的强物理不可达结论不成立。
+- 历史短窗口 canonical 回放中现行 v3 有 `1 accepted / 24 rejected`；该 accepted 是历史短窗口候选，不改变当前 true5y CA-on baseline 未 accepted / 不 promotion 的事实。
+- 四选项都存在短窗口纯指数误放行风险，必须保留 pure-index guard / alpha evidence guard；owner 需要先裁决 acceptance 窗口口径，再决定 A/B/C/D 或分级展示。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_calmar_gate_feasibility.py`
+- `tests/strategy1/test_calmar_gate_feasibility.py`
+- `docs/分析-策略1v3Calmar门合理性-20260613.md`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_index_metrics.csv`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_rolling_3y.csv`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_exposure_overlay.csv`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_reachability_ladder.csv`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_counterfactual_matrix.csv`
+- `docs/analysis_strategy1_v3_calmar_gate_20260613_portfolio_variants.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 scripts/strategy1/analyze_calmar_gate_feasibility.py`：成功生成报告与 CSV。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_calmar_gate_feasibility.py`：3 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_metric_definition_freeze.py`：1 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests`：281 passed。
+- `git diff --check`：passed。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- owner 先决定 v3 acceptance 采用长 continuous 窗口、短 replay 窗口还是分层判读，再裁决 A/B/C/D 或改为正式/研究分级展示。
+- 合并前 rebase 到最新 `origin/main`；若上游改动影响 Strategy1 metric/replay/acceptance 相关文件，需要重跑全量验证。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
 ## 2026-06-12 GPT-5.5 - PRD_20260612_05 Batch 3 package cleanup
 
 日期: 2026-06-12
