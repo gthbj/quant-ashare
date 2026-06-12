@@ -896,7 +896,7 @@ def build_report(
 
 ## 口径声明
 
-- 主结果 backtest：`{TRUE5Y_BACKTEST_ID}`（DECISION-20260612-01 已采纳为研究 baseline；baseline != accepted，仍不得 promotion）。
+- 主结果 backtest：`{TRUE5Y_BACKTEST_ID}`（DECISION-20260612-02 已采纳为研究 baseline；baseline != accepted，仍不得 promotion）。
 - 历史参照 backtest：`{EFFECTIVE_BACKTEST_ID}`。
 - 窗口：`{cfg.start_date}` 至 `{cfg.end_date}`。
 - 测量公式：`daily_leak = SUM(prev_day_weight * (hfq_return - raw_return))`。

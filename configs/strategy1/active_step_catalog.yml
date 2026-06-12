@@ -532,6 +532,8 @@ retired_reference_lint:
     - scripts.strategy1_cloudrun.train_candidate_task
     - scripts.strategy1_cloudrun.select_register_predict
     - scripts.strategy1_cloudrun.backtest_report
+    - scripts/qa/run_windowed_refresh_equivalence
+    - scripts/qa/run_index_market_windowed_equivalence
   active_scopes:
     - src/**
     - scripts/**
@@ -547,7 +549,9 @@ retired_reference_lint:
     - sql/cloudrun/strategy1/README.md
     - docs/prd/**
     - docs/retired/**
+    - .agent/memory/ARCHITECTURE_MEMORY.md
     - .agent/memory/AGENT_HANDOFF.md
+    - .agent/memory/DECISION_LOG.md
     - .agent/memory/IMPLEMENTATION_STATUS.md
     - .agent/memory/KNOWN_CONSTRAINTS.md
     - .agent/memory/OPEN_QUESTIONS.md
