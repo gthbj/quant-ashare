@@ -1,7 +1,7 @@
 # PRD：Strategy1 包结构 Phase E 收尾（src ↔ scripts 依赖方向翻正）
 
 > 状态：草案，待 Codex review 收敛后定稿。
-> 范围声明：纯代码搬移与 shim 回填，**不改任何运行语义**；不动 Cloud Run job spec / args / 镜像 / IAM；不动两个大 orchestrator（`orchestrate_sklearn_native_search.py` / `orchestrate_annual_rolling_selection.py`，KNOWN_CONSTRAINTS 兼容层条款继续适用）。
+> 范围声明：纯代码搬移与 shim 回填，**不改任何运行语义**；不动 Cloud Run job spec / args / 镜像 / IAM；不动两个大 orchestrator（`orchestrate_sklearn_native_search.py` / `orchestrate_annual_rolling_selection.py`）的 CLI 主体与调度行为，KNOWN_CONSTRAINTS 兼容层条款继续适用——**例外**：`orchestrate_annual_rolling_selection.py` 中被 src 包消费的计划层纯函数 / 常量在 Batch 3 抽入 src 模块、orchestrator 改为 import（行为不变，见 §3 Batch 3）。
 > 关联：PRD_20260610_02（项目结构重构方案，本 PRD 是其 Phase C/E 既定目标的收尾实施）；DECISION-20260610-11（新增领域逻辑落 src、scripts 只作兼容入口）；2026-06-12 重构评估（owner 已采纳，四个评估维度独立命中本问题）。
 
 ---
@@ -26,12 +26,14 @@ PRD_20260610_02 的目标态是「`src/quant_ashare/**` 是可独立安装、可
 
 ## 3. 方案：三批迁移，每批独立 PR
 
-通用模式（已验证）：模块文件移入 `src/quant_ashare/strategy1/`（文件名不变），scripts 侧同名文件改为 shim（参照现有 `scripts/strategy1_cloudrun/ledger.py`：docstring 注明迁移 + `from quant_ashare.strategy1.<mod> import *` + 显式 re-export 非 `__all__` 私有符号——以**符号集合等价断言测试**兜底，见 §5）。src 包内所有 `from scripts.strategy1_cloudrun import X` 改为包内相对 / 绝对 import。
+通用模式（已验证）：模块文件移入 `src/quant_ashare/strategy1/`（文件名不变），scripts 侧同名文件改为 shim。**兼容符号快照机制**（替代模糊的「私有符号 re-export」承诺）：每批迁移前先 grep 全仓，枚举其他文件对被迁模块的全部跨文件引用符号（公开与 `_private` 都算），形成写死在测试里的快照；shim 用 `import *` + 显式补充快照中不被 `*` 覆盖的符号；测试精确断言快照内每个符号可从 `scripts.strategy1_cloudrun.<mod>` 导入且 `__module__` 指向 `quant_ashare.strategy1.*`。快照外的纯模块内部私有符号不承诺兼容。src 包内所有 `from scripts.strategy1_cloudrun import X` 改为包内 import。
 
-### Batch 1：`bq_io.py` + `config.py`
+### Batch 1：`bq_io.py` + `config.py` + 机械重写残留
 
 - 迁移后 `config.py:27` 的反向 import 自然消解（包内 import catalog）。
 - `config.py` 是参数 / 环境解析核心，被 src 与 scripts 双侧最多模块消费，shim 必须完整 re-export（含模块级常量）。
+- **`__version__` 迁移**：6 个 src 模块 `from scripts.strategy1_cloudrun import __version__`（pipeline_control / annual_pipeline_scheduler / train_candidate_task / prepare_matrix / select_register_predict / train_predict）。runner version 常量改在 src 包内定义（如 `quant_ashare/strategy1/runner_version.py` 或包 `__init__`），`scripts/strategy1_cloudrun/__init__.py` 改为从 src re-export（值不变：`strategy1_cloudrun_runner_v0_20260606_lot100`）。
+- **shim 直连重写**：src 内 8+ 处对已是 shim 的 `scripts.strategy1_cloudrun.dataset_roles` / `.acceptance` 的 import（如 `tail_risk_overlay_ab.py:28`、`train_predict.py:27,53`、`synthetic_continuous.py:28`、`refit_register_predict.py:30` 等）改为直连 `quant_ashare.strategy1.*`（机械重写，消除「src→scripts shim→src」绕环）。
 
 ### Batch 2：`state.py` + `task_fanout.py` + 字面级去重 + lease 补测
 
@@ -40,9 +42,10 @@ PRD_20260610_02 的目标态是「`src/quant_ashare/**` 是可独立安装、可
 - **明确不做**：不合并 `GcsLeaseLock` / `GcsSchedulerLease` / `pipeline_control` 锁的 reclaim / heartbeat 语义——三者差异各有 PRD 背书（PRD_20260611_01 L159 execution-terminal reclaim；PRD_20260611_07 §4.1 scheduler 无 reclaim 是刻意最小设计；KNOWN_CONSTRAINTS warehouse 锁条款）。仅在各类 docstring 补一行语义出处注记。
 - 补测：`GcsLeaseLock`（acquire 竞争 / stale 回收含 execution-terminal 条件 / heartbeat 失锁）与 `GcsSchedulerLease`（generation conflict / 失 owner 即停 / 无 reclaim 行为本身）的直接单测，仿 `tests/pipeline_control/test_state_lock.py` 的 fake GCS 模式。
 
-### Batch 3：`feature_sets.py` + `preprocess.py` + `training_panel.py` + 收尾
+### Batch 3：`feature_sets.py` + `preprocess.py` + `training_panel.py` + annual rolling 计划层抽取 + 收尾
 
 - 迁移三模块。
+- **annual rolling 计划层抽取**（消除最后一处 src→scripts import）：`src/quant_ashare/strategy1/annual_pipeline_scheduler.py:32-44` 直接 import `scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection` 的 `DEFAULT_*` 常量、`build_year_experiment`、`command_plan`、`validate_config` 等计划层符号（以实查清单为准）。将这些**被包消费的纯函数 / 常量**抽到 src 新模块（建议 `quant_ashare/strategy1/annual_rolling_plan.py`），orchestrator 与 scheduler 都改为从该模块 import；orchestrator 的 CLI 主体、参数面与调度行为零变化（范围声明例外条款）。
 - 收尾验收：新增**包自洽测试**——subprocess 在非仓库 cwd、`PYTHONPATH` 仅含 `src/` 下逐个 import `quant_ashare.strategy1` 全部模块成功（这是 Phase E 完成的可执行定义）。
 - 同步：KNOWN_CONSTRAINTS 兼容层条款更新（剩余兼容面收窄为两个 orchestrator + shim 群）；PRD_20260610_02 补一行状态注记；`tests/strategy1/test_package_boundaries.py` 边界断言随迁移更新（src 不得 import scripts 改为**硬断言**）。
 
@@ -59,7 +62,7 @@ PRD_20260610_02 的目标态是「`src/quant_ashare/**` 是可独立安装、可
 
 ## 5. 验收（每批 PR）
 
-1. shim 符号集合等价：测试断言 `dir(scripts.strategy1_cloudrun.<mod>)` 的公开符号 ⊇ 迁移前快照（快照写死在测试中）。
+1. shim 兼容符号快照（§3 通用模式）：测试精确断言快照内每个符号（含被跨文件引用的 `_private`）可从 `scripts.strategy1_cloudrun.<mod>` 导入且 `__module__` 指向 `quant_ashare.strategy1.*`。
 2. src 反向 import 计数单调递减，Batch 3 后为 0（grep 断言进 `test_package_boundaries.py`）。
 3. 全量测试通过 + §4 清单全绿。
 4. Batch 3 后包自洽测试通过。
