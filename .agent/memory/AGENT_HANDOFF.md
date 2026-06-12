@@ -1,9 +1,73 @@
-> 当前交接补充（2026-06-12，GPT-5.5，Ledger CA Phase A）
-> - `codex/ledger-corporate-actions` 已完成 PRD_20260612_01 Phase A：新增 DWD 分红送转事件表、hfq 双向 mismatch QA 明细表、ledger-consumable view、Dataform action/generated SQLX、单位契约、metadata 与重复样例 fixture 测试。
-> - OQ-015 裁决已落实：不修 `stk_co_rate`，不设人工 allowlist；容差为 abs/rel + `0.01/prev_close` floor；mismatch 自动归类为 `data_anomaly` / `special_dividend` / `same_day_orphan_corporate_action`，QA 硬门为未归类 mismatch=0。
-> - BigQuery Phase A 已执行并通过 QA：2021+ canonical events=`22009`、same-ex_date 聚合键=`20`；mismatch 分布 event_to_factor `data_anomaly=1106`、`special_dividend=1`，factor_to_event orphan=`405`，unclassified=`0`；ledger-consumable view 行数=`46431`。本轮未改 ledger 代码、未写 ADS/research/promotion。
+> 当前交接补充（2026-06-12，GPT-5.5，Ledger CA Phase B）
+> - `codex/ledger-corporate-actions` 已完成 PRD_20260612_01 Phase B ledger 实现：`corporate_actions` / `dividend_tax_mode` 贯通 Experiment/manifest、CLI、Cloud Run plan、SQL params、LedgerParams、hash、summary、catalog、runner QA、lot-aware QA、新 CA QA 与两套 resume QA。
+> - `run_ledger` 只读 Phase A ledger-consumable view，在 ex_date 开盘前先按 record_date entitlement 做送转 `floor` 审计，再按 record_date 股数 + flat 10% 税后派息入现金；调仓日仍先 CA 后交易。默认 `none_v1` 保持 trade/position/NAV/state/hash 不变量，hash 黄金值 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d` 未变。
+> - 验证已通过：`python3 -m pytest tests` 176 passed、retired linter、compileall、Dataform generator check、Dataform compile、new CA QA research BigQuery dry-run、`git diff --check`。本轮未执行 Phase C、未写既有 run、不 promotion、不改默认 profile、不触碰 `bq_io.py`。
 >
 > Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase B 实现
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-ledger`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
+Run ID: N/A
+相关 issue/PR: PR #198（Phase A + Phase B 实现分支），PR #195（PRD）；PRD `docs/prd/PRD_20260612_01_策略1Ledger分红送转记账修复.md`
+
+### 已完成工作
+
+- 实现 `corporate_actions` / `dividend_tax_mode` 参数链：Experiment/manifest、`backtest_report` CLI、Cloud Run dry-run plan、`build_sql_params`、`LedgerParams`、`ledger_params_hash`、summary metrics_json、catalog required_params、runner QA、lot-aware QA、新 CA QA、两套 resume QA。
+- `run_ledger` 新增 ex_date 开盘前 CA 结算：只读 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`；先按 record_date entitlement 送转调股数并写 `CORPORATE_ACTION_SPLIT` 审计行，再按 record_date 股数和 `flat_10pct` 税率写 `CORPORATE_ACTION_CASH_DIVIDEND` 现金入账；调仓日先 CA 后交易。
+- 新增 `sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`，覆盖 summary 参数、送转审计、现金分红审计、事件日 NAV 跳变基本护栏、`none_v1` 零 CA 审计行。
+- 默认不变量已用固定时间戳小 fixture 做逐表 JSON 字节比较，并锁定默认 `ledger_params_hash` 黄金值 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d`。
+
+### 重要上下文
+
+- Phase B 未执行任何 live backtest / Phase C 重跑；只做 BigQuery dry-run。
+- 未写既有 run、未 promotion、未修改全局默认 profile、未触碰 `scripts/strategy1_cloudrun/bq_io.py`。
+- 新 CA 审计行写入既有 trade 表，状态为 `CORPORATE_ACTION_SPLIT` / `CORPORATE_ACTION_CASH_DIVIDEND`；它们不进入 `FILLED` 成交状态，因此不计入成交换手/交易成本汇总。
+- Resume Python 与两套 SQL QA 均用 summary `metrics_json` 的 COALESCE 默认值兼容旧 `none_v1` parent；CA-on/off 或 tax mode 不一致会 fail-fast。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/ledger.py`
+- `src/quant_ashare/strategy1/reporting.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `src/quant_ashare/strategy1/tail_risk_overlay_ab.py`
+- `sql/strategy1/reporting/build_metrics_and_report_inputs.sql`
+- `sql/strategy1/qa/qa_runner_outputs.sql`
+- `sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql`
+- `sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`
+- `sql/strategy1/qa/qa_ledger_resume_consistency.sql`
+- `sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql`
+- `configs/strategy1/active_step_catalog.yml`
+- related tests and memory/TODO
+
+### 测试 / 验证
+
+- `python3 -m pytest tests`：176 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `python3 -m compileall src scripts`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform > /tmp/quant_ashare_dataform_compile.json`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.sql_runner --step qa_corporate_action_ledger_outputs --output-dataset-role research --dry-run ...`：通过（dry_run status）。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无 Phase B 代码阻塞；Phase C 必须等待 Claude review 通过后再执行。
+
+### 下一步建议
+
+- 提交并推送 `codex/ledger-corporate-actions`，在 PR #198 comment/body 报告 11 项传播清单与验证结果。
+- Claude review 通过后，再按 PRD Phase C 做 research-only CA-on continuous 重跑与三方对照；不得提前 promotion 或覆盖现有 baseline。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase A 落地
 

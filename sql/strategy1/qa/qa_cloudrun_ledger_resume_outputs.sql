@@ -9,6 +9,8 @@ DECLARE p_state_as_of_date DATE DEFAULT NULL;
 DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
 DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1_lot100';
 DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;
+DECLARE p_corporate_actions STRING DEFAULT 'none_v1';
+DECLARE p_dividend_tax_mode STRING DEFAULT 'flat_10pct';
 
 ASSERT p_full_backtest_id IS NOT NULL AS 'p_full_backtest_id is required';
 ASSERT p_resume_backtest_id IS NOT NULL AS 'p_resume_backtest_id is required';
@@ -18,6 +20,14 @@ ASSERT p_state_as_of_date IS NOT NULL AS 'p_state_as_of_date is required';
 ASSERT p_rebalance_anchor_start IS NOT NULL AS 'p_rebalance_anchor_start is required';
 ASSERT p_compare_start <= p_compare_end AS 'compare window must be valid';
 ASSERT p_state_as_of_date < p_compare_start AS 'state_as_of_date must be before compare_start';
+
+IF p_corporate_actions NOT IN ('none_v1', 'cash_div_and_split_v1') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_corporate_actions: ', p_corporate_actions);
+END IF;
+
+IF p_dividend_tax_mode NOT IN ('flat_10pct') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_dividend_tax_mode: ', p_dividend_tax_mode);
+END IF;
 
 ASSERT (
   SELECT COUNT(*) = 1
@@ -105,12 +115,25 @@ FROM `data-aquarium.ashare_ads.ads_backtest_ledger_state_daily`
 WHERE backtest_id = p_full_backtest_id
   AND trade_date = p_state_as_of_date;
 
+CREATE TEMP TABLE full_summary AS
+SELECT metrics_json
+FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary`
+WHERE backtest_id = p_full_backtest_id;
+
 CREATE TEMP TABLE resume_summary AS
 SELECT metrics_json
 FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary`
 WHERE backtest_id = p_resume_backtest_id;
 
 ASSERT (SELECT COUNT(*) FROM parent_state) = 1 AS 'Parent state snapshot must exist exactly once';
+ASSERT (
+  SELECT COUNT(*)
+  FROM full_summary
+  WHERE JSON_VALUE(metrics_json, '$.ledger_version') = p_ledger_version
+    AND SAFE_CAST(JSON_VALUE(metrics_json, '$.rebalance_anchor_start') AS DATE) = p_rebalance_anchor_start
+    AND COALESCE(JSON_VALUE(metrics_json, '$.corporate_actions'), 'none_v1') = p_corporate_actions
+    AND COALESCE(JSON_VALUE(metrics_json, '$.dividend_tax_mode'), 'flat_10pct') = p_dividend_tax_mode
+) = 1 AS 'Full summary corporate action metadata mismatch';
 ASSERT (SELECT COUNT(*) FROM resume_nav) > 0 AS 'Resume NAV coverage is empty';
 ASSERT (SELECT COUNT(*) FROM full_nav) = (SELECT COUNT(*) FROM resume_nav)
   AS 'Full and resume NAV row counts differ';
@@ -133,6 +156,8 @@ ASSERT (
     AND SAFE_CAST(JSON_VALUE(metrics_json, '$.state_as_of_date') AS DATE) = p_state_as_of_date
     AND JSON_VALUE(metrics_json, '$.resume_policy_id') = p_resume_policy_id
     AND SAFE_CAST(JSON_VALUE(metrics_json, '$.rebalance_anchor_start') AS DATE) = p_rebalance_anchor_start
+    AND COALESCE(JSON_VALUE(metrics_json, '$.corporate_actions'), 'none_v1') = p_corporate_actions
+    AND COALESCE(JSON_VALUE(metrics_json, '$.dividend_tax_mode'), 'flat_10pct') = p_dividend_tax_mode
 ) = 1 AS 'Resume summary metadata mismatch';
 
 CREATE TEMP TABLE nav_diff AS

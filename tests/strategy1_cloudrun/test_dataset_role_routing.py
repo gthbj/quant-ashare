@@ -41,6 +41,7 @@ from scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection import (
 )
 from scripts.strategy1_cloudrun.state import LockConfig, OrchestratorStatusTable, status_table_ref
 from scripts.strategy1_cloudrun.ledger import LEDGER_VERSION_LOT100
+from quant_ashare.strategy1.ledger import CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT, DIVIDEND_TAX_FLAT_10PCT
 from quant_ashare.strategy1.train_predict import CandidateResult, write_registry
 from quant_ashare.strategy1.catalog import load_step_catalog
 
@@ -127,9 +128,19 @@ def test_backtest_report_subcommands_propagate_default_research_output_dataset_r
 
 def test_build_ledger_params_keeps_output_dataset_role_out_of_semantic_defaults() -> None:
     args = argparse.Namespace(lot_size=100, min_buy_lot=1)
+    exp = Experiment(
+        experiment_id="unit_exp",
+        run_id="unit_run",
+        prediction_run_id="unit_pred",
+        backtest_id="unit_bt",
+        predict_start="2024-01-02",
+        predict_end="2024-01-31",
+        corporate_actions=CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT,
+        dividend_tax_mode=DIVIDEND_TAX_FLAT_10PCT,
+    )
     params = build_ledger_params(
         RunnerConfig(output_dataset_role="research"),
-        _experiment(),
+        exp,
         force_replace=True,
         ledger_version=LEDGER_VERSION_LOT100,
         args=args,
@@ -137,6 +148,8 @@ def test_build_ledger_params_keeps_output_dataset_role_out_of_semantic_defaults(
 
     assert params.output_dataset_role == "research"
     assert params.ledger_version == LEDGER_VERSION_LOT100
+    assert params.corporate_actions == CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT
+    assert params.dividend_tax_mode == DIVIDEND_TAX_FLAT_10PCT
 
 
 def test_orchestrator_cloud_run_commands_propagate_explicit_ads_output_dataset_role() -> None:

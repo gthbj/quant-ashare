@@ -6,6 +6,14 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：Ledger 分红送转 Phase B 已实现并完成本地验证
+
+- 分支 `codex/ledger-corporate-actions` 在 Phase A 事件层之上完成 ledger 侧实现：`LedgerParams` / `Experiment` / CLI / Cloud Run dry-run plan / `build_sql_params` / `build_metrics_and_report_inputs` / catalog / QA / resume 两套 QA 均已接入 `corporate_actions` 与 `dividend_tax_mode`。默认仍为 `none_v1` / `flat_10pct`，`ledger_params_hash` 只在非默认值时写入新增参数，默认黄金 hash 保持 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d`。
+- `run_ledger` 在每个 `ex_date` 开盘前先消费 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`，先按 record_date entitlement 做送转调股数 `floor` 并写 `CORPORATE_ACTION_SPLIT` 审计行，再按 record_date 股数和 flat 10% 税率写 `CORPORATE_ACTION_CASH_DIVIDEND` 现金入账；同日调仓仍是 CA 后交易。ledger 不直读 ODS，也不读 mismatch/anomaly 明细表。
+- 新增 `qa_corporate_action_ledger_outputs`，并让 `qa_runner_outputs` / `qa_lot_aware_ledger_outputs` / `qa_ledger_resume_consistency` / `qa_cloudrun_ledger_resume_outputs` 用 COALESCE 兼容旧 summary key，同时校验父子 CA 参数一致。默认不变量用固定时间戳小 fixture 逐表 JSON 字节比较，并锁定 hash 黄金值。
+- 验证：`python3 -m pytest tests` 176 passed；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint` 通过；`python3 -m compileall src scripts` 通过；Dataform generator `--check` 和 `npx --yes @dataform/cli compile dataform` 通过；`qa_corporate_action_ledger_outputs` research BigQuery dry-run 通过；`git diff --check` 通过。
+- 本阶段未执行 Phase C、未跑 live backtest、未改既有 run、未 promotion、未改全局默认 profile、未触碰 `scripts/strategy1_cloudrun/bq_io.py`。下一步是提交/推送并等待 Claude review，review 通过后才可进入 Phase C research-only 重跑。
+
 ### 最新补充（2026-06-12）：Ledger 分红送转 Phase A 已落地并通过 QA
 
 - 分支 `codex/ledger-corporate-actions` 已按 `docs/prd/PRD_20260612_01_策略1Ledger分红送转记账修复.md` Phase A 完成事件层实现：`sql/dwd/12_dwd_stock_dividend_event.sql` 从 `ods_tushare_dividend` 已实施事件 canonical 聚合到 `(sec_code, ex_date)`；`sql/qa/14_corporate_action_event_checks.sql` 落 `ashare_meta.qa_stock_dividend_event_hfq_mismatch`，并创建 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`。

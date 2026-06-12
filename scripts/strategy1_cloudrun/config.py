@@ -44,6 +44,8 @@ DEFAULT_EXECUTION_BACKEND = "cloud_run_sklearn_ledger_v1_lot100"
 DEFAULT_LOCK_BUCKET = "ashare-artifacts"
 DEFAULT_LOCK_PREFIX = "locks/strategy1/cloudrun"
 DEFAULT_ACCEPTANCE_CONTRACT_PATH = "configs/strategy1/model_acceptance_contract_v3.yml"
+DEFAULT_CORPORATE_ACTIONS = "none_v1"
+DEFAULT_DIVIDEND_TAX_MODE = "flat_10pct"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -119,6 +121,8 @@ class Experiment:
     state_as_of_date: str | None = None
     resume_policy_id: str = "cloudrun_lot100_resume_v1"
     rebalance_anchor_start: str | None = None
+    corporate_actions: str = DEFAULT_CORPORATE_ACTIONS
+    dividend_tax_mode: str = DEFAULT_DIVIDEND_TAX_MODE
     feature_set_id: str = "strategy1_pv_v0_20260601"
     feature_version: str = "strategy1_pv_v0_20260601"
     fin_feature_version: str = "fin_default_v0_20260602"
@@ -170,6 +174,8 @@ class Experiment:
             "state_as_of_date": self.state_as_of_date,
             "resume_policy_id": self.resume_policy_id,
             "rebalance_anchor_start": self.rebalance_anchor_start,
+            "corporate_actions": self.corporate_actions,
+            "dividend_tax_mode": self.dividend_tax_mode,
             "feature_set_id": self.feature_set_id,
             "feature_version": self.feature_version,
             "fin_feature_version": self.fin_feature_version,
@@ -341,6 +347,8 @@ def experiment_from_b64(value: str) -> Experiment:
         state_as_of_date=raw.get("state_as_of_date"),
         resume_policy_id=raw.get("resume_policy_id", "cloudrun_lot100_resume_v1"),
         rebalance_anchor_start=raw.get("rebalance_anchor_start"),
+        corporate_actions=raw.get("corporate_actions", DEFAULT_CORPORATE_ACTIONS),
+        dividend_tax_mode=raw.get("dividend_tax_mode", DEFAULT_DIVIDEND_TAX_MODE),
         feature_set_id=raw.get("feature_set_id", "strategy1_pv_v0_20260601"),
         feature_version=raw.get("feature_version", "strategy1_pv_v0_20260601"),
         fin_feature_version=raw.get("fin_feature_version", "fin_default_v0_20260602"),
@@ -411,6 +419,8 @@ def _experiment_from_mapping(
         state_as_of_date=value("state_as_of_date"),
         resume_policy_id=value("resume_policy_id", "cloudrun_lot100_resume_v1"),
         rebalance_anchor_start=value("rebalance_anchor_start"),
+        corporate_actions=value("corporate_actions", DEFAULT_CORPORATE_ACTIONS),
+        dividend_tax_mode=value("dividend_tax_mode", DEFAULT_DIVIDEND_TAX_MODE),
         feature_set_id=value("feature_set_id", "strategy1_pv_v0_20260601"),
         feature_version=value("feature_version", "strategy1_pv_v0_20260601"),
         fin_feature_version=value("fin_feature_version", "fin_default_v0_20260602"),

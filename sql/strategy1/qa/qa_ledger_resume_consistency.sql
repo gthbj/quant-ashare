@@ -13,6 +13,8 @@ DECLARE p_state_as_of_date DATE DEFAULT NULL;
 DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
 DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1_lot100';
 DECLARE p_rebalance_anchor_start DATE DEFAULT NULL;
+DECLARE p_corporate_actions STRING DEFAULT 'none_v1';
+DECLARE p_dividend_tax_mode STRING DEFAULT 'flat_10pct';
 DECLARE p_cash_tolerance_cny FLOAT64 DEFAULT 1.0;
 DECLARE p_value_tolerance_cny FLOAT64 DEFAULT 1.0;
 DECLARE p_share_tolerance FLOAT64 DEFAULT 1e-6;
@@ -26,6 +28,14 @@ ASSERT p_rebalance_anchor_start IS NOT NULL AS 'p_rebalance_anchor_start is requ
 
 IF p_compare_start > p_compare_end THEN
   RAISE USING MESSAGE = 'p_compare_start must be <= p_compare_end';
+END IF;
+
+IF p_corporate_actions NOT IN ('none_v1', 'cash_div_and_split_v1') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_corporate_actions: ', p_corporate_actions);
+END IF;
+
+IF p_dividend_tax_mode NOT IN ('flat_10pct') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_dividend_tax_mode: ', p_dividend_tax_mode);
 END IF;
 
 ASSERT (
@@ -49,7 +59,9 @@ ASSERT (
   WHERE bs.backtest_id = p_full_backtest_id
     AND JSON_VALUE(bs.metrics_json, '$.ledger_version') = p_ledger_version
     AND SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.rebalance_anchor_start') AS DATE) = p_rebalance_anchor_start
-) AS 'QA-RESUME-CONSIST-1: full backtest summary must exist exactly once and use expected lot100 ledger/anchor';
+    AND COALESCE(JSON_VALUE(bs.metrics_json, '$.corporate_actions'), 'none_v1') = p_corporate_actions
+    AND COALESCE(JSON_VALUE(bs.metrics_json, '$.dividend_tax_mode'), 'flat_10pct') = p_dividend_tax_mode
+) AS 'QA-RESUME-CONSIST-1: full backtest summary must exist exactly once and use expected lot100 ledger/anchor/corporate action params';
 
 ASSERT (
   SELECT COUNT(*) = 1
@@ -61,7 +73,9 @@ ASSERT (
     AND SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.state_as_of_date') AS DATE) = p_state_as_of_date
     AND JSON_VALUE(bs.metrics_json, '$.resume_policy_id') = p_resume_policy_id
     AND SAFE_CAST(JSON_VALUE(bs.metrics_json, '$.rebalance_anchor_start') AS DATE) = p_rebalance_anchor_start
-) AS 'QA-RESUME-CONSIST-2: resume backtest summary must exist exactly once and be marked with resume metadata';
+    AND COALESCE(JSON_VALUE(bs.metrics_json, '$.corporate_actions'), 'none_v1') = p_corporate_actions
+    AND COALESCE(JSON_VALUE(bs.metrics_json, '$.dividend_tax_mode'), 'flat_10pct') = p_dividend_tax_mode
+) AS 'QA-RESUME-CONSIST-2: resume backtest summary must exist exactly once and be marked with resume/corporate action metadata';
 
 ASSERT (
   SELECT COUNT(*) = 1

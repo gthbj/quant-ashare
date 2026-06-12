@@ -18,6 +18,8 @@ RESUME_QA_PARAMS = {
     "p_resume_policy_id": "cloudrun_lot100_resume_v1",
     "p_ledger_version": "ledger_exec_v1_lot100",
     "p_rebalance_anchor_start": "2021-01-04",
+    "p_corporate_actions": "none_v1",
+    "p_dividend_tax_mode": "flat_10pct",
     "p_cash_tolerance_cny": 1.0,
     "p_value_tolerance_cny": 1.0,
     "p_share_tolerance": 1e-6,

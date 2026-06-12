@@ -27,6 +27,12 @@
 - [x] OQ-010：完成 `PRD_20260612_01` Ledger 分红送转 Phase A 事件表落地
   说明：Phase A 已完成并实跑 BigQuery：新增/替换 `ashare_dwd.dwd_stock_dividend_event`、`ashare_meta.qa_stock_dividend_event_hfq_mismatch` 与 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`，并刷新单位映射/字段说明、通过单位 QA 与 CA QA。OQ-015 裁决已落实：不修 `stk_co_rate` 口径，不设人工 allowlist；QA 使用结构化容差（abs/rel + `0.01/prev_close` 下限），双向落表并自动归类，硬门为未归类 mismatch=0。结果：2010+ canonical events=`46431`；2021+ canonical events=`22009`、same-ex_date 聚合键=`20`、source rows=`22029`；mismatch 分布为 event_to_factor data_anomaly=`1106`（含 missing_prev_price=`1033`、factor_jump_mismatch=`73`）、special_dividend=`1`、factor_to_event same_day_orphan_corporate_action=`405`，unclassified=`0`。本阶段未改 ledger 代码、未写 ADS/research/promotion。
 
+- [x] OQ-010：完成 `PRD_20260612_01` Ledger 分红送转 Phase B ledger 实现
+  说明：分支 `codex/ledger-corporate-actions` 已实现 `corporate_actions` / `dividend_tax_mode` 参数链和 run_ledger ex_date 开盘前公司行为结算；默认 `none_v1` 保持 trade/position/NAV/ledger state/hash 逐字节不变量，默认 hash 黄金值 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d` 未变。新 QA `qa_corporate_action_ledger_outputs` 已登记 catalog，两套 resume QA 校验父子参数一致。验证：`python3 -m pytest tests` 176 passed，retired linter / compileall / Dataform check / new QA research dry-run / `git diff --check` 均通过。本阶段未跑 Phase C、未写既有 run、未 promotion、不改默认 profile。
+
+- [ ] OQ-010：等待 Claude review 后执行 `PRD_20260612_01` Ledger 分红送转 Phase C research-only CA 重跑
+  说明：Phase C 只能在 Claude review 通过后启动；需以 `corporate_actions=cash_div_and_split_v1` 做新 run/backtest 的 research-only continuous 重跑，输出原 true5y baseline / CA 重跑 / PR #194 hfq 估计三方对照，并分解税、现金滞留、零股取整、同日多事件聚合、event-vs-adj-factor residual 和 unexplained residual。不得 promotion，不覆盖现有 baseline。
+
 - [x] OQ-010：实现年度滚动选参回测实验
   说明：年度 walk-forward selection、final refit、synthetic continuous 与 Phase 2 candidate-only live smoke 均已完成。2021-2026 effective-window continuous 已作为研究复盘口径落地；PRD_06 又完成 2010+ 历史修复与 2021-2024 true-five-year refit 重跑，产出 true-five-year synthetic continuous 对比。PRD_07 live smoke 已验证 execution 粒度 fanout、state recovery、artifact skip 与 missing-matrix preflight。后续不再以“实现年度滚动”为 TODO；完整 2021-2026 live pipeline / Phase 3 需要 owner 另批，accepted baseline 迭代见单独 OQ-010 项。
 
