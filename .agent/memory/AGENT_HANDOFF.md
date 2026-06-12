@@ -1,3 +1,71 @@
+> 当前交接补充（2026-06-12，GPT-5.5，PRD_20260612_01 Phase B implementation）
+> - 分支 `codex/bq-dataset-cleanup-impl` 已完成 PRD_20260612_01 Phase B 代码层：退役两个 windowed equivalence parity 脚本并移除空 `scripts/qa/`，清理契约测试、`sql/README.md` 示例和 Strategy1 Cloud Run runbook active 前置条件。
+> - `active_step_catalog.yml` 已加入两条退役脚本 ban-list，并补齐相关 `.agent/memory` 历史白名单；`KNOWN_CONSTRAINTS.md` 已把 OQ-005 window parity 与 true-five-year overlap parity 硬门改写为 PRD 定稿口径，BQML audit 条款补充面板裁剪后的复算入口。
+> - 验证已通过：`PYTHONPATH=src python3 -m pytest -q tests`（166 passed）、`python3 -m pytest -q tests/strategy1/test_retired_lint.py`（5 passed）、active scope grep 退役脚本 `.py` 路径零引用、`git diff --check`。
+> - 本轮未执行 BigQuery 操作；Phase A/Phase B scratch dataset/Phase C panel DELETE 仍是实现 PR 合并后的手工步骤。
+>
+> Model: GPT-5.5
+
+## 交接条目
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-bq-cleanup-impl`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/bq-dataset-cleanup-impl`
+Run ID: N/A
+相关 issue/PR: PR #193（PRD 已合并），实现 PR 待创建；PRD `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md`
+
+### 已完成工作
+
+- 实现 PRD_20260612_01 Phase B 第 1-7 项：删除退役 QA 脚本和空目录，移除对应契约测试，清理 `sql/README.md` windowed equivalence 示例，改写 Strategy1 Cloud Run runbook true-five-year refit 前置条件。
+- `configs/strategy1/active_step_catalog.yml` 增加退役脚本 ban-list，并补齐相关 `.agent/memory` 历史白名单。
+- `.agent/memory/KNOWN_CONSTRAINTS.md` 改写 OQ-005 window parity、true-five-year overlap parity 和 BQML historical panel 裁剪后的复算约束；`.agent/memory/ARCHITECTURE_MEMORY.md` 保留历史叙述并补退役注记。
+
+### 重要上下文
+
+- 本轮只做代码/文档/记忆改动，未执行任何 BigQuery 操作。
+- Phase A `ashare` 数据集硬删除、Phase B scratch dataset 删除和 Phase C `ads_ml_training_panel_daily` `s1_bqml%` DELETE 仍需在实现 PR 合并后按 PRD 手工执行并留对账证据。
+- 若未来需要恢复 full/window parity 工具，应从本实现 PR 的 parent commit 通过 git history 恢复脚本后另行评估。
+
+### 改动文件
+
+- `scripts/qa/run_windowed_refresh_equivalence.py`（删除）
+- `scripts/qa/run_index_market_windowed_equivalence.py`（删除）
+- `tests/strategy1/test_true5y_prd06_contracts.py`
+- `sql/README.md`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `configs/strategy1/active_step_catalog.yml`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests`：166 passed，5 warnings。
+- `python3 -m pytest -q tests/strategy1/test_retired_lint.py`：5 passed。
+- active scope grep 退役脚本 `.py` 路径：零引用；bare path 只保留在 catalog ban-list 和历史承载面。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无代码阻塞。
+
+### 下一步建议
+
+- 提交并推送 `codex/bq-dataset-cleanup-impl`，创建 base `main` 的实现 PR。
+- 实现 PR 合并后，再按 PRD 手工执行 BigQuery Phase A/B/C 清理；执行时必须遵守 `--location=asia-east2`、分区过滤和删除前/后 manifest 对账要求。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `TODO.md`
+
 > 当前交接补充（2026-06-12，Claude Fable 5，BigQuery 数据集清理 PRD）
 > - 完成 `data-aquarium` 全数据集盘点：核心分层（dim/dwd/dws/ads/research）与 `sql/` 契约双向零差异；杂物为遗留数据集 `ashare`（250.4 GiB、零引用、2026-05-25 后零写入）、`ashare_meta` 5 张 `_repair_val_*`、`ashare_qa_windowed_equivalence` 18 张 shadow 残留、ads 训练面板 12 个 `s1_bqml%` 旧 run（约 115 GB）。
 > - 第 1 类清理已执行（owner 批准）：上述 5 + 18 共 23 张表已删，`bq ls` 复核清空。18 张 native shadow 表 7 天 time travel 内可恢复；5 张 `_repair_val_*` 是外部表（time travel 不覆盖），删除仅移除 BQ definition，GCS 无涉，需要时由 repair 脚本重建。
