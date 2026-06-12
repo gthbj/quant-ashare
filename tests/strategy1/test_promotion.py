@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import subprocess
-
 import pytest
 
 from quant_ashare.strategy1.promotion import (
@@ -94,12 +92,10 @@ def test_promotion_plan_validates_approval_and_target_roles() -> None:
         build_promotion_plan(_request(target_roles=("model_registry", "model_registry")))
 
 
-def test_promotion_cli_dry_run_prints_plan_without_bigquery_execution() -> None:
-    result = subprocess.run(
+def test_promotion_cli_dry_run_prints_plan_without_bigquery_execution(run_module) -> None:
+    result = run_module(
+        "scripts.strategy1.promote_research_to_ads",
         [
-            "python3",
-            "-m",
-            "scripts.strategy1.promote_research_to_ads",
             "--promotion-id",
             "promo_unit_20260610",
             "--source-run-id",
@@ -123,8 +119,6 @@ def test_promotion_cli_dry_run_prints_plan_without_bigquery_execution() -> None:
             "--dry-run",
         ],
         check=True,
-        capture_output=True,
-        text=True,
     )
 
     assert '"promotion_id": "promo_unit_20260610"' in result.stdout
@@ -133,12 +127,10 @@ def test_promotion_cli_dry_run_prints_plan_without_bigquery_execution() -> None:
     assert "Review-only mode" in result.stdout
 
 
-def test_promotion_cli_print_sql_is_review_only_without_execute() -> None:
-    result = subprocess.run(
+def test_promotion_cli_print_sql_is_review_only_without_execute(run_module) -> None:
+    result = run_module(
+        "scripts.strategy1.promote_research_to_ads",
         [
-            "python3",
-            "-m",
-            "scripts.strategy1.promote_research_to_ads",
             "--promotion-id",
             "promo_unit_20260610",
             "--source-run-id",
@@ -162,8 +154,6 @@ def test_promotion_cli_print_sql_is_review_only_without_execute() -> None:
             "--print-sql",
         ],
         check=True,
-        capture_output=True,
-        text=True,
     )
 
     assert "--- SQL ---" in result.stdout

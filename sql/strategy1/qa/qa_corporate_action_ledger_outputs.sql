@@ -19,6 +19,17 @@ IF p_dividend_tax_mode NOT IN ('flat_10pct') THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_dividend_tax_mode: ', p_dividend_tax_mode);
 END IF;
 
+IF p_corporate_actions != 'none_v1' THEN
+  ASSERT (
+    SELECT COALESCE(
+      MAX(SAFE.PARSE_DATE('%Y%m%d', source_partition_date_max)),
+      DATE '1900-01-01'
+    ) >= p_predict_end
+    FROM `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
+    WHERE ex_date BETWEEN DATE '2010-01-01' AND CURRENT_DATE('Asia/Shanghai')
+  ) AS 'QA-CA-LEDGER-0: CA-on requires dwd_stock_dividend_event visible full-table source partition max >= p_predict_end; recovery path is 1) backfill dividend ODS partition, 2) rerun sql/dwd/12_dwd_stock_dividend_event.sql, 3) rerun sql/qa/14_corporate_action_event_checks.sql, 4) rerun this QA';
+END IF;
+
 ASSERT (
   SELECT COUNT(*) = 1
     AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.corporate_actions'), 'none_v1') = p_corporate_actions)

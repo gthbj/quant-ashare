@@ -2,15 +2,9 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 from pathlib import Path
-import subprocess
-import sys
 
 import pytest
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _entrypoint_args(tmp_path: Path) -> dict[str, list[str]]:
@@ -164,26 +158,6 @@ def _entrypoint_args(tmp_path: Path) -> dict[str, list[str]]:
     }
 
 
-def _pythonpath_env() -> dict[str, str]:
-    env = os.environ.copy()
-    src_path = str(REPO_ROOT / "src")
-    existing = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = src_path if not existing else f"{src_path}{os.pathsep}{existing}"
-    return env
-
-
-def _run_module(module: str, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", module, *args],
-        cwd=REPO_ROOT,
-        env=_pythonpath_env(),
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=60,
-    )
-
-
 @pytest.mark.parametrize(
     "entrypoint",
     [
@@ -197,8 +171,8 @@ def _run_module(module: str, args: list[str]) -> subprocess.CompletedProcess[str
         "tail_risk_overlay_ab",
     ],
 )
-def test_package_entrypoint_help_smoke(entrypoint: str) -> None:
-    new = _run_module(f"quant_ashare.strategy1.{entrypoint}", ["--help"])
+def test_package_entrypoint_help_smoke(entrypoint: str, run_module) -> None:
+    new = run_module(f"quant_ashare.strategy1.{entrypoint}", ["--help"])
 
     assert new.returncode == 0, new.stderr
     assert "usage:" in new.stdout
@@ -217,10 +191,10 @@ def test_package_entrypoint_help_smoke(entrypoint: str) -> None:
         "tail_risk_overlay_ab",
     ],
 )
-def test_package_entrypoint_dry_run_plan_is_json(entrypoint: str, tmp_path: Path) -> None:
+def test_package_entrypoint_dry_run_plan_is_json(entrypoint: str, tmp_path: Path, run_module) -> None:
     args = _entrypoint_args(tmp_path)[entrypoint]
 
-    new = _run_module(f"quant_ashare.strategy1.{entrypoint}", args)
+    new = run_module(f"quant_ashare.strategy1.{entrypoint}", args)
 
     assert new.returncode == 0, new.stderr
     assert isinstance(json.loads(new.stdout), dict)

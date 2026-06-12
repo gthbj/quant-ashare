@@ -14,10 +14,7 @@ from scripts.strategy1_cloudrun.config import (
     Experiment,
     add_common_args,
     apply_cli_overrides,
-    filter_experiments,
-    load_manifest,
     load_runner_config,
-    experiment_from_b64,
 )
 from quant_ashare.strategy1.ledger import LedgerParams, run_ledger
 from quant_ashare.strategy1.ledger import (
@@ -32,6 +29,7 @@ from quant_ashare.strategy1.ledger import (
     DIVIDEND_TAX_FLAT_10PCT,
 )
 from quant_ashare.strategy1.dataset_roles import allow_future_research, output_dataset_role_cli_args
+from quant_ashare.strategy1.experiment_resolution import resolve_experiment_from_args
 from quant_ashare.strategy1.sql_runner import resolve_sql_step_path, run_sql_step
 
 
@@ -146,38 +144,28 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_experiment(args: argparse.Namespace) -> Experiment:
-    if args.experiment_json:
-        exp = experiment_from_b64(args.experiment_json)
-        if not exp.is_executable:
-            raise ValueError(f"{exp.experiment_id} contains unresolved placeholders or blocked status")
-        return exp
-    _, experiments = load_manifest(args.manifest)
-    matches = filter_experiments(experiments, experiment_id=args.experiment_id, include_blocked=True)
-    if not matches:
-        raise ValueError(f"experiment_id {args.experiment_id} not found")
-    exp = matches[0]
-    replacements = {}
-    for attr in (
-        "run_id",
-        "prediction_run_id",
-        "backtest_id",
-        "initial_state_mode",
-        "parent_backtest_id",
-        "state_as_of_date",
-        "resume_policy_id",
-        "rebalance_anchor_start",
-        "corporate_actions",
-        "dividend_tax_mode",
-    ):
-        value = getattr(args, attr)
-        if value:
-            replacements[attr] = value
-    if replacements:
-        import dataclasses
-        exp = dataclasses.replace(exp, **replacements)
-    if not exp.is_executable:
-        raise ValueError(f"{exp.experiment_id} contains unresolved placeholders or blocked status")
-    return exp
+    return resolve_experiment_from_args(
+        args,
+        step_name="backtest_report",
+        require_retrain=False,
+        resolved_manifest_error=(
+            "backtest_report does not support --manifest-resolved; "
+            "pass --experiment-json or manifest/CLI overrides instead"
+        ),
+        fallback_not_found_in_manifest=False,
+        cli_override_attrs=(
+            "run_id",
+            "prediction_run_id",
+            "backtest_id",
+            "initial_state_mode",
+            "parent_backtest_id",
+            "state_as_of_date",
+            "resume_policy_id",
+            "rebalance_anchor_start",
+            "corporate_actions",
+            "dividend_tax_mode",
+        ),
+    )
 
 
 def resolve_backend_tags(use_float_ledger: bool = False, use_topdown_ledger: bool = False) -> tuple[str, str, str]:

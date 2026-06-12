@@ -30,9 +30,6 @@ from scripts.strategy1_cloudrun.config import (
     add_common_args,
     apply_cli_overrides,
     effective_candidate_parallelism,
-    experiment_from_b64,
-    filter_experiments,
-    load_manifest,
     load_runner_config,
 )
 from scripts.strategy1_cloudrun.dataset_roles import TableResolver
@@ -59,6 +56,7 @@ from scripts.strategy1_cloudrun.task_fanout import (
     write_manifest,
     write_parquet,
 )
+from quant_ashare.strategy1.experiment_resolution import resolve_experiment_from_args
 
 
 def main() -> int:
@@ -119,19 +117,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_experiment(args: argparse.Namespace) -> Experiment:
-    if args.experiment_json:
-        exp = experiment_from_b64(args.experiment_json)
-    else:
-        _, experiments = load_manifest(args.manifest)
-        matches = filter_experiments(experiments, experiment_id=args.experiment_id, include_blocked=True)
-        if not matches:
-            raise ValueError(f"experiment_id {args.experiment_id} not found in {args.manifest}")
-        exp = matches[0]
-    if not exp.requires_retrain:
-        raise ValueError(f"{exp.experiment_id} is portfolio-only and does not require prepare_matrix")
-    if not exp.is_executable:
-        raise ValueError(f"{exp.experiment_id} contains unresolved placeholders or blocked status")
-    return exp
+    return resolve_experiment_from_args(
+        args,
+        step_name="prepare_matrix",
+        require_retrain=True,
+    )
 
 
 def prepare_matrix(

@@ -41,3 +41,7 @@ PRD 文档名末尾需追加 `_xxxx`。
 ```text
 PRD_20260601_01_策略1价格量价基础分类模型.md
 ```
+
+## 分析脚本指标定义
+
+新增 `scripts/strategy1/`、`scripts/strategy1_cloudrun/` 或 `src/quant_ashare/strategy1/` 下的分析脚本，不得本地重新定义 `max_drawdown`、复合年化 / 累计收益、Sharpe / 年化波动、Calmar、`safe_ratio`、`fmt_pct` / `fmt_pp` / `fmt_num`、`markdown_table` 等指标或格式化函数；应复用既有实现，或先抽共享模块并同步更新冻结 allowlist 测试。

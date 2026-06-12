@@ -1,29 +1,16 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-import subprocess
-import sys
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _pythonpath_env() -> dict[str, str]:
-    env = os.environ.copy()
-    src_path = str(REPO_ROOT / "src")
-    existing = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = src_path if not existing else f"{src_path}{os.pathsep}{existing}"
-    return env
-
-
-def test_true_five_year_refit_dry_run_uses_nominal_window_and_refit_only_steps() -> None:
-    proc = subprocess.run(
+def test_true_five_year_refit_dry_run_uses_nominal_window_and_refit_only_steps(run_module) -> None:
+    proc = run_module(
+        "scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection",
         [
-            sys.executable,
-            "-m",
-            "scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection",
             "--dry-run",
             "--start-year",
             "2021",
@@ -36,12 +23,6 @@ def test_true_five_year_refit_dry_run_uses_nominal_window_and_refit_only_steps()
             "--final-refit-run-suffix",
             "__true5y01",
         ],
-        cwd=REPO_ROOT,
-        env=_pythonpath_env(),
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=60,
     )
 
     assert proc.returncode == 0, proc.stderr
@@ -65,12 +46,10 @@ def test_true_five_year_refit_dry_run_uses_nominal_window_and_refit_only_steps()
     assert "--source-panel-run-id=s1_annual_roll_y2021_train2015_2019_valid2020_n20_w075_vunit__true5y01" in joined
 
 
-def test_true_five_year_refit_requires_explicit_nondefault_suffix() -> None:
-    proc = subprocess.run(
+def test_true_five_year_refit_requires_explicit_nondefault_suffix(run_module) -> None:
+    proc = run_module(
+        "scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection",
         [
-            sys.executable,
-            "-m",
-            "scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection",
             "--dry-run",
             "--start-year",
             "2021",
@@ -80,12 +59,6 @@ def test_true_five_year_refit_requires_explicit_nondefault_suffix() -> None:
             "vunit",
             "--true-five-year-refit",
         ],
-        cwd=REPO_ROOT,
-        env=_pythonpath_env(),
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=60,
     )
 
     assert proc.returncode != 0

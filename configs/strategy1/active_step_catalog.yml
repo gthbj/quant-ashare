@@ -295,13 +295,22 @@ steps:
     internal_params: []
     optional_params: {}
     inputs: [stock_candidate_daily, backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary]
+    outputs: []
+    partition_columns: []
   qa_corporate_action_ledger_outputs:
     stable_name: qa_corporate_action_ledger_outputs
+    status: active
+    execution_mode: cloudrun_backtest_report
     current_path: sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql
     target_path: sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql
     sql_path: sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql
+    caller: [quant_ashare.strategy1.backtest_report]
+    output_dataset_role_current: research
+    output_dataset_role_target: research
     required_params: [p_backtest_id, p_run_id, p_predict_start, p_predict_end, p_corporate_actions, p_dividend_tax_mode, p_share_tolerance, p_cash_tolerance_cny, p_nav_event_abs_return_ceiling]
-    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary]
+    internal_params: []
+    optional_params: {}
+    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, dwd_stock_dividend_event, v_dwd_stock_dividend_event_ledger_consumable]
     outputs: []
     partition_columns: []
 
