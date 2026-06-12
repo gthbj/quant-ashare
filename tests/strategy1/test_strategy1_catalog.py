@@ -102,7 +102,9 @@ def test_corporate_action_ledger_qa_declares_dividend_event_view_input() -> None
     step = catalog["steps"]["qa_corporate_action_ledger_outputs"]
     sql = repo_path(step["sql_path"]).read_text(encoding="utf-8")
 
+    assert "`data-aquarium.ashare_dwd.dwd_stock_dividend_event`" in sql
     assert "`data-aquarium.ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`" in sql
+    assert "dwd_stock_dividend_event" in set(step["inputs"])
     assert "v_dwd_stock_dividend_event_ledger_consumable" in set(step["inputs"])
 
 

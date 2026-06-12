@@ -6,6 +6,14 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：PR #202 Claude review F2-F11 已修复，F1 留 owner 数据决策
+
+- PR #202 review follow-up 已完成代码面 F2-F11：staleness watermark 不再被 `p_predict_end` 截断、catalog 声明 direct base table、`experiment_json` 对四入口保持最高优先级、SQL 同构 guard 收紧并覆盖 review seeded mutations、acceptance/selection/train_predict 纯函数测试补强、scanner/manifest path/docstring/边界 token_map 已修正。
+- F1 不执行数据补采、不写 BigQuery/GCS。Claude 实跑发现现存 CA-on baseline 对 `QA-CA-LEDGER-0` 会失败，真实缺口为 dividend 数据 `2026-05-28..2026-06-09` 未采集，`ods_tushare_dividend` 当前 max partition/date 为 `2026-05-27`；断言语义正确且未放宽，PR body 已如实说明。
+- F2 口径：当前 `source_partition_date_max` 来自 DWD dividend event 的事件/分区日期，不能作为精确 ingestion watermark；本轮改为 full-table 可见上界检查（上限 `CURRENT_DATE('Asia/Shanghai')`）。精确 ingestion watermark 需要新增 source ingestion 列或修复 ingestion meta；后者当前另有 0-row 事件，留 owner 决策。
+- §2.6 取舍：v3 contract 主路径在缺 v3 metrics 时先返回 `v3_acceptance_metrics=missing`，legacy `decide_acceptance` 主路径对 v3 contract 不强造测试；已改为测试该路由并补齐 legacy helper gate 覆盖。`select_candidate([], [], None)` 的 `IndexError` 作为当前行为被 characterization test 固定，本 PR 不改生产语义。
+- 验证通过：`python3 -m pytest -q tests`（266 passed）；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`；`git diff --check`；`cd /tmp && python3 -m pytest /Users/fisher/Desktop/git/worktrees/quant-ashare-prd04/tests --collect-only -q`（266 collected）；`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`。本轮仍未改回测/训练/组合语义，未改默认 `corporate_actions='none_v1'`，未触碰 Cloud Run job spec/镜像/IAM，未写 BigQuery 生产数据。
+
 ### 最新补充（2026-06-12）：PRD_20260612_04 工程护栏与测试补强已实现
 
 - 分支 `codex/prd04-guardrails` 按已定稿 PRD §2.1-§2.7 完成实现，分 7 个主题提交：dividend staleness 断言与恢复路径、active step catalog 必填键校验、指标定义 freeze pytest、11 对 window SQL 文本同构 guard、四入口 experiment resolver 合一、acceptance/selection/train_predict 纯函数表驱动测试、pytest scaffold 与仓库外 collect 支持。

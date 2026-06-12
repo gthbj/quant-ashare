@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from quant_ashare.strategy1.acceptance import (
+    _failed_reasons,
     _hard_reject_reasons,
     _needs_more_evidence_reasons,
     _unmatched_input_state_reasons,
@@ -112,6 +113,38 @@ def test_decide_acceptance_v3_sets_holdout_watch_flag_on_diagnostic_warn() -> No
     assert derived["holdout_watch_flag"] is True
 
 
+def test_v3_contract_routes_missing_v3_metrics_before_legacy_acceptance_path() -> None:
+    contract = load_acceptance_contract()
+    row = _legacy_threshold_row(
+        execution_status="succeeded",
+        qa_status="succeeded",
+        report_uri="gs://unit/report.md",
+        model_diagnosis_uri="gs://unit/diagnosis.json",
+    )
+
+    status, reason, derived = decide_acceptance(row, contract)
+
+    assert status == "rejected"
+    assert reason == "v3_acceptance_metrics=missing"
+    assert derived["v3_acceptance_status"] == "rejected"
+
+
+def test_failed_reasons_cover_execution_qa_and_required_artifacts() -> None:
+    assert _failed_reasons(
+        {
+            "execution_status": "failed",
+            "qa_status": "failed",
+            "report_uri": None,
+            "model_diagnosis_uri": None,
+        }
+    ) == [
+        "execution_status=failed",
+        "qa_status=failed",
+        "report_uri=missing",
+        "model_diagnosis_uri=missing",
+    ]
+
+
 @pytest.mark.parametrize(
     ("row", "expected"),
     [
@@ -133,6 +166,38 @@ def test_legacy_hard_reject_helper_treats_sharpe_and_drawdown_thresholds_as_incl
     assert "sharpe<0.7" in _hard_reject_reasons(_legacy_threshold_row(sharpe=0.69), contract)
     assert "max_drawdown<-0.25" in _hard_reject_reasons(_legacy_threshold_row(max_drawdown=-0.251), contract)
     assert "valid_rank_ic_mean=missing" in _hard_reject_reasons(_legacy_threshold_row(valid_rank_ic_mean=None), contract)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_reason"),
+    [
+        ({"valid_rank_ic_mean": 0.0}, "valid_rank_ic_mean<=0.0"),
+        ({"valid_top_minus_bottom_fwd_ret_mean": 0.0}, "valid_top_minus_bottom_fwd_ret_mean<=0.0"),
+        ({"test_rank_ic_mean": 0.0}, "test_rank_ic_mean<=0.0"),
+        ({"test_top_minus_bottom_fwd_ret_mean": 0.0}, "test_top_minus_bottom_fwd_ret_mean<=0.0"),
+        ({"test_year_excess_return_vs_primary_benchmark": 0.0}, "test_year_excess_return_vs_primary_benchmark<=0.0"),
+        ({"overall_excess_return_vs_primary_benchmark": 0.0}, "overall_excess_return_vs_primary_benchmark<=0.0"),
+        ({"total_return": 0.0}, "total_return<=0.0"),
+        ({"sharpe": 0.69}, "sharpe<0.7"),
+        ({"max_drawdown": -0.251}, "max_drawdown<-0.25"),
+        ({"final_holdout_excess_return_vs_primary_benchmark": -0.05}, "final_holdout_excess_return_vs_primary_benchmark<=-0.05"),
+        ({"final_holdout_total_return": -0.08}, "final_holdout_total_return<=-0.08"),
+        ({"score_orientation": "sideways"}, "score_orientation=sideways"),
+        ({"valid_signal_status": "weak"}, "valid_signal_status=weak"),
+        ({"model_diagnosis_primary_diagnosis": "signal_inverted"}, "primary_diagnosis=signal_inverted"),
+        (
+            {"model_diagnosis_primary_diagnosis": "sample_filter_risk", "model_diagnosis_confidence": "high"},
+            "primary_diagnosis=sample_filter_risk:high",
+        ),
+    ],
+)
+def test_legacy_hard_reject_helper_covers_each_gate(
+    overrides: dict[str, object],
+    expected_reason: str,
+) -> None:
+    reasons = _hard_reject_reasons(_legacy_threshold_row(**overrides), load_acceptance_contract())
+
+    assert expected_reason in reasons
 
 
 def test_legacy_needs_more_evidence_and_unmatched_state_helpers_are_table_driven() -> None:
@@ -395,3 +460,38 @@ def test_evaluate_cv_folds_missing_and_no_fold_paths(
 
     assert result["cv_confirmation_status"] == expected_status
     assert result["cv_fold_count"] == 0
+
+
+def test_evaluate_cv_folds_success_path_trains_three_dynamic_folds() -> None:
+    rows = []
+    features = []
+    for year in range(2019, 2024):
+        for idx, sec_code in enumerate(["000001.SZ", "000002.SZ", "000003.SZ", "000004.SZ"]):
+            rows.append(
+                {
+                    "trade_date": pd.Timestamp(year=year, month=1, day=4),
+                    "split_tag": "train",
+                    "target_label": 1 if idx >= 2 else 0,
+                    "target_return": [-0.02, -0.01, 0.01, 0.02][idx],
+                    "sample_weight": 1.0,
+                    "sec_code": sec_code,
+                }
+            )
+            features.append([float(idx), float(year - 2019)])
+    cv_panel = pd.DataFrame(rows)
+    x_cv = np.asarray(features, dtype=float)
+
+    result = evaluate_cv_folds(
+        config=RunnerConfig(logistic_solver="liblinear", logistic_max_iter=100),
+        candidate_cfg={"candidate_id": "unit", "penalty": "l2", "C": 1.0, "label_horizon": 1},
+        model_family="logistic_regression",
+        cv_panel=cv_panel,
+        x_cv=x_cv,
+        random_state=7,
+        score_source="sklearn_predict_proba_label_1",
+        reverse_method="probability_complement",
+    )
+
+    assert result["cv_confirmation_status"] == "passed"
+    assert result["cv_fold_count"] == 3
+    assert [row["status"] for row in result["cv_fold_metrics"]] == ["succeeded", "succeeded", "succeeded"]

@@ -27,15 +27,15 @@ def resolve_experiment_from_args(
     cli_override_attrs: tuple[str, ...] = (),
 ) -> Experiment:
     """Resolve one executable experiment from common Strategy 1 CLI args."""
-    if getattr(args, "manifest_resolved", None) and not support_resolved_manifest:
-        if resolved_manifest_error:
-            raise ValueError(resolved_manifest_error)
-        raise ValueError(f"{step_name} does not support --manifest-resolved")
-
     if getattr(args, "experiment_json", None):
         exp = experiment_from_b64(args.experiment_json)
         _validate_experiment(exp, step_name=step_name, require_retrain=require_retrain)
         return exp
+
+    if getattr(args, "manifest_resolved", None) and not support_resolved_manifest:
+        if resolved_manifest_error:
+            raise ValueError(resolved_manifest_error)
+        raise ValueError(f"{step_name} does not support --manifest-resolved")
 
     if getattr(args, "manifest_resolved", None):
         exp = _resolve_from_resolved_manifest(args)

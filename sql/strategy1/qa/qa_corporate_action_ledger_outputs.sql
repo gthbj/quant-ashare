@@ -26,8 +26,8 @@ IF p_corporate_actions != 'none_v1' THEN
       DATE '1900-01-01'
     ) >= p_predict_end
     FROM `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
-    WHERE ex_date BETWEEN DATE '2010-01-01' AND p_predict_end
-  ) AS 'QA-CA-LEDGER-0: CA-on requires dwd_stock_dividend_event visible source partition max >= p_predict_end; recovery path is 1) backfill dividend ODS partition, 2) rerun sql/dwd/12_dwd_stock_dividend_event.sql, 3) rerun sql/qa/14_corporate_action_event_checks.sql, 4) rerun this QA';
+    WHERE ex_date BETWEEN DATE '2010-01-01' AND CURRENT_DATE('Asia/Shanghai')
+  ) AS 'QA-CA-LEDGER-0: CA-on requires dwd_stock_dividend_event visible full-table source partition max >= p_predict_end; recovery path is 1) backfill dividend ODS partition, 2) rerun sql/dwd/12_dwd_stock_dividend_event.sql, 3) rerun sql/qa/14_corporate_action_event_checks.sql, 4) rerun this QA';
 END IF;
 
 ASSERT (

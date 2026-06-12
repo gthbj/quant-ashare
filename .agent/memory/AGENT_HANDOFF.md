@@ -1,3 +1,10 @@
+> 当前交接补充（2026-06-12，GPT-5.5，PR #202 review follow-up）
+> - PR #202 Claude review F2-F11 代码面已修复：staleness watermark 改为 full-table 可见上界、catalog 补 direct base input、`experiment_json` 最高优先级恢复、window SQL guard 收紧并补三类 review seeded mutation、纯函数测试补强、scanner/path/docstring/token_map 修正。
+> - F1 真实数据缺口不在本 PR 执行：现存 CA-on baseline 的 `QA-CA-LEDGER-0` 实跑会失败，dividend 数据缺口为 `2026-05-28..2026-06-09`，`ods_tushare_dividend` max partition/date=`2026-05-27`；断言不放宽，PR body 已改为如实陈述，后续补采/复核留 owner。
+> - 验证通过：全量 pytest 266 passed、Dataform SQLX check、`git diff --check`、仓库外 collect-only 266 collected、`qa_corporate_action_ledger_outputs.sql` BigQuery dry-run。未写 BQ/GCS、未触碰 Cloud Run job spec/镜像/IAM、未改训练/回测/组合语义。
+>
+> Model: GPT-5.5
+
 > 当前交接补充（2026-06-12，GPT-5.5，PRD_04 工程护栏与测试补强）
 > - 分支 `codex/prd04-guardrails` 已按 PRD §2.1-§2.7 实现七项工程护栏：CA 数据陈旧断言、catalog 必填键、metric freeze、window SQL 同构 guard、resolver 合一、纯函数表驱动测试、pytest scaffold。
 > - `backtest_report/reporting --manifest-resolved` 选择 fail-fast；`train_predict` resolved manifest 旧语义保留，且测试确认当前 orchestrator/backtest command builder 不传该参数。
@@ -24,6 +31,67 @@
 > - Phase C QA 全过：continuous job `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware job `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger job `37674e4f-06ee-4998-9d1e-75ace14cb965`。报告 `docs/分析-Ledger CA 重跑对照-20260612.md` 已产出；CA-on contract Sharpe `0.6682`、Calmar `0.4101`，仍未 accepted / promotion。
 >
 > Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - PR #202 review follow-up
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd04`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/prd04-guardrails`
+Run ID: N/A
+相关 issue/PR: PR #202；review comment `4692136310`
+
+### 已完成工作
+
+- F2：`qa_corporate_action_ledger_outputs` 的 dividend staleness watermark 改为读取 full-table 可见上界，上限使用 `CURRENT_DATE('Asia/Shanghai')`，不再被 `p_predict_end` 截断。
+- F3：`experiment_resolution.resolve_experiment_from_args()` 恢复 `experiment_json` 最高优先级；新增 reporting 组合传参测试，确认 `--experiment-json` + `--manifest-resolved` 同传时走 `experiment_json` 成功。
+- F4：`qa_corporate_action_ledger_outputs` catalog inputs 补 direct base table `dwd_stock_dividend_event`，测试同时检查 SQL 直接引用和 catalog input。
+- F5/F9/F10：window SQL 同构 guard 收紧 dws/03 精确锚点与 dwd/01、dws/04 token 角色映射；新增 review seeded mutations，覆盖 `pe_ttm -> pe`、观测窗写死、边界互换三类失败。
+- F6：补 `_failed_reasons`、legacy `_hard_reject_reasons` gate 表驱动覆盖和 `evaluate_cv_folds` 成功路径；v3 contract 对缺 v3 metrics 先返回 `v3_acceptance_metrics=missing`，不强造 legacy main path。
+- F7/F8：`--manifest-resolved` scanner 缩到 backtest report command builders，manifest fixture 改为 repo-root 绝对路径。
+- F11：`select_candidate([], [], None)` 的 `IndexError` 明确作为当前行为 characterization test 固定，本 PR 不改生产语义。
+
+### 重要上下文
+
+- F1 为 owner 数据决策项：Claude 实跑发现现存 CA-on baseline 的 staleness 断言会失败，dividend 数据缺口为 `2026-05-28..2026-06-09`，`ods_tushare_dividend` 当前 max partition/date 为 `2026-05-27`。本轮不执行补采、不写 BigQuery/GCS，断言语义不放宽，PR body 已改为如实陈述。
+- 精确 ingestion watermark 仍需要新增 source ingestion 列或修复 ingestion meta；ingestion meta 当前 0-row 事件不在本 PR 处理。
+
+### 改动文件
+
+- `sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`
+- `configs/strategy1/active_step_catalog.yml`
+- `src/quant_ashare/strategy1/experiment_resolution.py`
+- `tests/strategy1/test_experiment_resolution.py`
+- `tests/strategy1/test_sql_render.py`
+- `tests/strategy1/test_strategy1_catalog.py`
+- `tests/strategy1/test_strategy1_pure_functions.py`
+- `tests/warehouse/test_windowed_sql_isomorphism.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests`：266 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
+- `git diff --check`：passed。
+- `cd /tmp && python3 -m pytest /Users/fisher/Desktop/git/worktrees/quant-ashare-prd04/tests --collect-only -q`：266 collected。
+- `bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`：Query successfully validated。
+
+### 阻塞项
+
+- 无代码阻塞；F1 dividend ODS 补采与 CA-on baseline 复核留 owner 决策。
+
+### 下一步建议
+
+- push 后在 PR #202 回帖逐条说明 F2-F11 修复与 F1/F2 取舍；等待 Claude 复审。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-12 GPT-5.5 - PRD_04 工程护栏与测试补强实现
 

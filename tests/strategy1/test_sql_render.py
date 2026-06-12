@@ -242,6 +242,7 @@ def test_corporate_action_params_propagate_to_sql_and_experiment_payload() -> No
     assert "QA-CA-LEDGER-0" in rendered
     assert "`data-aquarium.ashare_dwd.dwd_stock_dividend_event`" in rendered
     assert "MAX(SAFE.PARSE_DATE('%Y%m%d', source_partition_date_max))" in rendered
+    assert "CURRENT_DATE('Asia/Shanghai')" in rendered
     assert "backfill dividend ODS partition" in rendered
 
 

@@ -310,7 +310,7 @@ steps:
     required_params: [p_backtest_id, p_run_id, p_predict_start, p_predict_end, p_corporate_actions, p_dividend_tax_mode, p_share_tolerance, p_cash_tolerance_cny, p_nav_event_abs_return_ceiling]
     internal_params: []
     optional_params: {}
-    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, v_dwd_stock_dividend_event_ledger_consumable]
+    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, dwd_stock_dividend_event, v_dwd_stock_dividend_event_ledger_consumable]
     outputs: []
     partition_columns: []
 
