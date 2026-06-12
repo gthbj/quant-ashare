@@ -81,7 +81,10 @@ def build_lock_key(exp: Experiment, step_id: str) -> str:
 
 
 class GcsLeaseLock:
-    """GCS create-if-not-exists lock with generation-guarded heartbeat/release."""
+    """GCS create-if-not-exists lock with generation-guarded heartbeat/release.
+
+    PRD_20260611_01 L159 owns stale reclaim after expiry and terminal Cloud Run execution.
+    """
 
     def __init__(self, config: LockConfig, lock_key: str, exp: Experiment, step_id: str, owner: str):
         self.config = config
