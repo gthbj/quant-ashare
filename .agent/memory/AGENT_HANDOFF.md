@@ -1,3 +1,10 @@
+> 当前交接补充（2026-06-12，GPT-5 Codex，PR #186 CSV cleanup）
+> - 已按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
+> - 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；CSV 视为可再生成的本地/临时分析产物，不再跟随 git。`docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。
+> - 本轮未运行 BigQuery、未启动 Cloud Run、未改策略结果、未改变 accepted / promotion 状态。
+>
+> Model: GPT-5 Codex
+
 > 当前交接补充（2026-06-12，GPT-5 Codex，GCS checkpoint archive）
 > - 已将 `configs/ingestion/ods_current_scope_v0.yml` 当前生产 14 个 ODS endpoint 及其 current partition variants 的 2010+ checkpoint 做可逆归档；scope 为 `gs://data-aquarium/a-share/tushare/_checkpoints/endpoint=*/logical_date=*.json` 且 `logical_date >= 20100101`。
 > - 归档 run：`checkpoint_archive_current14_20260612T035604Z`；根路径 `gs://data-aquarium/a-share/tushare/checkpoint_archive/run_id=checkpoint_archive_current14_20260612T035604Z/`；产物为 26 个 gzip JSONL 归档对象 + `manifest.json`，共 65,891 条 checkpoint 记录，源 checkpoint 47,955,858 bytes，gzip 后 7,951,990 bytes。
@@ -266,6 +273,57 @@ Run ID: `checkpoint_archive_current14_20260612T035604Z`
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+## 2026-06-12 GPT-5 Codex - PR #186 CSV cleanup
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: 本地 Codex desktop session
+模型: GPT-5 Codex
+运行环境: `/Users/fisher/Desktop/git/worktrees/quant-ashare-remove-pr186-csv`
+Run ID: N/A
+相关 issue/PR: PR #186
+
+### 已完成工作
+
+- 按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV。
+- 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；未删除其他 PR 的 CSV。
+- 同步更新 `IMPLEMENTATION_STATUS.md`、`AGENT_HANDOFF.md` 和 `TODO.md`，记录 CSV 作为可再生成临时产物的清理口径。
+
+### 重要上下文
+
+- 删除文件为 `docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
+- `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。
+- 本轮未运行 BigQuery、未启动 Cloud Run、未改策略结论、未改变 accepted / promotion 状态。
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+- `docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`
+- `docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`
+- `docs/analysis_strategy1_transfer_ladder_20260611_results.csv`
+- `docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`
+
+### 测试 / 验证
+
+- `git diff --name-status HEAD -- '*.csv'` 确认仅删除 PR #186 的四份 CSV。
+- `git diff --check` 通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 后续分析 CSV 默认作为本地临时产物；只有 owner 明确要求或测试 fixture 必需时才纳入 git。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 

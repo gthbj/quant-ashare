@@ -6,6 +6,12 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：PR #186 分析 CSV 已从 main 清理
+
+- 按 owner 要求，直接在 `main` 清理 PR #186 带入的四份可再生成分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
+- 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；CSV 不再作为仓库跟踪产物。后续如需复核数据，应通过脚本重新生成本地临时产物，而不是把大体量分析 CSV 重新纳入 git。
+- 本轮未运行 BigQuery、未启动 Cloud Run、未改策略结果、未改变 OQ-010 路线结论。
+
 ### 最新补充（2026-06-12）：current-scope 14 ODS 的 2010+ checkpoint 已归档
 
 - 已按 `configs/ingestion/ods_current_scope_v0.yml` 的 14 个当前生产 ODS endpoint 及其 current partition variants，将 `gs://data-aquarium/a-share/tushare/_checkpoints/` 中 `logical_date >= 20100101` 的 checkpoint 做可逆 gzip JSONL 归档；本轮只新增归档对象，未删除原 `_checkpoints/` 小对象。
