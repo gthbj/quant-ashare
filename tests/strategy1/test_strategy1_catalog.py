@@ -97,6 +97,15 @@ def test_step_role_contract_covers_ads_sql_references() -> None:
     assert failures == []
 
 
+def test_corporate_action_ledger_qa_declares_dividend_event_view_input() -> None:
+    catalog = load_step_catalog()
+    step = catalog["steps"]["qa_corporate_action_ledger_outputs"]
+    sql = repo_path(step["sql_path"]).read_text(encoding="utf-8")
+
+    assert "`data-aquarium.ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`" in sql
+    assert "v_dwd_stock_dividend_event_ledger_consumable" in set(step["inputs"])
+
+
 def test_catalog_classifies_sql_16_to_25_individually() -> None:
     catalog = load_step_catalog()
     steps = catalog["steps"]

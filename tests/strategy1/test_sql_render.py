@@ -239,6 +239,10 @@ def test_corporate_action_params_propagate_to_sql_and_experiment_payload() -> No
     assert params["p_dividend_tax_mode"] == DIVIDEND_TAX_FLAT_10PCT
     assert "DECLARE p_corporate_actions STRING DEFAULT 'cash_div_and_split_v1';" in rendered
     assert "DECLARE p_dividend_tax_mode STRING DEFAULT 'flat_10pct';" in rendered
+    assert "QA-CA-LEDGER-0" in rendered
+    assert "`data-aquarium.ashare_dwd.dwd_stock_dividend_event`" in rendered
+    assert "MAX(SAFE.PARSE_DATE('%Y%m%d', source_partition_date_max))" in rendered
+    assert "backfill dividend ODS partition" in rendered
 
 
 def test_model_diagnosis_pool_qa_uses_explicit_valid_test_windows() -> None:
