@@ -23,7 +23,7 @@
 - `S` 事件也可能是盘中临停。若当日 `daily` 有 close 且 volume > 0，不能把该行标为全天停牌；DWD 用 `has_intraday_halt` 标记盘中临停，用 `has_open_halt` 标记开盘时段或未知时段临停并影响开盘建仓掩码。
 - Tushare 各接口金额/量单位不一（手/千元/万股/万元）：落库须按「表+字段」归一到元/股。
 - OQ-006 已实现：`ashare_meta.ods_field_unit_map` 是单位换算唯一事实来源；`dwd_index_eod.volume/amount` 已按 `vol*100` / `amount*1000` 换算并迁移为 `volume_share/amount_cny`；新增或修改 DWD 标准字段的 PR 必须更新 `ods_field_unit_map` 并运行 `sql/qa/05_unit_contract_checks.sql`；OQ-006 最小实现已先于 P1 资金流、财务扩展等高单位风险 DWD 正式落地。
-- `dwd_stock_dividend_event` 是 ledger 可消费的分红送转事件入口；ledger 不得直读 `ods_tushare_dividend`。Phase A 仅覆盖现金分红、送股、转增；A 股无美股式 split/并股机制，配股/增发等未采集公司行为不纳入本表。`sql/qa/14_corporate_action_event_checks.sql` 会把 hfq 因子跳变无同日事件的行落入 `qa_stock_dividend_event_hfq_mismatch` 并归类为 `same_day_orphan_corporate_action`，Phase B/Phase C 必须显式披露该类数量，不能静默混入 `unexplained_residual`。
+- `dwd_stock_dividend_event` 是 ledger 可消费的分红送转事件入口；ledger 不得直读 `ods_tushare_dividend`。Phase A 仅覆盖现金分红、送股、转增；A 股无美股式 split/并股机制，配股/增发等未采集公司行为不纳入本表。`sql/qa/14_corporate_action_event_checks.sql` 会把 hfq 因子跳变无同日事件的行落入 `qa_stock_dividend_event_hfq_mismatch` 并归类为 `same_day_orphan_corporate_action`，Phase B/Phase C 必须显式披露该类数量，不能静默混入 `unexplained_residual`。2026-06-12 Phase C true-five-year CA-on run 在 `2021-01-04..2026-06-09` 窗口披露 factor_to_event orphan `350`、unclassified `0`；CA-on contract Sharpe `0.6682084282261871`、Calmar `0.4101170873817589`，仍不得标 accepted / promotion。
 - 部分数值字段在 ODS 是 STRING（如 `moneyflow_hsgt`、`ccass_hold`）：落库须 `SAFE_CAST`。
 - 北向数据（hk_hold / moneyflow_hsgt）2024 年后部分口径变化/停更，需做可用性标记。
 - `index_member_all` / `ci_index_member` 已在 ODS 中可用，是最新分区中的全量历史行业归属区间快照；历史 join 必须用 `in_date/out_date`，不能用 `is_new` 回填历史。默认区间口径为 `[in_date, out_date)`，落地前需 QA `out_date` 当天有效性、区间重叠/缺口和 2019+ 覆盖率。

@@ -1,9 +1,66 @@
-> 当前交接补充（2026-06-12，GPT-5.5，Ledger CA Phase B）
-> - `codex/ledger-corporate-actions` 已完成 PRD_20260612_01 Phase B ledger 实现：`corporate_actions` / `dividend_tax_mode` 贯通 Experiment/manifest、CLI、Cloud Run plan、SQL params、LedgerParams、hash、summary、catalog、runner QA、lot-aware QA、新 CA QA 与两套 resume QA。
-> - `run_ledger` 只读 Phase A ledger-consumable view，在 ex_date 开盘前先按 record_date entitlement 做送转 `floor` 审计，再按 record_date 股数 + flat 10% 税后派息入现金；调仓日仍先 CA 后交易。默认 `none_v1` 保持 trade/position/NAV/state/hash 不变量，hash 黄金值 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d` 未变。
-> - 验证已通过：`python3 -m pytest tests` 176 passed、retired linter、compileall、Dataform generator check、Dataform compile、new CA QA research BigQuery dry-run、`git diff --check`。本轮未执行 Phase C、未写既有 run、不 promotion、不改默认 profile、不触碰 `bq_io.py`。
+> 当前交接补充（2026-06-12，GPT-5.5，Ledger CA Phase C）
+> - `codex/ledger-corporate-actions` 已完成 PRD_20260612_01 Phase C research-only CA-on 重跑：Cloud Run runner digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`，正式 execution `strategy1-backtest-report-job-dnt4b` 成功。
+> - 新 run/backtest：`s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，参数 `cash_div_and_split_v1` / `flat_10pct`，只写 `ashare_research`；ADS 反向验证和 promotion manifest 均为 0 行。
+> - Phase C QA 全过：continuous job `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware job `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger job `37674e4f-06ee-4998-9d1e-75ace14cb965`。报告 `docs/分析-Ledger CA 重跑对照-20260612.md` 已产出；CA-on contract Sharpe `0.6682`、Calmar `0.4101`，仍未 accepted / promotion。
 >
 > Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase C research-only 重跑
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-ledger`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
+Run ID: `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`
+相关 issue/PR: PR #198；PRD `docs/prd/PRD_20260612_01_策略1Ledger分红送转记账修复.md`
+
+### 已完成工作
+
+- 按不可变 digest 纪律构建并部署 Phase C runner：Cloud Build `6de3b089-5574-4a15-9097-331696fcb6e5`，tag `ledger-ca-phasec-43404e6-20260612-01`，digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`；未更新 `latest` tag。`strategy1-backtest-report-job` pin 到该 digest，boot smoke `strategy1-backtest-report-job-97b5v` 成功。
+- 执行 CA-on true-five-year continuous research run：formal execution `strategy1-backtest-report-job-dnt4b` 成功，run/backtest 为 `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，复用 synthetic prediction run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`。
+- 完成三条 QA 实跑与 ADS 反向验证：continuous `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger `37674e4f-06ee-4998-9d1e-75ace14cb965`；ADS run/backtest scoped 表 0 行，`research_promotion_manifest` 0 行。
+- 新增报告 `docs/分析-Ledger CA 重跑对照-20260612.md`，包含原 true5y baseline / CA-on / PR #194 hfq proxy 三方对照、六项偏差分解、税率 0%/20% 敏感性、v3 gate 重评与 owner 三项待决选项。
+
+### 重要上下文
+
+- CA-on 指标：total return `1.1044714853774122`、compound CAGR `0.15350594766603387`、MaxDD `-0.3742978588042647`、contract Sharpe `0.6682084282261871`、Calmar `0.4101170873817589`、IR `0.6971241900405605`。
+- CA 审计：75 行（现金分红 73、送转 2），税后现金入账 `6554.9556` 元，flat 10% 税 `728.3284` 元，送转增股 `90` 股。
+- 六项分解闭合：tax `+0.7283pp`、cash_not_reinvested bridge `+2.7920pp`、split fractional `0`、same ex-date held aggregation `0`、event-vs-adj-factor residual `-0.0138pp`、unexplained residual `0`。
+- 本轮没有改现役 baseline 数据、没有 promotion、没有改全局默认 profile、没有进入 PRD_10 Phase 2。
+
+### 改动文件
+
+- `tests/strategy1_cloudrun/test_lot_aware_ledger.py`（Claude Low：默认 CA 参数中性测试改名/docstring）
+- `docs/分析-Ledger CA 重跑对照-20260612.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest tests/strategy1_cloudrun/test_lot_aware_ledger.py -q`：16 passed。
+- Cloud Run boot smoke `strategy1-backtest-report-job-97b5v`：Completed=True。
+- Cloud Run formal execution `strategy1-backtest-report-job-dnt4b`：Completed=True，succeededCount=1。
+- `qa_continuous_backtest_outputs` / `qa_lot_aware_ledger_outputs` / `qa_corporate_action_ledger_outputs`：dry-run 与实跑均通过。
+- ADS 反向验证：model registry / prediction / candidate / target / order / summary / NAV / ledger_state / trade / position 均为 0 行；promotion manifest 0 行。
+
+### 阻塞项
+
+- 无工程阻塞。结果是否切换 baseline 口径、是否 supersede 旧未复权约定、后续实验是否一律 CA-on，均等待 owner 决策。
+
+### 下一步建议
+
+- 提交并推送 `codex/ledger-corporate-actions`，在 PR #198 comment 报告 Phase C 结果、QA、ADS 反查、三方对照和六项分解。
+- owner 裁决前，不把 CA-on 结果标 accepted，不 promotion，不改默认 profile。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
 
 ## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase B 实现
 
