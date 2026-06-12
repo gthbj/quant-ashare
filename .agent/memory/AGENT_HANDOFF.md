@@ -1,10 +1,64 @@
-> 当前交接补充（2026-06-12，GPT-5 Codex，PRD_10 Phase 0）
-> - 已完成 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md` 的 Phase 0 paper 原型：新增只读脚本 `scripts/strategy1/analyze_topdown_lot_phase0.py`、focused tests `tests/strategy1/test_topdown_lot_phase0.py`、报告 `docs/分析-策略1自上而下整手组合Phase0-20260612.md`，以及可由脚本再生成的本地 CSV 产物 `docs/analysis_strategy1_topdown_lot_phase0_20260612_{metrics,daily,rebalance_audit}.csv`；PR #190 follow-up 已从 git tracking 移除这些 CSV，不随 PR 提交。
-> - 运行口径：复用 official synthetic prediction run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02` / official baseline `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，本地从 `dws_stock_feature_daily_v0` 六条 P1 规则现算 `tail_risk:*` 标记；跑 T0/T1 × `walk_depth={30,50}` × `cost_bps={0,20}`。BigQuery 全程只读，未训练、未写 BQ、未 Cloud Run、未 promotion。
-> - 主结果（`walk_depth=50`, `20bps`）：T0 CAGR `10.22%`、MaxDD `-63.02%`、Calmar `0.162`、crunch excess `-25.66%`、平均现金 `2.67%`；T1 CAGR `-4.57%`、MaxDD `-68.14%`、Calmar `-0.067`、crunch excess `-15.73%`、平均现金 `7.21%`、P1 skip `1231`。
-> - 预登记判读：T1-T0 CAGR `-14.80pp`，触发 P1 替换成本假设被证伪；T1 crunch 改善 `+9.93pp` 但不足以抵消全周期损耗；双臂 MaxDD 均比 official `-45.48%` 深超 15pp；T1 `max_realized_weight=100%` 触发无单票上限复核。Phase 1 代码准备是否继续、P1 绑定/无上限是否调整，需要 owner 看完报告后决定。
+> 当前交接补充（2026-06-12，GPT-5.5，PR #190 Phase 0 review follow-up）
+> - PR #190 的 Phase 0 paper 报告已按多代理 review 修订：主判读改 official matched 分腿费率（买 `6bps`、卖 `11bps`），保留 `0bps` / `20bps` 敏感性；新增逐票持仓审计、P1 饱和机制、四通道归因、2022-05 episode、最差 3 个 10 日窗口持仓明细。
+> - 主结果（`walk_depth=50`, matched official cost）：T0 CAGR `10.91%`、MaxDD `-63.66%`、Calmar `0.171`；T1 CAGR `-2.79%`、MaxDD `-66.32%`、Calmar `-0.042`；T1-T0 CAGR gap `-13.70pp`，crunch excess 改善 `+8.96pp`。20bps 旧口径 gap `-14.81pp` 已作为敏感性保留。
+> - P1 失败归因改为市值规则饱和：matched 归因中现金差约 `-8.93pp/年`、持仓构成差约 `-4.53pp/年`；2022-05-06 top-50 P1 标记率 `98%`、市值规则标记率 `96%`，后续 10 个交易日 T1 平均现金 `94.48%`、T1-T0 return gap `-9.07pp`。
+> - 大 CSV 已上传并由报告引用：`gs://ashare-artifacts/reports/strategy1/topdown_phase0/analysis_date=20260612/analysis_strategy1_topdown_lot_phase0_20260612_daily.csv` 与 `..._rebalance_audit.csv`；小 `metrics.csv` 需随 PR 入库。仍未改 ledger v1 / Phase 1、未改默认 tail_risk profile、未 promotion。
 >
-> Model: GPT-5 Codex
+> Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - PR #190 Phase 0 review follow-up
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: 当前本地会话
+模型: GPT-5.5
+运行环境: `/Users/fisher/Desktop/git/quant-ashare`，分支 `codex/strategy1-topdown-phase0`
+Run ID: `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`
+相关 issue/PR: PR #190
+
+### 已完成工作
+
+- 修订 `scripts/strategy1/analyze_topdown_lot_phase0.py`：加入 matched official split cost profile、逐票持仓 JSON 审计、NAV 分母集中度、P1 饱和归因表、日期集合断言、卖出价格缺失审计、N-1 收益期数、平均 NAV 换手归一。
+- 重跑 Phase 0，刷新 `docs/分析-策略1自上而下整手组合Phase0-20260612.md` 与三份 CSV；报告主判读使用 matched official cost，`0bps` / `20bps` 保留为敏感性。
+- 上传大 CSV 到 GCS：daily `32114025` bytes，rebalance audit `804585` bytes；报告引用 `gs://ashare-artifacts/reports/strategy1/topdown_phase0/analysis_date=20260612/` 下对应对象。
+
+### 重要上下文
+
+- BigQuery 全程只读；本轮未训练、未写 BQ、未启动 Cloud Run、未 promotion。
+- `scripts/strategy1_cloudrun/bq_io.py` 是 owner 既有未提交改动，本轮未修改、未暂存。
+- Claude review 中 `T0 @8.5bps CAGR≈13.64%` / trigger-3 T0 不触发的数值未按 split `6/11bps` 或 uniform `8.5bps` 路径级重跑复现；当前脚本主结果仍触发 trigger-3 合取条件。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_topdown_lot_phase0.py`
+- `tests/strategy1/test_topdown_lot_phase0.py`
+- `docs/分析-策略1自上而下整手组合Phase0-20260612.md`
+- `docs/analysis_strategy1_topdown_lot_phase0_20260612_metrics.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 scripts/strategy1/analyze_topdown_lot_phase0.py`
+- `python3 -m pytest -q tests/strategy1/test_topdown_lot_phase0.py`
+- `python3 -m py_compile scripts/strategy1/analyze_topdown_lot_phase0.py tests/strategy1/test_topdown_lot_phase0.py`
+- GCS `gcloud storage cp` + `gcloud storage ls -l`
+
+### 阻塞项
+
+- 无技术阻塞；Phase 1 是否继续仍需 owner 决策。
+
+### 下一步建议
+
+- Owner 决定 P1 市值两条规则是否剔除（保留崩盘形态规则）或增加饱和回退。
+- 若继续 Phase 1，再实现 `ledger_exec_v2_lot100_topdown`，仍不动 v1、不改默认 profile。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 > 当前交接补充（2026-06-11，Claude Fable 5，PRD_10）
 > - 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 确认的结构性现金拖累（10 万 + 整手 + 等权 5% + 无再分配 → 25% 买单跳过、现金均值 29.4%），owner 决定重新设计构造规则而非修复等权。

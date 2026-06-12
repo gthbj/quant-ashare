@@ -1,10 +1,37 @@
 from __future__ import annotations
 
+import math
 from datetime import date
 
 import pandas as pd
 
 from scripts.strategy1 import analyze_topdown_lot_phase0 as phase0
+
+
+def make_cfg(**overrides: object) -> phase0.Phase0Config:
+    values = {
+        "project": "data-aquarium",
+        "location": "asia-east2",
+        "strategy_id": "ml_pv_clf_v0",
+        "prediction_run_id": "pred",
+        "backtest_id": "bt",
+        "start_date": "2026-01-05",
+        "end_date": "2026-01-12",
+        "feature_version": "fv",
+        "benchmark_sec_code": "000852.SH",
+        "initial_capital": 100_000.0,
+        "position_floor_count": 20,
+        "walk_depths": (3,),
+        "cost_bps_values": (0.0,),
+        "report_md": phase0.Path("report.md"),
+        "metrics_csv": phase0.Path("metrics.csv"),
+        "daily_csv": phase0.Path("daily.csv"),
+        "audit_csv": phase0.Path("audit.csv"),
+        "prd09_transfer_csv": phase0.Path("l3.csv"),
+        "skip_report": True,
+    }
+    values.update(overrides)
+    return phase0.Phase0Config(**values)
 
 
 def test_tail_risk_reason_matches_p1_rules_and_null_guard() -> None:
@@ -20,7 +47,7 @@ def test_tail_risk_reason_matches_p1_rules_and_null_guard() -> None:
     missing = {**clean, "total_mv_cny": None}
 
     assert phase0.tail_risk_reason(clean) is None
-    assert phase0.tail_risk_reason(risky) == "tail_risk:ret_20d_lt_30pct|tail_risk:circ_mv_lt_20e8"
+    assert phase0.tail_risk_reason(risky) == "tail_risk:ret_20d_lt_30pct;tail_risk:circ_mv_lt_20e8"
     assert phase0.tail_risk_reason(missing) == "tail_risk:required_field_null"
 
 
@@ -30,27 +57,7 @@ def test_min_buy_shares_ceil_to_lot_threshold() -> None:
 
 
 def test_rebalance_t1_skips_p1_and_replaces_with_next_candidate() -> None:
-    cfg = phase0.Phase0Config(
-        project="data-aquarium",
-        location="asia-east2",
-        strategy_id="ml_pv_clf_v0",
-        prediction_run_id="pred",
-        backtest_id="bt",
-        start_date="2026-01-05",
-        end_date="2026-01-05",
-        feature_version="fv",
-        benchmark_sec_code="000852.SH",
-        initial_capital=100_000.0,
-        position_floor_count=20,
-        walk_depths=(3,),
-        cost_bps_values=(0.0,),
-        report_md=phase0.Path("report.md"),
-        metrics_csv=phase0.Path("metrics.csv"),
-        daily_csv=phase0.Path("daily.csv"),
-        audit_csv=phase0.Path("audit.csv"),
-        prd09_transfer_csv=phase0.Path("l3.csv"),
-        skip_report=True,
-    )
+    cfg = make_cfg(end_date="2026-01-05")
     prices = pd.DataFrame(
         {
             "sec_code": ["000001.SZ", "000002.SZ", "000003.SZ"],
@@ -103,27 +110,7 @@ def test_rebalance_t1_skips_p1_and_replaces_with_next_candidate() -> None:
 
 
 def test_rebalance_sells_over_depth_holding_without_pending_simulation() -> None:
-    cfg = phase0.Phase0Config(
-        project="data-aquarium",
-        location="asia-east2",
-        strategy_id="ml_pv_clf_v0",
-        prediction_run_id="pred",
-        backtest_id="bt",
-        start_date="2026-01-05",
-        end_date="2026-01-05",
-        feature_version="fv",
-        benchmark_sec_code="000852.SH",
-        initial_capital=100_000.0,
-        position_floor_count=20,
-        walk_depths=(1,),
-        cost_bps_values=(0.0,),
-        report_md=phase0.Path("report.md"),
-        metrics_csv=phase0.Path("metrics.csv"),
-        daily_csv=phase0.Path("daily.csv"),
-        audit_csv=phase0.Path("audit.csv"),
-        prd09_transfer_csv=phase0.Path("l3.csv"),
-        skip_report=True,
-    )
+    cfg = make_cfg(end_date="2026-01-05", walk_depths=(1,))
     prices = pd.DataFrame(
         {
             "sec_code": ["000099.SZ"],
@@ -153,3 +140,134 @@ def test_rebalance_sells_over_depth_holding_without_pending_simulation() -> None
     assert new_state.cash == 2_000.0
     assert turnover == 2_000.0
     assert audit["sell_count"] == 1
+
+
+def test_rebalance_uses_split_buy_sell_cost_bps() -> None:
+    cfg = make_cfg(end_date="2026-01-05", walk_depths=(1,))
+    prices = pd.DataFrame(
+        {
+            "sec_code": ["000001.SZ", "000002.SZ"],
+            "trade_date": [date(2026, 1, 5)] * 2,
+            "open": [10.0, 10.0],
+            "close": [10.0, 10.0],
+            "can_buy_open": [True, True],
+            "can_sell_open": [True, True],
+        }
+    )
+    state = phase0.PortfolioState(cash=5_000.0, holdings={"000001.SZ": 100.0}, previous_nav_value=10_000.0)
+
+    new_state, turnover, cost, audit = phase0.rebalance_topdown(
+        cfg=cfg,
+        state=state,
+        trade_date=date(2026, 1, 5),
+        signal_date=date(2026, 1, 2),
+        arm="T0",
+        walk_depth=1,
+        cost_bps=8.5,
+        buy_cost_bps=6.0,
+        sell_cost_bps=11.0,
+        nav_before=10_000.0,
+        candidates=pd.DataFrame(
+            {"sec_code": ["000002.SZ"], "rank_raw": [1], "tail_risk_reason": [None]}
+        ),
+        price_book=phase0.PriceBook(prices),
+    )
+
+    assert new_state.holdings == {"000002.SZ": 100.0}
+    assert math.isclose(turnover, 2_000.0)
+    assert math.isclose(cost, 1.7)
+    assert math.isclose(audit["cost_cny"], 1.7)
+    assert math.isclose(new_state.cash, 4_998.3)
+
+
+def test_simulate_arm_reports_max_weight_with_nav_denominator() -> None:
+    cfg = make_cfg(walk_depths=(1,))
+    calendar = pd.DataFrame(
+        {
+            "trade_date": [
+                date(2026, 1, 5),
+                date(2026, 1, 6),
+                date(2026, 1, 7),
+                date(2026, 1, 8),
+                date(2026, 1, 9),
+                date(2026, 1, 12),
+            ],
+            "trade_date_seq": [1, 2, 3, 4, 5, 6],
+        }
+    )
+    candidates = pd.DataFrame(
+        {
+            "rebalance_date": [date(2026, 1, 9)],
+            "sec_code": ["000001.SZ"],
+            "rank_raw": [1],
+            "tail_risk_reason": [None],
+        }
+    )
+    benchmark = calendar[["trade_date"]].copy()
+    benchmark["benchmark_return"] = 0.0
+    prices = pd.DataFrame(
+        {
+            "sec_code": ["000001.SZ"],
+            "trade_date": [date(2026, 1, 12)],
+            "open": [10.0],
+            "close": [10.0],
+            "can_buy_open": [True],
+            "can_sell_open": [True],
+        }
+    )
+
+    daily, _ = phase0.simulate_arm(
+        cfg=cfg,
+        arm="T0",
+        walk_depth=1,
+        cost_profile=phase0.CostProfile("single_0bps", 0.0, 0.0, 0.0),
+        candidates=candidates,
+        calendar=calendar,
+        benchmark=benchmark,
+        price_book=phase0.PriceBook(prices),
+    )
+
+    rebalance_day = daily[daily["trade_date"] == date(2026, 1, 12)].iloc[0]
+    assert math.isclose(rebalance_day["max_realized_weight"], 0.05)
+    assert math.isclose(rebalance_day["max_position_weight_within_holdings"], 1.0)
+
+
+def test_summarize_arm_uses_n_minus_one_return_period_and_avg_nav_turnover() -> None:
+    cfg = make_cfg()
+    daily = pd.DataFrame(
+        {
+            "trade_date": [date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 7)],
+            "daily_return": [0.0, 0.10, 0.10],
+            "benchmark_return": [0.0, 0.0, 0.0],
+            "nav": [1.0, 1.1, 1.21],
+            "net_value_cny": [100_000.0, 110_000.0, 121_000.0],
+            "cash_weight": [0.0, 0.0, 0.0],
+            "realized_holdings_count": [1, 1, 1],
+            "max_realized_weight": [0.2, 0.2, 0.2],
+            "max_position_weight_within_holdings": [0.2, 0.2, 0.2],
+        }
+    )
+    audit = pd.DataFrame(
+        {
+            "turnover_cny": [22_000.0],
+            "cost_cny": [0.0],
+            "p1_skip_count": [0],
+            "unbuyable_skip_count": [0],
+            "cash_insufficient_skip_count": [0],
+            "sell_price_missing_count": [0],
+            "p1_marked_rate": [0.0],
+        }
+    )
+
+    summary = phase0.summarize_arm(
+        daily,
+        audit,
+        cfg,
+        "T0",
+        1,
+        phase0.CostProfile("single_0bps", 0.0, 0.0, 0.0),
+    )
+
+    assert summary["return_period_count"] == 2
+    expected_turnover = 22_000.0 / daily["net_value_cny"].mean() / (2 / 252.0)
+    assert math.isclose(summary["annual_turnover"], expected_turnover)

@@ -2,16 +2,16 @@
 
 这是实现状态的唯一事实来源。面向「已完成/进行中/受阻的整体状态」；「下一步要做什么」见根目录 `TODO.md`。
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 ## 当前状态
 
-### 最新补充（2026-06-12）：PRD_10 自上而下整手组合 Phase 0 paper 已完成
+### 最新补充（2026-06-12）：PR #190 Phase 0 paper review follow-up 已完成
 
-- 新增只读脚本 `scripts/strategy1/analyze_topdown_lot_phase0.py` 与 focused tests `tests/strategy1/test_topdown_lot_phase0.py`，复用 official synthetic prediction run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`，本地从 `dws_stock_feature_daily_v0` 六条 P1 规则计算 `tail_risk:*` 标记，跑 T0（无 P1）/ T1（P1 替换过滤）× `walk_depth={30,50}` × `cost_bps={0,20}` paper 原型。
-- 全程 BigQuery 只读 + 本地 pandas；未训练模型、未改 prediction 流、未启动 Cloud Run、未写 `ashare_research` / ADS / promotion 表。输出报告 `docs/分析-策略1自上而下整手组合Phase0-20260612.md`；本地 CSV 产物 `docs/analysis_strategy1_topdown_lot_phase0_20260612_{metrics,daily,rebalance_audit}.csv` 可由脚本再生成，PR #190 follow-up 已从 git tracking 移除，不随 PR 提交。
-- 主结果（`walk_depth=50`, `20bps`）：T0 CAGR=`10.22%`、MaxDD=`-63.02%`、Calmar=`0.162`、crunch excess vs `000852.SH`=`-25.66%`、平均现金=`2.67%`、平均持仓=`14.48`；T1 CAGR=`-4.57%`、MaxDD=`-68.14%`、Calmar=`-0.067`、crunch excess=`-15.73%`、平均现金=`7.21%`、平均持仓=`12.76`、P1 skip=`1231`。
-- 预登记判读：T1 相比 T0 的 CAGR 差 `-14.80pp`，触发“P1 替换成本假设被证伪 / 回 owner 重议”；T1 crunch 段超额改善 `+9.93pp`，但不足以抵消全周期损耗。T0/T1 MaxDD 均比 official baseline `-45.48%` 深超过 15pp，触发“满仓代价超预期”；T1 出现 `max_realized_weight=100%` 的尾部集中，触发无单票上限复核条款。Phase 1 代码准备是否继续、P1 绑定/无上限是否调整，需要 owner 看过 Phase 0 报告后决定；不得据此 accepted 或 promotion。
+- `scripts/strategy1/analyze_topdown_lot_phase0.py` 已按 PR #190 review 修订：主判读成本档改为 official matched 分腿费率（买 `6bps`、卖 `11bps`），保留 `0bps` / `20bps` 敏感性；输出逐票持仓审计 `holdings_detail_json`，新增 P1 饱和机制、四通道归因、2022-05 饱和 episode、最差 3 个 10 日窗口持仓明细；集中度主口径改为 NAV 分母并保留持仓内分母对照。
+- Phase 0 重新跑完（BigQuery 只读 + 本地 pandas；未训练模型、未改 prediction 流、未启动 Cloud Run、未写 `ashare_research` / ADS / promotion 表）。`walk_depth=50` / matched official cost 主结果：T0 CAGR=`10.91%`、MaxDD=`-63.66%`、Calmar=`0.171`；T1 CAGR=`-2.79%`、MaxDD=`-66.32%`、Calmar=`-0.042`；T1-T0 CAGR gap=`-13.70pp`，crunch excess 改善=`+8.96pp`。`single_20bps` 旧口径 gap=`-14.81pp` 已作为敏感性和 review 原始 gap 对照保留。
+- P1 主要问题改判为市值规则饱和而非替换语义本身：matched 主口径四通道归因中现金差约 `-8.93pp/年`、持仓构成差约 `-4.53pp/年`、成本/换手差约 `+0.07pp/年`、集中度差约 `-0.31pp/年`。2022-05-06 signal 的 T1 top-50 P1 标记率 `98%`、市值规则标记率 `96%`，2022-05-09 开始 10 个交易日 T1 平均现金 `94.48%`，窗口 T1-T0 return gap=`-9.07pp`。
+- 产物处置：小 CSV `docs/analysis_strategy1_topdown_lot_phase0_20260612_metrics.csv` 需随 PR 入库；大 CSV 已上传 GCS 并由报告引用：`gs://ashare-artifacts/reports/strategy1/topdown_phase0/analysis_date=20260612/analysis_strategy1_topdown_lot_phase0_20260612_daily.csv` 与 `..._rebalance_audit.csv`。本轮仍不动 ledger v1 / Phase 1 代码、不改默认 tail_risk profile、不 promotion；owner 决策问题改为是否剔除两条市值规则（保留崩盘形态规则）或增加饱和回退。
 
 ### 最新补充（2026-06-11）：自上而下整手组合构造 PRD 已新增
 

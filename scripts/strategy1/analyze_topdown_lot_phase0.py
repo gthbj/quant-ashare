@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
+import re
 import sys
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -34,8 +36,6 @@ from scripts.strategy1_cloudrun.bq_io import make_client, query_dataframe  # noq
 DEFAULT_PROJECT = "data-aquarium"
 DEFAULT_LOCATION = "asia-east2"
 DEFAULT_STRATEGY_ID = "ml_pv_clf_v0"
-DEFAULT_PREDICTION_RUN_ID = "s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02"
-DEFAULT_BACKTEST_ID = "bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02"
 DEFAULT_START_DATE = "2021-01-04"
 DEFAULT_END_DATE = "2026-06-09"
 DEFAULT_FEATURE_VERSION = "strategy1_pv_v0_20260601"
@@ -44,11 +44,17 @@ DEFAULT_INITIAL_CAPITAL = 100_000.0
 DEFAULT_POSITION_FLOOR_COUNT = 20
 DEFAULT_WALK_DEPTHS = (30, 50)
 DEFAULT_COST_BPS = (0.0, 20.0)
+DEFAULT_MATCHED_BUY_COST_BPS = 6.0
+DEFAULT_MATCHED_SELL_COST_BPS = 11.0
 DEFAULT_REPORT_MD = "docs/分析-策略1自上而下整手组合Phase0-20260612.md"
 DEFAULT_METRICS_CSV = "docs/analysis_strategy1_topdown_lot_phase0_20260612_metrics.csv"
 DEFAULT_DAILY_CSV = "docs/analysis_strategy1_topdown_lot_phase0_20260612_daily.csv"
 DEFAULT_AUDIT_CSV = "docs/analysis_strategy1_topdown_lot_phase0_20260612_rebalance_audit.csv"
 DEFAULT_PRD09_TRANSFER_CSV = "docs/analysis_strategy1_transfer_ladder_20260611_results.csv"
+DEFAULT_ARTIFACT_GCS_URI = (
+    "gs://ashare-artifacts/reports/strategy1/topdown_phase0/analysis_date=20260612"
+)
+MATCHED_COST_PROFILE_ID = "matched_official_6_11bps"
 CRUNCH_START = "2024-01-01"
 CRUNCH_END = "2024-02-07"
 TRADING_DAYS_PER_YEAR = 252.0
@@ -62,6 +68,15 @@ P1_RULE_FIELDS = (
     "total_mv_cny",
     "circ_mv_cny",
 )
+
+
+@dataclass(frozen=True)
+class CostProfile:
+    cost_profile_id: str
+    cost_bps: float
+    buy_cost_bps: float
+    sell_cost_bps: float
+    is_primary: bool = False
 
 
 @dataclass(frozen=True)
@@ -85,10 +100,37 @@ class Phase0Config:
     audit_csv: Path
     prd09_transfer_csv: Path
     skip_report: bool
+    matched_buy_cost_bps: float = DEFAULT_MATCHED_BUY_COST_BPS
+    matched_sell_cost_bps: float = DEFAULT_MATCHED_SELL_COST_BPS
+    include_matched_cost: bool = True
+    artifact_gcs_uri: str | None = DEFAULT_ARTIFACT_GCS_URI
 
     @property
     def min_position_weight(self) -> float:
         return 1.0 / float(self.position_floor_count)
+
+    @property
+    def cost_profiles(self) -> tuple[CostProfile, ...]:
+        profiles = [
+            CostProfile(
+                cost_profile_id=f"single_{fmt_cost_id(cost_bps)}bps",
+                cost_bps=float(cost_bps),
+                buy_cost_bps=float(cost_bps),
+                sell_cost_bps=float(cost_bps),
+            )
+            for cost_bps in self.cost_bps_values
+        ]
+        if self.include_matched_cost:
+            profiles.append(
+                CostProfile(
+                    cost_profile_id=MATCHED_COST_PROFILE_ID,
+                    cost_bps=(self.matched_buy_cost_bps + self.matched_sell_cost_bps) / 2.0,
+                    buy_cost_bps=float(self.matched_buy_cost_bps),
+                    sell_cost_bps=float(self.matched_sell_cost_bps),
+                    is_primary=True,
+                )
+            )
+        return tuple(sorted(profiles, key=lambda p: (p.cost_bps, p.cost_profile_id)))
 
 
 @dataclass(frozen=True)
@@ -98,6 +140,34 @@ class PortfolioState:
     previous_nav_value: float
 
 
+def fmt_cost_id(value: float) -> str:
+    return ("%g" % float(value)).replace(".", "p")
+
+
+def resolve_default_run_ids(prediction_run_id: str | None, backtest_id: str | None) -> tuple[str, str]:
+    """Resolve the current effective-window official ids from project memory if omitted."""
+    if prediction_run_id and backtest_id:
+        return prediction_run_id, backtest_id
+
+    memory_paths = [
+        REPO_ROOT / ".agent/memory/AGENT_HANDOFF.md",
+        REPO_ROOT / ".agent/memory/IMPLEMENTATION_STATUS.md",
+        REPO_ROOT / "TODO.md",
+    ]
+    memory_text = "\n".join(path.read_text(encoding="utf-8") for path in memory_paths if path.exists())
+    if not prediction_run_id:
+        match = re.search(r"\bs1_annual_roll_synth_continuous_2021_2026_n20_w075_v\d{8}_\d+\b", memory_text)
+        if match is None:
+            raise ValueError("--prediction-run-id is required; could not resolve it from project memory")
+        prediction_run_id = match.group(0)
+    if not backtest_id:
+        match = re.search(r"\bbt_s1_annual_roll_continuous_2021_2026_n20_w075_v\d{8}_\d+\b", memory_text)
+        if match is None:
+            raise ValueError("--backtest-id is required; could not resolve it from project memory")
+        backtest_id = match.group(0)
+    return prediction_run_id, backtest_id
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run PRD_20260611_10 Phase 0 top-down lot-aware paper prototype."
@@ -105,8 +175,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--project", default=DEFAULT_PROJECT)
     parser.add_argument("--location", default=DEFAULT_LOCATION)
     parser.add_argument("--strategy-id", default=DEFAULT_STRATEGY_ID)
-    parser.add_argument("--prediction-run-id", default=DEFAULT_PREDICTION_RUN_ID)
-    parser.add_argument("--backtest-id", default=DEFAULT_BACKTEST_ID)
+    parser.add_argument("--prediction-run-id", default=None)
+    parser.add_argument("--backtest-id", default=None)
     parser.add_argument("--start-date", default=DEFAULT_START_DATE)
     parser.add_argument("--end-date", default=DEFAULT_END_DATE)
     parser.add_argument("--feature-version", default=DEFAULT_FEATURE_VERSION)
@@ -115,22 +185,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--position-floor-count", type=int, default=DEFAULT_POSITION_FLOOR_COUNT)
     parser.add_argument("--walk-depths", default=",".join(str(v) for v in DEFAULT_WALK_DEPTHS))
     parser.add_argument("--cost-bps", default=",".join(str(v) for v in DEFAULT_COST_BPS))
+    parser.add_argument("--matched-buy-cost-bps", type=float, default=DEFAULT_MATCHED_BUY_COST_BPS)
+    parser.add_argument("--matched-sell-cost-bps", type=float, default=DEFAULT_MATCHED_SELL_COST_BPS)
+    parser.add_argument("--no-matched-cost", action="store_true")
     parser.add_argument("--report-md", default=DEFAULT_REPORT_MD)
     parser.add_argument("--metrics-csv", default=DEFAULT_METRICS_CSV)
     parser.add_argument("--daily-csv", default=DEFAULT_DAILY_CSV)
     parser.add_argument("--audit-csv", default=DEFAULT_AUDIT_CSV)
     parser.add_argument("--prd09-transfer-csv", default=DEFAULT_PRD09_TRANSFER_CSV)
+    parser.add_argument("--artifact-gcs-uri", default=DEFAULT_ARTIFACT_GCS_URI)
     parser.add_argument("--skip-report", action="store_true")
     return parser.parse_args(argv)
 
 
 def config_from_args(args: argparse.Namespace) -> Phase0Config:
+    prediction_run_id, backtest_id = resolve_default_run_ids(args.prediction_run_id, args.backtest_id)
     return Phase0Config(
         project=args.project,
         location=args.location,
         strategy_id=args.strategy_id,
-        prediction_run_id=args.prediction_run_id,
-        backtest_id=args.backtest_id,
+        prediction_run_id=prediction_run_id,
+        backtest_id=backtest_id,
         start_date=args.start_date,
         end_date=args.end_date,
         feature_version=args.feature_version,
@@ -145,6 +220,10 @@ def config_from_args(args: argparse.Namespace) -> Phase0Config:
         audit_csv=Path(args.audit_csv),
         prd09_transfer_csv=Path(args.prd09_transfer_csv),
         skip_report=bool(args.skip_report),
+        matched_buy_cost_bps=float(args.matched_buy_cost_bps),
+        matched_sell_cost_bps=float(args.matched_sell_cost_bps),
+        include_matched_cost=not bool(args.no_matched_cost),
+        artifact_gcs_uri=args.artifact_gcs_uri or None,
     )
 
 
@@ -185,13 +264,13 @@ def main(argv: list[str] | None = None) -> int:
     daily_frames: list[pd.DataFrame] = []
     audit_frames: list[pd.DataFrame] = []
     for walk_depth in cfg.walk_depths:
-        for cost_bps in cfg.cost_bps_values:
+        for cost_profile in cfg.cost_profiles:
             for arm in ("T0", "T1"):
                 daily, audit = simulate_arm(
                     cfg=cfg,
                     arm=arm,
                     walk_depth=walk_depth,
-                    cost_bps=cost_bps,
+                    cost_profile=cost_profile,
                     candidates=candidates,
                     calendar=calendar,
                     benchmark=benchmark,
@@ -199,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 daily_frames.append(daily)
                 audit_frames.append(audit)
-                metrics_frames.append(pd.DataFrame([summarize_arm(daily, audit, cfg, arm, walk_depth, cost_bps)]))
+                metrics_frames.append(pd.DataFrame([summarize_arm(daily, audit, cfg, arm, walk_depth, cost_profile)]))
 
     metrics = pd.concat(metrics_frames, ignore_index=True)
     daily_all = pd.concat(daily_frames, ignore_index=True)
@@ -406,14 +485,14 @@ def tail_risk_reason(row: dict[str, Any] | pd.Series) -> str | None:
     if float(values["drawdown_20d"]) < -0.30:
         reasons.append("tail_risk:drawdown_20d_lt_30pct")
     if float(values["limit_down_days_20d"]) >= 2:
-        reasons.append("tail_risk:limit_down_days_20d_ge_2")
+        reasons.append("tail_risk:limit_down_days_20d_gte_2")
     if float(values["one_word_limit_days_20d"]) >= 1:
-        reasons.append("tail_risk:one_word_limit_days_20d_ge_1")
+        reasons.append("tail_risk:one_word_limit_days_20d_gte_1")
     if float(values["total_mv_cny"]) < 30e8:
         reasons.append("tail_risk:total_mv_lt_30e8")
     if float(values["circ_mv_cny"]) < 20e8:
         reasons.append("tail_risk:circ_mv_lt_20e8")
-    return "|".join(reasons) if reasons else None
+    return ";".join(reasons) if reasons else None
 
 
 def validate_candidates(candidates: pd.DataFrame, cfg: Phase0Config, max_depth: int) -> None:
@@ -478,7 +557,7 @@ def simulate_arm(
     cfg: Phase0Config,
     arm: str,
     walk_depth: int,
-    cost_bps: float,
+    cost_profile: CostProfile,
     candidates: pd.DataFrame,
     calendar: pd.DataFrame,
     benchmark: pd.DataFrame,
@@ -492,6 +571,13 @@ def simulate_arm(
         signal_date: group.sort_values(["rank_raw", "sec_code"]).copy()
         for signal_date, group in candidates[candidates["rank_raw"] <= walk_depth].groupby("rebalance_date")
     }
+    missing_signal_dates = sorted(set(rebalance_dates) - set(candidates_by_date))
+    extra_signal_dates = sorted(set(candidates_by_date) - set(rebalance_dates))
+    if missing_signal_dates or extra_signal_dates:
+        raise ValueError(
+            "candidate rebalance dates do not match local biweekly schedule; "
+            f"missing={missing_signal_dates[:5]}, extra={extra_signal_dates[:5]}"
+        )
     benchmark_by_date = dict(zip(benchmark["trade_date"], benchmark["benchmark_return"].astype(float)))
     state = PortfolioState(
         cash=float(cfg.initial_capital),
@@ -517,13 +603,20 @@ def simulate_arm(
                 signal_date=signal_date,
                 arm=arm,
                 walk_depth=walk_depth,
-                cost_bps=cost_bps,
+                cost_bps=cost_profile.cost_bps,
+                buy_cost_bps=cost_profile.buy_cost_bps,
+                sell_cost_bps=cost_profile.sell_cost_bps,
                 nav_before=nav_before,
                 candidates=candidates_by_date.get(signal_date, pd.DataFrame()),
                 price_book=price_book,
             )
-        position_value, holdings_count, max_weight = mark_positions(state.holdings, price_book, trade_date)
+        position_value, holdings_count, max_position_value, holding_details = mark_positions(state.holdings, price_book, trade_date)
         nav_value = state.cash + position_value
+        gross_exposure = position_value / nav_value if nav_value > 0 else np.nan
+        max_weight_nav = max_position_value / nav_value if nav_value > 0 else 0.0
+        max_weight_position = max_position_value / position_value if position_value > 0 else 0.0
+        holdings_detail_json = holdings_to_json(holding_details, nav_value, position_value)
+        weighted_position_return, equal_name_return, concentration_return = position_return_terms(holding_details, nav_value)
         daily_return = nav_value / state.previous_nav_value - 1.0 if state.previous_nav_value else np.nan
         state = PortfolioState(cash=state.cash, holdings=state.holdings, previous_nav_value=nav_value)
         benchmark_return = float(benchmark_by_date.get(trade_date, 0.0) or 0.0)
@@ -531,7 +624,10 @@ def simulate_arm(
             {
                 "arm": arm,
                 "walk_depth": walk_depth,
-                "cost_bps": cost_bps,
+                "cost_profile_id": cost_profile.cost_profile_id,
+                "cost_bps": cost_profile.cost_bps,
+                "buy_cost_bps": cost_profile.buy_cost_bps,
+                "sell_cost_bps": cost_profile.sell_cost_bps,
                 "trade_date": trade_date,
                 "signal_date": signal_date,
                 "is_rebalance": is_rebalance,
@@ -540,18 +636,32 @@ def simulate_arm(
                 "cash_cny": state.cash,
                 "cash_weight": state.cash / nav_value if nav_value > 0 else np.nan,
                 "position_value_cny": position_value,
-                "gross_exposure": position_value / nav_value if nav_value > 0 else np.nan,
+                "gross_exposure": gross_exposure,
                 "realized_holdings_count": holdings_count,
-                "max_realized_weight": max_weight,
+                "max_realized_weight": max_weight_nav,
+                "max_position_weight_within_holdings": max_weight_position,
                 "turnover_cny": day_turnover,
                 "cost_cny": day_cost,
+                "weighted_position_return": weighted_position_return,
+                "equal_name_return": equal_name_return,
+                "concentration_return": concentration_return,
+                "holdings_detail_json": holdings_detail_json,
                 "daily_return": daily_return,
                 "benchmark_return": benchmark_return,
                 "excess_return": daily_return - benchmark_return if pd.notna(daily_return) else np.nan,
             }
         )
         if is_rebalance:
-            day_audit.update({"arm": arm, "walk_depth": walk_depth, "cost_bps": cost_bps})
+            day_audit.update(
+                {
+                    "arm": arm,
+                    "walk_depth": walk_depth,
+                    "cost_profile_id": cost_profile.cost_profile_id,
+                    "cost_bps": cost_profile.cost_bps,
+                    "buy_cost_bps": cost_profile.buy_cost_bps,
+                    "sell_cost_bps": cost_profile.sell_cost_bps,
+                }
+            )
             audit_rows.append(day_audit)
     return pd.DataFrame(daily_rows), pd.DataFrame(audit_rows)
 
@@ -565,10 +675,14 @@ def rebalance_topdown(
     arm: str,
     walk_depth: int,
     cost_bps: float,
+    buy_cost_bps: float | None = None,
+    sell_cost_bps: float | None = None,
     nav_before: float,
     candidates: pd.DataFrame,
     price_book: PriceBook,
 ) -> tuple[PortfolioState, float, float, dict[str, Any]]:
+    buy_cost_bps = cost_bps if buy_cost_bps is None else buy_cost_bps
+    sell_cost_bps = cost_bps if sell_cost_bps is None else sell_cost_bps
     cash = float(state.cash)
     holdings = dict(state.holdings)
     turnover = 0.0
@@ -576,6 +690,8 @@ def rebalance_topdown(
     retained = set()
     rank_by_sec = dict(zip(candidates["sec_code"].astype(str), candidates["rank_raw"].astype(float))) if not candidates.empty else {}
     candidate_secs = set(rank_by_sec)
+    sell_price_missing_count = 0
+    sold_secs: list[str] = []
     for sec, shares in list(holdings.items()):
         rank = rank_by_sec.get(sec)
         if rank is not None and rank <= walk_depth:
@@ -583,22 +699,30 @@ def rebalance_topdown(
             continue
         sell_price = price_book.open_price(sec, trade_date) or price_book.valuation_price(sec, trade_date)
         if sell_price <= 0:
+            sell_price_missing_count += 1
             continue
         gross = shares * sell_price
-        sell_cost = gross * cost_bps / 10000.0
+        sell_cost = gross * sell_cost_bps / 10000.0
         cash += gross - sell_cost
         turnover += gross
         cost += sell_cost
+        sold_secs.append(sec)
         del holdings[sec]
 
     buy_filled = 0
     p1_skip = 0
     unbuyable_skip = 0
     cash_skip = 0
-    below_lot_skip = 0
     evaluated_count = 0
     min_weight = cfg.min_position_weight
-    min_cash_threshold = min_weight * nav_before * (1.0 + cost_bps / 10000.0)
+    min_cash_threshold = min_weight * nav_before * (1.0 + buy_cost_bps / 10000.0)
+    p1_marked_count = int(candidates["tail_risk_reason"].notna().sum()) if "tail_risk_reason" in candidates.columns else 0
+    market_cap_p1_count = (
+        int(candidates["tail_risk_reason"].fillna("").str.contains("total_mv|circ_mv", regex=True).sum())
+        if "tail_risk_reason" in candidates.columns
+        else 0
+    )
+    bought_secs: list[str] = []
     if not candidates.empty:
         for row in candidates.sort_values(["rank_raw", "sec_code"]).itertuples(index=False):
             sec = str(row.sec_code)
@@ -613,11 +737,8 @@ def rebalance_topdown(
                 unbuyable_skip += 1
                 continue
             desired_shares = min_buy_shares(nav_before, open_price, min_weight)
-            if desired_shares < LOT_SIZE:
-                below_lot_skip += 1
-                continue
             gross = desired_shares * open_price
-            buy_cost = gross * cost_bps / 10000.0
+            buy_cost = gross * buy_cost_bps / 10000.0
             required_cash = gross + buy_cost
             if cash + 1e-6 >= required_cash:
                 holdings[sec] = holdings.get(sec, 0.0) + desired_shares
@@ -625,6 +746,7 @@ def rebalance_topdown(
                 turnover += gross
                 cost += buy_cost
                 buy_filled += 1
+                bought_secs.append(sec)
             else:
                 cash_skip += 1
             if cash < min_cash_threshold:
@@ -634,19 +756,25 @@ def rebalance_topdown(
         "exec_date": trade_date,
         "candidate_count": int(len(candidates)),
         "evaluated_count": int(evaluated_count),
+        "p1_marked_count": int(p1_marked_count),
+        "p1_marked_rate": float(p1_marked_count / len(candidates)) if len(candidates) else 0.0,
+        "p1_market_cap_marked_count": int(market_cap_p1_count),
+        "p1_market_cap_marked_rate": float(market_cap_p1_count / len(candidates)) if len(candidates) else 0.0,
         "retained_count": int(len(retained)),
         "sell_count": int(len(set(state.holdings) - set(holdings))),
         "buy_filled_count": int(buy_filled),
         "p1_skip_count": int(p1_skip),
         "unbuyable_skip_count": int(unbuyable_skip),
         "cash_insufficient_skip_count": int(cash_skip),
-        "below_lot_skip_count": int(below_lot_skip),
+        "sell_price_missing_count": int(sell_price_missing_count),
         "ending_holdings_count": int(len(holdings)),
         "ending_cash_cny": cash,
         "ending_cash_weight_pre_close": cash / nav_before if nav_before > 0 else np.nan,
         "turnover_cny": turnover,
         "cost_cny": cost,
         "ranked_candidates_seen": int(len(candidate_secs)),
+        "sold_secs_json": json.dumps(sorted(sold_secs), ensure_ascii=False),
+        "bought_secs_json": json.dumps(sorted(bought_secs), ensure_ascii=False),
     }
     return PortfolioState(cash=cash, holdings=holdings, previous_nav_value=state.previous_nav_value), turnover, cost, audit
 
@@ -659,16 +787,54 @@ def min_buy_shares(nav_value: float, open_price: float, min_weight: float) -> fl
     return float(max(1, lots) * LOT_SIZE)
 
 
-def mark_positions(holdings: dict[str, float], price_book: PriceBook, trade_date: date) -> tuple[float, int, float]:
-    values: list[float] = []
+def mark_positions(holdings: dict[str, float], price_book: PriceBook, trade_date: date) -> tuple[float, int, float, list[dict[str, Any]]]:
+    details: list[dict[str, Any]] = []
     for sec, shares in holdings.items():
         close = price_book.close_price(sec, trade_date)
         if close is None or close <= 0:
             continue
-        values.append(float(shares) * float(close))
+        start_price = price_book.valuation_price(sec, trade_date)
+        value = float(shares) * float(close)
+        sec_return = close / start_price - 1.0 if start_price and start_price > 0 else 0.0
+        details.append(
+            {
+                "sec_code": sec,
+                "shares": float(shares),
+                "close": float(close),
+                "value_cny": value,
+                "security_return": float(sec_return),
+            }
+        )
+    values = [float(row["value_cny"]) for row in details]
     position_value = float(sum(values))
-    max_weight = max(values) / position_value if position_value > 0 and values else 0.0
-    return position_value, len(values), max_weight
+    max_position_value = max(values) if values else 0.0
+    return position_value, len(values), max_position_value, details
+
+
+def holdings_to_json(details: list[dict[str, Any]], nav_value: float, position_value: float) -> str:
+    rows: list[dict[str, Any]] = []
+    for row in sorted(details, key=lambda item: (-float(item["value_cny"]), str(item["sec_code"]))):
+        value = float(row["value_cny"])
+        rows.append(
+            {
+                "sec_code": row["sec_code"],
+                "shares": round(float(row["shares"]), 6),
+                "value_cny": round(value, 6),
+                "nav_weight": round(value / nav_value, 10) if nav_value > 0 else None,
+                "position_weight": round(value / position_value, 10) if position_value > 0 else None,
+            }
+        )
+    return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+
+
+def position_return_terms(details: list[dict[str, Any]], nav_value: float) -> tuple[float, float, float]:
+    if nav_value <= 0 or not details:
+        return 0.0, 0.0, 0.0
+    weighted = sum(float(row["value_cny"]) / nav_value * float(row["security_return"]) for row in details)
+    gross = sum(float(row["value_cny"]) for row in details) / nav_value
+    equal_security_return = float(np.mean([float(row["security_return"]) for row in details]))
+    equal = gross * equal_security_return
+    return float(weighted), float(equal), float(weighted - equal)
 
 
 def next_open_map(trading_dates: list[date]) -> dict[date, date]:
@@ -681,11 +847,11 @@ def summarize_arm(
     cfg: Phase0Config,
     arm: str,
     walk_depth: int,
-    cost_bps: float,
+    cost_profile: CostProfile,
 ) -> dict[str, Any]:
-    clean_returns = daily["daily_return"].fillna(0.0).astype(float)
-    benchmark = daily["benchmark_return"].fillna(0.0).astype(float)
-    nav = (1.0 + clean_returns).cumprod()
+    clean_returns = daily["daily_return"].iloc[1:].fillna(0.0).astype(float)
+    benchmark = daily["benchmark_return"].iloc[1:].fillna(0.0).astype(float)
+    nav = daily["nav"].astype(float).reset_index(drop=True)
     total_return = float(nav.iloc[-1] - 1.0)
     n = int(len(clean_returns))
     cagr = compound_annual_return(total_return, n)
@@ -699,10 +865,15 @@ def summarize_arm(
     crunch_return = compound_total_return(crunch["daily_return"])
     crunch_benchmark = compound_total_return(crunch["benchmark_return"])
     turnover = float(audit["turnover_cny"].sum()) if not audit.empty else 0.0
+    avg_nav_cny = float(daily["net_value_cny"].mean()) if "net_value_cny" in daily.columns else cfg.initial_capital
     return {
         "arm": arm,
         "walk_depth": walk_depth,
-        "cost_bps": cost_bps,
+        "cost_profile_id": cost_profile.cost_profile_id,
+        "cost_bps": cost_profile.cost_bps,
+        "buy_cost_bps": cost_profile.buy_cost_bps,
+        "sell_cost_bps": cost_profile.sell_cost_bps,
+        "is_primary_cost_profile": bool(cost_profile.is_primary),
         "total_return": total_return,
         "compound_annual_return": cagr,
         "annual_vol": annual_vol,
@@ -725,12 +896,18 @@ def summarize_arm(
         "p95_max_realized_weight": float(daily["max_realized_weight"].quantile(0.95)),
         "max_realized_weight": float(daily["max_realized_weight"].max()),
         "max_weight_gt_40pct_days": int((daily["max_realized_weight"] > 0.40).sum()),
-        "annual_turnover": turnover / cfg.initial_capital / (n / TRADING_DAYS_PER_YEAR) if n > 0 else np.nan,
+        "avg_max_position_weight_within_holdings": float(daily["max_position_weight_within_holdings"].mean()),
+        "p95_max_position_weight_within_holdings": float(daily["max_position_weight_within_holdings"].quantile(0.95)),
+        "max_position_weight_within_holdings": float(daily["max_position_weight_within_holdings"].max()),
+        "annual_turnover": turnover / avg_nav_cny / (n / TRADING_DAYS_PER_YEAR) if n > 0 and avg_nav_cny > 0 else np.nan,
         "total_cost_cny": float(audit["cost_cny"].sum()) if not audit.empty else 0.0,
         "rebalance_count": int(audit.shape[0]),
         "p1_skip_count": int(audit["p1_skip_count"].sum()) if "p1_skip_count" in audit.columns else 0,
         "unbuyable_skip_count": int(audit["unbuyable_skip_count"].sum()) if "unbuyable_skip_count" in audit.columns else 0,
         "cash_insufficient_skip_count": int(audit["cash_insufficient_skip_count"].sum()) if "cash_insufficient_skip_count" in audit.columns else 0,
+        "sell_price_missing_count": int(audit["sell_price_missing_count"].sum()) if "sell_price_missing_count" in audit.columns else 0,
+        "p1_saturated_rebalance_count": int((audit["p1_marked_rate"] > 0.60).sum()) if "p1_marked_rate" in audit.columns else 0,
+        "max_p1_marked_rate": float(audit["p1_marked_rate"].max()) if "p1_marked_rate" in audit.columns and not audit.empty else np.nan,
         "return_period_count": n,
     }
 
@@ -746,8 +923,8 @@ def summarize_official_baseline(
     nav = official_nav.copy()
     bench = benchmark[["trade_date", "benchmark_return"]].copy()
     nav = nav.drop(columns=[c for c in ["benchmark_return"] if c in nav.columns]).merge(bench, on="trade_date", how="left")
-    returns = nav["daily_return"].fillna(0.0).astype(float)
-    benchmark_returns = nav["benchmark_return"].fillna(0.0).astype(float)
+    returns = nav["daily_return"].iloc[1:].fillna(0.0).astype(float)
+    benchmark_returns = nav["benchmark_return"].iloc[1:].fillna(0.0).astype(float)
     total_return = float(nav["nav"].iloc[-1] / nav["nav"].iloc[0] - 1.0)
     n = int(len(returns))
     summary_row = official_summary.iloc[0].to_dict() if not official_summary.empty else {}
@@ -819,7 +996,7 @@ def write_outputs(
     if not cfg.skip_report:
         cfg.report_md.parent.mkdir(parents=True, exist_ok=True)
         cfg.report_md.write_text(
-            build_report(cfg, metrics, official_metrics, prd09_l3, candidates),
+            build_report(cfg, metrics, daily, audit, official_metrics, prd09_l3, candidates),
             encoding="utf-8",
         )
 
@@ -827,15 +1004,21 @@ def write_outputs(
 def build_report(
     cfg: Phase0Config,
     metrics: pd.DataFrame,
+    daily: pd.DataFrame,
+    audit: pd.DataFrame,
     official_metrics: dict[str, Any],
     prd09_l3: pd.DataFrame,
     candidates: pd.DataFrame,
 ) -> str:
-    primary = metrics[(metrics["walk_depth"] == 50) & (metrics["cost_bps"] == 20.0)].copy()
+    primary = primary_metrics(metrics).copy()
     t0 = row_for(primary, "T0")
     t1 = row_for(primary, "T1")
     cagr_diff = metric_diff(t1, t0, "compound_annual_return")
     crunch_diff = metric_diff(t1, t0, "crunch_excess_return_vs_000852")
+    attribution = attribution_table(metrics, daily)
+    saturation = saturation_table(audit)
+    episode = saturation_episode_table(daily, audit)
+    worst = worst_windows_table(daily)
     p1_count = int(candidates["tail_risk_reason"].notna().sum())
     p1_in_depth = int(candidates[(candidates["rank_raw"] <= 50) & candidates["tail_risk_reason"].notna()].shape[0])
     p1_reason_table = (
@@ -849,18 +1032,22 @@ def build_report(
     lines = [
         "# 策略1自上而下整手组合构造 Phase 0",
         "",
-        "> 文档维护：GPT-5 Codex（最近更新 2026-06-12）",
+        "> 文档维护：GPT-5.5（最近更新 2026-06-12）",
         "",
         "## 方法与边界",
         "",
         f"- prediction_run_id: `{cfg.prediction_run_id}`",
         f"- official backtest_id: `{cfg.backtest_id}`",
         f"- 窗口: `{cfg.start_date}` 至 `{cfg.end_date}`；初始资金 `{cfg.initial_capital:,.0f}` 元；整手 `100` 股。",
-        f"- `position_floor_count={cfg.position_floor_count}`，新开仓最小仓位 `{fmt_pct(cfg.min_position_weight)}`；walk_depth 敏感性 `{', '.join(map(str, cfg.walk_depths))}`；成本档 `{', '.join(str(v) for v in cfg.cost_bps_values)} bps`。",
+        f"- `position_floor_count={cfg.position_floor_count}`，新开仓最小仓位 `{fmt_pct(cfg.min_position_weight)}`；walk_depth 敏感性 `{', '.join(map(str, cfg.walk_depths))}`。",
+        f"- 成本档：主判读使用 official matched 分腿费率（买 `{cfg.matched_buy_cost_bps:g}bps`，卖 `{cfg.matched_sell_cost_bps:g}bps`）；`0bps` 与 `20bps` 保留为敏感性。",
         "- T0：自上而下整手构造，不启用 P1 个股过滤；T1：同构造，但新买入遇到本地计算的 P1 `tail_risk:*` 标记时跳过并继续走下一名。",
         "- P1 标记在本地从 `dws_stock_feature_daily_v0` 六条规则现算；source candidate 当前没有 `tail_risk:*` 标记。该处理是 research-only helper artifact，不是模型重训。",
         "- paper 原型模拟买入可交易性和整手/现金约束；卖出失败与 `PENDING_SELL_CARRY` 不模拟，超深度持仓按当日 open/valuation 假定卖出。Phase 2 真实 ledger 需量化这部分偏差。",
-        "- 成本档按单边 turnover bps 处理；20bps 档买入可负担性使用含费现金，卖出按扣费后回款。",
+        "- 价格沿用 official v1 ledger 的未复权口径与恒定股数约定；绝对收益可能含约 `0.5~1.5pp/年` 下偏，但与 official v1 对照同口径。PRD_09 L3 对照为 hfq paper 口径，仅作量级参考。",
+        "- Phase 0 在 exec 日按 signal 后下一 open 调仓并按当日 close 盯市；PRD_09 阶梯 paper 的 exec-day 隔夜口径不同，对照表只作量级参考。",
+        "- `max_realized_weight` 以 NAV 为分母；旧持仓内部最大权重另列为 `max_position_weight_within_holdings`，避免高现金日伪触发。",
+        "- 调仓日与候选日期集合做相等断言；卖出价格缺失会进入 `sell_price_missing_count` 审计，本次若非零需先解释再读数。",
         "- BigQuery 全程只读；脚本只读取 research/DWS/DWD/DIM 表并在本地 pandas 计算，未写 `ashare_research` / ADS / promotion 表。",
         "",
         "## 输入覆盖",
@@ -873,7 +1060,7 @@ def build_report(
         "",
         markdown_table(p1_reason_table),
         "",
-        "## 主结果（walk_depth=50, 20bps）",
+        "## 主结果（walk_depth=50, matched official cost）",
         "",
         markdown_table(compact_metrics(primary)),
         "",
@@ -883,6 +1070,28 @@ def build_report(
     lines.extend(preregistered_interpretation(t0, t1, official_metrics))
     lines.extend(
         [
+            "",
+            "## P1 饱和机制",
+            "",
+            "T1 的失败不再解读为“替换语义成本被证伪”。matched-cost 下主要病根是 P1 两条市值规则在崩盘后顺周期饱和，导致 walk_depth 内缺少可替换标的，现金闲置复活为 #179 A1 的深度耗尽变体。",
+            "",
+            "四通道归因（按日 effect 缩放到各成本档 `T1 - T0` CAGR 差；matched 是主判读，`single_20bps` 覆盖 review 中旧 `-14.80pp/年` gap）：",
+            "",
+            markdown_table(attribution),
+            "",
+            "P1 饱和调仓日 Top5：",
+            "",
+            markdown_table(saturation),
+            "",
+            "2022-05 饱和 episode：",
+            "",
+            markdown_table(episode),
+            "",
+            "最差 3 个 10 日窗口与窗口末持仓明细：",
+            "",
+            markdown_table(worst),
+            "",
+            "给 owner 的决策问题：是否剔除两条顺周期市值规则（`total_mv_cny < 30e8`、`circ_mv_cny < 20e8`，保留崩盘形态规则），或为 P1 增加饱和回退（例如深度内标记率过高时放宽市值规则/回落到 T0 替换）。本报告不替 owner 做 P1 规则取舍，也不改默认 profile。",
             "",
             "## 全部 Phase 0 矩阵",
             "",
@@ -900,12 +1109,32 @@ def build_report(
             "",
             "## 输出文件",
             "",
-            f"- Metrics: `{cfg.metrics_csv}`",
-            f"- Daily series: `{cfg.daily_csv}`",
-            f"- Rebalance audit: `{cfg.audit_csv}`",
+            f"- Metrics（入库小 CSV）: `{cfg.metrics_csv}`",
+            f"- Daily series（GCS artifact）: `{artifact_uri(cfg, cfg.daily_csv)}`；本地镜像 `{cfg.daily_csv}`",
+            f"- Rebalance audit（GCS artifact）: `{artifact_uri(cfg, cfg.audit_csv)}`；本地镜像 `{cfg.audit_csv}`",
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def primary_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    if "cost_profile_id" not in metrics.columns:
+        return metrics[(metrics["walk_depth"] == 50) & (metrics["cost_bps"] == 20.0)].copy()
+    return metrics[(metrics["walk_depth"] == 50) & (metrics["cost_profile_id"] == MATCHED_COST_PROFILE_ID)].copy()
+
+
+def primary_daily(daily: pd.DataFrame) -> pd.DataFrame:
+    return daily[(daily["walk_depth"] == 50) & (daily["cost_profile_id"] == MATCHED_COST_PROFILE_ID)].copy()
+
+
+def primary_audit(audit: pd.DataFrame) -> pd.DataFrame:
+    return audit[(audit["walk_depth"] == 50) & (audit["cost_profile_id"] == MATCHED_COST_PROFILE_ID)].copy()
+
+
+def artifact_uri(cfg: Phase0Config, path: Path) -> str:
+    if cfg.artifact_gcs_uri:
+        return f"{cfg.artifact_gcs_uri.rstrip('/')}/{path.name}"
+    return str(path)
 
 
 def preregistered_interpretation(t0: dict[str, Any], t1: dict[str, Any], official: dict[str, Any]) -> list[str]:
@@ -917,18 +1146,194 @@ def preregistered_interpretation(t0: dict[str, Any], t1: dict[str, Any], officia
     if pd.notna(cagr_diff) and pd.notna(crunch_diff) and abs(cagr_diff) < 0.01 and crunch_diff > 0:
         lines.append("- 符合第一条预登记：T1 全周期 CAGR 成本 <1pp 且 crunch 改善，P1 替换语义初步成立。")
     elif pd.notna(cagr_diff) and cagr_diff < -0.02:
-        lines.append("- 触发第二条预登记：T1 全周期 CAGR 比 T0 低超过 2pp，P1 替换成本假设需回 owner 重议。")
+        lines.append("- 触发第二条预登记：T1 全周期 CAGR 比 T0 低超过 2pp；结合饱和归因，问题指向 P1 市值规则耗尽 walk_depth，而不是替换语义本身。")
     else:
         lines.append("- 未完全命中第一/第二条预登记，需结合成本档、walk_depth 和风险指标人工判断。")
     if official:
         t0_dd_gap = t0.get("max_drawdown", np.nan) - official.get("max_drawdown", np.nan)
         t1_dd_gap = t1.get("max_drawdown", np.nan) - official.get("max_drawdown", np.nan)
-        if pd.notna(t0_dd_gap) and pd.notna(t1_dd_gap) and t0_dd_gap < -0.15 and t1_dd_gap < -0.15:
-            lines.append("- 触发第三条预登记：双臂 MaxDD 均比 official 深超过 15pp，满仓代价超预期，Phase 1/2 前需 owner 复核。")
+        official_calmar = official.get("calmar_ratio", np.nan)
+        t0_calmar_gap = t0.get("calmar_ratio", np.nan) - official_calmar
+        t1_calmar_gap = t1.get("calmar_ratio", np.nan) - official_calmar
+        if pd.notna(t0_dd_gap) and pd.notna(t1_dd_gap) and t0_dd_gap < -0.15 and t1_dd_gap < -0.15 and t0_calmar_gap < -0.05 and t1_calmar_gap < -0.05:
+            lines.append("- 触发第三条预登记：双臂 MaxDD 均比 official 深超过 15pp 且 Calmar 明显恶化，Phase 1/2 前需 owner 复核。")
+        else:
+            lines.append("- 第三条预登记未按合取条件触发：matched-cost 下 T0 未同时满足“MaxDD 深 >15pp 且 Calmar 明显恶化”；T1 仍显著恶化。")
     max_tail = max(float(t0.get("max_realized_weight", 0.0)), float(t1.get("max_realized_weight", 0.0)))
     if max_tail > 0.40:
-        lines.append("- 触发第四条预登记：`max_realized_weight` 尾部超过 40%，需如实交 owner 复核无上限决策。")
+        lines.append("- 触发第四条预登记但证据降温：NAV 分母下尾部集中仍超过 40%，主要来自 T1 后期净值受损后的高价单仓；不再把高现金日的持仓内 100% 当作触发证据。")
     return lines
+
+
+def attribution_table(metrics: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    profile_ids = [MATCHED_COST_PROFILE_ID, "single_20bps"]
+    for profile_id in profile_ids:
+        metric_slice = metrics[(metrics["walk_depth"] == 50) & (metrics["cost_profile_id"] == profile_id)].copy()
+        daily_slice = daily[(daily["walk_depth"] == 50) & (daily["cost_profile_id"] == profile_id)].copy()
+        rows.extend(attribution_rows_for_profile(profile_id, metric_slice, daily_slice))
+    return pd.DataFrame(rows)
+
+
+def attribution_rows_for_profile(
+    profile_id: str,
+    metrics: pd.DataFrame,
+    daily: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    t0 = row_for(metrics, "T0")
+    t1 = row_for(metrics, "T1")
+    cagr_gap = metric_diff(t1, t0, "compound_annual_return")
+    if daily.empty or pd.isna(cagr_gap):
+        return []
+    t0_daily = daily[daily["arm"] == "T0"].sort_values("trade_date").copy()
+    t1_daily = daily[daily["arm"] == "T1"].sort_values("trade_date").copy()
+    merged = t0_daily.merge(t1_daily, on="trade_date", suffixes=("_t0", "_t1"))
+    for arm in ("t0", "t1"):
+        merged[f"prev_nav_{arm}"] = merged[f"net_value_cny_{arm}"].shift(1)
+    merged = merged.iloc[1:].copy()
+    actual = merged["daily_return_t1"].astype(float) - merged["daily_return_t0"].astype(float)
+    cost = (
+        -merged["cost_cny_t1"].astype(float) / merged["prev_nav_t1"].astype(float)
+        + merged["cost_cny_t0"].astype(float) / merged["prev_nav_t0"].astype(float)
+    ).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+    eq_base_t0 = (
+        merged["equal_name_return_t0"].astype(float)
+        / merged["gross_exposure_t0"].astype(float).replace(0.0, np.nan)
+    ).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+    cash = (merged["gross_exposure_t1"].astype(float) - merged["gross_exposure_t0"].astype(float)) * eq_base_t0
+    concentration = merged["concentration_return_t1"].astype(float) - merged["concentration_return_t0"].astype(float)
+    composition = actual - cost - cash - concentration
+    raw = {
+        "持仓构成差（含交互 residual）": float(composition.sum()),
+        "现金差（低暴露/闲置现金）": float(cash.sum()),
+        "成本/换手差": float(cost.sum()),
+        "集中度差": float(concentration.sum()),
+    }
+    total = float(sum(raw.values()))
+    scale = float(cagr_gap / total) if abs(total) > 1e-12 else 0.0
+    rows = []
+    for channel, value in raw.items():
+        contribution = value * scale
+        rows.append(
+            {
+                "cost_profile_id": profile_id,
+                "cagr_gap": cagr_gap,
+                "channel": channel,
+                "annualized_cagr_contribution": contribution,
+                "share_of_gap": contribution / cagr_gap if cagr_gap else np.nan,
+            }
+        )
+    return rows
+
+
+def saturation_table(audit: pd.DataFrame) -> pd.DataFrame:
+    frame = primary_audit(audit)
+    if frame.empty:
+        return pd.DataFrame()
+    cols = [
+        "signal_date",
+        "exec_date",
+        "p1_marked_count",
+        "p1_marked_rate",
+        "p1_market_cap_marked_count",
+        "p1_market_cap_marked_rate",
+        "sell_count",
+        "buy_filled_count",
+        "ending_cash_weight_pre_close",
+    ]
+    return frame[frame["arm"] == "T1"].sort_values(["p1_marked_rate", "signal_date"], ascending=[False, True])[cols].head(5)
+
+
+def saturation_episode_table(daily: pd.DataFrame, audit: pd.DataFrame) -> pd.DataFrame:
+    frame = primary_daily(daily)
+    aud = primary_audit(audit)
+    if frame.empty or aud.empty:
+        return pd.DataFrame()
+    t1_aud = aud[(aud["arm"] == "T1") & (pd.to_datetime(aud["signal_date"]) == pd.Timestamp("2022-05-06"))]
+    if t1_aud.empty:
+        t1_aud = aud[aud["arm"] == "T1"].sort_values("p1_marked_rate", ascending=False).head(1)
+    exec_date = pd.to_datetime(t1_aud.iloc[0]["exec_date"]).date()
+    dates = sorted(frame["trade_date"].unique().tolist())
+    if exec_date not in dates:
+        return pd.DataFrame()
+    start_idx = dates.index(exec_date)
+    episode_dates = dates[start_idx : start_idx + 10]
+    sub = frame[frame["trade_date"].isin(episode_dates)]
+    t0 = sub[sub["arm"] == "T0"]
+    t1 = sub[sub["arm"] == "T1"]
+    return pd.DataFrame(
+        [
+            {
+                "signal_date": t1_aud.iloc[0]["signal_date"],
+                "exec_start": exec_date,
+                "window_end": episode_dates[-1],
+                "t0_return": compound_total_return(t0["daily_return"]),
+                "t1_return": compound_total_return(t1["daily_return"]),
+                "t1_minus_t0": compound_total_return(t1["daily_return"]) - compound_total_return(t0["daily_return"]),
+                "t1_avg_cash_weight": float(t1["cash_weight"].mean()),
+                "p1_marked_rate": float(t1_aud.iloc[0]["p1_marked_rate"]),
+                "market_cap_marked_rate": float(t1_aud.iloc[0]["p1_market_cap_marked_rate"]),
+                "sell_count": int(t1_aud.iloc[0]["sell_count"]),
+                "buy_filled_count": int(t1_aud.iloc[0]["buy_filled_count"]),
+            }
+        ]
+    )
+
+
+def worst_windows_table(daily: pd.DataFrame) -> pd.DataFrame:
+    frame = primary_daily(daily)
+    if frame.empty:
+        return pd.DataFrame()
+    pivot = frame.pivot(index="trade_date", columns="arm", values="daily_return").sort_index()
+    rows: list[dict[str, Any]] = []
+    dates = list(pivot.index)
+    for idx in range(0, max(0, len(dates) - 9)):
+        window_dates = dates[idx : idx + 10]
+        t0_return = compound_total_return(pivot.loc[window_dates, "T0"])
+        t1_return = compound_total_return(pivot.loc[window_dates, "T1"])
+        rows.append(
+            {
+                "window_start": window_dates[0],
+                "window_end": window_dates[-1],
+                "t0_return": t0_return,
+                "t1_return": t1_return,
+                "t1_minus_t0": t1_return - t0_return,
+            }
+        )
+    worst = pd.DataFrame(rows).sort_values("t1_minus_t0").head(3)
+    if worst.empty:
+        return worst
+    detail_rows = []
+    for row in worst.to_dict("records"):
+        end_date = row["window_end"]
+        t0_snap = frame[(frame["arm"] == "T0") & (frame["trade_date"] == end_date)]
+        t1_snap = frame[(frame["arm"] == "T1") & (frame["trade_date"] == end_date)]
+        period = f"{row['window_start']}..{row['window_end']}"
+        detail_rows.append(
+            {
+                "period": period,
+                "t0_return": row["t0_return"],
+                "t1_return": row["t1_return"],
+                "t1_minus_t0": row["t1_minus_t0"],
+                "t0_cash_weight_end": float(t0_snap.iloc[0]["cash_weight"]) if not t0_snap.empty else np.nan,
+                "t1_cash_weight_end": float(t1_snap.iloc[0]["cash_weight"]) if not t1_snap.empty else np.nan,
+                "t0_top_holdings_end": top_holdings_text(t0_snap.iloc[0]["holdings_detail_json"] if not t0_snap.empty else "[]"),
+                "t1_top_holdings_end": top_holdings_text(t1_snap.iloc[0]["holdings_detail_json"] if not t1_snap.empty else "[]"),
+            }
+        )
+    return pd.DataFrame(detail_rows)
+
+
+def top_holdings_text(holdings_json: str, limit: int = 5) -> str:
+    try:
+        rows = json.loads(holdings_json)
+    except json.JSONDecodeError:
+        rows = []
+    parts = []
+    for row in rows[:limit]:
+        weight = row.get("nav_weight")
+        parts.append(f"{row.get('sec_code')} {fmt_pct(weight)}")
+    return "; ".join(parts)
 
 
 def row_for(frame: pd.DataFrame, arm: str) -> dict[str, Any]:
@@ -952,7 +1357,10 @@ def compact_metrics(frame: pd.DataFrame) -> pd.DataFrame:
     cols = [
         "arm",
         "walk_depth",
+        "cost_profile_id",
         "cost_bps",
+        "buy_cost_bps",
+        "sell_cost_bps",
         "compound_annual_return",
         "annual_vol",
         "information_ratio_vs_000852",
@@ -963,8 +1371,14 @@ def compact_metrics(frame: pd.DataFrame) -> pd.DataFrame:
         "avg_realized_holdings_count",
         "p95_max_realized_weight",
         "max_realized_weight",
+        "max_weight_gt_40pct_days",
+        "max_position_weight_within_holdings",
         "annual_turnover",
+        "sell_price_missing_count",
         "p1_skip_count",
+        "p1_saturated_rebalance_count",
+        "max_p1_marked_rate",
+        "return_period_count",
     ]
     return frame[[c for c in cols if c in frame.columns]].copy()
 
@@ -987,8 +1401,8 @@ def compact_prd09_l3(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def print_summary(metrics: pd.DataFrame, official: dict[str, Any]) -> None:
-    primary = metrics[(metrics["walk_depth"] == 50) & (metrics["cost_bps"] == 20.0)]
-    print("Primary walk_depth=50 cost=20bps:")
+    primary = primary_metrics(metrics)
+    print("Primary walk_depth=50 matched official cost:")
     for row in primary.sort_values("arm").to_dict("records"):
         print(
             f"  {row['arm']}: CAGR={fmt_pct(row['compound_annual_return'])}, "
