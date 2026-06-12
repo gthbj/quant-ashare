@@ -45,6 +45,8 @@ DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_bac
 DECLARE p_parent_backtest_id STRING DEFAULT NULL;
 DECLARE p_state_as_of_date DATE DEFAULT NULL;
 DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
+DECLARE p_corporate_actions STRING DEFAULT 'none_v1';
+DECLARE p_dividend_tax_mode STRING DEFAULT 'flat_10pct';
 DECLARE p_calendar_end DATE;
 DECLARE p_selected_model_id STRING;
 DECLARE p_force_replace BOOL DEFAULT FALSE;
@@ -58,6 +60,14 @@ END IF;
 
 IF p_label_horizon NOT IN (5, 10, 20) THEN
   RAISE USING MESSAGE = 'p_label_horizon must be one of 5, 10, 20';
+END IF;
+
+IF p_corporate_actions NOT IN ('none_v1', 'cash_div_and_split_v1') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_corporate_actions: ', p_corporate_actions);
+END IF;
+
+IF p_dividend_tax_mode NOT IN ('flat_10pct') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_dividend_tax_mode: ', p_dividend_tax_mode);
 END IF;
 
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
@@ -125,7 +135,12 @@ SELECT
     AND t.fill_status = 'FILLED'
     AND MOD(CAST(ROUND(t.filled_shares) AS INT64), 100) != 0) AS odd_lot_full_exit_count,
   COUNTIF(t.fill_status = 'BUY_SKIPPED_TAIL_RISK') AS tail_risk_buy_skip_count,
-  COUNTIF(t.fill_status = 'BUY_SKIPPED_MARKET_RISK_OFF') AS market_risk_buy_skip_count
+  COUNTIF(t.fill_status = 'BUY_SKIPPED_MARKET_RISK_OFF') AS market_risk_buy_skip_count,
+  COUNTIF(t.fill_status IN ('CORPORATE_ACTION_SPLIT', 'CORPORATE_ACTION_CASH_DIVIDEND')) AS corporate_action_audit_row_count,
+  COUNTIF(t.fill_status = 'CORPORATE_ACTION_SPLIT') AS corporate_action_split_row_count,
+  COUNTIF(t.fill_status = 'CORPORATE_ACTION_CASH_DIVIDEND') AS corporate_action_cash_dividend_row_count,
+  SUM(IF(t.fill_status = 'CORPORATE_ACTION_CASH_DIVIDEND', t.cash_effect_cny, 0.0)) AS corporate_action_cash_effect_cny,
+  SUM(IF(t.fill_status = 'CORPORATE_ACTION_CASH_DIVIDEND', t.tax_cny, 0.0)) AS corporate_action_dividend_tax_cny
 FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS t
 WHERE t.backtest_id = p_backtest_id AND t.trade_date BETWEEN p_predict_start AND p_calendar_end;
 
@@ -298,6 +313,9 @@ SELECT
     p_parent_backtest_id AS parent_backtest_id,
     p_state_as_of_date AS state_as_of_date,
     p_resume_policy_id AS resume_policy_id,
+    p_corporate_actions AS corporate_actions,
+    p_dividend_tax_mode AS dividend_tax_mode,
+    IF(p_dividend_tax_mode = 'flat_10pct', 0.10, NULL) AS dividend_tax_rate,
     p_initial_state_mode = 'resume_from_backtest' AS is_resumed_backtest,
     TRUE AS pending_sell_daily_retry,
     TRUE AS buy_no_fallback,
@@ -314,6 +332,11 @@ SELECT
     ss.odd_lot_full_exit_count,
     ss.tail_risk_buy_skip_count,
     ss.market_risk_buy_skip_count,
+    ss.corporate_action_audit_row_count,
+    ss.corporate_action_split_row_count,
+    ss.corporate_action_cash_dividend_row_count,
+    ss.corporate_action_cash_effect_cny,
+    ss.corporate_action_dividend_tax_cny,
     SAFE_DIVIDE(CAST(ss.sell_skipped_count AS FLOAT64), NULLIF(ss.sell_attempt_count, 0)) AS sell_skip_rate,
     ps.avg_realized_holdings_count,
     ps.min_realized_holdings_count,

@@ -1,3 +1,483 @@
+> 当前交接补充（2026-06-12，GPT-5.5，Ledger CA Phase C）
+> - `codex/ledger-corporate-actions` 已完成 PRD_20260612_02 Phase C research-only CA-on 重跑：Cloud Run runner digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`，正式 execution `strategy1-backtest-report-job-dnt4b` 成功。
+> - 新 run/backtest：`s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，参数 `cash_div_and_split_v1` / `flat_10pct`，只写 `ashare_research`；ADS 反向验证和 promotion manifest 均为 0 行。
+> - Phase C QA 全过：continuous job `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware job `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger job `37674e4f-06ee-4998-9d1e-75ace14cb965`。报告 `docs/分析-Ledger CA 重跑对照-20260612.md` 已产出；CA-on contract Sharpe `0.6682`、Calmar `0.4101`，仍未 accepted / promotion。
+>
+> Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase C research-only 重跑
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-ledger`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
+Run ID: `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`
+相关 issue/PR: PR #198；PRD `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`
+
+### 已完成工作
+
+- 按不可变 digest 纪律构建并部署 Phase C runner：Cloud Build `6de3b089-5574-4a15-9097-331696fcb6e5`，tag `ledger-ca-phasec-43404e6-20260612-01`，digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`；未更新 `latest` tag。`strategy1-backtest-report-job` pin 到该 digest，boot smoke `strategy1-backtest-report-job-97b5v` 成功。
+- 执行 CA-on true-five-year continuous research run：formal execution `strategy1-backtest-report-job-dnt4b` 成功，run/backtest 为 `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，复用 synthetic prediction run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`。
+- 完成三条 QA 实跑与 ADS 反向验证：continuous `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger `37674e4f-06ee-4998-9d1e-75ace14cb965`；ADS run/backtest scoped 表 0 行，`research_promotion_manifest` 0 行。
+- 新增报告 `docs/分析-Ledger CA 重跑对照-20260612.md`，包含原 true5y baseline / CA-on / PR #194 hfq proxy 三方对照、六项偏差分解、税率 0%/20% 敏感性、v3 gate 重评与 owner 三项待决选项。
+
+### 重要上下文
+
+- CA-on 指标：total return `1.1044714853774122`、compound CAGR `0.15350594766603387`、MaxDD `-0.3742978588042647`、contract Sharpe `0.6682084282261871`、Calmar `0.4101170873817589`、IR `0.6971241900405605`。
+- CA 审计：75 行（现金分红 73、送转 2），税后现金入账 `6554.9556` 元，flat 10% 税 `728.3284` 元，送转增股 `90` 股。
+- 六项分解闭合：tax `+0.7283pp`、cash_not_reinvested bridge `+2.7920pp`、split fractional `0`、same ex-date held aggregation `0`、event-vs-adj-factor residual `-0.0138pp`、unexplained residual `0`。
+- 本轮没有改现役 baseline 数据、没有 promotion、没有改全局默认 profile、没有进入 PRD_10 Phase 2。
+
+### 改动文件
+
+- `tests/strategy1_cloudrun/test_lot_aware_ledger.py`（Claude Low：默认 CA 参数中性测试改名/docstring）
+- `docs/分析-Ledger CA 重跑对照-20260612.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest tests/strategy1_cloudrun/test_lot_aware_ledger.py -q`：16 passed。
+- Cloud Run boot smoke `strategy1-backtest-report-job-97b5v`：Completed=True。
+- Cloud Run formal execution `strategy1-backtest-report-job-dnt4b`：Completed=True，succeededCount=1。
+- `qa_continuous_backtest_outputs` / `qa_lot_aware_ledger_outputs` / `qa_corporate_action_ledger_outputs`：dry-run 与实跑均通过。
+- ADS 反向验证：model registry / prediction / candidate / target / order / summary / NAV / ledger_state / trade / position 均为 0 行；promotion manifest 0 行。
+
+### 阻塞项
+
+- 无工程阻塞。结果是否切换 baseline 口径、是否 supersede 旧未复权约定、后续实验是否一律 CA-on，均等待 owner 决策。
+
+### 下一步建议
+
+- 提交并推送 `codex/ledger-corporate-actions`，在 PR #198 comment 报告 Phase C 结果、QA、ADS 反查、三方对照和六项分解。
+- owner 裁决前，不把 CA-on 结果标 accepted，不 promotion，不改默认 profile。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase B 实现
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-ledger`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
+Run ID: N/A
+相关 issue/PR: PR #198（Phase A + Phase B 实现分支），PR #195（PRD）；PRD `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`
+
+### 已完成工作
+
+- 实现 `corporate_actions` / `dividend_tax_mode` 参数链：Experiment/manifest、`backtest_report` CLI、Cloud Run dry-run plan、`build_sql_params`、`LedgerParams`、`ledger_params_hash`、summary metrics_json、catalog required_params、runner QA、lot-aware QA、新 CA QA、两套 resume QA。
+- `run_ledger` 新增 ex_date 开盘前 CA 结算：只读 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`；先按 record_date entitlement 送转调股数并写 `CORPORATE_ACTION_SPLIT` 审计行，再按 record_date 股数和 `flat_10pct` 税率写 `CORPORATE_ACTION_CASH_DIVIDEND` 现金入账；调仓日先 CA 后交易。
+- 新增 `sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`，覆盖 summary 参数、送转审计、现金分红审计、事件日 NAV 跳变基本护栏、`none_v1` 零 CA 审计行。
+- 默认不变量已用固定时间戳小 fixture 做逐表 JSON 字节比较，并锁定默认 `ledger_params_hash` 黄金值 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d`。
+
+### 重要上下文
+
+- Phase B 未执行任何 live backtest / Phase C 重跑；只做 BigQuery dry-run。
+- 未写既有 run、未 promotion、未修改全局默认 profile、未触碰 `scripts/strategy1_cloudrun/bq_io.py`。
+- 新 CA 审计行写入既有 trade 表，状态为 `CORPORATE_ACTION_SPLIT` / `CORPORATE_ACTION_CASH_DIVIDEND`；它们不进入 `FILLED` 成交状态，因此不计入成交换手/交易成本汇总。
+- Resume Python 与两套 SQL QA 均用 summary `metrics_json` 的 COALESCE 默认值兼容旧 `none_v1` parent；CA-on/off 或 tax mode 不一致会 fail-fast。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/ledger.py`
+- `src/quant_ashare/strategy1/reporting.py`
+- `scripts/strategy1_cloudrun/config.py`
+- `src/quant_ashare/strategy1/tail_risk_overlay_ab.py`
+- `sql/strategy1/reporting/build_metrics_and_report_inputs.sql`
+- `sql/strategy1/qa/qa_runner_outputs.sql`
+- `sql/strategy1/qa/qa_lot_aware_ledger_outputs.sql`
+- `sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`
+- `sql/strategy1/qa/qa_ledger_resume_consistency.sql`
+- `sql/strategy1/qa/qa_cloudrun_ledger_resume_outputs.sql`
+- `configs/strategy1/active_step_catalog.yml`
+- related tests and memory/TODO
+
+### 测试 / 验证
+
+- `python3 -m pytest tests`：176 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：通过。
+- `python3 -m compileall src scripts`：通过。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform > /tmp/quant_ashare_dataform_compile.json`：通过。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.sql_runner --step qa_corporate_action_ledger_outputs --output-dataset-role research --dry-run ...`：通过（dry_run status）。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无 Phase B 代码阻塞；Phase C 必须等待 Claude review 通过后再执行。
+
+### 下一步建议
+
+- 提交并推送 `codex/ledger-corporate-actions`，在 PR #198 comment/body 报告 11 项传播清单与验证结果。
+- Claude review 通过后，再按 PRD Phase C 做 research-only CA-on continuous 重跑与三方对照；不得提前 promotion 或覆盖现有 baseline。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase A 落地
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-ledger`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
+Run ID: N/A
+相关 issue/PR: PR #195（PRD review/裁决）；实现 PR 待创建；PRD `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`
+
+### 已完成工作
+
+- 实现 Phase A DWD：`sql/dwd/12_dwd_stock_dividend_event.sql` 过滤 `TRIM(div_proc)='实施'`，按 `(sec_code, ex_date)` canonical 聚合 `cash_div_tax`、`stk_bo_rate`、`stk_co_rate`，保留多事件审计数组与 `source_event_count`。
+- 实现 Phase A QA：`sql/qa/14_corporate_action_event_checks.sql` 覆盖键唯一、范围、ex_date 开市日、record_date 边界、重复样例 fixture，以及 hfq factor 双向交叉校验；落 `ashare_meta.qa_stock_dividend_event_hfq_mismatch`，创建 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`。
+- OQ-015 裁决已应用：不修 `stk_co_rate` 口径；不使用人工 allowlist；容差为 abs/rel 加 `0.01 / prev_close` floor；mismatch 机制化归类，QA ASSERT 语义为 `unclassified mismatch = 0`。
+- 同步 Dataform manifest/generated SQLX、ODS dividend schema consumer、单位契约、metadata、重复样例 fixture 和 warehouse 测试。
+
+### 重要上下文
+
+- BigQuery 已执行：`04_ods_field_unit_map` job `bqjob_r4bf6b56437413e50_0000019ebb5cc600_1`；DWD event table job `bqjob_r323943fdb6fe8d66_0000019ebb4706b9_1`；metadata job `bqjob_r5bcddfc324d985c8_0000019ebb4741ce_1`；unit QA job `bqjob_r63dbdce269a7fb79_0000019ebb5d3981_1`；CA QA job `bqjob_r1aadacca42b9e6_0000019ebb47ed1f_1`。
+- 2010+ event table：canonical events=`46431`、source rows=`46470`、同股同 ex_date 聚合键=`37`。2021+ QA 窗口：canonical events=`22009`、source rows=`22029`、同股同 ex_date 聚合键=`20`。
+- mismatch 明细：event_to_factor `data_anomaly=1106`（`missing_prev_price=1033`、`factor_jump_mismatch=73`）、`special_dividend=1`；factor_to_event `same_day_orphan_corporate_action=405`；`unclassified=0`。ledger-consumable view 行数=`46431`、未归类行=`0`。
+- 本轮未改 `src/quant_ashare/strategy1/ledger.py` 或任何 ledger 代码，未写 ADS/research/promotion，不改变 accepted / baseline 状态。
+
+### 改动文件
+
+- `sql/dwd/12_dwd_stock_dividend_event.sql`
+- `sql/qa/14_corporate_action_event_checks.sql`
+- `configs/ods_schema_contracts/dividend.yml`
+- `sql/meta/04_ods_field_unit_map.sql`
+- `sql/metadata/01_core_table_column_descriptions.sql`
+- `sql/qa/05_unit_contract_checks.sql`
+- `dataform/action_manifest.json` 与 generated SQLX
+- `tests/fixtures/corporate_actions/dividend_duplicate_events.json`
+- `tests/warehouse/test_dwd_stock_dividend_event.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md` / `.agent/memory/AGENT_HANDOFF.md` / `.agent/memory/OPEN_QUESTIONS.md` / `.agent/memory/KNOWN_CONSTRAINTS.md` / `.agent/memory/ARCHITECTURE_MEMORY.md` / `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests/warehouse/test_dwd_stock_dividend_event.py tests/dataform/test_generated_sqlx.py`：5 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform`：37 actions。
+- `bq query --dry_run < sql/dwd/12_dwd_stock_dividend_event.sql`：通过。
+- `bq query --dry_run < sql/qa/14_corporate_action_event_checks.sql`：通过。
+- BigQuery 实跑 `sql/qa/05_unit_contract_checks.sql` 与 `sql/qa/14_corporate_action_event_checks.sql`：全部 ASSERT successful。
+
+### 阻塞项
+
+- 无 Phase A 阻塞。
+
+### 下一步建议
+
+- Phase B 单独实现 ledger 参数、run loop “先 CA 后交易”、resume/hash/QA 接线与默认逐字节回归；不得把 Phase A 事件表直接视为策略结果或 promotion 依据。
+- Phase C 对照报告需要解释 `special_dividend`、`same_day_orphan_corporate_action`、零股取整、现金滞留与事件/adj_factor residual，不得把孤儿因子跳变静默混入 unexplained residual。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `TODO.md`
+
+> 当前交接补充（2026-06-12，Claude Fable 5，PRD_20260612_01 执行收口）
+> - PRD 经 PR #193 三轮 Codex review 收敛合并（merge `d9963cf`）；Phase B 实现 PR #197 经 Claude review 零发现合并（merge `2312f30`，166 pytest 通过）。
+> - 三个 BigQuery 操作已执行并通过对账（证据贴 PR #197 comment）：Phase A 审计日志预检通过（30 天窗口仅 owner 与项目 compute SA 的 2026-05-24 遗留 InsertJob，2026-05-27 起零活动，无外部消费方）后删除 `ashare` @ `2026-06-12T09:41:45Z`；Phase B 删除 `ashare_qa_windowed_equivalence` @ `09:41:48Z`；两者 `bq show` 复核 Not found，项目剩 9 个数据集。
+> - Phase C：DELETE `ads_ml_training_panel_daily` `s1_bqml%` 行 affected=`36,853,582`（与 PRD 预期精确一致），pre/post manifest 13 项全部 IDENTICAL：panel 剩 61 run / `184,596,703` 行、`s1_bqml%`=0；prediction/candidate/target/order/trade/position/NAV/ledger/signal、registry 151/52、summary 90、model 50 全部不变。
+> - 回滚窗口截止 `2026-06-19` ~`09:4x`Z（UNDROP / `FOR SYSTEM_TIME AS OF`，均须 `--location=asia-east2`，DML 另需分区过滤）。TODO 对应项已勾选。本条目同时修复 `0786d97` 带入 main 的 AGENT_HANDOFF 未解冲突标记（双方条目均保留、按时间排序）。
+>
+> Model: Claude Fable 5
+
+> 当前交接补充（2026-06-12，Claude Fable 5，ingestion 镜像 stale 修复）
+> - 确诊 `ashare_meta.ingestion_run` / `ingestion_partition_status` 0 行根因：采集 Cloud Run 镜像 `351dfd99...` 构建于 2026-06-04 11:50 UTC，早于 status_writer 接线 commit `60fb242`（15:57 UTC）约 4 小时，此后从未重建；live 采集成功但镜像内无写表代码。次生后果：镜像内打包的 manifest 缺 `2e4d29b` 新增的 000001.SH variant，ODS 000001.SH 自 06-10 停更，`dws_market_state_daily` 06-10/11 `sse_composite_*` 全 NULL（06-10 `risk_off` 判定为退化输入产物）。
+> - 已重建镜像（新 digest `5c78e862...`，build `8053b0d5`）推 `:latest`，job spec 未动；boot dry-run `4vq5v` 实证新 digest 生效、plan 27 端点含 000001.SH。已补采 000001.SH 06-10/11（executions `zh88k`/`q4prv`/`fr44m`/`v9k6h`），两张 meta 表落首批 4 行 success，ODS 可读。
+> - 待 2026-06-12 20:00 CST scheduled run 后验证：当日 `ingestion_run` 27 端点行、06-10/11 index DWD 与 market-state 被 `daily_current` 20 交易日写窗自动重写、`v_alert_summary` 采集分支恢复。`orchestration/cloud_run_jobs/README.md` 部署记录与 `KNOWN_CONSTRAINTS.md` 镜像重建约束已更新。
+>
+> Model: Claude Fable 5
+
+## 2026-06-12 Claude Fable 5 - ingestion 镜像 stale 修复（meta 审计静默 + 000001.SH 缺口）
+
+日期: 2026-06-12
+Agent ID: Claude Code
+Agent 实例 ID: 当前本地会话
+模型: Claude Fable 5
+运行环境: `/Users/fisher/Desktop/git/quant-ashare`（诊断/云端操作）；PR 分支 `claude/ingestion-image-stale-fix`
+Run ID: `manual_backfill_sse_composite_20260610_index_eod` / `manual_backfill_sse_composite_20260611_index_eod`（meta 表内完整 `ingestion_run_id` = CLI 传入值 + `_<endpoint_group>` 后缀）
+相关 issue/PR: 本次修复记录 PR（见分支）
+
+### 已完成工作
+
+- 诊断闭环：Cloud Build 历史 + Artifact Registry + execution describe 证明线上 9 次成功采集全部运行 `351dfd99...`（2026-06-04 11:50 UTC 构建），不含 `60fb242`（15:57 UTC）的 `IngestionStatusWriter` 接线；旧版 live 代码无任何 BigQuery 写入逻辑，与「execution 成功 + 两表零 DML」自洽。
+- 重建镜像：`gcloud builds submit`（cloudbuild.ingestion.yaml，build `8053b0d5`），新 digest `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b`；boot dry-run execution `ashare-ingest-current-scope-4vq5v` 验证新 digest 自动解析、plan 27 分区端点含 `index_daily_000001_SH` / `index_dailybasic_000001_SH`。
+- 补采 000001.SH 2026-06-10/11：4 个 live execution（`zh88k`/`q4prv`/`fr44m`/`v9k6h`，每次单 variant，`gcloud run jobs execute --args` 不允许重复 flag）；`ingestion_run` 4 行 success / `ingestion_partition_status` 4 行（两表首批生产行），ODS 外部表可读。
+- 部署前风险排除：两表 schema 与 INSERT/MERGE 列匹配（06-08 ALTER_TABLE 仅列描述）；`sa-ashare-ingestion` 有 jobs.create + `ashare_meta` 写权限（其 06-08 ALTER_TABLE 即实证）；requirements 含 `google-cloud-bigquery`；`60fb242..HEAD` ingestion 变更面：manifest 新增 000001.SH variants，`run_ingestion_job.py` / `common/logging.py` / `common/manifest.py` / `common/parquet_schema.py` 仅 docstring/描述文案改动，另新增独立辅助脚本 `scripts/ingestion/generate_index_external_table_uris.py`（随 `COPY scripts/ingestion` 打包进镜像，但不在 job ENTRYPOINT 运行路径）。
+
+### 重要上下文
+
+- job spec / scheduler / workflow / IAM 全部未动；job 引用 `:latest`，execution 创建时解析 digest，2026-06-12 20:00 CST scheduled run 自动用新镜像。
+- `dws_market_state_daily` 06-10/11 的 `sse_composite_*` 为 NULL、06-10 `market_regime='risk_off'` 是退化输入下的判定；当晚 `daily_current` 窗口刷新（`02`/`03` 写窗回看 20 个交易日）会自动重写，无需手工 backfill。正式研究窗口（至 06-09）未消费退化行。
+- `v_alert_summary` 当前 2 行 pipeline/task_failure 是 06-11 PRD_06 backfill 期间的历史 QA 失败记录（2019Q1 旗标断言），与本次无关。
+
+### 改动文件
+
+- `orchestration/cloud_run_jobs/README.md`（部署状态：新 digest + 镜像重建纪律）
+- `.agent/memory/IMPLEMENTATION_STATUS.md` / `.agent/memory/AGENT_HANDOFF.md` / `.agent/memory/KNOWN_CONSTRAINTS.md` / `TODO.md`
+
+### 测试 / 验证
+
+- boot dry-run execution 成功 + 日志含 000001.SH plan 行；4 个补采 execution 成功；`ingestion_run` / `ingestion_partition_status` / ODS 06-10/11 查询验证；`v_alert_summary` / `v_ingestion_failures` 可查询。
+
+### 阻塞项
+
+- 2026-06-12 20:00 CST scheduled run 的全链路验证尚未发生（验证清单见 TODO）。
+
+### 下一步建议
+
+- 20:00 CST 后按 TODO 验证清单复核；若 `ingestion_run` 当日仍无行，查 execution 日志与 BigQuery 写入错误。
+- 考虑给 `scripts/ingestion/**` / `configs/ingestion/**` 变更加 CI 或 PR checklist 强制「重建镜像」步骤（已写入 KNOWN_CONSTRAINTS，流程硬约束待 owner 决定形式）。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `TODO.md`
+
+
+> 当前交接补充（2026-06-12，GPT-5.5，PRD_20260612_01 Phase B implementation）
+> - 分支 `codex/bq-dataset-cleanup-impl` 已完成 PRD_20260612_01 Phase B 代码层：退役两个 windowed equivalence parity 脚本并移除空 `scripts/qa/`，清理契约测试、`sql/README.md` 示例和 Strategy1 Cloud Run runbook active 前置条件。
+> - `active_step_catalog.yml` 已加入两条退役脚本 ban-list，并补齐相关 `.agent/memory` 历史白名单；`KNOWN_CONSTRAINTS.md` 已把 OQ-005 window parity 与 true-five-year overlap parity 硬门改写为 PRD 定稿口径，BQML audit 条款补充面板裁剪后的复算入口。
+> - 验证已通过：`PYTHONPATH=src python3 -m pytest -q tests`（166 passed）、`python3 -m pytest -q tests/strategy1/test_retired_lint.py`（5 passed）、active scope grep 退役脚本 `.py` 路径零引用、`git diff --check`。
+> - 本轮未执行 BigQuery 操作；Phase A/Phase B scratch dataset/Phase C panel DELETE 仍是实现 PR 合并后的手工步骤。
+>
+> Model: GPT-5.5
+
+## 交接条目
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-bq-cleanup-impl`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/bq-dataset-cleanup-impl`
+Run ID: N/A
+相关 issue/PR: PR #193（PRD 已合并），实现 PR 待创建；PRD `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md`
+
+### 已完成工作
+
+- 实现 PRD_20260612_01 Phase B 第 1-7 项：删除退役 QA 脚本和空目录，移除对应契约测试，清理 `sql/README.md` windowed equivalence 示例，改写 Strategy1 Cloud Run runbook true-five-year refit 前置条件。
+- `configs/strategy1/active_step_catalog.yml` 增加退役脚本 ban-list，并补齐相关 `.agent/memory` 历史白名单。
+- `.agent/memory/KNOWN_CONSTRAINTS.md` 改写 OQ-005 window parity、true-five-year overlap parity 和 BQML historical panel 裁剪后的复算约束；`.agent/memory/ARCHITECTURE_MEMORY.md` 保留历史叙述并补退役注记。
+
+### 重要上下文
+
+- 本轮只做代码/文档/记忆改动，未执行任何 BigQuery 操作。
+- Phase A `ashare` 数据集硬删除、Phase B scratch dataset 删除和 Phase C `ads_ml_training_panel_daily` `s1_bqml%` DELETE 仍需在实现 PR 合并后按 PRD 手工执行并留对账证据。
+- 若未来需要恢复 full/window parity 工具，应从本实现 PR 的 parent commit 通过 git history 恢复脚本后另行评估。
+
+### 改动文件
+
+- `scripts/qa/run_windowed_refresh_equivalence.py`（删除）
+- `scripts/qa/run_index_market_windowed_equivalence.py`（删除）
+- `tests/strategy1/test_true5y_prd06_contracts.py`
+- `sql/README.md`
+- `docs/策略1CloudRun训练回测运行手册.md`
+- `configs/strategy1/active_step_catalog.yml`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+
+> 当前交接补充（2026-06-12，GPT-5.5，PR #190 true5y baseline resolver follow-up）
+> - 按 PR #192 review 发现 1，PR #190 的 `scripts/strategy1/analyze_topdown_lot_phase0.py` 默认 id resolver 已支持 true5y prediction/backtest id，并从“effective-window official ids”改为“当前研究 baseline（从记忆解析）”语义。
+> - resolver 优先解析含 `DECISION-20260612-02` / “采纳/切换/研究 baseline”语义的记忆段落；同一记忆文本同时出现旧 effective-window ids 与新 true5y ids 时，默认返回 true5y。找不到 baseline 语义时回退全文首个匹配。
+> - 新增 fixture 单测，不依赖真实记忆文件；本轮未重跑 Phase 0 数据，未改报告数字，未触碰 `scripts/strategy1_cloudrun/bq_io.py`、ledger v1 / Phase 1、默认 tail_risk profile 或 promotion。
+>
+> Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - PR #190 true5y baseline resolver follow-up
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: 当前本地会话
+模型: GPT-5.5
+运行环境: `/Users/fisher/Desktop/git/quant-ashare`，分支 `codex/strategy1-topdown-phase0`
+Run ID: N/A（未重跑 Phase 0）
+相关 issue/PR: PR #190，关联 PR #192 review comment `4689225423`
+
+### 已完成工作
+
+- 修复 `resolve_default_run_ids()`：支持 `*_true5y_*` id 形状，并优先解析当前研究 baseline 语义段落。
+- 增加 `resolve_run_ids_from_memory_text()` / baseline 段落解析 helper，便于单测用 fixture 文本覆盖，不依赖真实项目记忆文件。
+- 更新 CLI help：省略 `--prediction-run-id` / `--backtest-id` 时从项目记忆解析当前研究 baseline。
+
+### 重要上下文
+
+- 这是 PR #192 的 baseline 切换纪律对 PR #190 的前置兼容修复；本轮没有把 Phase 0 数字切到 true5y 重跑。
+- `scripts/strategy1_cloudrun/bq_io.py` 是 owner 既有未提交改动，本轮未修改、未暂存。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_topdown_lot_phase0.py`
+- `tests/strategy1/test_topdown_lot_phase0.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests`：166 passed，5 warnings。
+- `python3 -m pytest -q tests/strategy1/test_retired_lint.py`：5 passed。
+- active scope grep 退役脚本 `.py` 路径：零引用；bare path 只保留在 catalog ban-list 和历史承载面。
+- `git diff --check`：通过。
+
+### 阻塞项
+
+- 无代码阻塞。
+
+### 下一步建议
+
+- 提交并推送 `codex/bq-dataset-cleanup-impl`，创建 base `main` 的实现 PR。
+- 实现 PR 合并后，再按 PRD 手工执行 BigQuery Phase A/B/C 清理；执行时必须遵守 `--location=asia-east2`、分区过滤和删除前/后 manifest 对账要求。
+
+- `python3 -m pytest -q tests/strategy1/test_topdown_lot_phase0.py`
+- `python3 -m py_compile scripts/strategy1/analyze_topdown_lot_phase0.py tests/strategy1/test_topdown_lot_phase0.py`
+- `git diff --check`
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- PR #192 合入后，后续如 owner 决策重跑 Phase 0，再让脚本默认解析 true5y baseline 并刷新报告/产物。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `TODO.md`
+
+> 当前交接补充（2026-06-12，Claude Fable 5，BigQuery 数据集清理 PRD）
+> - 完成 `data-aquarium` 全数据集盘点：核心分层（dim/dwd/dws/ads/research）与 `sql/` 契约双向零差异；杂物为遗留数据集 `ashare`（250.4 GiB、零引用、2026-05-25 后零写入）、`ashare_meta` 5 张 `_repair_val_*`、`ashare_qa_windowed_equivalence` 18 张 shadow 残留、ads 训练面板 12 个 `s1_bqml%` 旧 run（约 115 GB）。
+> - 第 1 类清理已执行（owner 批准）：上述 5 + 18 共 23 张表已删，`bq ls` 复核清空。18 张 native shadow 表 7 天 time travel 内可恢复；5 张 `_repair_val_*` 是外部表（time travel 不覆盖），删除仅移除 BQ definition，GCS 无涉，需要时由 repair 脚本重建。
+> - 新增 `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md`（分支 `claude/prd-bq-dataset-cleanup`）：Phase A `ashare` 硬删除（审计日志预检硬门）/ Phase B windowed equivalence QA 退役（两脚本 + 引用 + KNOWN_CONSTRAINTS 两处硬门改写 + scratch 数据集删除）/ Phase C 面板 `s1_bqml%` 行裁剪。owner 决策记入 DECISION-20260612-01；`tushare_api_catalog`/`params`、`ashare_backup`、50 个 BQML model、prediction、回测事实、ODS scope 外外部表均保留。
+> - 注意：KNOWN_CONSTRAINTS 的「双实现并存必须跑 equivalence QA」与「true5y 重跑必须先过 overlap parity」两条届时改写（随实现 PR），不是静默失效；两脚本恢复入口为实现 PR 的 parent commit。
+> - 盘点顺带发现 `ingestion_run` / `ingestion_partition_status` 0 行与 live 采集成功矛盾（疑似采集镜像 stale、采集级告警静默），已挂独立排查任务，本轮未修。
+
+> 当前交接补充（2026-06-12，Claude Fable 5，DECISION-20260612-02）
+> - Owner 已采纳 **true-five-year continuous 为策略 1 研究 baseline**（run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01` / backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`），effective-window 降级为历史参照；OQ-011 关闭归档，`OPEN_QUESTIONS.md` 仅剩 OQ-010。
+> - 采纳依据为方法论性（effective-window 的覆盖约束前提已被 PRD_06 拆除且 parity/覆盖/refit/continuous QA 全过），非结果驱动；baseline 指标锚点 CAGR `13.85%` / MaxDD `-37.19%` / contract Sharpe `0.6076` / Calmar `0.3725`，仍未过 v3 双门，**baseline ≠ accepted、不得 promotion**。
+> - 切换纪律：新实验 prediction 流/对照从记忆解析 true5y ids 且报告注明基线版本；PRD_10 §6 基线兼容条款生效；进行中的复权漏损量化需补 true5y backtest 覆盖；旧 baseline 的机制级结论可迁移、数字级结论引用时注明口径。
+> - 改动文件：DECISION_LOG（新条目）、OPEN_QUESTIONS / archive、MEMORY_INDEX、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS（true5y 条目追加切换纪律句）、TODO（OQ-010 路线项改写）。>
+> Model: Claude Fable 5
+
+
+> 当前交接补充（2026-06-12，GPT-5.5，official ledger 复权漏损量化）
+> - 已在独立 worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-adj-leak`、分支 `codex/official-ledger-adj-leak` 完成 official ledger "未复权价 + 恒定股数"复权漏损测量；新增只读脚本 `scripts/strategy1/analyze_official_adj_leak.py`、报告 `docs/分析-官方Ledger复权漏损量化-20260612.md`、小结果 CSV `docs/analysis_official_ledger_adj_leak_20260612_metrics.csv`。
+> - 主结果 true-five-year continuous 修正前/后：CAGR `13.85% -> 15.72%`、MaxDD `-37.19% -> -36.76%`、contract Sharpe `0.6076 -> 0.6894`、Calmar `0.3725 -> 0.4275`；CAGR `+1.86pp` 且 Calmar `+0.0550` 触发预登记判据，报告建议 owner 立 PRD 修 ledger 并排在 Phase 2 之前。
+> - effective-window 参照修正前/后：CAGR `12.04% -> 13.56%`、MaxDD `-45.48% -> -44.99%`、contract Sharpe `0.5285 -> 0.5961`、Calmar `0.2646 -> 0.3014`。无交易日对账残差通过硬门（两条 backtest `max_abs` 均约 `1e-16`），逐日/事件/年度大 CSV 已上传到 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`。
+> - 本轮仅测量，不修改 ledger / 生产 SQL / 既有 run 数据，不 promotion，不替 owner 重开 `DECISION_LOG` 中已接受的未复权/除权简化约定。
+>
+> Model: GPT-5.5
+
+
+> 当前交接补充（2026-06-12，Claude Fable 5，PRD_20260612_01）
+> - 新增 `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`：PR #194 量化触发预登记判据（true5y CAGR +1.86pp、Calmar +0.055、修正后 contract Sharpe 0.6894 距 0.70 门仅 0.011）后，按判据立项重开"未复权口径、持有期除权简化"约定。
+> - 核心设计：公司行为记账做成**参数**（`corporate_actions`，默认 `none_v1`；`cash_div_and_split_v1` 送转调股数+税后现金分红入账）而非新版本号——与构造维度正交，v1/v2 同获能力；hash 仅非默认值入 payload（PR #189 教训）；红利税主口径 **`flat_10pct`**（tax-lot 精确化经 review 裁定为非目标，Phase C 附 0%/20% 敏感性界）。
+> - 三阶段：Phase A DWD 分红送转事件表（同股同 ex_date 多事件 canonical 聚合）+ hfq 因子交叉校验硬门 → Phase B ledger 实现 + 参数传播清单 + 默认回归（trade/position/NAV/state/hash 逐字节，summary additive）→ Phase C true5y CA 重跑与 #194 hfq 估计三方对照（六项可审计偏差分解，验收只卡 unexplained_residual）。排在 PRD_10 Phase 2 之前。单门通过不触发 accepted。
+>
+> Model: Claude Fable 5
+
+> 当前交接补充（2026-06-12，GPT-5 Codex，PR #186 CSV cleanup）
+> - 已按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
+> - 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；CSV 视为可再生成的本地/临时分析产物，不再跟随 git。`docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。
+> - 本轮未运行 BigQuery、未启动 Cloud Run、未改策略结果、未改变 accepted / promotion 状态。
+>
+> Model: GPT-5 Codex
+
+> 当前交接补充（2026-06-12，GPT-5 Codex，GCS checkpoint archive）
+> - 已将 `configs/ingestion/ods_current_scope_v0.yml` 当前生产 14 个 ODS endpoint 及其 current partition variants 的 2010+ checkpoint 做可逆归档；scope 为 `gs://data-aquarium/a-share/tushare/_checkpoints/endpoint=*/logical_date=*.json` 且 `logical_date >= 20100101`。
+> - 归档 run：`checkpoint_archive_current14_20260612T035604Z`；根路径 `gs://data-aquarium/a-share/tushare/checkpoint_archive/run_id=checkpoint_archive_current14_20260612T035604Z/`；产物为 26 个 gzip JSONL 归档对象 + `manifest.json`，共 65,891 条 checkpoint 记录，源 checkpoint 47,955,858 bytes，gzip 后 7,951,990 bytes。
+> - 每条归档记录保存原始 `source_uri` / bucket / object name / endpoint / logical_date / generation / size / crc32c / md5 / sha256 / `content_base64`，可按 manifest 反向恢复；校验已完成：逐 gzip 重算行数、字节数、`jsonl_sha256`，逐条校验 content sha256，并抽样 5 个原对象按 generation 比对通过。
+> - 本轮没有删除原 `_checkpoints/` 对象；后续如要真正减少对象数，仍需 owner 另行明确批准 lifecycle 或删除策略。manifest 记录 4 个 current-scope endpoint 为空：`index_daily`、`index_daily_000001_SH`、`index_dailybasic`、`index_dailybasic_000001_SH`。
+>
+> Model: GPT-5 Codex
+
+- `TODO.md`
+
+> 当前交接补充（2026-06-12，GPT-5.5，PR #190 Phase 0 review follow-up）
+> - PR #190 的 Phase 0 paper 报告已按多代理 review 修订：主判读改 official matched 分腿费率（买 `6bps`、卖 `11bps`），保留 `0bps` / `20bps` 敏感性；新增逐票持仓审计、P1 饱和机制、四通道归因、2022-05 episode、最差 3 个 10 日窗口持仓明细。
+> - 主结果（`walk_depth=50`, matched official cost）：T0 CAGR `10.91%`、MaxDD `-63.66%`、Calmar `0.171`；T1 CAGR `-2.79%`、MaxDD `-66.32%`、Calmar `-0.042`；T1-T0 CAGR gap `-13.70pp`，crunch excess 改善 `+8.96pp`。20bps 旧口径 gap `-14.81pp` 已作为敏感性保留。
+> - P1 失败归因改为市值规则饱和：matched 归因中现金差约 `-8.93pp/年`、持仓构成差约 `-4.53pp/年`；2022-05-06 top-50 P1 标记率 `98%`、市值规则标记率 `96%`，后续 10 个交易日 T1 平均现金 `94.48%`、T1-T0 return gap `-9.07pp`。
+> - 大 CSV 已上传并由报告引用：`gs://ashare-artifacts/reports/strategy1/topdown_phase0/analysis_date=20260612/analysis_strategy1_topdown_lot_phase0_20260612_daily.csv` 与 `..._rebalance_audit.csv`；小 `metrics.csv` 需随 PR 入库。仍未改 ledger v1 / Phase 1、未改默认 tail_risk profile、未 promotion。
+>
+> Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - PR #190 Phase 0 review follow-up
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: 当前本地会话
+模型: GPT-5.5
+运行环境: `/Users/fisher/Desktop/git/quant-ashare`，分支 `codex/strategy1-topdown-phase0`
+Run ID: `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`
+相关 issue/PR: PR #190
+
+### 已完成工作
+
+- 修订 `scripts/strategy1/analyze_topdown_lot_phase0.py`：加入 matched official split cost profile、逐票持仓 JSON 审计、NAV 分母集中度、P1 饱和归因表、日期集合断言、卖出价格缺失审计、N-1 收益期数、平均 NAV 换手归一。
+- 重跑 Phase 0，刷新 `docs/分析-策略1自上而下整手组合Phase0-20260612.md` 与三份 CSV；报告主判读使用 matched official cost，`0bps` / `20bps` 保留为敏感性。
+- 上传大 CSV 到 GCS：daily `32114025` bytes，rebalance audit `804585` bytes；报告引用 `gs://ashare-artifacts/reports/strategy1/topdown_phase0/analysis_date=20260612/` 下对应对象。
+
+### 重要上下文
+
+- BigQuery 全程只读；本轮未训练、未写 BQ、未启动 Cloud Run、未 promotion。
+- `scripts/strategy1_cloudrun/bq_io.py` 是 owner 既有未提交改动，本轮未修改、未暂存。
+- Claude review 中 `T0 @8.5bps CAGR≈13.64%` / trigger-3 T0 不触发的数值未按 split `6/11bps` 或 uniform `8.5bps` 路径级重跑复现；当前脚本主结果仍触发 trigger-3 合取条件。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_topdown_lot_phase0.py`
+- `tests/strategy1/test_topdown_lot_phase0.py`
+- `docs/分析-策略1自上而下整手组合Phase0-20260612.md`
+- `docs/analysis_strategy1_topdown_lot_phase0_20260612_metrics.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 scripts/strategy1/analyze_topdown_lot_phase0.py`
+- `python3 -m pytest -q tests/strategy1/test_topdown_lot_phase0.py`
+- `python3 -m py_compile scripts/strategy1/analyze_topdown_lot_phase0.py tests/strategy1/test_topdown_lot_phase0.py`
+- GCS `gcloud storage cp` + `gcloud storage ls -l`
+
+### 阻塞项
+
+- 无技术阻塞；Phase 1 是否继续仍需 owner 决策。
+
+### 下一步建议
+
+- Owner 决定 P1 市值两条规则是否剔除（保留崩盘形态规则）或增加饱和回退。
+- 若继续 Phase 1，再实现 `ledger_exec_v2_lot100_topdown`，仍不动 v1、不改默认 profile。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+
 > 当前交接补充（2026-06-11，GPT-5 Codex，PR #189 top-down review follow-up）
 > - 按 Claude comment 全量处理 PR #189 发现并补齐：
 >   1) 修复 v1 与 topdown 的参数哈希口径（`walk_depth / min_position_weight / position_floor_count` 仅在 topdown 加入；v1 不变）；
@@ -117,6 +597,110 @@ Model: Claude Fable 5
 
 Model: GPT-5 Codex
 
+## 2026-06-12 GPT-5.5 - Official ledger adjustment leakage quantification
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local Codex session
+模型: GPT-5.5
+运行环境: `/Users/fisher/Desktop/git/worktrees/quant-ashare-adj-leak`
+Run ID: `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`, `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`
+相关 issue/PR: PR #194（draft）
+
+### 已完成工作
+
+- 新增 `scripts/strategy1/analyze_official_adj_leak.py`，以 BigQuery 只读查询 + 本地 pandas 量化 official ledger "未复权价 + 恒定股数"约定造成的漏损。脚本参数化 backtest_id、时间窗口、本地输出目录和 GCS 前缀，并为查询附带 readonly labels。
+- 新增报告 `docs/分析-官方Ledger复权漏损量化-20260612.md`，按预登记判据先写后填，覆盖修正前/后指标、年度分解、事件类型拆分、Top10 单事件、无交易日残差对账和口径声明。
+- 新增小结果 CSV `docs/analysis_official_ledger_adj_leak_20260612_metrics.csv`；逐日序列、事件明细、年度分解、残差统计和 BigQuery job audit JSON 上传至 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`。
+- 新增轻量单测 `tests/strategy1/test_official_adj_leak.py`，覆盖 NAV 复合、N-1 年化波动/Sharpe、事件分类、残差硬门和预登记判读。
+
+### 关键结果
+
+- true-five-year 主结果：修正前 CAGR `13.85%`、MaxDD `-37.19%`、contract Sharpe `0.6076`、Calmar `0.3725`；hfq 代理修正后 CAGR `15.72%`、MaxDD `-36.76%`、contract Sharpe `0.6894`、Calmar `0.4275`。变化为 CAGR `+1.86pp`、Calmar `+0.0550`，触发预登记判据，报告建议 owner 立 PRD 修 ledger 并排在 Phase 2 之前。
+- effective-window 参照：修正前 CAGR `12.04%`、MaxDD `-45.48%`、contract Sharpe `0.5285`、Calmar `0.2646`；修正后 CAGR `13.56%`、MaxDD `-44.99%`、contract Sharpe `0.5961`、Calmar `0.3014`。
+- 对账硬门：无交易日上 `SUM(prev_day_weight * raw_return)` 与 official `daily_return` 残差通过，true-five-year `max_abs=1.44e-16`，effective-window `max_abs=2.25e-16`。
+- 漏损分解：true-five-year 事件累计 `8.4670pp`（送转型 `2.2118pp`，分红/小事件型 `6.2552pp`）；effective-window 事件累计 `7.0161pp`（送转型 `0.6126pp`，分红/小事件型 `6.4035pp`）。
+
+### 重要边界
+
+- 本轮只做 measurement，不修改 ledger / 生产 SQL / Cloud Run job spec / 既有 run 数据，不执行 promotion。
+- hfq 修正近似总回报口径，隐含分红再投资；真实 ledger 修复应是现金入账，不能把本报告直接当作 production ledger 实现方案。
+- 不关闭 OQ、不替 owner 重开 `DECISION_LOG` 中已接受的未复权/除权简化约定。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_official_adj_leak.py`
+- `tests/strategy1/test_official_adj_leak.py`
+- `docs/分析-官方Ledger复权漏损量化-20260612.md`
+- `docs/analysis_official_ledger_adj_leak_20260612_metrics.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `python3 scripts/strategy1/analyze_official_adj_leak.py`
+- `gcloud storage ls -l 'gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/**'`
+- `python3 -m pytest -q tests/strategy1/test_official_adj_leak.py`
+- `python3 -m py_compile scripts/strategy1/analyze_official_adj_leak.py tests/strategy1/test_official_adj_leak.py`
+- `git diff --check`
+
+### 下一步建议
+
+- owner 决定是否按报告建议立 ledger 修复 PRD，并明确该修复与 PRD_10 topdown / Phase 2 的排序。
+- 若暂不修 ledger，应把量化后的漏损幅度写入 `KNOWN_CONSTRAINTS.md` 做永久披露；本轮未提前执行该决策。
+
+## 2026-06-12 GPT-5 Codex - Current-scope ODS checkpoint archive
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local Codex session
+模型: GPT-5 Codex
+运行环境: `/Users/fisher/Desktop/git/worktrees/quant-ashare-checkpoint-archive`
+Run ID: `checkpoint_archive_current14_20260612T035604Z`
+相关 issue/PR: N/A
+
+### 已完成工作
+
+- 按 owner 要求，将现有项目当前生产范围的 14 个 ODS checkpoint 中 `logical_date >= 20100101` 的对象归档到 `gs://data-aquarium/a-share/tushare/checkpoint_archive/run_id=checkpoint_archive_current14_20260612T035604Z/`。
+- 归档范围来自 `configs/ingestion/ods_current_scope_v0.yml` 的 14 个 endpoint 及现有 current partition variants；未纳入非 current-scope endpoint。
+- 生成 26 个 endpoint gzip JSONL 归档对象和 `manifest.json`；共 65,891 条 checkpoint 记录，源 checkpoint 47,955,858 bytes，gzip 归档 7,951,990 bytes。
+- 每条 JSONL 保存原 GCS 路径、generation、校验值和 `content_base64`，因此可从归档反向恢复原 checkpoint 内容。
+- 本轮未删除任何原始 `_checkpoints/` 对象，也未设置 lifecycle。
+
+### 重要上下文
+
+- manifest 路径：`gs://data-aquarium/a-share/tushare/checkpoint_archive/run_id=checkpoint_archive_current14_20260612T035604Z/manifest.json`。
+- 4 个 current-scope checkpoint endpoint 在当前 GCS 扫描中为空：`index_daily`、`index_daily_000001_SH`、`index_dailybasic`、`index_dailybasic_000001_SH`。
+- 归档过程只处理 `_checkpoints` 小 JSON 内容；不处理也不下载 `raw_data`。
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 已回读 manifest 和全部 26 个 gzip 归档对象，重算每个归档的行数、源字节数、gzip 字节数和 `jsonl_sha256`，与 manifest 一致。
+- 已逐条校验 `content_base64` 解码后的 sha256 与记录的 `content_sha256` 一致。
+- 已抽样 5 个原 checkpoint 对象，按 GCS generation 回读并比对 sha256 通过。
+
+### 阻塞项
+
+- 无归档阻塞项。
+- 如要通过删除或 lifecycle 真正减少对象数，需要 owner 另行明确批准保留窗口、删除范围和恢复演练要求。
+
+### 下一步建议
+
+- 删除前保留最近 30-90 天 checkpoint，或先按 manifest 恢复抽样 checkpoint 到临时前缀验证完整恢复流程。
+- 若 owner 确认减少对象数，再对原 `_checkpoints/` 制定 age=90/180 lifecycle 或批量删除计划。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+
 ## 2026-06-11 GPT-5 Codex - PRD_09 signal IC transfer efficiency analysis
 
 ### 已完成工作
@@ -226,6 +810,57 @@ Model: GPT-5 Codex
 
 - `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+## 2026-06-12 GPT-5 Codex - PR #186 CSV cleanup
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: 本地 Codex desktop session
+模型: GPT-5 Codex
+运行环境: `/Users/fisher/Desktop/git/worktrees/quant-ashare-remove-pr186-csv`
+Run ID: N/A
+相关 issue/PR: PR #186
+
+### 已完成工作
+
+- 按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV。
+- 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；未删除其他 PR 的 CSV。
+- 同步更新 `IMPLEMENTATION_STATUS.md`、`AGENT_HANDOFF.md` 和 `TODO.md`，记录 CSV 作为可再生成临时产物的清理口径。
+
+### 重要上下文
+
+- 删除文件为 `docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
+- `docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。
+- 本轮未运行 BigQuery、未启动 Cloud Run、未改策略结论、未改变 accepted / promotion 状态。
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+- `docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`
+- `docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`
+- `docs/analysis_strategy1_transfer_ladder_20260611_results.csv`
+- `docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`
+
+### 测试 / 验证
+
+- `git diff --name-status HEAD -- '*.csv'` 确认仅删除 PR #186 的四份 CSV。
+- `git diff --check` 通过。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 后续分析 CSV 默认作为本地临时产物；只有 owner 明确要求或测试 fixture 必需时才纳入 git。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 

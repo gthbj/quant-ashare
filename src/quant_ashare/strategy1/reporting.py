@@ -27,6 +27,9 @@ from quant_ashare.strategy1.ledger import (
     RESUME_POLICY_CLOUDRUN_LOT100,
     RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100,
     cash_redistribution_id_for_ledger_version,
+    CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT,
+    CORPORATE_ACTIONS_NONE,
+    DIVIDEND_TAX_FLAT_10PCT,
 )
 from quant_ashare.strategy1.dataset_roles import allow_future_research, output_dataset_role_cli_args
 from quant_ashare.strategy1.sql_runner import resolve_sql_step_path, run_sql_step
@@ -57,6 +60,8 @@ def main() -> int:
         "position_floor_count": args.position_floor_count if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100 else None,
         "min_position_weight": topdown_min_position_weight(args) if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100 else None,
         "walk_depth": args.walk_depth if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100 else None,
+        "corporate_actions": experiment.corporate_actions,
+        "dividend_tax_mode": experiment.dividend_tax_mode,
         "project": config.project,
         "region": config.region,
         "output_dataset_role": config.output_dataset_role,
@@ -88,6 +93,7 @@ def main() -> int:
             job_ids.append(run_catalog_step(client, "qa_lot_aware_ledger_outputs", sql_params, config.output_dataset_role))
         if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100:
             job_ids.append(run_catalog_step(client, "qa_topdown_construction_outputs", sql_params, config.output_dataset_role))
+        job_ids.append(run_catalog_step(client, "qa_corporate_action_ledger_outputs", sql_params, config.output_dataset_role))
     if not args.skip_diagnosis:
         run_subprocess(diagnosis_command(config, experiment, args.skip_gcs_upload))
         if not args.skip_qa:
@@ -130,6 +136,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--state-as-of-date", default=None)
     parser.add_argument("--resume-policy-id", default=None)
     parser.add_argument("--rebalance-anchor-start", default=None)
+    parser.add_argument(
+        "--corporate-actions",
+        choices=[CORPORATE_ACTIONS_NONE, CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT],
+        default=None,
+    )
+    parser.add_argument("--dividend-tax-mode", choices=[DIVIDEND_TAX_FLAT_10PCT], default=None)
     return parser.parse_args()
 
 
@@ -154,6 +166,8 @@ def resolve_experiment(args: argparse.Namespace) -> Experiment:
         "state_as_of_date",
         "resume_policy_id",
         "rebalance_anchor_start",
+        "corporate_actions",
+        "dividend_tax_mode",
     ):
         value = getattr(args, attr)
         if value:
@@ -241,6 +255,11 @@ def build_sql_params(
         "p_portfolio_construction_method": (
             "topdown_lot100_v2" if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100 else "equal_weight_v1"
         ),
+        "p_corporate_actions": exp.corporate_actions,
+        "p_dividend_tax_mode": exp.dividend_tax_mode,
+        "p_share_tolerance": 1e-6,
+        "p_cash_tolerance_cny": 1.0,
+        "p_nav_event_abs_return_ceiling": 0.25,
         "p_tail_risk_ret_20d_min": -0.30,
         "p_tail_risk_drawdown_20d_min": -0.30,
         "p_tail_risk_limit_down_days_20d_min": 2,
@@ -281,6 +300,8 @@ def build_ledger_params(
         state_as_of_date=exp.state_as_of_date,
         resume_policy_id=resume_policy_id,
         rebalance_anchor_start=exp.rebalance_anchor_start,
+        corporate_actions=exp.corporate_actions,
+        dividend_tax_mode=exp.dividend_tax_mode,
         tail_risk_profile_id=exp.tail_risk_profile_id,
         market_state_version=exp.market_state_version,
         position_floor_count=getattr(args, "position_floor_count", 20),

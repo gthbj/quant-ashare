@@ -461,6 +461,8 @@ def run_standard_arm_qa(
         "p_min_buy_lot": 1,
         "p_min_buy_shares": 100,
         "p_resume_policy_id": RESUME_POLICY_ID,
+        "p_corporate_actions": "none_v1",
+        "p_dividend_tax_mode": "flat_10pct",
     }
     outputs = []
     for step, params in (

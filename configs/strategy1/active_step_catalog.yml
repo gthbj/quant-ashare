@@ -172,7 +172,7 @@ steps:
     caller: [quant_ashare.strategy1.backtest_report]
     output_dataset_role_current: research
     output_dataset_role_target: research
-    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_experiment_id, p_experiment_group, p_baseline_experiment_id, p_parent_experiment_id, p_parent_run_id, p_rebalance_frequency, p_rebalance_anchor_start, p_target_holdings, p_max_single_weight, p_label_horizon, p_horizon_natural_frequency, p_feature_set_id, p_tail_risk_profile_id, p_market_state_version, p_execution_backend, p_ledger_version, p_ledger_executor, p_lot_size, p_min_buy_lot, p_position_floor_count, p_min_position_weight, p_walk_depth, p_portfolio_construction_method, p_predict_start, p_predict_end, p_initial_capital, p_cost_profile_id, p_commission_bps, p_min_commission_cny, p_stamp_tax_buy_bps, p_stamp_tax_sell_bps, p_slippage_buy_bps, p_slippage_sell_bps, p_cost_bps, p_benchmark, p_initial_state_mode, p_parent_backtest_id, p_state_as_of_date, p_resume_policy_id, p_force_replace]
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_experiment_id, p_experiment_group, p_baseline_experiment_id, p_parent_experiment_id, p_parent_run_id, p_rebalance_frequency, p_rebalance_anchor_start, p_target_holdings, p_max_single_weight, p_label_horizon, p_horizon_natural_frequency, p_feature_set_id, p_tail_risk_profile_id, p_market_state_version, p_execution_backend, p_ledger_version, p_ledger_executor, p_lot_size, p_min_buy_lot, p_position_floor_count, p_min_position_weight, p_walk_depth, p_portfolio_construction_method, p_predict_start, p_predict_end, p_initial_capital, p_cost_profile_id, p_commission_bps, p_min_commission_cny, p_stamp_tax_buy_bps, p_stamp_tax_sell_bps, p_slippage_buy_bps, p_slippage_sell_bps, p_cost_bps, p_benchmark, p_initial_state_mode, p_parent_backtest_id, p_state_as_of_date, p_resume_policy_id, p_force_replace, p_corporate_actions, p_dividend_tax_mode]
     internal_params: [p_calendar_end, p_selected_model_id]
     optional_params: {}
     inputs: [training_panel, model_registry, model_prediction_daily, stock_candidate_daily, backtest_trade_daily, backtest_position_daily, backtest_nav_daily]
@@ -189,7 +189,7 @@ steps:
     caller: [quant_ashare.strategy1.backtest_report]
     output_dataset_role_current: research
     output_dataset_role_target: research
-    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_experiment_id, p_rebalance_frequency, p_target_holdings, p_label_horizon, p_train_start, p_train_end, p_valid_start, p_valid_end, p_test_start, p_test_end, p_final_holdout_start, p_final_holdout_end, p_predict_start, p_predict_end, p_rebalance_anchor_start, p_max_single_weight, p_tail_risk_profile_id, p_market_state_version, p_ledger_version, p_lot_size, p_min_buy_lot, p_initial_state_mode, p_parent_backtest_id, p_state_as_of_date, p_resume_policy_id]
+    required_params: [p_run_id, p_prediction_run_id, p_strategy_id, p_backtest_id, p_experiment_id, p_rebalance_frequency, p_target_holdings, p_label_horizon, p_train_start, p_train_end, p_valid_start, p_valid_end, p_test_start, p_test_end, p_final_holdout_start, p_final_holdout_end, p_predict_start, p_predict_end, p_rebalance_anchor_start, p_max_single_weight, p_tail_risk_profile_id, p_market_state_version, p_ledger_version, p_lot_size, p_min_buy_lot, p_initial_state_mode, p_parent_backtest_id, p_state_as_of_date, p_resume_policy_id, p_corporate_actions, p_dividend_tax_mode]
     internal_params: [p_calendar_end]
     optional_params: {}
     inputs: [training_panel, model_registry, model_prediction_daily, stock_candidate_daily, portfolio_target_daily, order_plan_daily, backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary]
@@ -274,7 +274,7 @@ steps:
     caller: [quant_ashare.strategy1.backtest_report, quant_ashare.strategy1.tail_risk_overlay_ab]
     output_dataset_role_current: research
     output_dataset_role_target: research
-    required_params: [p_backtest_id, p_run_id, p_predict_start, p_predict_end, p_ledger_version, p_lot_size, p_min_buy_lot, p_min_buy_shares, p_resume_policy_id]
+    required_params: [p_backtest_id, p_run_id, p_predict_start, p_predict_end, p_ledger_version, p_lot_size, p_min_buy_lot, p_min_buy_shares, p_resume_policy_id, p_corporate_actions, p_dividend_tax_mode]
     internal_params: []
     optional_params: {}
     inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, backtest_ledger_state_daily]
@@ -295,6 +295,13 @@ steps:
     internal_params: []
     optional_params: {}
     inputs: [stock_candidate_daily, backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary]
+  qa_corporate_action_ledger_outputs:
+    stable_name: qa_corporate_action_ledger_outputs
+    current_path: sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql
+    target_path: sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql
+    sql_path: sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql
+    required_params: [p_backtest_id, p_run_id, p_predict_start, p_predict_end, p_corporate_actions, p_dividend_tax_mode, p_share_tolerance, p_cash_tolerance_cny, p_nav_event_abs_return_ceiling]
+    inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary]
     outputs: []
     partition_columns: []
 
@@ -461,7 +468,7 @@ steps:
     caller: [manual_runbook]
     output_dataset_role_current: research
     output_dataset_role_target: research
-    required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_state_as_of_date, p_resume_policy_id, p_ledger_version, p_rebalance_anchor_start, p_cash_tolerance_cny, p_value_tolerance_cny, p_share_tolerance]
+    required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_state_as_of_date, p_resume_policy_id, p_ledger_version, p_rebalance_anchor_start, p_corporate_actions, p_dividend_tax_mode, p_cash_tolerance_cny, p_value_tolerance_cny, p_share_tolerance]
     internal_params: []
     optional_params: {}
     inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, backtest_ledger_state_daily]
@@ -495,7 +502,7 @@ steps:
     caller: [manual_runbook]
     output_dataset_role_current: research
     output_dataset_role_target: research
-    required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_state_as_of_date, p_resume_policy_id, p_ledger_version, p_rebalance_anchor_start]
+    required_params: [p_full_backtest_id, p_resume_backtest_id, p_compare_start, p_compare_end, p_state_as_of_date, p_resume_policy_id, p_ledger_version, p_rebalance_anchor_start, p_corporate_actions, p_dividend_tax_mode]
     internal_params: []
     optional_params: {}
     inputs: [backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary, backtest_ledger_state_daily]
@@ -549,6 +556,8 @@ retired_reference_lint:
     - scripts.strategy1_cloudrun.train_candidate_task
     - scripts.strategy1_cloudrun.select_register_predict
     - scripts.strategy1_cloudrun.backtest_report
+    - scripts/qa/run_windowed_refresh_equivalence
+    - scripts/qa/run_index_market_windowed_equivalence
   active_scopes:
     - src/**
     - scripts/**
@@ -564,7 +573,9 @@ retired_reference_lint:
     - sql/cloudrun/strategy1/README.md
     - docs/prd/**
     - docs/retired/**
+    - .agent/memory/ARCHITECTURE_MEMORY.md
     - .agent/memory/AGENT_HANDOFF.md
+    - .agent/memory/DECISION_LOG.md
     - .agent/memory/IMPLEMENTATION_STATUS.md
     - .agent/memory/KNOWN_CONSTRAINTS.md
     - .agent/memory/OPEN_QUESTIONS.md

@@ -116,7 +116,7 @@ python -m scripts.strategy1_cloudrun.orchestrate_annual_rolling_selection \
 
 1. `--true-five-year-refit` 会禁用当前 `2019-04-03` effective coverage floor，refit train start 回到每年名义五年窗口的实际首个开市日；必须配套非默认 `--final-refit-run-suffix`，避免覆盖现有 `__refit01` effective-window 结果。
 2. `--emit-refit-only` 只输出 `build_refit_training_panel` 与 `cloudrun_refit_register_predict`。它假设 selection run / selected candidate 已存在，不重建 selection panel / matrix / 11 候选 fanout。
-3. 运行前必须先完成 `2019-01-02..2019-04-02` 旗标修复、2010+ 历史 backfill、`sql/qa/13_true5y_historical_coverage_checks.sql` 和 overlap parity QA。stock parity 用 `scripts/qa/run_windowed_refresh_equivalence.py`，index/market parity 用 `scripts/qa/run_index_market_windowed_equivalence.py`，两者都应落 `summary-output-jsonl`；若 mismatch 非零，停止重跑 refit。
+3. 运行前必须先完成 `2019-01-02..2019-04-02` 旗标修复、2010+ 历史 backfill、`sql/qa/13_true5y_historical_coverage_checks.sql` 与逐年 refit panel coverage QA。overlap parity 工具已按 `DECISION-20260612-02` 退役；历史验收记录见 `.agent/memory/IMPLEMENTATION_STATUS.md` 的 2026-06-11 true-five-year 小节。
 
 年度滚动 synthetic continuous merge 与 official continuous ledger：
 

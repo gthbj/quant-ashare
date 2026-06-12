@@ -30,6 +30,8 @@ DECLARE p_initial_state_mode STRING DEFAULT 'fresh';  -- fresh / resume_from_bac
 DECLARE p_parent_backtest_id STRING DEFAULT NULL;
 DECLARE p_state_as_of_date DATE DEFAULT NULL;
 DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_resume_v1';
+DECLARE p_corporate_actions STRING DEFAULT 'none_v1';
+DECLARE p_dividend_tax_mode STRING DEFAULT 'flat_10pct';
 DECLARE p_calendar_end DATE;
 DECLARE v_rebalance_anchor_explicit BOOL;
 SET p_calendar_end = DATE_ADD(p_predict_end, INTERVAL 90 DAY);
@@ -60,6 +62,14 @@ IF p_tail_risk_profile_id NOT IN (
   'individual_and_market_risk_guard_v0'
 ) THEN
   RAISE USING MESSAGE = CONCAT('unsupported p_tail_risk_profile_id: ', p_tail_risk_profile_id);
+END IF;
+
+IF p_corporate_actions NOT IN ('none_v1', 'cash_div_and_split_v1') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_corporate_actions: ', p_corporate_actions);
+END IF;
+
+IF p_dividend_tax_mode NOT IN ('flat_10pct') THEN
+  RAISE USING MESSAGE = CONCAT('unsupported p_dividend_tax_mode: ', p_dividend_tax_mode);
 END IF;
 
 IF p_initial_state_mode = 'resume_from_backtest' THEN
@@ -206,6 +216,8 @@ ASSERT (
     AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.feature_set_id') IS NOT NULL)
     AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.tail_risk_profile_id'), 'diagnostic_only') = p_tail_risk_profile_id)
     AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.market_state_version'), p_market_state_version) = p_market_state_version)
+    AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.corporate_actions'), 'none_v1') = p_corporate_actions)
+    AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.dividend_tax_mode'), 'flat_10pct') = p_dividend_tax_mode)
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
 ) AS 'QA-EXP-1: summary metrics_json must contain OQ-010 experiment identity and parameters';
@@ -573,17 +585,21 @@ ASSERT (
   SELECT COUNT(*) > 0
     AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.initial_state_mode') != p_initial_state_mode) = 0
     AND COUNTIF(JSON_VALUE(bs.metrics_json, '$.resume_policy_id') != p_resume_policy_id) = 0
+    AND COUNTIF(COALESCE(JSON_VALUE(bs.metrics_json, '$.corporate_actions'), 'none_v1') != p_corporate_actions) = 0
+    AND COUNTIF(COALESCE(JSON_VALUE(bs.metrics_json, '$.dividend_tax_mode'), 'flat_10pct') != p_dividend_tax_mode) = 0
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
   WHERE bs.backtest_id = p_backtest_id
-) AS 'QA-RESUME-1: summary metrics_json must record initial_state_mode and resume_policy_id';
+) AS 'QA-RESUME-1: summary metrics_json must record initial_state_mode, resume_policy_id and corporate action params';
 
 IF p_initial_state_mode = 'resume_from_backtest' THEN
   ASSERT (
     SELECT COUNT(*) = 1
-      AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.ledger_version') = 'ledger_exec_v1')
+      AND LOGICAL_AND(JSON_VALUE(bs.metrics_json, '$.ledger_version') = p_ledger_version)
+      AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.corporate_actions'), 'none_v1') = p_corporate_actions)
+      AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.dividend_tax_mode'), 'flat_10pct') = p_dividend_tax_mode)
     FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
     WHERE bs.backtest_id = p_parent_backtest_id
-  ) AS 'QA-RESUME-2: parent summary must exist exactly once and use ledger_exec_v1';
+  ) AS 'QA-RESUME-2: parent summary must exist exactly once and match ledger/corporate action params';
 
   ASSERT (
     SELECT COUNT(*) = 1
@@ -642,7 +658,9 @@ ASSERT (
       'CANCELLED_BY_NETTING',
       'SKIPPED_CASH_INSUFFICIENT',
       'SKIPPED_MIN_NOTIONAL',
-      'NOOP_ALREADY_TARGET'
+      'NOOP_ALREADY_TARGET',
+      'CORPORATE_ACTION_SPLIT',
+      'CORPORATE_ACTION_CASH_DIVIDEND'
     )
 ) AS 'QA-LEDGER-2: trade fill_status must be in ledger_exec_v1 allowed status set';
 

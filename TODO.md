@@ -4,6 +4,15 @@
 
 ## P0 — 当前优先
 
+- [ ] OQ-005：验证 2026-06-12 20:00 CST scheduled 采集后 ingestion 审计链路恢复
+  说明：2026-06-12 已确诊并修复采集镜像 stale（详见 `IMPLEMENTATION_STATUS.md` 同日小节）：重建镜像 digest `5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 推 `:latest`（job spec 未动），补采 000001.SH 06-10/11 并实证 `ashare_meta.ingestion_run` / `ingestion_partition_status` 首批落行。待当晚 scheduled run 后验证：① `ingestion_run` 落 2026-06-12 业务日 27 个分区端点行（含 `index_daily_000001_SH` / `index_dailybasic_000001_SH`）；② `daily_current` 窗口刷新自动重写 06-10/11 的 `dwd_index_eod` 000001.SH 行与 `dws_market_state_daily` `sse_composite_*` 字段（06-10 `market_regime` 应基于完整输入重判，当前 `risk_off` 是退化输入产物）；③ `v_alert_summary` / `v_ingestion_failures` / `v_ingestion_empty_returns` 采集分支有真实数据来源。若 `ingestion_run` 当日无行，查 execution 日志与 BigQuery 写入错误。
+
+- [x] 排查 `ingestion_run` / `ingestion_partition_status` 零写入与采集告警断档
+  说明：已完成（PR #196，2026-06-12）：确诊为采集 Cloud Run 镜像 stale——镜像构建于 2026-06-04 11:50 UTC，早于 status_writer 接线 `60fb242`（15:57 UTC），此后未重建；已重建镜像并补采 000001.SH 06-10/11，meta 表首批落行实证。剩余验证见上一条。
+
+- [x] 按 `PRD_20260612_01` 执行 BigQuery 数据集清理退役
+  说明：全部完成。第 1 类清理 2026-06-12 完成（5 张 `_repair_val_*` + 18 张 shadow 表）；Phase B 代码由 PR #197 合并（退役两个 windowed equivalence 脚本、清理 active 引用、catalog ban-list、KNOWN_CONSTRAINTS 三处改写）；三个 BigQuery 手工操作 2026-06-12 执行完毕并通过对账（证据见 PR #197 comment）：Phase A 审计日志预检通过（30 天仅 owner 与项目 compute SA 的 2026-05-24 遗留写入，05-27 起零活动）后删除 `ashare`（09:41:45Z）；Phase B 删除 `ashare_qa_windowed_equivalence`（09:41:48Z）；Phase C DELETE 36,853,582 行（09:43:35Z，与预期精确一致），post-manifest 13 项全部 IDENTICAL（panel 剩 61 run / 184,596,703 行，registry 151/52、summary 90、models 50 不变）。回滚窗口截止 2026-06-19 ~09:4xZ（UNDROP / time travel，均须 `--location=asia-east2`）。
+
 - [x] OQ-005：合并 2026-06-09 scheduled ODS run 暴露的 Cloud Run Job IAM bootstrap 修正
   说明：已由 PR #126 合并到 `main`。`orchestration/workflows/bootstrap_scheduler_iam.sh` 已固化 runtime SA 的 job-level `roles/run.jobsExecutorWithOverrides`、project-level `roles/run.viewer`，并移除旧 job-level `roles/run.invoker`，避免重新 bootstrap 后复现 scheduled ODS workflow 权限失败。
 
@@ -14,6 +23,21 @@
 
 - [ ] OQ-010：继续寻找 accepted 的 Cloud Run Python baseline
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
+
+- [x] OQ-010：完成 `PRD_20260612_02` Ledger 分红送转 Phase A 事件表落地
+  说明：Phase A 已完成并实跑 BigQuery：新增/替换 `ashare_dwd.dwd_stock_dividend_event`、`ashare_meta.qa_stock_dividend_event_hfq_mismatch` 与 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`，并刷新单位映射/字段说明、通过单位 QA 与 CA QA。OQ-015 裁决已落实：不修 `stk_co_rate` 口径，不设人工 allowlist；QA 使用结构化容差（abs/rel + `0.01/prev_close` 下限），双向落表并自动归类，硬门为未归类 mismatch=0。结果：2010+ canonical events=`46431`；2021+ canonical events=`22009`、same-ex_date 聚合键=`20`、source rows=`22029`；mismatch 分布为 event_to_factor data_anomaly=`1106`（含 missing_prev_price=`1033`、factor_jump_mismatch=`73`）、special_dividend=`1`、factor_to_event same_day_orphan_corporate_action=`405`，unclassified=`0`。本阶段未改 ledger 代码、未写 ADS/research/promotion。
+
+- [x] OQ-010：完成 `PRD_20260612_02` Ledger 分红送转 Phase B ledger 实现
+  说明：分支 `codex/ledger-corporate-actions` 已实现 `corporate_actions` / `dividend_tax_mode` 参数链和 run_ledger ex_date 开盘前公司行为结算；默认 `none_v1` 保持 trade/position/NAV/ledger state/hash 逐字节不变量，默认 hash 黄金值 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d` 未变。新 QA `qa_corporate_action_ledger_outputs` 已登记 catalog，两套 resume QA 校验父子参数一致。验证：`python3 -m pytest tests` 176 passed，retired linter / compileall / Dataform check / new QA research dry-run / `git diff --check` 均通过。本阶段未跑 Phase C、未写既有 run、未 promotion、不改默认 profile。
+
+- [x] OQ-010：完成 `PRD_20260612_02` Ledger 分红送转 Phase C research-only CA 重跑
+  说明：Phase C 已完成（分支 `codex/ledger-corporate-actions`）。Cloud Run runner 使用不可变 digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`，正式 execution `strategy1-backtest-report-job-dnt4b` 成功；新 run/backtest `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 写 `ashare_research`，参数 `corporate_actions=cash_div_and_split_v1` / `dividend_tax_mode=flat_10pct`。三条 QA 全过：continuous `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger `37674e4f-06ee-4998-9d1e-75ace14cb965`；ADS 反向验证与 promotion manifest 均为 0 行。报告 `docs/分析-Ledger CA 重跑对照-20260612.md` 已产出；CA-on CAGR=`0.15350594766603387`、contract Sharpe=`0.6682084282261871`、Calmar=`0.4101170873817589`，仍未过 v3 hard gates，不得 promotion。
+
+- [x] OQ-010：量化 official ledger 未复权/除权漏损
+  说明：分支 `codex/official-ledger-adj-leak` 已完成只读测量并生成 `docs/分析-官方Ledger复权漏损量化-20260612.md`、`scripts/strategy1/analyze_official_adj_leak.py` 和小结果 CSV。true-five-year 主结果按 hfq 总回报代理修正后 CAGR `13.85% -> 15.72%`（`+1.86pp`）、Calmar `0.3725 -> 0.4275`（`+0.0550`），effective-window 参照 CAGR `12.04% -> 13.56%`、Calmar `0.2646 -> 0.3014`；无交易日残差对账通过（max abs 约 `1e-16`）。逐日/事件/年度大 CSV 已上传到 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`。本项只测量，不改 ledger、不 promotion、不重开既有决策。
+
+- [ ] OQ-010：owner 决定是否按 official ledger 复权漏损结果立修复 PRD
+  说明：本次 true-five-year 主结果触发预登记判据（CAGR `+1.86pp >= +1pp` 且 Calmar `+0.0550 >= 0.05`），报告建议立 PRD 修 ledger 并排在 Phase 2 之前；是否重开 `DECISION_LOG` 中已接受的"未复权口径、持有期除权简化"约定仍需 owner 拍板。若 owner 决定暂不修，应把量化漏损写入 `KNOWN_CONSTRAINTS.md` 永久披露。
 
 - [x] OQ-010：实现年度滚动选参回测实验
   说明：年度 walk-forward selection、final refit、synthetic continuous 与 Phase 2 candidate-only live smoke 均已完成。2021-2026 effective-window continuous 已作为研究复盘口径落地；PRD_06 又完成 2010+ 历史修复与 2021-2024 true-five-year refit 重跑，产出 true-five-year synthetic continuous 对比。PRD_07 live smoke 已验证 execution 粒度 fanout、state recovery、artifact skip 与 missing-matrix preflight。后续不再以“实现年度滚动”为 TODO；完整 2021-2026 live pipeline / Phase 3 需要 owner 另批，accepted baseline 迭代见单独 OQ-010 项。
@@ -40,6 +64,9 @@
 - [ ] OQ-010：按 `PRD_20260611_10` 跑自上而下整手构造 Phase 0 / Phase 2 验证
   说明：Phase 1 代码准备已在分支 `codex/topdown-lot-construction` 实现：新增显式 opt-in `ledger_exec_v2_lot100_topdown`、full-rank `stock_candidate_daily.rank_raw <= walk_depth` 输入、自上而下整手买入、P1 profile 绑定替换语义、零现金缩股 QA、实际持仓数与最大单票权重 metrics/report/runbook。PR #189 已将 top-down review 发现逐条修复并补齐单测（v1 hash 隔离、topdown 仅在可卖时回款、must-have individual 风控、QA-TOPDOWN-4 前一开市日 NAV 分母、topdown cash redistribution 自述一致、QA 约束强化）。剩余工作是先跑 Phase 0 paper 双臂原型（带/不带 P1），再在合并/部署后跑 Phase 2 research-only continuous 重跑与三方对比交 owner；不动 v1、不改全局默认 profile、不 promotion。
 
+- [ ] OQ-010：按 `PRD_20260611_10` 实现自上而下整手组合构造
+  说明：PR #190 review follow-up 后 Phase 0 paper 已按 official matched 分腿费率重跑并修订报告 `docs/分析-策略1自上而下整手组合Phase0-20260612.md`；小 `metrics.csv` 随 PR 入库，大 `daily` / `rebalance_audit` CSV 已上传 `gs://ashare-artifacts/reports/strategy1/topdown_phase0/analysis_date=20260612/` 并由报告引用。主结果 `walk_depth=50` / matched official cost（买 `6bps`、卖 `11bps`）：T0 CAGR=`10.91%`、MaxDD=`-63.66%`、Calmar=`0.171`；T1 CAGR=`-2.79%`、MaxDD=`-66.32%`、Calmar=`-0.042`，T1-T0 CAGR gap=`-13.70pp`、crunch excess 改善=`+8.96pp`。P1 失败归因改为两条市值规则在崩盘后顺周期饱和：2022-05-06 top-50 标记率 `98%`、市值规则标记率 `96%`，后续 10 个交易日 T1 平均现金 `94.48%`、T1-T0 return gap=`-9.07pp`；matched 四通道归因中现金差约 `-8.93pp/年`、持仓构成差约 `-4.53pp/年`。追加修复：resolver 已支持 PR #192 的 true5y research baseline id 形状，并优先解析当前 baseline 语义；未重跑 Phase 0 数据。Phase 1 `ledger_exec_v2_lot100_topdown` 是否继续、两条市值规则是否剔除或加饱和回退，仍需 owner 决策；不动 v1、不改默认 profile、不 promotion。
+
 - [ ] OQ-010：基于尾部风险 Overlay A/B 结果决定下一步风控路线
   说明：A1/A3 证明确实命中 crunch 段，但常年误伤过大；A2 是全周期 MaxDD/CAGR tradeoff 对照，但也未改善 Calmar。2026-06-11 NAV 级 exposure upper-bound 仿真已完成：最优无摩擦 `two_state_biweekly_elow0_cost0bps` Calmar=`0.4076962188116182`、contract Sharpe=`0.6005994875878142`，按预登记判据建议真实 exposure ledger 工程缓做/降优先级，下一步更应优先 alpha / 信号 / 组合构造；owner 仍需最终路线决策。三种 overlay 均暂不设默认。
 
@@ -49,8 +76,17 @@
 - [x] OQ-010：按 `PRD_20260611_07` 做年度滚动调度 Phase 2 live 化
   说明：PRD_07 candidate-only live smoke 已在正式 runner 镜像上完成：run-version `v20260611_prd07smoke01`，2021/2022 matrix artifact 预置后，scheduler live path 提交 fanout executions `strategy1-train-candidate-fanout-job-g65hx` / `strategy1-train-candidate-fanout-job-btvgv`，各 `3/3` tasks succeeded。dry-run plan hash 与 live state 均为 `7ef90a481f0e64ad`，12 个候选 artifact 文件均可读；已覆盖 state recovery 同 run 不重复提交、artifact-skip 新 run 不提交、missing-matrix preflight 本地失败且不提交 Cloud Run、真实 GCS lease competition、以及 `gcloud --wait` 非零后 describe/artifact 成功的回归测试。完整 2021-2026 live pipeline / Phase 3 仍需 owner 另批，不在本项范围。
 
+- [ ] OQ-010：基于 official / true-five-year / CA-on continuous 结果决定下一轮策略改进或 accepted baseline 路线
+  说明：2021-2026 effective-window official continuous、true-five-year continuous 与 true-five-year CA-on continuous 都已成为 research evidence，但都尚未 accepted。Effective-window：compound CAGR=`0.12036528993503204`，MaxDD=`-0.4548151193656952`，legacy Sharpe=`0.6132671411257953`，v3 contract Sharpe=`0.5285475500566089`，contract Calmar=`0.26464663290635254`。True-five-year raw ledger：compound CAGR=`0.13852596798718442`，MaxDD=`-0.37189972934558946`，legacy Sharpe=`0.6834026126199905`，v3 contract Sharpe=`0.6075887294330015`，contract Calmar=`0.3724820349585642`。True-five-year CA-on：compound CAGR=`0.15350594766603387`，MaxDD=`-0.3742978588042647`，legacy Sharpe=`0.7369151400001442`，v3 contract Sharpe=`0.6682084282261871`，contract Calmar=`0.4101170873817589`；仍未过 v3 hard gates（contract Sharpe `<0.70`、Calmar `<1.0`）。下一步需 owner 决定是否切换 baseline 口径、是否 supersede 旧未复权约定、后续实验是否一律 CA-on，以及围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案。不得把任一结果直接 promotion 或标 accepted。
+
+- [ ] OQ-010：按 `PRD_20260612_02` 实现 Ledger 分红送转记账修复
+  说明：PR #194 量化触发预登记判据（true5y 修正 CAGR +1.86pp、Calmar +0.055）。`corporate_actions` 参数化（默认 `none_v1` 记账输出逐字节不变），红利税主口径 `flat_10pct`；Phase A DWD 事件表（canonical 聚合）+ hfq 交叉校验 → Phase B ledger + 参数传播清单 + 默认回归 → Phase C true5y CA 重跑三方对照（六项偏差分解）。排在 PRD_10 Phase 2 之前；单门通过不触发 accepted。
+
 - [ ] OQ-010：基于 official / true-five-year continuous 结果决定下一轮策略改进或 accepted baseline 路线
   说明：2021-2026 effective-window official continuous 与 true-five-year continuous 都已成为 research evidence，但都尚未 accepted。Effective-window：compound CAGR=`0.12036528993503204`，MaxDD=`-0.4548151193656952`，legacy Sharpe=`0.6132671411257953`，v3 contract Sharpe=`0.5285475500566089`，contract Calmar=`0.26464663290635254`。True-five-year：compound CAGR=`0.13852596798718442`，MaxDD=`-0.37189972934558946`，legacy Sharpe=`0.6834026126199905`，v3 contract Sharpe=`0.6075887294330015`，contract Calmar=`0.3724820349585642`。True-five-year 明显改善但仍未过 v3 hard gates（contract Sharpe `<0.70`、contract Calmar `<1.0`）；下一步需 owner 决定是否把 true-five-year 作为新的研究 baseline，再围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案。不得把任一结果直接 promotion 或标 accepted。
+
+- [ ] OQ-010：基于 true-five-year baseline 决定下一轮策略改进或 accepted baseline 路线
+  说明：2021-2026 effective-window official continuous 与 true-five-year continuous 都已成为 research evidence，但都尚未 accepted。Effective-window：compound CAGR=`0.12036528993503204`，MaxDD=`-0.4548151193656952`，legacy Sharpe=`0.6132671411257953`，v3 contract Sharpe=`0.5285475500566089`，contract Calmar=`0.26464663290635254`。True-five-year：compound CAGR=`0.13852596798718442`，MaxDD=`-0.37189972934558946`，legacy Sharpe=`0.6834026126199905`，v3 contract Sharpe=`0.6075887294330015`，contract Calmar=`0.3724820349585642`。True-five-year 明显改善但仍未过 v3 hard gates（contract Sharpe `<0.70`、contract Calmar `<1.0`）。DECISION-20260612-02 已采纳 true-five-year 为研究 baseline（effective-window 降级为历史参照，OQ-011 关闭）；下一步围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案。不得把任一结果直接 promotion 或标 accepted。
 
 - [x] OQ-010：实现回测复合年化收益字段
   说明：PR #134 已扩展 ADS summary 契约并在 `09` 写出 `compound_annual_return` / `return_period_count` / annualization metadata，`10` 和 `24` QA 校验 `NAV 有效交易日数 - 1` 口径，report 默认展示复合年化；旧 `annual_return` / `sharpe` 保留 legacy 语义，不回填历史 run。
@@ -69,6 +105,12 @@
   说明：owner 已确认归档关闭。schema contract、repair/validate 脚本和 `sql/qa/06_ods_parquet_schema_checks.sql` 都已具备；2026-06-05 P0 与 all 范围只读复核通过，当前 BigQuery 读层没有 mismatch 暴露。防复发规则继续保留在 `KNOWN_CONSTRAINTS.md`：新增/修复 ODS Parquet 必须按 schema contract 显式 cast 并跑 QA，历史 raw 修复默认走 GCS 原 Parquet schema-preserving rewrite。
 
 ## P1 — 后续优化
+
+- [ ] GCS `_checkpoints` 归档后对象数收敛：确认 lifecycle / 删除策略
+  说明：current-scope 14 ODS 的 2010+ checkpoint 已归档到 `gs://data-aquarium/a-share/tushare/checkpoint_archive/run_id=checkpoint_archive_current14_20260612T035604Z/`，manifest 与归档内容已校验通过；原 `_checkpoints/` 对象尚未删除。后续如 owner 确认要真正减少对象数，先按 manifest 恢复抽样到临时前缀验证，再对原 checkpoint 制定保留最近 30-90 天、age=90/180 lifecycle 或批量删除策略。
+
+- [x] 工程治理：清理 PR #186 误入 main 的分析 CSV
+  说明：已从 `main` 删除 PR #186 带入的四份 `docs/analysis_strategy1_*_20260611_*.csv` 可再生成产物；保留脚本、测试和 Markdown 报告。后续分析 CSV 默认作为本地临时产物，不随 git 提交，除非 owner 明确要求或测试 fixture 必须依赖。
 
 - [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase A-C
   说明：分支 `codex/strategy1-structure-refactor` 已新增 Strategy1 active step catalog、retired reference linter、table-role/dataset-role resolver、`src/quant_ashare/**` package foundation，并把当前 active/shared Strategy1 SQL 迁移到 `sql/strategy1/**`；Cloud Run wrapper 仍保留，当前 table role 仍解析到 `ashare_ads`，不创建或写入 `ashare_research`。
