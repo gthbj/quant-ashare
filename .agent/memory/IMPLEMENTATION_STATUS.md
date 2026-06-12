@@ -6,6 +6,13 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：BigQuery 数据集盘点完成、第 1 类清理已执行、清理退役 PRD 已新增
+
+- 2026-06-12 完成 `data-aquarium` 全数据集盘点（11 个数据集逐表清点 + 仓库 SQL 契约双向比对 + `INFORMATION_SCHEMA.JOBS` 作业审计 + 对抗复核）。结论：`ashare_dim/dwd/dws/ads/research` 与 `sql/` 契约双向零差异；`research_*` 与 `ads_*` 同构属 D2/D3 research-first 设计，不是冗余。杂物集中在：遗留数据集 `ashare`（约 250.4 GiB、118 对象、2026-05-25 后零写入、仓库零引用、近 14 天作业仅盘点自身 SELECT）、`ashare_meta` 5 张 `_repair_val_*` 泄漏外部表、`ashare_qa_windowed_equivalence` 18 张 shadow 残留、`ads_ml_training_panel_daily` 中 `run_id LIKE 's1_bqml%'` 旧 run 12 个共 36,853,582 行（约 115 GB）。
+- 第 1 类清理已执行（owner 2026-06-12 批准）：删除 `ashare_meta` 5 张 `_repair_val_*` 外部表与 `ashare_qa_windowed_equivalence` 18 张 shadow 表，共 23 张，`bq ls` 复核两处均已清空。表删除处于 7 天 time travel 窗口内（`maxTimeTravelHours=168`）。
+- 新增 `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md`（分支 `claude/prd-bq-dataset-cleanup`）：Phase A 遗留数据集 `ashare` 硬删除（删除前 Data Access 审计日志预检为唯一硬门）；Phase B windowed equivalence QA 退役（删 `scripts/qa/` 两脚本 + 清理 tests/README/runbook/catalog 引用 + 改写 KNOWN_CONSTRAINTS 两处硬门 + 删 scratch 数据集）；Phase C `ads_ml_training_panel_daily` 裁剪 `s1_bqml%` 面板行（registry/prediction/回测事实/50 个 BQML model 全保留）。owner 决策已记入 `DECISION-20260612-01`：`tushare_api_catalog`/`tushare_api_params` 保留；`ashare_backup`、ODS 43 张 scope 外外部表不动。
+- 盘点顺带发现生产问题（不在本 PRD 范围，已挂独立排查任务）：`ashare_meta.ingestion_run` / `ingestion_partition_status` 自 2026-06-04 建表以来 0 行，与 2026-06-08 起 9 次成功 live 采集矛盾，疑似 Cloud Run 采集镜像 stale（status_writer 接线 commit `60fb242` 与镜像推送同日），导致 `v_ingestion_failures` / `v_alert_summary` 采集级告警分支静默。
+
 ### 最新补充（2026-06-12）：PR #186 分析 CSV 已从 main 清理
 
 - 按 owner 要求，直接在 `main` 清理 PR #186 带入的四份可再生成分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
