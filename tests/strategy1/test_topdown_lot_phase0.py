@@ -63,7 +63,7 @@ def test_resolve_run_ids_prefers_true5y_current_research_baseline_fixture() -> N
 - 运行口径：run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`
   / backtest `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`。
 
-### 最新补充（2026-06-12）：研究 baseline 切换为 true-five-year continuous（DECISION-20260612-01）
+### 最新补充（2026-06-12）：研究 baseline 切换为 true-five-year continuous（DECISION-20260612-02）
 
 - Owner 采纳 true-five-year continuous 为策略 1 研究 baseline：run
   `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`、

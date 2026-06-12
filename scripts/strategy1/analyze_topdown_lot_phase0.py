@@ -66,7 +66,7 @@ BACKTEST_ID_PATTERN = re.compile(
     r"\bbt_s1_annual_roll_continuous(?:_true5y)?_2021_2026_n20_w075_v\d{8}_\d+\b"
 )
 BASELINE_CONTEXT_PATTERN = re.compile(
-    r"DECISION-20260612-01|研究 baseline|baseline|采纳|切换|current baseline",
+    r"DECISION-20260612-02|研究 baseline|baseline|采纳|切换|current baseline",
     flags=re.IGNORECASE,
 )
 
@@ -211,7 +211,7 @@ def baseline_context_chunks(memory_text: str) -> list[str]:
         if not PREDICTION_RUN_ID_PATTERN.search(chunk) and not BACKTEST_ID_PATTERN.search(chunk):
             continue
         score = 0
-        if "DECISION-20260612-01" in chunk:
+        if "DECISION-20260612-02" in chunk:
             score += 100
         if "true5y" in chunk or "true-five-year" in chunk:
             score += 80
