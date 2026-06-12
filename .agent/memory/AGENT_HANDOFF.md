@@ -1,3 +1,11 @@
+> 当前交接补充（2026-06-12，Claude Fable 5，DECISION-20260612-01）
+> - Owner 已采纳 **true-five-year continuous 为策略 1 研究 baseline**（run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01` / backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`），effective-window 降级为历史参照；OQ-011 关闭归档，`OPEN_QUESTIONS.md` 仅剩 OQ-010。
+> - 采纳依据为方法论性（effective-window 的覆盖约束前提已被 PRD_06 拆除且 parity/覆盖/refit/continuous QA 全过），非结果驱动；baseline 指标锚点 CAGR `13.85%` / MaxDD `-37.19%` / contract Sharpe `0.6076` / Calmar `0.3725`，仍未过 v3 双门，**baseline ≠ accepted、不得 promotion**。
+> - 切换纪律：新实验 prediction 流/对照从记忆解析 true5y ids 且报告注明基线版本；PRD_10 §6 基线兼容条款生效；进行中的复权漏损量化需补 true5y backtest 覆盖；旧 baseline 的机制级结论可迁移、数字级结论引用时注明口径。
+> - 改动文件：DECISION_LOG（新条目）、OPEN_QUESTIONS / archive、MEMORY_INDEX、IMPLEMENTATION_STATUS、KNOWN_CONSTRAINTS（true5y 条目追加切换纪律句）、TODO（OQ-010 路线项改写）。
+>
+> Model: Claude Fable 5
+
 > 当前交接补充（2026-06-12，GPT-5 Codex，PR #186 CSV cleanup）
 > - 已按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
 > - 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；CSV 视为可再生成的本地/临时分析产物，不再跟随 git。`docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。

@@ -6,6 +6,13 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：研究 baseline 切换为 true-five-year continuous（DECISION-20260612-01），OQ-011 关闭
+
+- Owner 采纳 true-five-year continuous 为策略 1 研究 baseline：run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`、backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`；effective-window continuous（`..._v20260610_02` 族）降级为历史参照。采纳依据为方法论性（effective-window 的覆盖约束前提已被 PRD_06 拆除且全部门禁通过），非结果驱动。
+- Baseline 指标锚点：compound CAGR=`0.13852596798718442`、MaxDD=`-0.37189972934558946`、v3 contract Sharpe=`0.6075887294330015`、contract Calmar=`0.3724820349585642`；仍未过 v3 hard gates，**baseline ≠ accepted、不得 promotion**。
+- 切换纪律：新实验的 prediction 流与对照 backtest 一律从记忆解析为 true5y ids；PRD_20260611_10 §6 基线兼容条款生效（Phase 0 后续重跑切 true5y 流）；复权漏损量化需覆盖 true5y backtest。既有 #179/#181/#186/#190 的机制级结论可迁移，数字级结论保留为旧 baseline 口径证据、引用时注明。
+- OQ-011 关闭并移入 closed archive；`OPEN_QUESTIONS.md` 仅剩 OQ-010。
+
 ### 最新补充（2026-06-12）：PR #186 分析 CSV 已从 main 清理
 
 - 按 owner 要求，直接在 `main` 清理 PR #186 带入的四份可再生成分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
