@@ -1,5 +1,5 @@
 > 当前交接补充（2026-06-12，Claude Fable 5，PRD_20260612_01）
-> - 新增 `docs/prd/PRD_20260612_01_策略1Ledger分红送转记账修复.md`：PR #194 量化触发预登记判据（true5y CAGR +1.86pp、Calmar +0.055、修正后 contract Sharpe 0.6894 距 0.70 门仅 0.011）后，按判据立项重开"未复权口径、持有期除权简化"约定。
+> - 新增 `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`：PR #194 量化触发预登记判据（true5y CAGR +1.86pp、Calmar +0.055、修正后 contract Sharpe 0.6894 距 0.70 门仅 0.011）后，按判据立项重开"未复权口径、持有期除权简化"约定。
 > - 核心设计：公司行为记账做成**参数**（`corporate_actions`，默认 `none_v1`；`cash_div_and_split_v1` 送转调股数+税后现金分红入账）而非新版本号——与构造维度正交，v1/v2 同获能力；hash 仅非默认值入 payload（PR #189 教训）；红利税主口径 **`flat_10pct`**（tax-lot 精确化经 review 裁定为非目标，Phase C 附 0%/20% 敏感性界）。
 > - 三阶段：Phase A DWD 分红送转事件表（同股同 ex_date 多事件 canonical 聚合）+ hfq 因子交叉校验硬门 → Phase B ledger 实现 + 参数传播清单 + 默认回归（trade/position/NAV/state/hash 逐字节，summary additive）→ Phase C true5y CA 重跑与 #194 hfq 估计三方对照（六项可审计偏差分解，验收只卡 unexplained_residual）。排在 PRD_10 Phase 2 之前。单门通过不触发 accepted。
 >

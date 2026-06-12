@@ -49,7 +49,7 @@
 - [x] OQ-010：按 `PRD_20260611_07` 做年度滚动调度 Phase 2 live 化
   说明：PRD_07 candidate-only live smoke 已在正式 runner 镜像上完成：run-version `v20260611_prd07smoke01`，2021/2022 matrix artifact 预置后，scheduler live path 提交 fanout executions `strategy1-train-candidate-fanout-job-g65hx` / `strategy1-train-candidate-fanout-job-btvgv`，各 `3/3` tasks succeeded。dry-run plan hash 与 live state 均为 `7ef90a481f0e64ad`，12 个候选 artifact 文件均可读；已覆盖 state recovery 同 run 不重复提交、artifact-skip 新 run 不提交、missing-matrix preflight 本地失败且不提交 Cloud Run、真实 GCS lease competition、以及 `gcloud --wait` 非零后 describe/artifact 成功的回归测试。完整 2021-2026 live pipeline / Phase 3 仍需 owner 另批，不在本项范围。
 
-- [ ] OQ-010：按 `PRD_20260612_01` 实现 Ledger 分红送转记账修复
+- [ ] OQ-010：按 `PRD_20260612_02` 实现 Ledger 分红送转记账修复
   说明：PR #194 量化触发预登记判据（true5y 修正 CAGR +1.86pp、Calmar +0.055）。`corporate_actions` 参数化（默认 `none_v1` 记账输出逐字节不变），红利税主口径 `flat_10pct`；Phase A DWD 事件表（canonical 聚合）+ hfq 交叉校验 → Phase B ledger + 参数传播清单 + 默认回归 → Phase C true5y CA 重跑三方对照（六项偏差分解）。排在 PRD_10 Phase 2 之前；单门通过不触发 accepted。
 
 - [ ] OQ-010：基于 official / true-five-year continuous 结果决定下一轮策略改进或 accepted baseline 路线
