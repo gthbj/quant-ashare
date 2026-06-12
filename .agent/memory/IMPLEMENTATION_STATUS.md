@@ -31,7 +31,7 @@ Last updated: 2026-06-12
 ### 工程治理与记忆体系
 
 - PRD_20260612_03 已把主记忆文件压缩为快照 / 索引 / 近期条目结构；历史编年史和决策全文原文归档到 `.agent/memory/archive/`。
-- PRD_20260612_05 Strategy1 包结构 Phase E 收尾已完成 Batch 1/2：`bq_io.py` / `config.py` / `state.py` / `task_fanout.py` / runner `__version__` 已迁入 `src/quant_ashare/strategy1/`，scripts 侧保留兼容 shim，src 对这些模块及 `dataset_roles` / `acceptance` / `__version__` 的反向 import 已清零；Batch 3 仍待单独 PR，剩余 src→scripts import 仅限 `feature_sets` / `preprocess` / `orchestrate_annual_rolling_selection`。
+- PRD_20260612_05 Strategy1 包结构 Phase E 收尾已完成 Batch 1/2/3：`bq_io.py` / `config.py` / `state.py` / `task_fanout.py` / `feature_sets.py` / `preprocess.py` / `training_panel.py` / runner `__version__` 已迁入 `src/quant_ashare/strategy1/`，annual rolling 计划层已抽到 `annual_rolling_plan.py`；src 对 `scripts.strategy1_cloudrun.*` 的反向 import 已清零，脚本侧保留两个 orchestrator CLI 主体与 thin shim 兼容群。
 - `KNOWN_CONSTRAINTS.md` 只做保守拆行和结构化映射，操作性语义不删除；全量 before/after 映射见 `docs/prd/PRD_20260612_03_KNOWN_CONSTRAINTS映射表.md`。
 
 ### 开放主线
@@ -40,6 +40,13 @@ Last updated: 2026-06-12
 - PRD_20260611_10 topdown Phase 0 / Phase 2、尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
+
+### 最新补充（2026-06-12）：PRD_20260612_05 Batch 3 包结构收尾已实现
+
+- 分支 `codex/prd05-batch3` / PR #206 已按 PRD §3 Batch 3 完成 Strategy1 包结构收尾：`feature_sets.py` / `preprocess.py` / `training_panel.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径改为 thin re-export shim；src 内对三模块的反向 import 已改为包内直连。
+- `annual_pipeline_scheduler.py` 所依赖的年度滚动计划层符号已抽到 `src/quant_ashare/strategy1/annual_rolling_plan.py`；`scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py` 保留 CLI 主体、参数面和 dry-run 调度行为，并从新包模块 re-export 计划函数以维持旧导入路径兼容。
+- `tests/strategy1/test_package_boundaries.py` 更新 Batch 3 shim 兼容符号快照，新增非仓库 cwd 且 `PYTHONPATH` 仅指向 `src` 的全包 import 自洽测试，并把 src→`scripts.strategy1_cloudrun.*` 反向 import 改为硬断言 `0`。
+- 本轮不改训练、回测、ledger、orchestrator CLI 语义，不触碰 Cloud Run job spec/args/镜像/IAM，不写 BigQuery/GCS。最终验证通过：`PYTHONPATH=src python3 -m pytest -q tests`（276 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`（7 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`（16 passed）；retired linter / compileall / Dataform check / `git diff --check` 均通过。
 
 ### 最新补充（2026-06-12）：dividend ODS 缺口补采与 CA-on baseline resume 补跑完成
 
@@ -88,13 +95,3 @@ Last updated: 2026-06-12
 - 六项偏差分解桥精确闭合（hfq 估计 − CA-on = 3.5066pp = 税 0.7283 + 现金滞留 2.7920 + 取整 0 + 聚合 0 + 因子残差 -0.0138，unexplained < 1e-9pp）。
 - v3 gates：Sharpe 距 0.70 门 0.032、Calmar 0.4101 < 1.0——baseline ≠ accepted、不得 promotion；测量仪已修正，剩余缺口为真实 alpha/结构缺口（OQ-010）。
 - 纪律：后续实验一律显式 CA-on（代码默认 none_v1 不变）；PRD_20260611_10 Phase 2 等后续工作的对照与参数随之切换。
-
-### 最新补充（2026-06-12）：Ledger 分红送转 Phase C research-only 重跑完成
-
-- 分支 `codex/ledger-corporate-actions` 已按 `PRD_20260612_02` Phase C 完成 true-five-year CA-on continuous 重跑。新 Cloud Run runner 镜像使用 one-off tag `ledger-ca-phasec-43404e6-20260612-01`，不可变 digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`；未更新 `latest` tag。`strategy1-backtest-report-job` 仅 pin 到该 digest（generation `51`），boot smoke execution `strategy1-backtest-report-job-97b5v` 成功。
-- 正式 research-only execution `strategy1-backtest-report-job-dnt4b` 成功；run `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 复用 synthetic prediction run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，参数为 `corporate_actions=cash_div_and_split_v1`、`dividend_tax_mode=flat_10pct`，输出仅写 `ashare_research`。
-- 产物行数：candidate `279625`、target `2780`、order `4830`、trade `4856`、position `21162`、NAV `1314`、ledger_state `1314`、summary `1`。summary CA 审计：audit rows `75`（现金分红 `73`、送转 `2`），税后现金入账 `6554.9556` 元，flat 10% 税 `728.3284` 元，送转增股 `90` 股。
-- QA 全部通过：`qa_continuous_backtest_outputs` job `06273525-830b-4603-8503-2dc8f3091ca4`；`qa_lot_aware_ledger_outputs` job `1eec4250-5da4-44c1-bab7-ba3183dc14d5`；`qa_corporate_action_ledger_outputs` job `37674e4f-06ee-4998-9d1e-75ace14cb965`。三条 QA 的 research dry-run 也均通过。ADS run/backtest scoped 10 表反向验证为 `0` 行，`research_promotion_manifest` 为 `0` 行。
-- 三方对照报告已新增 `docs/分析-Ledger CA 重跑对照-20260612.md`。CA-on 结果：total return `1.1044714853774122`、compound CAGR `0.15350594766603387`、MaxDD `-0.3742978588042647`、v3 contract Sharpe `0.6682084282261871`、Calmar `0.4101170873817589`、IR `0.6971241900405605`。相对 raw baseline 改善但仍未过 v3 hard gates（Sharpe `<0.70`、Calmar `<1.0`），不得标 accepted / promotion。
-- Phase C 六项分解已闭合：hfq proxy 相对 CA-on terminal total return 高 `3.5066pp`；`tax_effect=+0.7283pp`，`cash_not_reinvested_effect=+2.7920pp`，`split_fractional_rounding_effect=0`，`same_ex_date_event_aggregation_effect=0`，`event_vs_adj_factor_residual=-0.0138pp`，`unexplained_residual=0`。Phase A mismatch 在 Phase C 窗口全部已分类：event_to_factor data_anomaly `1106`、special_dividend `1`、factor_to_event same_day_orphan_corporate_action `350`、unclassified `0`。
-- 本阶段未改现役 baseline 数据、未 promotion、未改全局默认 profile、未跑 PRD_10 Phase 2。owner 仍需按报告中三组选项裁决是否切换 baseline 口径、如何 supersede 旧未复权约定，以及后续实验是否一律 CA-on。

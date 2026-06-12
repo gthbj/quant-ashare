@@ -161,6 +161,9 @@
 - [x] OQ-010 / 工程治理：实现 `PRD_20260612_05` Strategy1 包结构 Phase E 收尾 Batch 2
   说明：分支 `codex/prd05-batch2` / PR #204 已完成 Batch 2：`state.py` / `task_fanout.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径改为兼容 shim；src 内对 `state` / `task_fanout` 的反向 import 清零。`annual_pipeline_scheduler.py` 复用迁入后的 state helpers，`GcloudExecutionClient.describe` 恢复失败 warning；三类锁语义只补 docstring 出处注记，未合并 reclaim / heartbeat 行为。新增 fake GCS lease 单测与 Batch 2 兼容符号快照；全量 pytest 275 passed，package boundary / package entrypoint / retired linter / compileall / Dataform check / `git diff --check` 均通过。本轮未改训练/回测/组合语义，未触碰 Cloud Run job spec/args/镜像/IAM，未写 BigQuery/GCS。Batch 3 仍为后续独立 PR。
 
+- [x] OQ-010 / 工程治理：实现 `PRD_20260612_05` Strategy1 包结构 Phase E 收尾 Batch 3
+  说明：分支 `codex/prd05-batch3` / PR #206 已完成 Batch 3：`feature_sets.py` / `preprocess.py` / `training_panel.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径改为兼容 shim；annual rolling 计划层抽到 `quant_ashare.strategy1.annual_rolling_plan`，scheduler 与脚本 orchestrator 均从新模块 import，旧 orchestrator 保留 CLI 主体并 re-export 计划函数。`tests/strategy1/test_package_boundaries.py` 已固化 Batch 3 兼容符号快照，新增非仓库 cwd / `PYTHONPATH=src` 全包 import 自洽测试，并硬断言 src→`scripts.strategy1_cloudrun.*` import 为 0。全量 pytest 276 passed，package boundary 7 passed，package entrypoint 16 passed，retired linter / compileall / Dataform check / `git diff --check` 均通过。本轮未改训练/回测/组合语义，未触碰 Cloud Run job spec/args/镜像/IAM，未写 BigQuery/GCS。
+
 - [x] OQ-010 / 数据治理：补采 dividend ODS `2026-05-28..2026-06-09` 并复核 CA-on baseline
   说明：owner 已批准并由分支 `codex/dividend-backfill-resume` 执行完成。实际补采 `2026-05-28..2026-06-12` 12 个 SSE 开市日，`ods_tushare_dividend` 合计 `1215` 行；dwd/12 与 qa/14 重建通过；CA-on parent 从 `2026-05-27` state resume 到 child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，research-only QA 与差异归因通过。拼接指标见 `docs/分析-dividend-ODS补采与CA-Resume补跑-20260612.md`。
 
