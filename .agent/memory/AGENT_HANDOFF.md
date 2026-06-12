@@ -1,3 +1,10 @@
+> 当前交接补充（2026-06-12，Claude Fable 5，PRD_20260612_01）
+> - 新增 `docs/prd/PRD_20260612_01_策略1Ledger分红送转记账修复.md`：PR #194 量化触发预登记判据（true5y CAGR +1.86pp、Calmar +0.055、修正后 contract Sharpe 0.6894 距 0.70 门仅 0.011）后，按判据立项重开"未复权口径、持有期除权简化"约定。
+> - 核心设计：公司行为记账做成**参数**（`corporate_actions`，默认 `none_v1` 逐字节保持现状；`cash_div_and_split_v1` 送转调股数+税后现金分红入账）而非新版本号——与构造维度正交，v1/v2 同获能力；hash 仅非默认值入 payload（PR #189 教训）；红利税按持仓已持有天数三档计提（主口径）。
+> - 三阶段：Phase A DWD 分红送转事件表 + hfq 因子交叉校验硬门 → Phase B ledger 实现 + 逐字节默认回归 → Phase C true5y CA 重跑与 #194 hfq 估计三方对照（偏差须由税/现金滞留定量解释）。排在 PRD_10 Phase 2 之前。单门通过不触发 accepted。
+>
+> Model: Claude Fable 5
+
 > 当前交接补充（2026-06-12，GPT-5 Codex，PR #186 CSV cleanup）
 > - 已按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
 > - 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；CSV 视为可再生成的本地/临时分析产物，不再跟随 git。`docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。

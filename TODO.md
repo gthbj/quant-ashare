@@ -49,6 +49,9 @@
 - [x] OQ-010：按 `PRD_20260611_07` 做年度滚动调度 Phase 2 live 化
   说明：PRD_07 candidate-only live smoke 已在正式 runner 镜像上完成：run-version `v20260611_prd07smoke01`，2021/2022 matrix artifact 预置后，scheduler live path 提交 fanout executions `strategy1-train-candidate-fanout-job-g65hx` / `strategy1-train-candidate-fanout-job-btvgv`，各 `3/3` tasks succeeded。dry-run plan hash 与 live state 均为 `7ef90a481f0e64ad`，12 个候选 artifact 文件均可读；已覆盖 state recovery 同 run 不重复提交、artifact-skip 新 run 不提交、missing-matrix preflight 本地失败且不提交 Cloud Run、真实 GCS lease competition、以及 `gcloud --wait` 非零后 describe/artifact 成功的回归测试。完整 2021-2026 live pipeline / Phase 3 仍需 owner 另批，不在本项范围。
 
+- [ ] OQ-010：按 `PRD_20260612_01` 实现 Ledger 分红送转记账修复
+  说明：PR #194 量化触发预登记判据（true5y 修正 CAGR +1.86pp、Calmar +0.055）。`corporate_actions` 参数化（默认 `none_v1` 逐字节不变），Phase A DWD 分红送转事件表 + hfq 交叉校验 → Phase B ledger 实现 + 默认回归 → Phase C true5y CA 重跑与 hfq 估计三方对照。排在 PRD_10 Phase 2 之前；单门通过不触发 accepted。
+
 - [ ] OQ-010：基于 official / true-five-year continuous 结果决定下一轮策略改进或 accepted baseline 路线
   说明：2021-2026 effective-window official continuous 与 true-five-year continuous 都已成为 research evidence，但都尚未 accepted。Effective-window：compound CAGR=`0.12036528993503204`，MaxDD=`-0.4548151193656952`，legacy Sharpe=`0.6132671411257953`，v3 contract Sharpe=`0.5285475500566089`，contract Calmar=`0.26464663290635254`。True-five-year：compound CAGR=`0.13852596798718442`，MaxDD=`-0.37189972934558946`，legacy Sharpe=`0.6834026126199905`，v3 contract Sharpe=`0.6075887294330015`，contract Calmar=`0.3724820349585642`。True-five-year 明显改善但仍未过 v3 hard gates（contract Sharpe `<0.70`、contract Calmar `<1.0`）；下一步需 owner 决定是否把 true-five-year 作为新的研究 baseline，再围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案。不得把任一结果直接 promotion 或标 accepted。
 
