@@ -1,6 +1,6 @@
 # Ashare Pipeline 补跑与故障恢复 Runbook
 
-> 文档维护：GPT-5 Codex（最近更新 2026-06-09）
+> 文档维护：GPT-5.5（最近更新 2026-06-13）
 >
 > 当前生产路径：Cloud Scheduler + Cloud Workflows
 
@@ -374,6 +374,34 @@ gcloud logging read \
 - 检查 `ashare-pipeline-control` Cloud Run service 是否可被 workflows runtime SA invoke。
 - 检查 `scripts/alerting/check_alerts.py` 依赖的 BigQuery 视图是否存在。
 - 检查 Cloud Logging 写入权限。
+
+### Ingestion Meta Missing
+
+`Ashare Pipeline: Ingestion Meta Missing` 表示 live `ingestion.ingest_current_scope_write`
+task 已成功，但对应业务日没有 `ashare_meta.ingestion_run` 行。先查检测视图：
+
+```sql
+SELECT *
+FROM `data-aquarium.ashare_meta.v_ingestion_meta_missing`
+ORDER BY detected_at DESC;
+```
+
+核对 Cloud Run execution 实际镜像 digest：
+
+```bash
+gcloud run jobs executions list \
+  --job=ashare-ingest-current-scope \
+  --project=data-aquarium \
+  --region=asia-east2 \
+  --format=json \
+  --limit=20 \
+| jq -r '.[] | [.metadata.name, .metadata.creationTimestamp, .spec.template.spec.containers[0].image, ((.spec.template.spec.containers[0].args // []) | join(" "))] | @tsv'
+```
+
+若 execution 使用旧 ingestion digest，按部署纪律从当前 `main` 重建 ingestion 镜像并确认
+`ingestion:latest` 指向新 digest；若 job spec pin 旧 digest，则最小动作更新
+`ashare-ingest-current-scope` 镜像，不改 args/IAM/Workflows 其他参数。不要补写历史
+`ingestion_run` / `ingestion_partition_status` 行，除非 owner 另批。
 
 ## 9. Full rebuild
 

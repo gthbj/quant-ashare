@@ -1,6 +1,6 @@
 # Ashare Pipeline 告警与观测
 
-> 文档维护：GPT-5 Codex（最近更新 2026-06-09）
+> 文档维护：GPT-5.5（最近更新 2026-06-13）
 
 ## 概述
 
@@ -42,6 +42,7 @@ Alert Policy --> Notification Channel (Email/Slack/PagerDuty)
 - 告警策略在指标 > 0 时触发通知
 - checker heartbeat 120 分钟缺失会触发 dead-man's-switch 告警
 - `empty_return` 不触发 ingestion 告警，需按 endpoint/date 判断
+- live ingestion task 成功但 `ashare_meta.ingestion_run` 当日无行会触发 meta 缺失告警
 
 ## 目录结构
 
@@ -118,6 +119,8 @@ python scripts/alerting/check_alerts.py --json
 | Pipeline Run Failed | `pipeline_run.status = 'failed'` | ERROR |
 | Task Failed | `pipeline_task_status.status = 'failed'` | ERROR |
 | Ingestion Failed | `ingestion_run.status = 'failed'`（不含 empty_return） | WARNING |
+| Ingestion Meta Missing | live `ingestion.ingest_current_scope_write` task success 后，业务日 `ingestion_run` 无行 | ERROR |
+| Warehouse Refresh Missing | ODS ingestion success 后 60 分钟内无 linked warehouse refresh run | ERROR |
 | Alert Checker Heartbeat Missing | `ashare_pipeline_alert_checker_heartbeat` 120 分钟无数据 | ERROR |
 
 `Alert Checker Heartbeat Missing` 是告警链路自身的 liveness 监控。当前定时入口每小时调用 `check_alerts.py --write-heartbeat` 写入一次 heartbeat；若 Scheduler job 被 pause、Workflows execution 失败、脚本启动失败或日志写入失败，heartbeat 会停止，Cloud Monitoring 的 absence condition 会触发通知。
@@ -134,6 +137,7 @@ python scripts/alerting/check_alerts.py --json
 | `v_ingestion_failures` | Cloud Run ingestion 失败明细（仅 failed） |
 | `v_ingestion_empty_returns` | empty_return 明细（需按 endpoint/date 判断） |
 | `v_pipeline_daily_health` | 每日 pipeline 健康仪表盘（按 pipeline_run_id join） |
+| `v_ingestion_meta_missing` | live ingestion task 成功但 `ingestion_run` 无对应业务日行 |
 | `v_alert_summary` | 最近 24 小时异常摘要（供告警查询） |
 | `v_alert_probe` | 24 小时异常计数（手工健康检查；定时告警用 `check_alerts.py`） |
 

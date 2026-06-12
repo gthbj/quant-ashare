@@ -4,8 +4,14 @@
 
 ## P0 — 当前优先
 
-- [ ] OQ-005：验证 2026-06-12 20:00 CST scheduled 采集后 ingestion 审计链路恢复
-  说明：2026-06-12 已确诊并修复采集镜像 stale（详见 `IMPLEMENTATION_STATUS.md` 同日小节）：重建镜像 digest `5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b` 推 `:latest`（job spec 未动），补采 000001.SH 06-10/11 并实证 `ashare_meta.ingestion_run` / `ingestion_partition_status` 首批落行。待当晚 scheduled run 后验证：① `ingestion_run` 落 2026-06-12 业务日 27 个分区端点行（含 `index_daily_000001_SH` / `index_dailybasic_000001_SH`）；② `daily_current` 窗口刷新自动重写 06-10/11 的 `dwd_index_eod` 000001.SH 行与 `dws_market_state_daily` `sse_composite_*` 字段（06-10 `market_regime` 应基于完整输入重判，当前 `risk_off` 是退化输入产物）；③ `v_alert_summary` / `v_ingestion_failures` / `v_ingestion_empty_returns` 采集分支有真实数据来源。若 `ingestion_run` 当日无行，查 execution 日志与 BigQuery 写入错误。
+- [x] OQ-005：验证 2026-06-12 20:00 CST scheduled 采集后 ingestion 审计链路恢复
+  说明：2026-06-13 已复核完成（见 `docs/分析-ingestion-meta-0行事故排查-20260613.md`）：2026-06-12 scheduled current_scope execution 使用重建后 digest `5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b`，`ashare_meta.ingestion_run` 落 27 行、`ingestion_partition_status` 落 27 行，`v_ingestion_failures` / `v_ingestion_empty_returns` 有真实 meta 数据源。`daily_current` 窗口刷新暴露下游 SSE Composite 覆盖 QA 失败，已从 ingestion 审计链路恢复中拆出为单独跟进项。
+
+- [ ] OQ-005：跟进 2026-06-12 scheduled 下游 window refresh SSE Composite QA 失败
+  说明：2026-06-12 scheduled ingestion 成功写入 meta 后，后续 `daily_current` pipeline/task alert 暴露 `ashare_qa.qa_market_state_daily_benchmark_coverage` 对 `SSE Composite 000001.SH` 覆盖失败；该问题与 ingestion meta 0 行根因不同，需按 pipeline alert / QA 证据单独排查。
+
+- [ ] OQ-005：部署并验证 ingestion_meta_missing 告警
+  说明：分支 `codex/ingestion-meta-incident` 已新增 `v_ingestion_meta_missing` / `v_alert_summary` 分支、Cloud Monitoring log metric/policy 接线和 runbook。PR 合并后需部署 observability SQL、运行 `scripts/alerting/setup_alerts.py`，并在 2026-06-15 20:00 CST 下一个开市 scheduled run 后确认当日 ingestion meta 有行且 `v_ingestion_meta_missing` 为空；2026-06-13 是周六，20:00 run 只验证非交易日 gate，不验证 live meta 写入。
 
 - [x] 排查 `ingestion_run` / `ingestion_partition_status` 零写入与采集告警断档
   说明：已完成（PR #196，2026-06-12）：确诊为采集 Cloud Run 镜像 stale——镜像构建于 2026-06-04 11:50 UTC，早于 status_writer 接线 `60fb242`（15:57 UTC），此后未重建；已重建镜像并补采 000001.SH 06-10/11，meta 表首批落行实证。剩余验证见上一条。

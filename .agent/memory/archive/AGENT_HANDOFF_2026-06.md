@@ -2,6 +2,78 @@
 
 本文件归档 2026-06 的历史交接条目。当前交接摘要和最近交接见 `../AGENT_HANDOFF.md`。
 
+## 2026-06-12 GPT-5.5 - PRD_20260612_05 Batch 2 package cleanup
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd05-b2`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/prd05-batch2`
+Run ID: N/A
+相关 issue/PR: PRD `docs/prd/PRD_20260612_05_Strategy1包结构PhaseE收尾.md`；PR #204
+
+### 已完成工作
+
+- 将 `scripts/strategy1_cloudrun/state.py` 与 `task_fanout.py` 迁移到 `src/quant_ashare/strategy1/`，scripts 侧改为 thin re-export shim。
+- 将 src 内对 `scripts.strategy1_cloudrun.state` / `task_fanout` 的 import 改为包内直连；Batch 2 后反向 import 只剩 `feature_sets` / `preprocess` / `orchestrate_annual_rolling_selection`。
+- `annual_pipeline_scheduler.py` 复用迁入后的 `_is_precondition_error` / `_is_not_found_error` / `utc_now` / `describe_cloud_run_execution`，统一 `GcloudExecutionClient.describe` 并恢复失败路径 warning。
+- 为 `GcsLeaseLock` / `GcsSchedulerLease` / `PipelineStateStore` 补锁语义出处 docstring；未合并各自 reclaim / heartbeat 语义。
+- 新增 `tests/strategy1/test_gcs_leases.py`，并更新 `tests/strategy1/test_package_boundaries.py` 的 Batch 2 兼容符号快照与反向 import 计数断言。
+
+### 重要上下文
+
+- 本轮严格只做 PRD Batch 2；`feature_sets` / `preprocess` / `training_panel` / `orchestrate_annual_rolling_selection` 留给 Batch 3。
+- `GcloudExecutionClient.describe` 恢复失败 `LOGGER.warning` 是本 Batch 唯一允许的行为差异修复。
+- 旧 `scripts.strategy1_cloudrun.state` / `task_fanout` 路径仍是合法兼容 shim，不应加入 retired-reference ban-list。
+- 本轮未改训练、回测、ledger、Cloud Run job spec、args、镜像或 IAM；未写 BigQuery/GCS。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/state.py`
+- `src/quant_ashare/strategy1/task_fanout.py`
+- `scripts/strategy1_cloudrun/state.py`
+- `scripts/strategy1_cloudrun/task_fanout.py`
+- `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`
+- 相关 `src/quant_ashare/strategy1/*.py` import
+- `scripts/pipeline_control/state.py`
+- `tests/strategy1/test_annual_pipeline_scheduler.py`
+- `tests/strategy1/test_gcs_leases.py`
+- `tests/strategy1/test_package_boundaries.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests`：275 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`：6 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`：16 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：passed。
+- `python3 -m compileall -q src scripts tests`：passed。
+- `git diff --check`：passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 等待 Claude review；认可的 comment 在本分支修复，不认可的在 PR comment 说明理由。若合并前 `origin/main` 有新提交，rebase 后重跑关键验证。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/MEMORY_INDEX.md`
+- `.agent/memory/PROJECT_CONTEXT.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
 ## 2026-06-12 GPT-5.5 - PRD_20260612_05 Batch 1 package cleanup
 
 日期: 2026-06-12
