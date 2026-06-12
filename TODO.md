@@ -79,7 +79,7 @@
 - [ ] OQ-010：基于 official / true-five-year / CA-on continuous 结果决定下一轮策略改进或 accepted baseline 路线
   说明：2021-2026 effective-window official continuous、true-five-year continuous 与 true-five-year CA-on continuous 都已成为 research evidence，但都尚未 accepted。Effective-window：compound CAGR=`0.12036528993503204`，MaxDD=`-0.4548151193656952`，legacy Sharpe=`0.6132671411257953`，v3 contract Sharpe=`0.5285475500566089`，contract Calmar=`0.26464663290635254`。True-five-year raw ledger：compound CAGR=`0.13852596798718442`，MaxDD=`-0.37189972934558946`，legacy Sharpe=`0.6834026126199905`，v3 contract Sharpe=`0.6075887294330015`，contract Calmar=`0.3724820349585642`。True-five-year CA-on：compound CAGR=`0.15350594766603387`，MaxDD=`-0.3742978588042647`，legacy Sharpe=`0.7369151400001442`，v3 contract Sharpe=`0.6682084282261871`，contract Calmar=`0.4101170873817589`；仍未过 v3 hard gates（contract Sharpe `<0.70`、Calmar `<1.0`）。下一步需 owner 决定是否切换 baseline 口径、是否 supersede 旧未复权约定、后续实验是否一律 CA-on，以及围绕降低回撤、提升 risk-adjusted return、改进候选空间/风控/调仓参数或 acceptance gate 评估流程做独立方案。不得把任一结果直接 promotion 或标 accepted。
 
-- [ ] OQ-010：按 `PRD_20260612_02` 实现 Ledger 分红送转记账修复
+- [x] OQ-010：按 `PRD_20260612_02` 实现 Ledger 分红送转记账修复（三阶段完成，DECISION-20260612-03 已切 CA-on baseline：CAGR 15.35%/Sharpe 0.6682/Calmar 0.4101）
   说明：PR #194 量化触发预登记判据（true5y 修正 CAGR +1.86pp、Calmar +0.055）。`corporate_actions` 参数化（默认 `none_v1` 记账输出逐字节不变），红利税主口径 `flat_10pct`；Phase A DWD 事件表（canonical 聚合）+ hfq 交叉校验 → Phase B ledger + 参数传播清单 + 默认回归 → Phase C true5y CA 重跑三方对照（六项偏差分解）。排在 PRD_10 Phase 2 之前；单门通过不触发 accepted。
 
 - [ ] OQ-010：基于 official / true-five-year continuous 结果决定下一轮策略改进或 accepted baseline 路线

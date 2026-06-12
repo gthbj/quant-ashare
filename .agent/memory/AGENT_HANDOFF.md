@@ -1,3 +1,10 @@
+> 当前交接补充（2026-06-12，Claude Fable 5，DECISION-20260612-03）
+> - PRD_20260612_02 全三阶段收口：Phase C CA-on 重跑 `bt_..._ca01` 三套 QA 通过，六项偏差分解桥 unexplained < 1e-9pp。owner 三项决策落地为 DECISION-20260612-03：baseline 数字切 CA-on（CAGR `15.35%`/Sharpe `0.6682`/Calmar `0.4101`）、"未复权简化"约定 superseded、后续实验一律显式 CA-on（代码默认 none_v1 不变）。
+> - v3 gates：Sharpe 距 0.70 门 0.032、Calmar 未过——baseline ≠ accepted；剩余缺口为真实 alpha/结构（OQ-010）。
+> - 同日并行会话撞号教训已固化 CLAUDE.md：PRD/DECISION 创建前 fetch 后实查 origin/main 最新编号，撞号时未合并方让号。
+>
+> Model: Claude Fable 5
+
 > 当前交接补充（2026-06-12，GPT-5.5，Ledger CA Phase C）
 > - `codex/ledger-corporate-actions` 已完成 PRD_20260612_02 Phase C research-only CA-on 重跑：Cloud Run runner digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`，正式 execution `strategy1-backtest-report-job-dnt4b` 成功。
 > - 新 run/backtest：`s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，参数 `cash_div_and_split_v1` / `flat_10pct`，只写 `ashare_research`；ADS 反向验证和 promotion manifest 均为 0 行。
