@@ -70,6 +70,9 @@
 
 ## P1 — 后续优化
 
+- [ ] GCS `_checkpoints` 归档后对象数收敛：确认 lifecycle / 删除策略
+  说明：current-scope 14 ODS 的 2010+ checkpoint 已归档到 `gs://data-aquarium/a-share/tushare/checkpoint_archive/run_id=checkpoint_archive_current14_20260612T035604Z/`，manifest 与归档内容已校验通过；原 `_checkpoints/` 对象尚未删除。后续如 owner 确认要真正减少对象数，先按 manifest 恢复抽样到临时前缀验证，再对原 checkpoint 制定保留最近 30-90 天、age=90/180 lifecycle 或批量删除策略。
+
 - [x] OQ-010 / 工程治理：实现项目结构重构 PRD Phase A-C
   说明：分支 `codex/strategy1-structure-refactor` 已新增 Strategy1 active step catalog、retired reference linter、table-role/dataset-role resolver、`src/quant_ashare/**` package foundation，并把当前 active/shared Strategy1 SQL 迁移到 `sql/strategy1/**`；Cloud Run wrapper 仍保留，当前 table role 仍解析到 `ashare_ads`，不创建或写入 `ashare_research`。
 
