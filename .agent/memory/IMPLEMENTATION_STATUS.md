@@ -6,6 +6,13 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：研究 baseline 切换为 true-five-year continuous（DECISION-20260612-02），OQ-011 关闭
+
+- Owner 采纳 true-five-year continuous 为策略 1 研究 baseline：run `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`、backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`；effective-window continuous（`..._v20260610_02` 族）降级为历史参照。采纳依据为方法论性（effective-window 的覆盖约束前提已被 PRD_06 拆除且全部门禁通过），非结果驱动。
+- Baseline 指标锚点：compound CAGR=`0.13852596798718442`、MaxDD=`-0.37189972934558946`、v3 contract Sharpe=`0.6075887294330015`、contract Calmar=`0.3724820349585642`；仍未过 v3 hard gates，**baseline ≠ accepted、不得 promotion**。
+- 切换纪律：新实验的 prediction 流与对照 backtest 一律从记忆解析为 true5y ids；PRD_20260611_10 §6 基线兼容条款生效（Phase 0 后续重跑切 true5y 流）；复权漏损量化需覆盖 true5y backtest。既有 #179/#181/#186/#190 的机制级结论可迁移，数字级结论保留为旧 baseline 口径证据、引用时注明。
+- OQ-011 关闭并移入 closed archive；`OPEN_QUESTIONS.md` 仅剩 OQ-010。
+
 ### 最新补充（2026-06-12）：ingestion 镜像 stale 事故修复（meta 审计静默 + 000001.SH 日更缺失）
 
 - 诊断确认：`ashare-ingest-current-scope` 等 5 个采集 Cloud Run Jobs 引用 `ingestion:latest`，自 2026-06-04 11:50 UTC（build `35bca022`，digest `351dfd99...`）后从未重建；而 status_writer 接线 commit `60fb242` 是同日 15:57 UTC——线上镜像从未包含 `IngestionStatusWriter`，live 采集成功但从不写 `ashare_meta.ingestion_run` / `ingestion_partition_status`（两表自建表起 0 行、近 7 天零 DML 的根因）。`v_ingestion_failures` / `v_ingestion_empty_returns` / `v_alert_summary` 的 `ingestion_failed` 分支因此一直读空表，采集级告警静默。
@@ -33,7 +40,6 @@ Last updated: 2026-06-12
 - 第 1 类清理已执行（owner 2026-06-12 批准）：删除 `ashare_meta` 5 张 `_repair_val_*` 外部表与 `ashare_qa_windowed_equivalence` 18 张 shadow 表，共 23 张，`bq ls` 复核两处均已清空。恢复语义分两类：18 张 native shadow 表在 7 天 time travel 窗口内（`maxTimeTravelHours=168`）可恢复；5 张 `_repair_val_*` 为外部表，time travel 不覆盖外部表，本次删除仅移除 BigQuery definition（GCS 数据无涉），如需恢复由 `scripts/ods_repair/repair_parquet_schema.py` 按需重建。
 - 新增 `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md`（分支 `claude/prd-bq-dataset-cleanup`）：Phase A 遗留数据集 `ashare` 硬删除（删除前 Data Access 审计日志预检为唯一硬门）；Phase B windowed equivalence QA 退役（删 `scripts/qa/` 两脚本 + 清理 tests/README/runbook/catalog 引用 + 改写 KNOWN_CONSTRAINTS 两处硬门 + 删 scratch 数据集）；Phase C `ads_ml_training_panel_daily` 裁剪 `s1_bqml%` 面板行（registry/prediction/回测事实/50 个 BQML model 全保留）。owner 决策已记入 `DECISION-20260612-01`：`tushare_api_catalog`/`tushare_api_params` 保留；`ashare_backup`、ODS 43 张 scope 外外部表不动。
 - 盘点顺带发现生产问题（不在本 PRD 范围，已挂独立排查任务）：`ashare_meta.ingestion_run` / `ingestion_partition_status` 自 2026-06-04 建表以来 0 行，与 2026-06-08 起 9 次成功 live 采集矛盾，疑似 Cloud Run 采集镜像 stale（status_writer 接线 commit `60fb242` 与镜像推送同日），导致 `v_ingestion_failures` / `v_alert_summary` 采集级告警分支静默。
-
 ### 最新补充（2026-06-12）：PR #186 分析 CSV 已从 main 清理
 
 - 按 owner 要求，直接在 `main` 清理 PR #186 带入的四份可再生成分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
@@ -545,10 +551,10 @@ Last updated: 2026-06-12
 - `scripts/strategy1/replay_acceptance_gate_v3.py` 与 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 已按最新 contract 真执行通过；当前结果仍为 `25` 个候选里 `1 accepted / 24 rejected`。
 - `24_qa_acceptance_gate_v3_replay_outputs.sql` 已不再依赖手工镜像默认值：replay scope、Top-K、benchmark 集合、窗口、阈值和允许的 `score_orientation` 都由 helper 从 contract 渲染。
 
-### 最新补充（2026-06-08，2026-06-11 更新）：当前仍开放的主线是 OQ-010 与 OQ-011
+### 最新补充（2026-06-08，2026-06-12 更新）：当前仍开放的主线只剩 OQ-010
 
 - OQ-010：Cloud Run Python 路径已打通，但当前仍没有 accepted Python baseline；后续重点仍是寻找可接受模型 / 特征 / 风险控制组合。
-- OQ-011：true-five-year / 2019 年初 60 日窗口完整性仍是 owner 数据覆盖决策；当前已关闭的 OQ-014 只接受本轮 effective-window 研究口径，不等于修复 lookback-capable 构建输入。
+- OQ-011：~~true-five-year / 2019 年初 60 日窗口完整性仍是 owner 数据覆盖决策~~——已被 DECISION-20260612-02 superseded：PRD_06 完成历史修复与 true-five-year 重跑后，owner 已采纳 true-five-year continuous 为研究 baseline，OQ-011 关闭归档（见本文件顶部 2026-06-12 条目）。
 - OQ-012：2026-06-11 已正式关闭归档。schema contract、修复/验证脚本和 `06_ods_parquet_schema_checks.sql` 都已具备；2026-06-05 只读复核对 P0 与 all 范围均通过，当前 BigQuery 读层无 mismatch 暴露。防复发口径保留为长期约束：新增/修复 ODS Parquet 必须按 schema contract 显式 cast 并跑 QA。
 
 ## 已完成（Completed）

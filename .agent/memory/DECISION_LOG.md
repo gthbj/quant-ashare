@@ -3106,3 +3106,44 @@ Agent ID: Claude Code（quant-ashare 会话）
 ### 相关文件
 
 `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `TODO.md`, `scripts/qa/run_windowed_refresh_equivalence.py`, `scripts/qa/run_index_market_windowed_equivalence.py`, `configs/strategy1/active_step_catalog.yml`, `tests/strategy1/test_true5y_prd06_contracts.py`, `sql/README.md`, `docs/策略1CloudRun训练回测运行手册.md`
+
+## DECISION-20260612-02: 采纳 true-five-year continuous 为研究 baseline，关闭 OQ-011
+
+日期: 2026-06-12
+状态: active
+负责人: owner
+Agent ID: Claude
+模型: Claude Fable 5
+
+### 背景
+
+DECISION-20260611-02 接受 effective-window annual final refit / continuous 作为研究复盘口径时已写明：该口径是当时 DWS 覆盖不足下的妥协，"若未来需要 true five-year evidence，另开专项修复 DWS/lookback 并重跑"。该专项即 PRD_20260611_06，现已完成并通过全部门禁：2010-2014 backfill、2015Q1 与 `2019-01-02..2019-04-02` repair、57 个早期 `daily_basic` 市值字段全空开市日补采、宽窗口 overlap parity（stock/DWD/DWS 9 表 `1e-8` 零 mismatch；index/market `1e-4` 元级容忍后零 mismatch）、`13_true5y` 覆盖 QA、2021-2024 true-five-year refit（`__true5y01` 非默认 suffix）四年 QA、true-five-year synthetic continuous 的 continuous / lot-aware QA 与 ADS 反向验证。
+
+新结果（`s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01`）：compound CAGR=`0.13852596798718442`、MaxDD=`-0.37189972934558946`、v3 contract Sharpe=`0.6075887294330015`、contract Calmar=`0.3724820349585642`，较 effective-window（`0.12036528993503204` / `-0.4548151193656952` / `0.5285475500566089` / `0.26464663290635254`）全面改善，但仍未通过 v3 hard gates。
+
+### 决策
+
+1. 自本决策起，**策略 1 的研究 baseline 切换为 true-five-year continuous**（上列 run/backtest id）；effective-window continuous 降级为历史参照口径。
+2. 所有新实验（portfolio-only A/B、paper 原型、Phase 0/2 类重跑、复权漏损量化等）的 prediction 流与对照 backtest 一律解析为 true-five-year ids（从记忆解析，禁止硬编码）；报告须注明所用基线版本。
+3. **baseline ≠ accepted**：true-five-year 仍未过 v3 双门，不得标 accepted、不得 promotion；KNOWN_CONSTRAINTS 既有 acceptance 约束原样保留。
+4. 既有结论的迁移纪律：#179 / #181 / #186 / #190 等的**机制级结论**（信号真实性、long-only 悬崖、lot 现金拖累、P1 饱和、two_state 优于 hysteresis）视为结构性、可迁移；**数字级结论**保留为"旧 baseline 口径"证据，不批量重跑，引用时注明口径。
+5. 关闭 OQ-011，移入 closed archive。
+
+### 理由
+
+采纳依据是**方法论性**的而非结果驱动：effective-window 是被数据覆盖约束被迫的口径，PRD_06 已用通过门禁的工程修复拆除了该约束，"为约束而设的口径"失去存在理由。结果改善方向（更完整训练面板 → 更好模型）与 DECISION-20260611-01（dedicated refit panel 使 CAGR 8.11%→12.04%）的既有证据自洽，比较本身是冻结候选、同流程、仅训练窗变长的干净 walk-forward。先于后续工作切换可避免每件在排队的事各自重锚一次。
+
+### 影响
+
+1. `OPEN_QUESTIONS.md` 仅剩 OQ-010。
+2. 在排队工作的基线指向变更：PRD_20260611_10 §6 基线兼容条款生效（Phase 0 后续重跑切 true5y 流）；复权漏损量化需覆盖 true5y backtest；OQ-010 路线讨论以 true5y 指标为现状锚点。
+3. 记忆中 effective-window 的锚定数字保留但身份变更为历史参照。
+
+### 备选方案
+
+- 维持 effective-window 为 baseline：不采用——其存在前提（覆盖约束）已被拆除，继续使用等于自愿保留已知的训练窗截断偏差。
+- 双 baseline 并行：不采用——每个实验双跑成本翻倍，且"比较靶子唯一"是项目既有纪律。
+
+### 相关文件
+
+`.agent/memory/OPEN_QUESTIONS.md`, `.agent/memory/archive/CLOSED_QUESTIONS.md`, `.agent/memory/KNOWN_CONSTRAINTS.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/MEMORY_INDEX.md`, `TODO.md`, `docs/prd/PRD_20260611_06_策略1历史数据回填与TrueFiveYearRefit.md`, `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`
