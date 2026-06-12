@@ -12,7 +12,7 @@ Agent ID: Claude Code
 Agent 实例 ID: 当前本地会话
 模型: Claude Fable 5
 运行环境: `/Users/fisher/Desktop/git/quant-ashare`（诊断/云端操作）；PR 分支 `claude/ingestion-image-stale-fix`
-Run ID: `manual_backfill_sse_composite_20260610` / `manual_backfill_sse_composite_20260611`
+Run ID: `manual_backfill_sse_composite_20260610_index_eod` / `manual_backfill_sse_composite_20260611_index_eod`（meta 表内完整 `ingestion_run_id` = CLI 传入值 + `_<endpoint_group>` 后缀）
 相关 issue/PR: 本次修复记录 PR（见分支）
 
 ### 已完成工作
@@ -20,7 +20,7 @@ Run ID: `manual_backfill_sse_composite_20260610` / `manual_backfill_sse_composit
 - 诊断闭环：Cloud Build 历史 + Artifact Registry + execution describe 证明线上 9 次成功采集全部运行 `351dfd99...`（2026-06-04 11:50 UTC 构建），不含 `60fb242`（15:57 UTC）的 `IngestionStatusWriter` 接线；旧版 live 代码无任何 BigQuery 写入逻辑，与「execution 成功 + 两表零 DML」自洽。
 - 重建镜像：`gcloud builds submit`（cloudbuild.ingestion.yaml，build `8053b0d5`），新 digest `sha256:5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b`；boot dry-run execution `ashare-ingest-current-scope-4vq5v` 验证新 digest 自动解析、plan 27 分区端点含 `index_daily_000001_SH` / `index_dailybasic_000001_SH`。
 - 补采 000001.SH 2026-06-10/11：4 个 live execution（`zh88k`/`q4prv`/`fr44m`/`v9k6h`，每次单 variant，`gcloud run jobs execute --args` 不允许重复 flag）；`ingestion_run` 4 行 success / `ingestion_partition_status` 4 行（两表首批生产行），ODS 外部表可读。
-- 部署前风险排除：两表 schema 与 INSERT/MERGE 列匹配（06-08 ALTER_TABLE 仅列描述）；`sa-ashare-ingestion` 有 jobs.create + `ashare_meta` 写权限（其 06-08 ALTER_TABLE 即实证）；requirements 含 `google-cloud-bigquery`；60fb242..HEAD ingestion 变更面仅 000001.SH variant + 文案。
+- 部署前风险排除：两表 schema 与 INSERT/MERGE 列匹配（06-08 ALTER_TABLE 仅列描述）；`sa-ashare-ingestion` 有 jobs.create + `ashare_meta` 写权限（其 06-08 ALTER_TABLE 即实证）；requirements 含 `google-cloud-bigquery`；`60fb242..HEAD` ingestion 变更面：manifest 新增 000001.SH variants，`run_ingestion_job.py` / `common/logging.py` / `common/manifest.py` / `common/parquet_schema.py` 仅 docstring/描述文案改动，另新增独立辅助脚本 `scripts/ingestion/generate_index_external_table_uris.py`（随 `COPY scripts/ingestion` 打包进镜像，但不在 job ENTRYPOINT 运行路径）。
 
 ### 重要上下文
 
