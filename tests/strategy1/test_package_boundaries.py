@@ -3,7 +3,11 @@ from __future__ import annotations
 import ast
 from collections import Counter
 import importlib
+import os
 from pathlib import Path
+import subprocess
+import sys
+import textwrap
 
 from quant_ashare.strategy1.legacy_names import (
     allowed_legacy_names,
@@ -13,9 +17,10 @@ from quant_ashare.strategy1.legacy_names import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = REPO_ROOT / "src"
 SRC_STRATEGY1_ROOT = REPO_ROOT / "src/quant_ashare/strategy1"
 
-BATCH2_COMPAT_SYMBOLS = {
+COMPAT_SYMBOLS = {
     "bq_io": (
         "ADS",
         "LABEL_SAFE_RE",
@@ -107,24 +112,22 @@ BATCH2_COMPAT_SYMBOLS = {
         "write_manifest",
         "write_parquet",
     ),
-}
-
-EXPECTED_BATCH2_REVERSE_IMPORT_COUNTS = Counter(
-    {
-        "feature_sets": 1,
-        "orchestrate_annual_rolling_selection": 1,
-        "preprocess": 3,
-    }
-)
-
-BATCH2_REVERSE_IMPORT_ZERO_MODULES = {
-    "__version__",
-    "acceptance",
-    "bq_io",
-    "config",
-    "dataset_roles",
-    "state",
-    "task_fanout",
+    "feature_sets": (
+        "PV_FIN_RISK_FEATURE_SET_ID",
+        "boolean_feature_names",
+        "expected_feature_columns",
+        "feature_delta_vs_base",
+        "feature_metadata",
+        "market_state_feature_names",
+        "risk_feature_names",
+    ),
+    "preprocess": (
+        "build_preprocessor",
+        "feature_frame_from_panel",
+    ),
+    "training_panel": (
+        "build_training_panel_params",
+    ),
 }
 
 
@@ -132,14 +135,17 @@ def test_strategy1_package_import_smoke_for_phase_e_boundaries() -> None:
     for module_name in (
         "quant_ashare.strategy1.acceptance",
         "quant_ashare.strategy1.annual_pipeline_scheduler",
+        "quant_ashare.strategy1.annual_rolling_plan",
         "quant_ashare.strategy1.backtest_report",
         "quant_ashare.strategy1.bq_io",
         "quant_ashare.strategy1.config",
         "quant_ashare.strategy1.dataset_roles",
+        "quant_ashare.strategy1.feature_sets",
         "quant_ashare.strategy1.ledger",
         "quant_ashare.strategy1.legacy_names",
         "quant_ashare.strategy1.pipeline_control",
         "quant_ashare.strategy1.prepare_matrix",
+        "quant_ashare.strategy1.preprocess",
         "quant_ashare.strategy1.promotion",
         "quant_ashare.strategy1.refit_register_predict",
         "quant_ashare.strategy1.reporting",
@@ -151,14 +157,55 @@ def test_strategy1_package_import_smoke_for_phase_e_boundaries() -> None:
         "quant_ashare.strategy1.task_fanout",
         "quant_ashare.strategy1.train_candidate_task",
         "quant_ashare.strategy1.train_predict",
+        "quant_ashare.strategy1.training_panel",
         "scripts.strategy1_cloudrun.bq_io",
         "scripts.strategy1_cloudrun.config",
         "scripts.strategy1_cloudrun.dataset_roles",
+        "scripts.strategy1_cloudrun.feature_sets",
+        "scripts.strategy1_cloudrun.preprocess",
         "scripts.strategy1_cloudrun.state",
         "scripts.strategy1_cloudrun.task_fanout",
+        "scripts.strategy1_cloudrun.training_panel",
         "scripts.strategy1.promote_research_to_ads",
     ):
         assert importlib.import_module(module_name)
+
+
+def test_strategy1_package_imports_without_repo_root_on_pythonpath(tmp_path: Path) -> None:
+    code = textwrap.dedent(
+        f"""
+        import importlib
+        import pkgutil
+        import sys
+        from pathlib import Path
+
+        repo_root = Path({str(REPO_ROOT)!r}).resolve()
+        for entry in sys.path:
+            if entry and Path(entry).resolve() == repo_root:
+                raise AssertionError(f"repo root leaked onto sys.path: {{entry}}")
+
+        import quant_ashare.strategy1 as strategy1
+
+        failures = []
+        for module_info in pkgutil.walk_packages(strategy1.__path__, strategy1.__name__ + "."):
+            try:
+                importlib.import_module(module_info.name)
+            except Exception as exc:
+                failures.append(f"{{module_info.name}}: {{type(exc).__name__}}: {{exc}}")
+        if failures:
+            raise AssertionError("\\n".join(failures))
+        """
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(SRC_ROOT)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_cloudrun_wrappers_reexport_package_implementations() -> None:
@@ -174,8 +221,8 @@ def test_cloudrun_wrappers_reexport_package_implementations() -> None:
     assert __version__ == package_version == "strategy1_cloudrun_runner_v0_20260606_lot100"
 
 
-def test_batch2_cloudrun_shims_reexport_compatibility_symbol_snapshot() -> None:
-    for module_name, symbols in BATCH2_COMPAT_SYMBOLS.items():
+def test_cloudrun_shims_reexport_compatibility_symbol_snapshot() -> None:
+    for module_name, symbols in COMPAT_SYMBOLS.items():
         wrapper_module = importlib.import_module(f"scripts.strategy1_cloudrun.{module_name}")
         package_module = importlib.import_module(f"quant_ashare.strategy1.{module_name}")
         for symbol in symbols:
@@ -186,7 +233,7 @@ def test_batch2_cloudrun_shims_reexport_compatibility_symbol_snapshot() -> None:
                 assert wrapper_value.__module__ == f"quant_ashare.strategy1.{module_name}"
 
 
-def test_batch2_src_reverse_import_counts_are_limited_to_batch3() -> None:
+def test_strategy1_src_does_not_import_cloudrun_scripts() -> None:
     counts: Counter[str] = Counter()
     for path in SRC_STRATEGY1_ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -207,9 +254,7 @@ def test_batch2_src_reverse_import_counts_are_limited_to_batch3() -> None:
                         name = alias.name.removeprefix("scripts.strategy1_cloudrun.").split(".")[0]
                         counts[name] += 1
 
-    assert counts == EXPECTED_BATCH2_REVERSE_IMPORT_COUNTS
-    for module_name in BATCH2_REVERSE_IMPORT_ZERO_MODULES:
-        assert counts[module_name] == 0
+    assert counts == Counter()
 
 
 def test_retired_cloudrun_job_wrapper_files_are_removed() -> None:
