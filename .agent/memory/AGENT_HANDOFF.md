@@ -2,6 +2,7 @@
 > - `codex/p1-rules-paper-batch` 已扩展 `analyze_topdown_lot_phase0.py`：字段级 P1 null reason、T1a/T1b1/T1b2 三新臂、0.60 饱和回退与 0.50/0.70 阈值敏感性附表。
 > - BigQuery 只读 + 本地 pandas 实跑完成，resolver 解析到 true5y CA-on：prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，official backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`。
 > - matched official cost / `walk_depth=50` 主判读下 T1a/T1b1/T1b2 均未满足预登记四门槛；若继续 Phase 2，建议用 T0 / no P1，PRD_10 的 P1 绑定条款需 owner 决策。
+> - PR #210 Claude review low follow-up 已补报告口径说明：Phase 0 effective-window 与本轮 true5y CA-on prediction 流不同，T1-T0 gap `-13.70pp -> -15.95pp` 不可直接横比。
 > - 本轮不写 BigQuery 数据集、不改 ledger/runner/catalog/默认 profile、不标 accepted/promotion；大明细 CSV 已上传 GCS，小 metrics CSV 随 PR 入库。
 >
 > Model: GPT-5.5
@@ -14,7 +15,7 @@ Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashar
 模型: GPT-5.5
 运行环境: macOS / zsh / branch `codex/p1-rules-paper-batch`
 Run ID: prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`；official backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`
-相关 issue/PR: PRD `docs/prd/PRD_20260613_01_策略1P1市值规则修复双选项Paper批量.md`；PR 待创建
+相关 issue/PR: PRD `docs/prd/PRD_20260613_01_策略1P1市值规则修复双选项Paper批量.md`；PR #210
 
 ### 已完成工作
 
@@ -23,6 +24,7 @@ Run ID: prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v2
 - 增加 0.50 / 0.70 阈值敏感性附表，主判读仍固定 matched official cost + `walk_depth=50` + `p1_marked_rate > 0.60`。
 - 生成报告 `docs/分析-策略1P1市值规则修复双选项-20260613.md` 与小 metrics CSV；大 daily / rebalance audit CSV 上传到 `gs://ashare-artifacts/reports/strategy1/p1_market_cap_rules/analysis_date=20260613/`。
 - 新增单测覆盖 P1 分组、字段级 NULL 分组、T1a/T1 语义差异、饱和阈值严格边界、回退局部性。
+- PR #210 Claude review low follow-up：报告 `方法与边界` 已补 Phase 0 对照说明，明确 Phase 0 用 effective-window prediction 流、本轮用 true5y CA-on resolver，T1-T0 gap 从 `-13.70pp` 到 `-15.95pp` 是 prediction 流切换导致，不是实现差异。
 
 ### 重要上下文
 

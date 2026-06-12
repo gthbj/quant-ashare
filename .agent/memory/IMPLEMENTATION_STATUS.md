@@ -56,6 +56,7 @@ Last updated: 2026-06-13
 - 只读 BigQuery + 本地 pandas 实跑完成，resolver 解析到 true5y CA-on baseline：prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`。主判读 matched official cost / walk_depth=50：T0 CAGR=`11.81%`、MaxDD=`-58.67%`、Calmar=`0.201`；T1 CAGR=`-4.14%`；T1a CAGR=`6.26%`；T1b1 CAGR=`4.24%`；T1b2 CAGR=`4.11%`。
 - 预登记判读：T1a/T1b1/T1b2 均未同时满足 “CAGR gap > -2pp / 2022-05 episode 平均现金 <30% / MaxDD 不比 T0 差超 2pp / crunch 超额不比 T1 差超 3pp”；报告结论为若进入 Phase 2，建议用 T0（无 P1）口径，PRD_10 的 P1 绑定条款需 owner 决策修订。本轮不做 accepted / promotion / 默认 profile 变更，不写任何 BigQuery 数据集，不改 ledger/runner/catalog。
 - 交付报告 `docs/分析-策略1P1市值规则修复双选项-20260613.md`；小 metrics CSV `docs/analysis_strategy1_p1_market_cap_rules_20260613_metrics.csv` 随 PR 入库；大 daily/audit CSV 已上传 `gs://ashare-artifacts/reports/strategy1/p1_market_cap_rules/analysis_date=20260613/`。
+- PR #210 Claude review low follow-up 已补报告口径说明：Phase 0 报告使用 effective-window prediction 流，本轮按 resolver 切到 true5y CA-on 研究 baseline；T1-T0 CAGR gap `-13.70pp -> -15.95pp` 源于 prediction 流切换，不能直接横向比较为实现差异。
 
 ### 最新补充（2026-06-13）：ingestion meta 0 行事故复核与防复发告警已实现
 
