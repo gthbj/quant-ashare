@@ -1,3 +1,11 @@
+> 当前交接补充（2026-06-12，GPT-5 Codex，PRD_10 Phase 0）
+> - 已完成 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md` 的 Phase 0 paper 原型：新增只读脚本 `scripts/strategy1/analyze_topdown_lot_phase0.py`、focused tests `tests/strategy1/test_topdown_lot_phase0.py`、报告 `docs/分析-策略1自上而下整手组合Phase0-20260612.md`，以及本地 CSV 产物 `docs/analysis_strategy1_topdown_lot_phase0_20260612_{metrics,daily,rebalance_audit}.csv`。
+> - 运行口径：复用 official synthetic prediction run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02` / official baseline `bt_s1_annual_roll_continuous_2021_2026_n20_w075_v20260610_02`，本地从 `dws_stock_feature_daily_v0` 六条 P1 规则现算 `tail_risk:*` 标记；跑 T0/T1 × `walk_depth={30,50}` × `cost_bps={0,20}`。BigQuery 全程只读，未训练、未写 BQ、未 Cloud Run、未 promotion。
+> - 主结果（`walk_depth=50`, `20bps`）：T0 CAGR `10.22%`、MaxDD `-63.02%`、Calmar `0.162`、crunch excess `-25.66%`、平均现金 `2.67%`；T1 CAGR `-4.57%`、MaxDD `-68.14%`、Calmar `-0.067`、crunch excess `-15.73%`、平均现金 `7.21%`、P1 skip `1231`。
+> - 预登记判读：T1-T0 CAGR `-14.80pp`，触发 P1 替换成本假设被证伪；T1 crunch 改善 `+9.93pp` 但不足以抵消全周期损耗；双臂 MaxDD 均比 official `-45.48%` 深超 15pp；T1 `max_realized_weight=100%` 触发无单票上限复核。Phase 1 代码准备是否继续、P1 绑定/无上限是否调整，需要 owner 看完报告后决定。
+>
+> Model: GPT-5 Codex
+
 > 当前交接补充（2026-06-11，Claude Fable 5，PRD_10）
 > - 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 确认的结构性现金拖累（10 万 + 整手 + 等权 5% + 无再分配 → 25% 买单跳过、现金均值 29.4%），owner 决定重新设计构造规则而非修复等权。
 > - 核心规则：自上而下贪心买入，新开仓最小权重 5%（`position_floor_count=20` 仅作门槛基数，`target_holdings` 退役为观测指标 `realized_holdings_count`）；**无单票上限**（owner 决策 2026-06-11）；`walk_depth=50` 统一买入深度与卖出保留阈值；P1 六条规则以"跳过→下一名顶上"替换语义绑定进构造（实现红线：禁止复用 ledger 层跳过留现金语义，防止复活 #179 A1 的现金拖累）；可负担性与 P1 标记均只约束新增买入、不强制卖出。

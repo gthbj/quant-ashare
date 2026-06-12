@@ -6,6 +6,13 @@ Last updated: 2026-06-11
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：PRD_10 自上而下整手组合 Phase 0 paper 已完成
+
+- 新增只读脚本 `scripts/strategy1/analyze_topdown_lot_phase0.py` 与 focused tests `tests/strategy1/test_topdown_lot_phase0.py`，复用 official synthetic prediction run `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`，本地从 `dws_stock_feature_daily_v0` 六条 P1 规则计算 `tail_risk:*` 标记，跑 T0（无 P1）/ T1（P1 替换过滤）× `walk_depth={30,50}` × `cost_bps={0,20}` paper 原型。
+- 全程 BigQuery 只读 + 本地 pandas；未训练模型、未改 prediction 流、未启动 Cloud Run、未写 `ashare_research` / ADS / promotion 表。输出报告 `docs/分析-策略1自上而下整手组合Phase0-20260612.md`，本地 CSV 产物为 `docs/analysis_strategy1_topdown_lot_phase0_20260612_{metrics,daily,rebalance_audit}.csv`（受仓库 CSV ignore 规则影响，如需提交需 `git add -f`）。
+- 主结果（`walk_depth=50`, `20bps`）：T0 CAGR=`10.22%`、MaxDD=`-63.02%`、Calmar=`0.162`、crunch excess vs `000852.SH`=`-25.66%`、平均现金=`2.67%`、平均持仓=`14.48`；T1 CAGR=`-4.57%`、MaxDD=`-68.14%`、Calmar=`-0.067`、crunch excess=`-15.73%`、平均现金=`7.21%`、平均持仓=`12.76`、P1 skip=`1231`。
+- 预登记判读：T1 相比 T0 的 CAGR 差 `-14.80pp`，触发“P1 替换成本假设被证伪 / 回 owner 重议”；T1 crunch 段超额改善 `+9.93pp`，但不足以抵消全周期损耗。T0/T1 MaxDD 均比 official baseline `-45.48%` 深超过 15pp，触发“满仓代价超预期”；T1 出现 `max_realized_weight=100%` 的尾部集中，触发无单票上限复核条款。Phase 1 代码准备是否继续、P1 绑定/无上限是否调整，需要 owner 看过 Phase 0 报告后决定；不得据此 accepted 或 promotion。
+
 ### 最新补充（2026-06-11）：自上而下整手组合构造 PRD 已新增
 
 - 分支 `claude/prd-topdown-lot-construction` 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 现金交叉核验确认的结构性现金拖累（10 万真实部署 + 100 股整手 + 等权 5% + 无再分配 → 约 25% 买单 `BUY_SKIPPED_BELOW_LOT`、现金权重均值 29.4%、最少持仓 0），owner 决定（2026-06-11）重新设计组合构造而非修复等权。
