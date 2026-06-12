@@ -1,3 +1,11 @@
+> 当前交接补充（2026-06-12，GPT-5 Codex，GCS checkpoint archive）
+> - 已将 `configs/ingestion/ods_current_scope_v0.yml` 当前生产 14 个 ODS endpoint 及其 current partition variants 的 2010+ checkpoint 做可逆归档；scope 为 `gs://data-aquarium/a-share/tushare/_checkpoints/endpoint=*/logical_date=*.json` 且 `logical_date >= 20100101`。
+> - 归档 run：`checkpoint_archive_current14_20260612T035604Z`；根路径 `gs://data-aquarium/a-share/tushare/checkpoint_archive/run_id=checkpoint_archive_current14_20260612T035604Z/`；产物为 26 个 gzip JSONL 归档对象 + `manifest.json`，共 65,891 条 checkpoint 记录，源 checkpoint 47,955,858 bytes，gzip 后 7,951,990 bytes。
+> - 每条归档记录保存原始 `source_uri` / bucket / object name / endpoint / logical_date / generation / size / crc32c / md5 / sha256 / `content_base64`，可按 manifest 反向恢复；校验已完成：逐 gzip 重算行数、字节数、`jsonl_sha256`，逐条校验 content sha256，并抽样 5 个原对象按 generation 比对通过。
+> - 本轮没有删除原 `_checkpoints/` 对象；后续如要真正减少对象数，仍需 owner 另行明确批准 lifecycle 或删除策略。manifest 记录 4 个 current-scope endpoint 为空：`index_daily`、`index_daily_000001_SH`、`index_dailybasic`、`index_dailybasic_000001_SH`。
+>
+> Model: GPT-5 Codex
+
 > 当前交接补充（2026-06-11，Claude Fable 5，PRD_10）
 > - 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 确认的结构性现金拖累（10 万 + 整手 + 等权 5% + 无再分配 → 25% 买单跳过、现金均值 29.4%），owner 决定重新设计构造规则而非修复等权。
 > - 核心规则：自上而下贪心买入，新开仓最小权重 5%（`position_floor_count=20` 仅作门槛基数，`target_holdings` 退役为观测指标 `realized_holdings_count`）；**无单票上限**（owner 决策 2026-06-11）；`walk_depth=50` 统一买入深度与卖出保留阈值；P1 六条规则以"跳过→下一名顶上"替换语义绑定进构造（实现红线：禁止复用 ledger 层跳过留现金语义，防止复活 #179 A1 的现金拖累）；可负担性与 P1 标记均只约束新增买入、不强制卖出。
@@ -97,6 +105,57 @@ Model: Claude Fable 5
 > - DECISION-20260611-02 已关闭 OQ-014：接受 effective-window result 作为研究复盘口径，暂不修 pre-2019 DWS/lookback；但 result 未过 v3 absolute gates，不得标 accepted baseline 或 promotion。
 
 Model: GPT-5 Codex
+
+## 2026-06-12 GPT-5 Codex - Current-scope ODS checkpoint archive
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local Codex session
+模型: GPT-5 Codex
+运行环境: `/Users/fisher/Desktop/git/worktrees/quant-ashare-checkpoint-archive`
+Run ID: `checkpoint_archive_current14_20260612T035604Z`
+相关 issue/PR: N/A
+
+### 已完成工作
+
+- 按 owner 要求，将现有项目当前生产范围的 14 个 ODS checkpoint 中 `logical_date >= 20100101` 的对象归档到 `gs://data-aquarium/a-share/tushare/checkpoint_archive/run_id=checkpoint_archive_current14_20260612T035604Z/`。
+- 归档范围来自 `configs/ingestion/ods_current_scope_v0.yml` 的 14 个 endpoint 及现有 current partition variants；未纳入非 current-scope endpoint。
+- 生成 26 个 endpoint gzip JSONL 归档对象和 `manifest.json`；共 65,891 条 checkpoint 记录，源 checkpoint 47,955,858 bytes，gzip 归档 7,951,990 bytes。
+- 每条 JSONL 保存原 GCS 路径、generation、校验值和 `content_base64`，因此可从归档反向恢复原 checkpoint 内容。
+- 本轮未删除任何原始 `_checkpoints/` 对象，也未设置 lifecycle。
+
+### 重要上下文
+
+- manifest 路径：`gs://data-aquarium/a-share/tushare/checkpoint_archive/run_id=checkpoint_archive_current14_20260612T035604Z/manifest.json`。
+- 4 个 current-scope checkpoint endpoint 在当前 GCS 扫描中为空：`index_daily`、`index_daily_000001_SH`、`index_dailybasic`、`index_dailybasic_000001_SH`。
+- 归档过程只处理 `_checkpoints` 小 JSON 内容；不处理也不下载 `raw_data`。
+
+### 改动文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- 已回读 manifest 和全部 26 个 gzip 归档对象，重算每个归档的行数、源字节数、gzip 字节数和 `jsonl_sha256`，与 manifest 一致。
+- 已逐条校验 `content_base64` 解码后的 sha256 与记录的 `content_sha256` 一致。
+- 已抽样 5 个原 checkpoint 对象，按 GCS generation 回读并比对 sha256 通过。
+
+### 阻塞项
+
+- 无归档阻塞项。
+- 如要通过删除或 lifecycle 真正减少对象数，需要 owner 另行明确批准保留窗口、删除范围和恢复演练要求。
+
+### 下一步建议
+
+- 删除前保留最近 30-90 天 checkpoint，或先按 manifest 恢复抽样 checkpoint 到临时前缀验证完整恢复流程。
+- 若 owner 确认减少对象数，再对原 `_checkpoints/` 制定 age=90/180 lifecycle 或批量删除计划。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
 
 ## 2026-06-11 GPT-5 Codex - PRD_09 signal IC transfer efficiency analysis
 

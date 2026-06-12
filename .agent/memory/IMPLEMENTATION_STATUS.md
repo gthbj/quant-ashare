@@ -2,9 +2,17 @@
 
 这是实现状态的唯一事实来源。面向「已完成/进行中/受阻的整体状态」；「下一步要做什么」见根目录 `TODO.md`。
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 ## 当前状态
+
+### 最新补充（2026-06-12）：current-scope 14 ODS 的 2010+ checkpoint 已归档
+
+- 已按 `configs/ingestion/ods_current_scope_v0.yml` 的 14 个当前生产 ODS endpoint 及其 current partition variants，将 `gs://data-aquarium/a-share/tushare/_checkpoints/` 中 `logical_date >= 20100101` 的 checkpoint 做可逆 gzip JSONL 归档；本轮只新增归档对象，未删除原 `_checkpoints/` 小对象。
+- 归档 run：`checkpoint_archive_current14_20260612T035604Z`，根路径 `gs://data-aquarium/a-share/tushare/checkpoint_archive/run_id=checkpoint_archive_current14_20260612T035604Z/`。产物为 26 个 endpoint 归档对象 + `manifest.json`；共归档 65,891 条 checkpoint 记录，原始 checkpoint 字节 47,955,858，归档 gzip 字节 7,951,990，压缩比约 16.58%。
+- 每条 JSONL 记录保留 `source_uri` / `object_name` / `endpoint` / `logical_date` / generation / checksum / `content_base64`，可按原路径恢复。只读校验已通过：逐个 gzip 重算行数与 `jsonl_sha256`、校验每条 `content_sha256`，并抽样 5 条按原 GCS generation 对照原对象。
+- manifest 记录 4 个 current-scope checkpoint endpoint 为空：`index_daily`、`index_daily_000001_SH`、`index_dailybasic`、`index_dailybasic_000001_SH`。未纳入非 current-scope endpoint，例如 `stock_basic_pending` 与不在当前 manifest 的 `index_dailybasic_000688_SH` / `index_dailybasic_000852_SH`。
+- 后续如要减少对象数，仍需 owner 明确批准后再对原 `_checkpoints/` 设置 lifecycle 或执行删除；删除前建议保留最近 30-90 天 checkpoint，或先做一次按 manifest 抽样恢复到临时前缀验证。
 
 ### 最新补充（2026-06-11）：自上而下整手组合构造 PRD 已新增
 
