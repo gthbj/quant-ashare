@@ -4,6 +4,12 @@
 
 ## P0 — 当前优先
 
+- [ ] 按 `PRD_20260612_01` 执行 BigQuery 数据集清理退役
+  说明：第 1 类清理已于 2026-06-12 完成（删除 `ashare_meta` 5 张 `_repair_val_*` 与 `ashare_qa_windowed_equivalence` 18 张 shadow 表）。剩余：PRD 定稿后实现 PR 落 Phase B 代码/文档/KNOWN_CONSTRAINTS 改写；合并后手工执行 Phase A `ashare` 整库硬删除（先过 Data Access 审计日志预检）、Phase B scratch 数据集删除、Phase C `ads_ml_training_panel_daily` `s1_bqml%` 旧 run 裁剪（预期 12 run / 36,853,582 行），每步留删除时间戳与前后对账证据（7 天 UNDROP / time travel 窗口）。
+
+- [ ] 排查 `ingestion_run` / `ingestion_partition_status` 零写入与采集告警断档
+  说明：2026-06-12 盘点发现两表自 2026-06-04 建表以来 0 行，与 2026-06-08 起 9 次成功 live 采集矛盾；疑似 Cloud Run 采集镜像 stale（status_writer 接线 commit `60fb242` 与镜像推送同日），`v_ingestion_failures` / `v_alert_summary` 采集级告警分支静默。需核对线上镜像构建 commit，必要时重建部署并在下一交易日验证落行。
+
 - [x] OQ-005：合并 2026-06-09 scheduled ODS run 暴露的 Cloud Run Job IAM bootstrap 修正
   说明：已由 PR #126 合并到 `main`。`orchestration/workflows/bootstrap_scheduler_iam.sh` 已固化 runtime SA 的 job-level `roles/run.jobsExecutorWithOverrides`、project-level `roles/run.viewer`，并移除旧 job-level `roles/run.invoker`，避免重新 bootstrap 后复现 scheduled ODS workflow 权限失败。
 

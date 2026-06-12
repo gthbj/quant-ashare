@@ -1,3 +1,12 @@
+> 当前交接补充（2026-06-12，Claude Fable 5，BigQuery 数据集清理 PRD）
+> - 完成 `data-aquarium` 全数据集盘点：核心分层（dim/dwd/dws/ads/research）与 `sql/` 契约双向零差异；杂物为遗留数据集 `ashare`（250.4 GiB、零引用、2026-05-25 后零写入）、`ashare_meta` 5 张 `_repair_val_*`、`ashare_qa_windowed_equivalence` 18 张 shadow 残留、ads 训练面板 12 个 `s1_bqml%` 旧 run（约 115 GB）。
+> - 第 1 类清理已执行（owner 批准）：上述 5 + 18 共 23 张表已删，`bq ls` 复核清空。18 张 native shadow 表 7 天 time travel 内可恢复；5 张 `_repair_val_*` 是外部表（time travel 不覆盖），删除仅移除 BQ definition，GCS 无涉，需要时由 repair 脚本重建。
+> - 新增 `docs/prd/PRD_20260612_01_BigQuery数据集清理退役.md`（分支 `claude/prd-bq-dataset-cleanup`）：Phase A `ashare` 硬删除（审计日志预检硬门）/ Phase B windowed equivalence QA 退役（两脚本 + 引用 + KNOWN_CONSTRAINTS 两处硬门改写 + scratch 数据集删除）/ Phase C 面板 `s1_bqml%` 行裁剪。owner 决策记入 DECISION-20260612-01；`tushare_api_catalog`/`params`、`ashare_backup`、50 个 BQML model、prediction、回测事实、ODS scope 外外部表均保留。
+> - 注意：KNOWN_CONSTRAINTS 的「双实现并存必须跑 equivalence QA」与「true5y 重跑必须先过 overlap parity」两条届时改写（随实现 PR），不是静默失效；两脚本恢复入口为实现 PR 的 parent commit。
+> - 盘点顺带发现 `ingestion_run` / `ingestion_partition_status` 0 行与 live 采集成功矛盾（疑似采集镜像 stale、采集级告警静默），已挂独立排查任务，本轮未修。
+>
+> Model: Claude Fable 5
+
 > 当前交接补充（2026-06-12，GPT-5 Codex，PR #186 CSV cleanup）
 > - 已按 owner 要求直接从 `main` 删除 PR #186 带入的四份分析 CSV：`docs/analysis_strategy1_signal_ic_decomposition_20260611_daily.csv`、`docs/analysis_strategy1_signal_ic_decomposition_20260611_summary.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_results.csv`、`docs/analysis_strategy1_transfer_ladder_20260611_transfer_coefficients.csv`。
 > - 保留 PR #186 的只读分析脚本、测试和 Markdown 报告；CSV 视为可再生成的本地/临时分析产物，不再跟随 git。`docs/analysis_strategy1_exposure_overlay_upper_bound_20260611_results.csv` 属于其他 PR，本轮未动。
