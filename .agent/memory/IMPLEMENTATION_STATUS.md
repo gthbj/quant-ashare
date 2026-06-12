@@ -524,10 +524,10 @@ Last updated: 2026-06-12
 - `scripts/strategy1/replay_acceptance_gate_v3.py` 与 `scripts/strategy1/run_acceptance_gate_v3_replay_qa.py` 已按最新 contract 真执行通过；当前结果仍为 `25` 个候选里 `1 accepted / 24 rejected`。
 - `24_qa_acceptance_gate_v3_replay_outputs.sql` 已不再依赖手工镜像默认值：replay scope、Top-K、benchmark 集合、窗口、阈值和允许的 `score_orientation` 都由 helper 从 contract 渲染。
 
-### 最新补充（2026-06-08，2026-06-11 更新）：当前仍开放的主线是 OQ-010 与 OQ-011
+### 最新补充（2026-06-08，2026-06-12 更新）：当前仍开放的主线只剩 OQ-010
 
 - OQ-010：Cloud Run Python 路径已打通，但当前仍没有 accepted Python baseline；后续重点仍是寻找可接受模型 / 特征 / 风险控制组合。
-- OQ-011：true-five-year / 2019 年初 60 日窗口完整性仍是 owner 数据覆盖决策；当前已关闭的 OQ-014 只接受本轮 effective-window 研究口径，不等于修复 lookback-capable 构建输入。
+- OQ-011：~~true-five-year / 2019 年初 60 日窗口完整性仍是 owner 数据覆盖决策~~——已被 DECISION-20260612-01 superseded：PRD_06 完成历史修复与 true-five-year 重跑后，owner 已采纳 true-five-year continuous 为研究 baseline，OQ-011 关闭归档（见本文件顶部 2026-06-12 条目）。
 - OQ-012：2026-06-11 已正式关闭归档。schema contract、修复/验证脚本和 `06_ods_parquet_schema_checks.sql` 都已具备；2026-06-05 只读复核对 P0 与 all 范围均通过，当前 BigQuery 读层无 mismatch 暴露。防复发口径保留为长期约束：新增/修复 ODS Parquet 必须按 schema contract 显式 cast 并跑 QA。
 
 ## 已完成（Completed）
