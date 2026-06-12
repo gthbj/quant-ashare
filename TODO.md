@@ -24,13 +24,13 @@
 - [ ] OQ-010：继续寻找 accepted 的 Cloud Run Python baseline
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
 
-- [x] OQ-010：完成 `PRD_20260612_01` Ledger 分红送转 Phase A 事件表落地
+- [x] OQ-010：完成 `PRD_20260612_02` Ledger 分红送转 Phase A 事件表落地
   说明：Phase A 已完成并实跑 BigQuery：新增/替换 `ashare_dwd.dwd_stock_dividend_event`、`ashare_meta.qa_stock_dividend_event_hfq_mismatch` 与 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`，并刷新单位映射/字段说明、通过单位 QA 与 CA QA。OQ-015 裁决已落实：不修 `stk_co_rate` 口径，不设人工 allowlist；QA 使用结构化容差（abs/rel + `0.01/prev_close` 下限），双向落表并自动归类，硬门为未归类 mismatch=0。结果：2010+ canonical events=`46431`；2021+ canonical events=`22009`、same-ex_date 聚合键=`20`、source rows=`22029`；mismatch 分布为 event_to_factor data_anomaly=`1106`（含 missing_prev_price=`1033`、factor_jump_mismatch=`73`）、special_dividend=`1`、factor_to_event same_day_orphan_corporate_action=`405`，unclassified=`0`。本阶段未改 ledger 代码、未写 ADS/research/promotion。
 
-- [x] OQ-010：完成 `PRD_20260612_01` Ledger 分红送转 Phase B ledger 实现
+- [x] OQ-010：完成 `PRD_20260612_02` Ledger 分红送转 Phase B ledger 实现
   说明：分支 `codex/ledger-corporate-actions` 已实现 `corporate_actions` / `dividend_tax_mode` 参数链和 run_ledger ex_date 开盘前公司行为结算；默认 `none_v1` 保持 trade/position/NAV/ledger state/hash 逐字节不变量，默认 hash 黄金值 `2108e411d056418b09c84f99b75021a5329fea58eb474d5906e0e4287f69cc0d` 未变。新 QA `qa_corporate_action_ledger_outputs` 已登记 catalog，两套 resume QA 校验父子参数一致。验证：`python3 -m pytest tests` 176 passed，retired linter / compileall / Dataform check / new QA research dry-run / `git diff --check` 均通过。本阶段未跑 Phase C、未写既有 run、未 promotion、不改默认 profile。
 
-- [x] OQ-010：完成 `PRD_20260612_01` Ledger 分红送转 Phase C research-only CA 重跑
+- [x] OQ-010：完成 `PRD_20260612_02` Ledger 分红送转 Phase C research-only CA 重跑
   说明：Phase C 已完成（分支 `codex/ledger-corporate-actions`）。Cloud Run runner 使用不可变 digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`，正式 execution `strategy1-backtest-report-job-dnt4b` 成功；新 run/backtest `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 写 `ashare_research`，参数 `corporate_actions=cash_div_and_split_v1` / `dividend_tax_mode=flat_10pct`。三条 QA 全过：continuous `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger `37674e4f-06ee-4998-9d1e-75ace14cb965`；ADS 反向验证与 promotion manifest 均为 0 行。报告 `docs/分析-Ledger CA 重跑对照-20260612.md` 已产出；CA-on CAGR=`0.15350594766603387`、contract Sharpe=`0.6682084282261871`、Calmar=`0.4101170873817589`，仍未过 v3 hard gates，不得 promotion。
 
 - [x] OQ-010：实现年度滚动选参回测实验

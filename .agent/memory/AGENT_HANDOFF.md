@@ -1,5 +1,5 @@
 > 当前交接补充（2026-06-12，GPT-5.5，Ledger CA Phase C）
-> - `codex/ledger-corporate-actions` 已完成 PRD_20260612_01 Phase C research-only CA-on 重跑：Cloud Run runner digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`，正式 execution `strategy1-backtest-report-job-dnt4b` 成功。
+> - `codex/ledger-corporate-actions` 已完成 PRD_20260612_02 Phase C research-only CA-on 重跑：Cloud Run runner digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`，正式 execution `strategy1-backtest-report-job-dnt4b` 成功。
 > - 新 run/backtest：`s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` / `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`，参数 `cash_div_and_split_v1` / `flat_10pct`，只写 `ashare_research`；ADS 反向验证和 promotion manifest 均为 0 行。
 > - Phase C QA 全过：continuous job `06273525-830b-4603-8503-2dc8f3091ca4`、lot-aware job `1eec4250-5da4-44c1-bab7-ba3183dc14d5`、CA ledger job `37674e4f-06ee-4998-9d1e-75ace14cb965`。报告 `docs/分析-Ledger CA 重跑对照-20260612.md` 已产出；CA-on contract Sharpe `0.6682`、Calmar `0.4101`，仍未 accepted / promotion。
 >
@@ -13,7 +13,7 @@ Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashar
 模型: GPT-5.5
 运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
 Run ID: `s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`
-相关 issue/PR: PR #198；PRD `docs/prd/PRD_20260612_01_策略1Ledger分红送转记账修复.md`
+相关 issue/PR: PR #198；PRD `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`
 
 ### 已完成工作
 
@@ -70,7 +70,7 @@ Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashar
 模型: GPT-5.5
 运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
 Run ID: N/A
-相关 issue/PR: PR #198（Phase A + Phase B 实现分支），PR #195（PRD）；PRD `docs/prd/PRD_20260612_01_策略1Ledger分红送转记账修复.md`
+相关 issue/PR: PR #198（Phase A + Phase B 实现分支），PR #195（PRD）；PRD `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`
 
 ### 已完成工作
 
@@ -134,7 +134,7 @@ Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashar
 模型: GPT-5.5
 运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
 Run ID: N/A
-相关 issue/PR: PR #195（PRD review/裁决）；实现 PR 待创建；PRD `docs/prd/PRD_20260612_01_策略1Ledger分红送转记账修复.md`
+相关 issue/PR: PR #195（PRD review/裁决）；实现 PR 待创建；PRD `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`
 
 ### 已完成工作
 
