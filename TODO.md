@@ -24,6 +24,12 @@
 - [ ] OQ-010：继续寻找 accepted 的 Cloud Run Python baseline
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
 
+- [x] OQ-010：量化 official ledger 未复权/除权漏损
+  说明：分支 `codex/official-ledger-adj-leak` 已完成只读测量并生成 `docs/分析-官方Ledger复权漏损量化-20260612.md`、`scripts/strategy1/analyze_official_adj_leak.py` 和小结果 CSV。true-five-year 主结果按 hfq 总回报代理修正后 CAGR `13.85% -> 15.72%`（`+1.86pp`）、Calmar `0.3725 -> 0.4275`（`+0.0550`），effective-window 参照 CAGR `12.04% -> 13.56%`、Calmar `0.2646 -> 0.3014`；无交易日残差对账通过（max abs 约 `1e-16`）。逐日/事件/年度大 CSV 已上传到 `gs://ashare-artifacts/reports/strategy1/official_adj_leak/analysis_date=20260612/`。本项只测量，不改 ledger、不 promotion、不重开既有决策。
+
+- [ ] OQ-010：owner 决定是否按 official ledger 复权漏损结果立修复 PRD
+  说明：本次 true-five-year 主结果触发预登记判据（CAGR `+1.86pp >= +1pp` 且 Calmar `+0.0550 >= 0.05`），报告建议立 PRD 修 ledger 并排在 Phase 2 之前；是否重开 `DECISION_LOG` 中已接受的"未复权口径、持有期除权简化"约定仍需 owner 拍板。若 owner 决定暂不修，应把量化漏损写入 `KNOWN_CONSTRAINTS.md` 永久披露。
+
 - [x] OQ-010：实现年度滚动选参回测实验
   说明：年度 walk-forward selection、final refit、synthetic continuous 与 Phase 2 candidate-only live smoke 均已完成。2021-2026 effective-window continuous 已作为研究复盘口径落地；PRD_06 又完成 2010+ 历史修复与 2021-2024 true-five-year refit 重跑，产出 true-five-year synthetic continuous 对比。PRD_07 live smoke 已验证 execution 粒度 fanout、state recovery、artifact skip 与 missing-matrix preflight。后续不再以“实现年度滚动”为 TODO；完整 2021-2026 live pipeline / Phase 3 需要 owner 另批，accepted baseline 迭代见单独 OQ-010 项。
 
