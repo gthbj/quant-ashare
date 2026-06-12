@@ -646,3 +646,11 @@
 ## 2026-06-12 - Ledger 分红送转记账修复 PRD 已新增
 
 - 分支 `claude/prd-ledger-corporate-actions` 新增 `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md`：PR #194 复权漏损量化触发预登记判据后，按约定立项。核心：`corporate_actions` 参数化（默认 `none_v1` 记账输出逐字节不变；`cash_div_and_split_v1` = 送转调股数 + `flat_10pct` 税后分红入账，tax-lot 列为非目标），正交于构造版本；Phase A DWD 事件表（`ods_tushare_dividend` canonical 聚合 + hfq 因子交叉校验硬门）→ Phase B ledger + 参数传播清单 + 默认回归 → Phase C true5y CA 重跑三方对照（六项偏差分解，验收卡 unexplained_residual）。排在 PRD_10 Phase 2 之前；Sharpe 单门通过不触发 accepted；baseline 数字是否切 CA 口径由 owner 在 Phase C 后决策。
+
+### 最新补充（2026-06-12）：Ledger 分红送转 Phase A 已落地并通过 QA
+
+- 分支 `codex/ledger-corporate-actions` 已按 `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md` Phase A 完成事件层实现：`sql/dwd/12_dwd_stock_dividend_event.sql` 从 `ods_tushare_dividend` 已实施事件 canonical 聚合到 `(sec_code, ex_date)`；`sql/qa/14_corporate_action_event_checks.sql` 落 `ashare_meta.qa_stock_dividend_event_hfq_mismatch`，并创建 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`。
+- OQ-015 owner 裁决已落实：不修 `stk_co_rate` 口径、不设人工 allowlist；hfq 对账保留 abs/rel 容差并叠加 `0.01 / prev_close` 的除权参考价舍入下限；mismatch 双向落表并自动归类，QA 硬门改为 `unclassified mismatch = 0`。
+- BigQuery 已执行并通过：`sql/meta/04_ods_field_unit_map.sql` job `bqjob_r4bf6b56437413e50_0000019ebb5cc600_1`；`sql/dwd/12_dwd_stock_dividend_event.sql` job `bqjob_r323943fdb6fe8d66_0000019ebb4706b9_1`；`sql/metadata/01_core_table_column_descriptions.sql` job `bqjob_r5bcddfc324d985c8_0000019ebb4741ce_1`；`sql/qa/05_unit_contract_checks.sql` job `bqjob_r63dbdce269a7fb79_0000019ebb5d3981_1`；`sql/qa/14_corporate_action_event_checks.sql` dry-run + real run job `bqjob_r1aadacca42b9e6_0000019ebb47ed1f_1`，`QA-CA-EVENT-1..6` 全部通过。
+- 落库结果：2010+ canonical events=`46431`、source rows=`46470`、同股同 ex_date 聚合键=`37`；2021+ QA 窗口 canonical events=`22009`、source rows=`22029`、同股同 ex_date 聚合键=`20`。mismatch 明细共 `1512` 行：event_to_factor `data_anomaly=1106`（其中 `missing_prev_price=1033`、`factor_jump_mismatch=73`）、`special_dividend=1`；factor_to_event `same_day_orphan_corporate_action=405`；`unclassified=0`。ledger-consumable view 行数=`46431`、未归类行=`0`。
+- 本阶段未改 ledger 代码，未写 ADS/research/promotion，不改变 accepted / baseline 状态。Phase B 仍需按 PRD 单独实现 `LedgerParams`、run loop CA 应用、resume/hash/QA 接线与默认逐字节回归。
