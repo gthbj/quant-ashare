@@ -6,6 +6,24 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-11）：PRD_10 自上而下整手构造代码准备已实现，尚未 live 跑数
+
+### 最新补充（2026-06-11）：PR #189 top-down lot-aware review follow-up 已修复
+
+- 按 Claude review 的 6 条发现完成修复：v1 语义保护（`ledger_params_hash` 对 topdown-only 参数隔离）、topdown 卖出回款仅在实际可卖情况下结算（避免 `SELL_SKIPPED_UNTRADABLE` 再入账）、topdown 需要 individual 风控 profile、`LedgerParams.cash_redistribution` 与 summary 统一为 `topdown_whole_order_skip_v2`，以及 `qa_topdown_construction_outputs` 的 topdown 专用断言增强。二轮复核指出 `QA-TOPDOWN-4` 第一版仍取当日 NAV，本轮已改为 `bt.trade_date -> cal -> prev -> nav.trade_date = prev.cal_date`。
+- 关键单测补齐：
+  - topdown marker 严格验证 only when individual guard enabled（diagnostic-only 不触发跳买）；
+  - 新增 topdown hash 依赖性测试（`walk_depth / position_floor_count / min_position_weight`）与 v1 hash 不变性测试；
+  - validate 约束测试防未启用 individual 风控，运行入口测试防 topdown cash redistribution 与 summary 自述分裂。
+- 全量验证通过：`tests/strategy1 + tests/strategy1_cloudrun` 共 `173` 项、`quant_ashare.strategy1.retired_lint`、`compileall`、`generate_sqlx_from_sql.py --check`、`git diff --check`。二轮修复后 focused pytest `58 passed`，`git diff --check` 通过。
+- `qa_topdown_construction_outputs.sql` 已按 research 口径渲染；本地 bq dry-run 因当前环境无活跃 gcloud account 受限，已由 Claude 在授权环境代跑通过。
+
+- 分支 `codex/topdown-lot-construction` 基于 `origin/main@a21cf97` 实现 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md` 的 Phase 1 代码准备：新增 Python ledger version `ledger_exec_v2_lot100_topdown` 与 resume policy `cloudrun_lot100_topdown_resume_v1`，通过 `backtest_report --use-topdown-ledger` 显式 opt-in；默认 `ledger_exec_v1_lot100` 不变。
+- v2 ledger 直接读取 `stock_candidate_daily.rank_raw <= walk_depth` 的 full ranked candidates，不再消费 `portfolio_target_daily` 的 TopN 等权目标作为构造输入；构造规则为自上而下按 rank 行走，新开仓最小权重默认 `1/position_floor_count=5%`，整手买入且禁止现金缩股，现金不足时从低排名整笔放弃买入。
+- P1 个股尾部风险在 v2 中是 profile 驱动的替换语义：只有 `tail_risk_profile_id` 启用 individual guard 时，`filter_reason LIKE 'tail_risk:%'` 的新增候选才会跳过并由后续排名顶上；`diagnostic_only` 下 marker 不会导致跳买。P2 market risk-off 则在 risk-off 次日跳过所有新增买入。持仓保留阈值统一为 `walk_depth`，超深度持仓必须卖出；若仍持有只能由 `SELL_SKIPPED_UNTRADABLE` / `PENDING_SELL_CARRY` 追溯。
+- 新增 `sql/strategy1/qa/qa_topdown_construction_outputs.sql` 并登记 catalog，由 `backtest_report` 在 topdown 模式自动运行；QA 覆盖 summary 参数、零 `FILLED_SCALED_CASH` / `BUY_SKIPPED_BELOW_LOT_AFTER_SCALE`、整手成交、最小新仓权重、full-rank 输入覆盖、P1 生效、非负现金/long-only、超深度持仓卖出失败追溯。`09` summary metrics_json 补记录 `portfolio_construction_method`、`position_floor_count`、`min_position_weight`、`walk_depth`、实际持仓数和最大单票权重统计，report/runbook 已同步展示。
+- 验证已通过：focused ledger/render/catalog tests、Strategy1/Cloud Run 全量 pytest、retired linter、compileall、Dataform SQLX check、`git diff --check`。本轮未重建镜像、未更新 Cloud Run jobs、未执行 BigQuery/Cloud Run live run；Phase 0 paper 原型、Phase 2 research-only continuous 重跑、三方对比和 owner accepted/promotion 决策仍未完成。
+
 ### 最新补充（2026-06-12）：Ledger 分红送转 Phase C research-only 重跑完成
 
 - 分支 `codex/ledger-corporate-actions` 已按 `PRD_20260612_02` Phase C 完成 true-five-year CA-on continuous 重跑。新 Cloud Run runner 镜像使用 one-off tag `ledger-ca-phasec-43404e6-20260612-01`，不可变 digest `sha256:769c8e911cc7c660f53cad3cbe3ea5f1a9f6dd502f6e188e7ebfa3dc001ab957`；未更新 `latest` tag。`strategy1-backtest-report-job` 仅 pin 到该 digest（generation `51`），boot smoke execution `strategy1-backtest-report-job-97b5v` 成功。

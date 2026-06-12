@@ -477,6 +477,26 @@ Run ID: `s1_annual_roll_synth_continuous_2021_2026_n20_w075_v20260610_02`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 
+
+> 当前交接补充（2026-06-11，GPT-5 Codex，PR #189 top-down review follow-up）
+> - 按 Claude comment 全量处理 PR #189 发现并补齐：
+>   1) 修复 v1 与 topdown 的参数哈希口径（`walk_depth / min_position_weight / position_floor_count` 仅在 topdown 加入；v1 不变）；
+>   2) `ledger_exec_v2_lot100_topdown` 中仅 `can_sell` 时才回收卖出现金，避免未卖出却回款；
+>   3) topdown 强制 require individual 风控 profile（`validate_ledger_params` 拦截）；
+>   4) `qa_topdown_construction_outputs.sql` 从 `QA-TOPDOWN-6` 起补充 topdown 专用约束与 hard gate（topdown profile 必须个券风险、tail risk 标记存在、标记日不得 fill BUY、候选输入覆盖 full-rank、NAV 前一天对齐检查）；二轮复核指出第一版 NAV 子查询仍取 `bt.trade_date` 当天，本轮已改为显式 `cal -> prev -> nav.trade_date = prev.cal_date` join；
+>   5) topdown `LedgerParams.cash_redistribution` 已收敛到 `topdown_whole_order_skip_v2`，与 summary 自述一致；v1 仍保持 `none_v1`；
+>   6) 增强测试覆盖 `BUY_SKIPPED_TAIL_RISK`、topdown hash 回归、v1 hash 不变、topdown cash redistribution 运行参数和错误口径 fail-fast。
+> - 验证：`tests/strategy1_cloudrun/test_lot_aware_ledger.py` + `tests/strategy1_cloudrun/test_dataset_role_routing.py` + `tests/strategy1/test_sql_render.py` focused pytest 58 passed、`git diff --check` 通过；此前全量 `tests/strategy1 + tests/strategy1_cloudrun` 173 passed、retired linter、compileall、Dataform SQLX check 通过；BigQuery 只读 dry-run 已由 Claude 在授权环境代跑通过。
+> - 本次修改不改默认 v1（`ledger_exec_v1_lot100`）语义，不改全局 tail-risk profile，不 promotion，未做 live BigQuery/Cloud Run 写入。
+
+> 当前交接补充（2026-06-11，GPT-5 Codex，PRD_10 code prep）
+> - 分支 `codex/topdown-lot-construction` 基于 `origin/main@a21cf97` 实现 PRD_20260611_10 Phase 1 代码准备：新增 `ledger_exec_v2_lot100_topdown` / `cloudrun_lot100_topdown_resume_v1`，由 `backtest_report --use-topdown-ledger` 显式 opt-in，默认 `ledger_exec_v1_lot100` 不变。
+> - v2 ledger 直接读取 `stock_candidate_daily.rank_raw <= walk_depth` 的 full ranked candidates；`portfolio_target_daily` / `order_plan_daily` 仍是兼容产物，不作为 v2 构造输入。构造按 rank 自上而下行走，新开仓最小权重默认 5%，整手买入，禁止 `FILLED_SCALED_CASH`，现金不足时按低排名整笔放弃买入。
+> - P1 语义已按 profile 绑定：只有启用 individual guard 时 `tail_risk:*` 新增候选才跳过并由后续排名顶上；`diagnostic_only` 下 marker 不触发跳买。P2 risk-off 次日跳过所有新增买入。持仓保留阈值统一 `walk_depth`；超深度持仓必须卖出，仍持有必须追溯到 `SELL_SKIPPED_UNTRADABLE` / `PENDING_SELL_CARRY`。
+> - 新增 `qa_topdown_construction_outputs` 并登记 catalog；`09` summary metrics_json、Markdown report 和 Cloud Run runbook 已同步记录/展示 topdown 参数、实际持仓数和最大单票权重。验证：Strategy1/Cloud Run 全量 pytest、retired linter、compileall、Dataform SQLX check、`git diff --check` 通过。本轮未部署镜像、未执行 BigQuery/Cloud Run live run；Phase 0 paper、Phase 2 research-only continuous 和 owner 决策仍待办。
+>
+> Model: GPT-5 Codex
+
 > 当前交接补充（2026-06-11，Claude Fable 5，PRD_10）
 > - 新增 `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`：针对 PR #186 确认的结构性现金拖累（10 万 + 整手 + 等权 5% + 无再分配 → 25% 买单跳过、现金均值 29.4%），owner 决定重新设计构造规则而非修复等权。
 > - 核心规则：自上而下贪心买入，新开仓最小权重 5%（`position_floor_count=20` 仅作门槛基数，`target_holdings` 退役为观测指标 `realized_holdings_count`）；**无单票上限**（owner 决策 2026-06-11）；`walk_depth=50` 统一买入深度与卖出保留阈值；P1 六条规则以"跳过→下一名顶上"替换语义绑定进构造（实现红线：禁止复用 ledger 层跳过留现金语义，防止复活 #179 A1 的现金拖累）；可负担性与 P1 标记均只约束新增买入、不强制卖出。

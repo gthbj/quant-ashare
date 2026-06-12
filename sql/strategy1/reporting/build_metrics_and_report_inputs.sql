@@ -24,6 +24,10 @@ DECLARE p_ledger_version STRING DEFAULT 'ledger_exec_v1';
 DECLARE p_ledger_executor STRING DEFAULT 'bigquery_sql';
 DECLARE p_lot_size INT64 DEFAULT NULL;
 DECLARE p_min_buy_lot INT64 DEFAULT NULL;
+DECLARE p_position_floor_count INT64 DEFAULT 20;
+DECLARE p_min_position_weight FLOAT64 DEFAULT 0.05;
+DECLARE p_walk_depth INT64 DEFAULT 50;
+DECLARE p_portfolio_construction_method STRING DEFAULT 'equal_weight_v1';
 DECLARE p_predict_start DATE DEFAULT DATE '2024-01-01';
 DECLARE p_predict_end DATE DEFAULT DATE '2025-12-31';
 DECLARE p_initial_capital FLOAT64 DEFAULT 100000.0;
@@ -152,6 +156,26 @@ WHERE t.backtest_id = p_backtest_id
   AND t.fill_status IN ('FILLED', 'FILLED_SCALED_CASH')
   AND t.trade_date BETWEEN p_predict_start AND p_predict_end;
 
+CREATE TEMP TABLE position_stats AS
+WITH daily AS (
+  SELECT
+    pos.trade_date,
+    COUNT(*) AS realized_holdings_count,
+    MAX(pos.weight) AS max_realized_weight
+  FROM `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+  WHERE pos.backtest_id = p_backtest_id
+    AND pos.trade_date BETWEEN p_predict_start AND p_predict_end
+  GROUP BY pos.trade_date
+)
+SELECT
+  AVG(realized_holdings_count) AS avg_realized_holdings_count,
+  MIN(realized_holdings_count) AS min_realized_holdings_count,
+  MAX(realized_holdings_count) AS max_realized_holdings_count,
+  AVG(max_realized_weight) AS avg_max_realized_weight,
+  APPROX_QUANTILES(max_realized_weight, 100)[SAFE_OFFSET(95)] AS p95_max_realized_weight,
+  MAX(max_realized_weight) AS max_realized_weight
+FROM daily;
+
 -- 汇总绩效
 INSERT INTO `data-aquarium.ashare_ads.ads_backtest_performance_summary`
 (backtest_id, strategy_id, model_id, run_id, start_date, end_date,
@@ -273,12 +297,17 @@ SELECT
     -- ledger_exec_v1 成交口径（与 ads_backtest_trade_daily 1:1 可对账）
     p_ledger_version AS ledger_version,
     p_ledger_executor AS ledger_executor,
-    IF(p_ledger_version = 'ledger_exec_v1_lot100', p_lot_size, NULL) AS lot_size,
-    IF(p_ledger_version = 'ledger_exec_v1_lot100', p_min_buy_lot, NULL) AS min_buy_lot,
-    IF(p_ledger_version = 'ledger_exec_v1_lot100', 'floor_to_lot', NULL) AS buy_rounding,
-    IF(p_ledger_version = 'ledger_exec_v1_lot100', 'allow_full_exit_odd_lot', NULL) AS sell_odd_lot_policy,
-    IF(p_ledger_version = 'ledger_exec_v1_lot100', 'floor_to_lot_keep_residual', NULL) AS partial_sell_rounding,
-    IF(p_ledger_version = 'ledger_exec_v1_lot100', 'none_v1', NULL) AS cash_redistribution,
+    IF(p_ledger_version IN ('ledger_exec_v1_lot100', 'ledger_exec_v2_lot100_topdown'), p_lot_size, NULL) AS lot_size,
+    IF(p_ledger_version IN ('ledger_exec_v1_lot100', 'ledger_exec_v2_lot100_topdown'), p_min_buy_lot, NULL) AS min_buy_lot,
+    IF(p_ledger_version IN ('ledger_exec_v1_lot100', 'ledger_exec_v2_lot100_topdown'), 'floor_to_lot', NULL) AS buy_rounding,
+    IF(p_ledger_version IN ('ledger_exec_v1_lot100', 'ledger_exec_v2_lot100_topdown'), 'allow_full_exit_odd_lot', NULL) AS sell_odd_lot_policy,
+    IF(p_ledger_version IN ('ledger_exec_v1_lot100', 'ledger_exec_v2_lot100_topdown'), 'floor_to_lot_keep_residual', NULL) AS partial_sell_rounding,
+    IF(p_ledger_version = 'ledger_exec_v2_lot100_topdown', 'topdown_whole_order_skip_v2',
+      IF(p_ledger_version = 'ledger_exec_v1_lot100', 'none_v1', NULL)) AS cash_redistribution,
+    p_portfolio_construction_method AS portfolio_construction_method,
+    IF(p_ledger_version = 'ledger_exec_v2_lot100_topdown', p_position_floor_count, NULL) AS position_floor_count,
+    IF(p_ledger_version = 'ledger_exec_v2_lot100_topdown', p_min_position_weight, NULL) AS min_position_weight,
+    IF(p_ledger_version = 'ledger_exec_v2_lot100_topdown', p_walk_depth, NULL) AS walk_depth,
     'signal_date_next_open_execution' AS execution_semantics,
     p_initial_state_mode AS initial_state_mode,
     p_parent_backtest_id AS parent_backtest_id,
@@ -309,6 +338,12 @@ SELECT
     ss.corporate_action_cash_effect_cny,
     ss.corporate_action_dividend_tax_cny,
     SAFE_DIVIDE(CAST(ss.sell_skipped_count AS FLOAT64), NULLIF(ss.sell_attempt_count, 0)) AS sell_skip_rate,
+    ps.avg_realized_holdings_count,
+    ps.min_realized_holdings_count,
+    ps.max_realized_holdings_count,
+    ps.avg_max_realized_weight,
+    ps.p95_max_realized_weight,
+    ps.max_realized_weight,
     a.total_turnover, a.total_cost,
     -- OQ-010 成本 profile
     p_cost_profile_id AS cost_profile_id,
@@ -327,7 +362,7 @@ SELECT
   )),
   CURRENT_DATE(),
   CURRENT_TIMESTAMP()
-FROM annualized AS a, drawdown AS dd, sell_stats AS ss, cost_stats AS cs;
+FROM annualized AS a, drawdown AS dd, sell_stats AS ss, cost_stats AS cs, position_stats AS ps;
 
 -- 信号监控（t+1 可买性）
 INSERT INTO `data-aquarium.ashare_ads.ads_signal_monitor_daily`

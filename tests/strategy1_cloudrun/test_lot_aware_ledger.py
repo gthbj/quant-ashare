@@ -12,10 +12,13 @@ import pytest
 
 import quant_ashare.strategy1.ledger as ledger_mod
 from scripts.strategy1_cloudrun.ledger import (
+    CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2,
     CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT,
     CORPORATE_ACTIONS_NONE,
     DIVIDEND_TAX_FLAT_10PCT,
     LEDGER_VERSION_LOT100,
+    LEDGER_VERSION_TOPDOWN_LOT100,
+    RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100,
     RESUME_POLICY_CLOUDRUN_LOT100,
     LedgerParams,
     PlanRow,
@@ -39,6 +42,21 @@ def params() -> LedgerParams:
         backtest_id="unit_backtest",
         ledger_version=LEDGER_VERSION_LOT100,
     )
+
+
+def topdown_params(**overrides) -> LedgerParams:
+    values = {
+        "project": "data-aquarium",
+        "run_id": "unit_run",
+        "backtest_id": "unit_backtest",
+        "ledger_version": LEDGER_VERSION_TOPDOWN_LOT100,
+        "cash_redistribution": CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2,
+        "resume_policy_id": RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100,
+        "position_floor_count": 20,
+        "walk_depth": 3,
+    }
+    values.update(overrides)
+    return LedgerParams(**values)
 
 
 def row(
@@ -162,6 +180,7 @@ class LotAwareLedgerTest(unittest.TestCase):
         plan = build_daily_plan(
             dt.date(2026, 1, 5),
             True,
+            0.0,
             {"000001.SZ": 75.0},
             {},
             set(),
@@ -188,6 +207,7 @@ class LotAwareLedgerTest(unittest.TestCase):
         plan = build_daily_plan(
             dt.date(2026, 1, 5),
             True,
+            0.0,
             {"000001.SZ": 150.0},
             {"000001.SZ": {"target_weight": 2 / 3, "rank_raw": 1}},
             set(),
@@ -213,6 +233,7 @@ class LotAwareLedgerTest(unittest.TestCase):
         day1_plan = build_daily_plan(
             dt.date(2026, 1, 5),
             True,
+            0.0,
             {"000001.SZ": 100.0},
             {},
             set(),
@@ -234,6 +255,7 @@ class LotAwareLedgerTest(unittest.TestCase):
         day2_plan = build_daily_plan(
             dt.date(2026, 1, 6),
             False,
+            0.0,
             {"000001.SZ": 100.0},
             {},
             pending,
@@ -248,6 +270,221 @@ class LotAwareLedgerTest(unittest.TestCase):
         self.assertEqual(day2_trades[0]["fill_status"], "FILLED")
         self.assertEqual(day2_trades[0]["filled_shares"], 100.0)
         self.assertEqual(update_pending_sell(day2_plan, False), set())
+
+    def test_topdown_buys_minimum_lots_by_rank_without_cash_scaling(self):
+        p = topdown_params(walk_depth=4, tail_risk_profile_id="individual_risk_guard_v0")
+        price_book = FakePriceBook({
+            "000001.SZ": {"open": 10.0, "close": 10.0, "can_buy_open": True, "can_sell_open": True},
+            "000002.SZ": {"open": 50.0, "close": 50.0, "can_buy_open": True, "can_sell_open": True},
+            "000003.SZ": {"open": 40.0, "close": 40.0, "can_buy_open": True, "can_sell_open": True},
+            "000004.SZ": {"open": 8.0, "close": 8.0, "can_buy_open": True, "can_sell_open": True},
+        })
+        candidates = {
+            "000001.SZ": {"rank_raw": 1, "filter_reason": None},
+            "000002.SZ": {"rank_raw": 2, "filter_reason": "tail_risk:ret_20d_lt_30pct"},
+            "000003.SZ": {"rank_raw": 3, "filter_reason": None},
+            "000004.SZ": {"rank_raw": 4, "filter_reason": None},
+        }
+
+        plan = build_daily_plan(
+            dt.date(2026, 1, 5),
+            True,
+            13_200.0,
+            {},
+            candidates,
+            set(),
+            set(),
+            False,
+            100_000.0,
+            price_book,
+            p,
+        )
+        cash, trades = execute_plan(dt.date(2026, 1, 5), 13_200.0, plan, p, is_rebalance=True)
+
+        by_sec = {trade["sec_code"]: trade for trade in trades}
+        self.assertEqual(by_sec["000001.SZ"]["fill_status"], "FILLED")
+        self.assertEqual(by_sec["000001.SZ"]["filled_shares"], 500.0)
+        self.assertEqual(by_sec["000002.SZ"]["fill_status"], "BUY_SKIPPED_TAIL_RISK")
+        self.assertEqual(by_sec["000003.SZ"]["fill_status"], "FILLED")
+        self.assertEqual(by_sec["000003.SZ"]["filled_shares"], 200.0)
+        self.assertNotIn("000004.SZ", by_sec)
+        self.assertNotIn("FILLED_SCALED_CASH", {trade["fill_status"] for trade in trades})
+        self.assertGreaterEqual(cash, 0.0)
+        self.assertEqual(update_holdings(plan), {"000001.SZ": 500.0, "000003.SZ": 200.0})
+
+    def test_topdown_tail_risk_marker_only_skips_when_individual_guard_enabled(self):
+        p = topdown_params(walk_depth=1, tail_risk_profile_id="individual_risk_guard_v0")
+        price_book = FakePriceBook({
+            "000001.SZ": {"open": 50.0, "close": 50.0, "can_buy_open": True, "can_sell_open": True},
+        })
+        candidates = {
+            "000001.SZ": {"rank_raw": 1, "filter_reason": "tail_risk:ret_20d_lt_30pct"},
+        }
+
+        plan = build_daily_plan(
+            dt.date(2026, 1, 5),
+            True,
+            10_000.0,
+            {},
+            candidates,
+            set(),
+            set(),
+            False,
+            100_000.0,
+            price_book,
+            p,
+        )
+        _, trades = execute_plan(dt.date(2026, 1, 5), 10_000.0, plan, p, is_rebalance=True)
+
+        self.assertEqual(trades[0]["fill_status"], "BUY_SKIPPED_TAIL_RISK")
+        self.assertEqual(trades[0]["filled_shares"], 0.0)
+
+
+def test_topdown_require_individual_risk_guard_profile() -> None:
+    params = LedgerParams(
+        project="data-aquarium",
+        run_id="unit_run",
+        backtest_id="unit_backtest",
+        ledger_version=LEDGER_VERSION_TOPDOWN_LOT100,
+        cash_redistribution=CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2,
+        resume_policy_id=RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100,
+    )
+
+    with pytest.raises(ValueError, match="topdown ledger requires individual tail-risk guard profile"):
+        validate_ledger_params(params)
+
+
+def test_topdown_rejects_v1_cash_redistribution_label() -> None:
+    params = LedgerParams(
+        project="data-aquarium",
+        run_id="unit_run",
+        backtest_id="unit_backtest",
+        ledger_version=LEDGER_VERSION_TOPDOWN_LOT100,
+        resume_policy_id=RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100,
+        tail_risk_profile_id="individual_risk_guard_v0",
+    )
+
+    with pytest.raises(ValueError, match="expected topdown_whole_order_skip_v2"):
+        validate_ledger_params(params)
+
+
+def test_topdown_ledger_hash_depends_on_topdown_fields() -> None:
+    topdown = LedgerParams(
+        project="data-aquarium",
+        run_id="unit_run",
+        backtest_id="unit_backtest",
+        ledger_version=LEDGER_VERSION_TOPDOWN_LOT100,
+        cash_redistribution=CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2,
+        walk_depth=50,
+        position_floor_count=20,
+        min_position_weight=0.05,
+    )
+    shifted_topdown = LedgerParams(
+        project="data-aquarium",
+        run_id="unit_run",
+        backtest_id="unit_backtest",
+        ledger_version=LEDGER_VERSION_TOPDOWN_LOT100,
+        cash_redistribution=CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2,
+        walk_depth=20,
+        position_floor_count=20,
+        min_position_weight=0.05,
+    )
+    floor_count_override = LedgerParams(
+        project="data-aquarium",
+        run_id="unit_run",
+        backtest_id="unit_backtest",
+        ledger_version=LEDGER_VERSION_TOPDOWN_LOT100,
+        cash_redistribution=CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2,
+        walk_depth=50,
+        position_floor_count=30,
+        min_position_weight=0.05,
+    )
+
+    assert ledger_params_hash(topdown) != ledger_params_hash(shifted_topdown)
+    assert ledger_params_hash(topdown) != ledger_params_hash(floor_count_override)
+
+
+def test_v1_ledger_hash_ignores_topdown_only_fields() -> None:
+    v1 = LedgerParams(
+        project="data-aquarium",
+        run_id="unit_run",
+        backtest_id="unit_backtest",
+        ledger_version="ledger_exec_v1_lot100",
+        walk_depth=50,
+        position_floor_count=20,
+        min_position_weight=0.05,
+    )
+    v1_shifted = LedgerParams(
+        project="data-aquarium",
+        run_id="unit_run",
+        backtest_id="unit_backtest",
+        ledger_version="ledger_exec_v1_lot100",
+        walk_depth=20,
+        position_floor_count=30,
+        min_position_weight=0.05,
+    )
+    v1_implicit = LedgerParams(
+        project="data-aquarium",
+        run_id="unit_run",
+        backtest_id="unit_backtest",
+        ledger_version="ledger_exec_v1_lot100",
+        walk_depth=20,
+        position_floor_count=30,
+        min_position_weight=None,
+    )
+
+    assert ledger_params_hash(v1) == ledger_params_hash(v1_shifted)
+    assert ledger_params_hash(v1) == ledger_params_hash(v1_implicit)
+
+def test_topdown_over_depth_holding_must_sell_or_record_sell_skip() -> None:
+    p = topdown_params(walk_depth=2)
+    price_book = FakePriceBook({
+        "000001.SZ": {"open": 10.0, "close": 10.0, "can_buy_open": True, "can_sell_open": True},
+        "000099.SZ": {"open": 20.0, "close": 20.0, "can_buy_open": True, "can_sell_open": False},
+    })
+    candidates = {
+        "000001.SZ": {"rank_raw": 1, "filter_reason": None},
+        "000099.SZ": {"rank_raw": 5, "filter_reason": None},
+    }
+
+    plan = build_daily_plan(
+        dt.date(2026, 1, 5),
+        True,
+        0.0,
+        {"000099.SZ": 100.0},
+        candidates,
+        set(),
+        set(),
+        False,
+        100_000.0,
+        price_book,
+        p,
+    )
+    _, trades = execute_plan(dt.date(2026, 1, 5), 0.0, plan, p, is_rebalance=True)
+
+    assert trades[0]["side"] == "SELL"
+    assert trades[0]["fill_status"] == "SELL_SKIPPED_UNTRADABLE"
+    assert trades[1]["side"] == "BUY"
+    assert trades[1]["fill_status"] == "BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING"
+    assert update_holdings(plan) == {"000099.SZ": 100.0}
+    assert update_pending_sell(plan, True) == {"000099.SZ"}
+
+
+def test_topdown_cash_shortfall_drops_whole_lower_rank_buy_without_scaling() -> None:
+    p = topdown_params()
+    plan = [
+        row("000001.SZ", open_price=50.0, want_value=9_000.0, rank_raw=1),
+        row("000002.SZ", open_price=50.0, want_value=9_000.0, rank_raw=2),
+    ]
+
+    cash, trades = execute_plan(dt.date(2026, 1, 5), 10_000.0, plan, p, is_rebalance=True)
+
+    statuses = {trade["sec_code"]: trade["fill_status"] for trade in trades}
+    assert statuses["000001.SZ"] == "FILLED"
+    assert statuses["000002.SZ"] == "BUY_SKIPPED_CASH_INSUFFICIENT_AFTER_ROUNDING"
+    assert "FILLED_SCALED_CASH" not in set(statuses.values())
+    assert cash >= 0.0
+    assert update_holdings(plan) == {"000001.SZ": 100.0}
 
 
 if __name__ == "__main__":

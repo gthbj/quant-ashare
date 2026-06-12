@@ -21,11 +21,15 @@ from scripts.strategy1_cloudrun.config import (
 )
 from quant_ashare.strategy1.ledger import LedgerParams, run_ledger
 from quant_ashare.strategy1.ledger import (
+    LEDGER_VERSION_FLOAT,
+    LEDGER_VERSION_LOT100,
+    LEDGER_VERSION_TOPDOWN_LOT100,
+    RESUME_POLICY_CLOUDRUN_LOT100,
+    RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100,
+    cash_redistribution_id_for_ledger_version,
     CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT,
     CORPORATE_ACTIONS_NONE,
     DIVIDEND_TAX_FLAT_10PCT,
-    LEDGER_VERSION_FLOAT,
-    LEDGER_VERSION_LOT100,
 )
 from quant_ashare.strategy1.dataset_roles import allow_future_research, output_dataset_role_cli_args
 from quant_ashare.strategy1.sql_runner import resolve_sql_step_path, run_sql_step
@@ -42,7 +46,10 @@ def main() -> int:
     args = parse_args()
     config = apply_cli_overrides(load_runner_config(args.config), args)
     experiment = resolve_experiment(args)
-    execution_backend, ledger_executor, ledger_version = resolve_backend_tags(args.use_float_ledger)
+    execution_backend, ledger_executor, ledger_version = resolve_backend_tags(
+        args.use_float_ledger,
+        args.use_topdown_ledger,
+    )
     plan = {
         "entrypoint": "backtest_report",
         "execution_backend": execution_backend,
@@ -50,6 +57,9 @@ def main() -> int:
         "ledger_executor": ledger_executor,
         "lot_size": None if ledger_version == LEDGER_VERSION_FLOAT else args.lot_size,
         "min_buy_lot": None if ledger_version == LEDGER_VERSION_FLOAT else args.min_buy_lot,
+        "position_floor_count": args.position_floor_count if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100 else None,
+        "min_position_weight": topdown_min_position_weight(args) if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100 else None,
+        "walk_depth": args.walk_depth if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100 else None,
         "corporate_actions": experiment.corporate_actions,
         "dividend_tax_mode": experiment.dividend_tax_mode,
         "project": config.project,
@@ -79,8 +89,10 @@ def main() -> int:
         run_subprocess(report_command(config, experiment, args.skip_gcs_upload))
     if not args.skip_qa:
         job_ids.append(run_catalog_step(client, "qa_runner_outputs", sql_params, config.output_dataset_role))
-        if ledger_version == LEDGER_VERSION_LOT100:
+        if ledger_version in {LEDGER_VERSION_LOT100, LEDGER_VERSION_TOPDOWN_LOT100}:
             job_ids.append(run_catalog_step(client, "qa_lot_aware_ledger_outputs", sql_params, config.output_dataset_role))
+        if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100:
+            job_ids.append(run_catalog_step(client, "qa_topdown_construction_outputs", sql_params, config.output_dataset_role))
         job_ids.append(run_catalog_step(client, "qa_corporate_action_ledger_outputs", sql_params, config.output_dataset_role))
     if not args.skip_diagnosis:
         run_subprocess(diagnosis_command(config, experiment, args.skip_gcs_upload))
@@ -113,8 +125,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-tail-risk", action="store_true")
     parser.add_argument("--skip-qa", action="store_true")
     parser.add_argument("--use-float-ledger", action="store_true", help="Explicit legacy/audit Python float-share ledger")
+    parser.add_argument("--use-topdown-ledger", action="store_true", help="Use ledger_exec_v2_lot100_topdown construction")
     parser.add_argument("--lot-size", type=int, default=100)
     parser.add_argument("--min-buy-lot", type=int, default=1)
+    parser.add_argument("--position-floor-count", type=int, default=20)
+    parser.add_argument("--min-position-weight", type=float, default=None)
+    parser.add_argument("--walk-depth", type=int, default=50)
     parser.add_argument("--initial-state-mode", choices=["fresh", "resume_from_backtest"], default=None)
     parser.add_argument("--parent-backtest-id", default=None)
     parser.add_argument("--state-as-of-date", default=None)
@@ -164,9 +180,13 @@ def resolve_experiment(args: argparse.Namespace) -> Experiment:
     return exp
 
 
-def resolve_backend_tags(use_float_ledger: bool = False) -> tuple[str, str, str]:
+def resolve_backend_tags(use_float_ledger: bool = False, use_topdown_ledger: bool = False) -> tuple[str, str, str]:
+    if use_float_ledger and use_topdown_ledger:
+        raise ValueError("--use-float-ledger and --use-topdown-ledger are mutually exclusive")
     if use_float_ledger:
         return "cloud_run_sklearn_ledger_v1_legacy_float", "cloud_run_python", LEDGER_VERSION_FLOAT
+    if use_topdown_ledger:
+        return "cloud_run_sklearn_ledger_v2_lot100_topdown", "cloud_run_python", LEDGER_VERSION_TOPDOWN_LOT100
     return "cloud_run_sklearn_ledger_v1_lot100", "cloud_run_python", LEDGER_VERSION_LOT100
 
 
@@ -176,7 +196,9 @@ def build_sql_params(
     use_float_ledger: bool,
     args: argparse.Namespace,
 ) -> dict[str, object]:
-    execution_backend, ledger_executor, ledger_version = resolve_backend_tags(use_float_ledger)
+    use_topdown_ledger = bool(getattr(args, "use_topdown_ledger", False))
+    execution_backend, ledger_executor, ledger_version = resolve_backend_tags(use_float_ledger, use_topdown_ledger)
+    resume_policy_id = effective_resume_policy_id(exp, ledger_version)
     return {
         "p_run_id": exp.run_id,
         "p_prediction_run_id": exp.prediction_run_id,
@@ -226,7 +248,13 @@ def build_sql_params(
         "p_initial_state_mode": exp.initial_state_mode,
         "p_parent_backtest_id": exp.parent_backtest_id,
         "p_state_as_of_date": exp.state_as_of_date,
-        "p_resume_policy_id": exp.resume_policy_id,
+        "p_resume_policy_id": resume_policy_id,
+        "p_position_floor_count": getattr(args, "position_floor_count", 20),
+        "p_min_position_weight": topdown_min_position_weight(args),
+        "p_walk_depth": getattr(args, "walk_depth", 50),
+        "p_portfolio_construction_method": (
+            "topdown_lot100_v2" if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100 else "equal_weight_v1"
+        ),
         "p_corporate_actions": exp.corporate_actions,
         "p_dividend_tax_mode": exp.dividend_tax_mode,
         "p_share_tolerance": 1e-6,
@@ -249,6 +277,7 @@ def build_ledger_params(
     ledger_version: str,
     args: argparse.Namespace,
 ) -> LedgerParams:
+    resume_policy_id = effective_resume_policy_id(exp, ledger_version)
     return LedgerParams(
         project=config.project,
         run_id=exp.run_id,
@@ -259,6 +288,7 @@ def build_ledger_params(
         ledger_version=ledger_version,
         lot_size=args.lot_size,
         min_buy_lot=args.min_buy_lot,
+        cash_redistribution=cash_redistribution_id_for_ledger_version(ledger_version),
         force_replace=force_replace,
         rebalance_frequency=exp.rebalance_frequency,
         target_holdings=exp.target_holdings,
@@ -268,13 +298,29 @@ def build_ledger_params(
         initial_state_mode=exp.initial_state_mode,
         parent_backtest_id=exp.parent_backtest_id,
         state_as_of_date=exp.state_as_of_date,
-        resume_policy_id=exp.resume_policy_id,
+        resume_policy_id=resume_policy_id,
         rebalance_anchor_start=exp.rebalance_anchor_start,
         corporate_actions=exp.corporate_actions,
         dividend_tax_mode=exp.dividend_tax_mode,
         tail_risk_profile_id=exp.tail_risk_profile_id,
         market_state_version=exp.market_state_version,
+        position_floor_count=getattr(args, "position_floor_count", 20),
+        min_position_weight=topdown_min_position_weight(args),
+        walk_depth=getattr(args, "walk_depth", 50),
     )
+
+
+def topdown_min_position_weight(args: argparse.Namespace) -> float:
+    explicit = getattr(args, "min_position_weight", None)
+    if explicit is not None:
+        return float(explicit)
+    return 1.0 / float(getattr(args, "position_floor_count", 20))
+
+
+def effective_resume_policy_id(exp: Experiment, ledger_version: str) -> str:
+    if ledger_version == LEDGER_VERSION_TOPDOWN_LOT100 and exp.resume_policy_id == RESUME_POLICY_CLOUDRUN_LOT100:
+        return RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100
+    return exp.resume_policy_id
 
 
 def report_command(config, exp: Experiment, skip_gcs_upload: bool) -> list[str]:

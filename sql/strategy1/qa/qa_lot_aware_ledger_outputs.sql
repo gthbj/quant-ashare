@@ -31,7 +31,11 @@ ASSERT (
     AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.buy_rounding') = 'floor_to_lot', FALSE))
     AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.sell_odd_lot_policy') = 'allow_full_exit_odd_lot', FALSE))
     AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.partial_sell_rounding') = 'floor_to_lot_keep_residual', FALSE))
-    AND LOGICAL_AND(IFNULL(JSON_VALUE(bs.metrics_json, '$.cash_redistribution') = 'none_v1', FALSE))
+    AND LOGICAL_AND(IFNULL(
+      (p_ledger_version = 'ledger_exec_v1_lot100' AND JSON_VALUE(bs.metrics_json, '$.cash_redistribution') = 'none_v1')
+      OR (p_ledger_version = 'ledger_exec_v2_lot100_topdown' AND JSON_VALUE(bs.metrics_json, '$.cash_redistribution') = 'topdown_whole_order_skip_v2'),
+      FALSE
+    ))
     AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.corporate_actions'), 'none_v1') = p_corporate_actions)
     AND LOGICAL_AND(COALESCE(JSON_VALUE(bs.metrics_json, '$.dividend_tax_mode'), 'flat_10pct') = p_dividend_tax_mode)
   FROM `data-aquarium.ashare_ads.ads_backtest_performance_summary` AS bs
