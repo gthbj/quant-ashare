@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Strategy1 top-down lot-aware Phase 0 paper prototype."""
+"""Read-only Strategy1 top-down lot-aware P1 rule repair paper prototype."""
 
 from __future__ import annotations
 
@@ -46,15 +46,21 @@ DEFAULT_WALK_DEPTHS = (30, 50)
 DEFAULT_COST_BPS = (0.0, 20.0)
 DEFAULT_MATCHED_BUY_COST_BPS = 6.0
 DEFAULT_MATCHED_SELL_COST_BPS = 11.0
-DEFAULT_REPORT_MD = "docs/分析-策略1自上而下整手组合Phase0-20260612.md"
-DEFAULT_METRICS_CSV = "docs/analysis_strategy1_topdown_lot_phase0_20260612_metrics.csv"
-DEFAULT_DAILY_CSV = "docs/analysis_strategy1_topdown_lot_phase0_20260612_daily.csv"
-DEFAULT_AUDIT_CSV = "docs/analysis_strategy1_topdown_lot_phase0_20260612_rebalance_audit.csv"
+DEFAULT_REPORT_MD = "docs/分析-策略1P1市值规则修复双选项-20260613.md"
+DEFAULT_METRICS_CSV = "docs/analysis_strategy1_p1_market_cap_rules_20260613_metrics.csv"
+DEFAULT_DAILY_CSV = "docs/analysis_strategy1_p1_market_cap_rules_20260613_daily.csv"
+DEFAULT_AUDIT_CSV = "docs/analysis_strategy1_p1_market_cap_rules_20260613_rebalance_audit.csv"
 DEFAULT_PRD09_TRANSFER_CSV = "docs/analysis_strategy1_transfer_ladder_20260611_results.csv"
 DEFAULT_ARTIFACT_GCS_URI = (
-    "gs://ashare-artifacts/reports/strategy1/topdown_phase0/analysis_date=20260612"
+    "gs://ashare-artifacts/reports/strategy1/p1_market_cap_rules/analysis_date=20260613"
 )
 MATCHED_COST_PROFILE_ID = "matched_official_6_11bps"
+MAIN_PANEL_ID = "main_threshold_0p60"
+THRESHOLD_SENSITIVITY_PREFIX = "threshold_sensitivity_"
+MAIN_SATURATION_THRESHOLD = 0.60
+SENSITIVITY_SATURATION_THRESHOLDS = (0.50, 0.70)
+MAIN_ARMS = ("T0", "T1", "T1a", "T1b1", "T1b2")
+REPAIR_ARMS = ("T1a", "T1b1", "T1b2")
 CRUNCH_START = "2024-01-01"
 CRUNCH_END = "2024-02-07"
 TRADING_DAYS_PER_YEAR = 252.0
@@ -78,6 +84,16 @@ P1_RULE_FIELDS = (
     "total_mv_cny",
     "circ_mv_cny",
 )
+P1_MARKET_CAP_FIELDS = frozenset({"total_mv_cny", "circ_mv_cny"})
+P1_SHAPE_FIELDS = frozenset(set(P1_RULE_FIELDS) - set(P1_MARKET_CAP_FIELDS))
+P1_REASON_GROUPS = {
+    "tail_risk:ret_20d_lt_30pct": "shape",
+    "tail_risk:drawdown_20d_lt_30pct": "shape",
+    "tail_risk:limit_down_days_20d_gte_2": "shape",
+    "tail_risk:one_word_limit_days_20d_gte_1": "shape",
+    "tail_risk:total_mv_lt_30e8": "market_cap",
+    "tail_risk:circ_mv_lt_20e8": "market_cap",
+}
 
 
 @dataclass(frozen=True)
@@ -114,6 +130,8 @@ class Phase0Config:
     matched_sell_cost_bps: float = DEFAULT_MATCHED_SELL_COST_BPS
     include_matched_cost: bool = True
     artifact_gcs_uri: str | None = DEFAULT_ARTIFACT_GCS_URI
+    saturation_threshold: float = MAIN_SATURATION_THRESHOLD
+    sensitivity_saturation_thresholds: tuple[float, ...] = SENSITIVITY_SATURATION_THRESHOLDS
 
     @property
     def min_position_weight(self) -> float:
@@ -152,6 +170,10 @@ class PortfolioState:
 
 def fmt_cost_id(value: float) -> str:
     return ("%g" % float(value)).replace(".", "p")
+
+
+def fmt_threshold_id(value: float) -> str:
+    return ("%0.2f" % float(value)).replace(".", "p")
 
 
 def resolve_default_run_ids(prediction_run_id: str | None, backtest_id: str | None) -> tuple[str, str]:
@@ -237,7 +259,7 @@ def first_pattern_match(pattern: re.Pattern[str], text: str) -> str | None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run PRD_20260611_10 Phase 0 top-down lot-aware paper prototype."
+        description="Run PRD_20260613_01 Strategy1 P1 market-cap rule repair paper batch."
     )
     parser.add_argument("--project", default=DEFAULT_PROJECT)
     parser.add_argument("--location", default=DEFAULT_LOCATION)
@@ -334,18 +356,20 @@ def main(argv: list[str] | None = None) -> int:
     prices = fetch_prices(client, cfg, sorted(candidates["sec_code"].dropna().astype(str).unique()))
     price_book = PriceBook(prices)
 
-    print("Simulating T0/T1 top-down paper arms...", flush=True)
+    print("Simulating five top-down paper arms...", flush=True)
     metrics_frames: list[pd.DataFrame] = []
     daily_frames: list[pd.DataFrame] = []
     audit_frames: list[pd.DataFrame] = []
     for walk_depth in cfg.walk_depths:
         for cost_profile in cfg.cost_profiles:
-            for arm in ("T0", "T1"):
+            for arm in MAIN_ARMS:
                 daily, audit = simulate_arm(
                     cfg=cfg,
                     arm=arm,
                     walk_depth=walk_depth,
                     cost_profile=cost_profile,
+                    saturation_threshold=cfg.saturation_threshold,
+                    analysis_panel=MAIN_PANEL_ID,
                     candidates=candidates,
                     calendar=calendar,
                     benchmark=benchmark,
@@ -353,7 +377,56 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 daily_frames.append(daily)
                 audit_frames.append(audit)
-                metrics_frames.append(pd.DataFrame([summarize_arm(daily, audit, cfg, arm, walk_depth, cost_profile)]))
+                metrics_frames.append(
+                    pd.DataFrame(
+                        [
+                            summarize_arm(
+                                daily,
+                                audit,
+                                cfg,
+                                arm,
+                                walk_depth,
+                                cost_profile,
+                                cfg.saturation_threshold,
+                                MAIN_PANEL_ID,
+                            )
+                        ]
+                    )
+                )
+            if walk_depth == 50 and cost_profile.is_primary:
+                for threshold in cfg.sensitivity_saturation_thresholds:
+                    panel_id = f"{THRESHOLD_SENSITIVITY_PREFIX}{fmt_threshold_id(threshold)}"
+                    for arm in ("T1b1", "T1b2"):
+                        daily, audit = simulate_arm(
+                            cfg=cfg,
+                            arm=arm,
+                            walk_depth=walk_depth,
+                            cost_profile=cost_profile,
+                            saturation_threshold=threshold,
+                            analysis_panel=panel_id,
+                            candidates=candidates,
+                            calendar=calendar,
+                            benchmark=benchmark,
+                            price_book=price_book,
+                        )
+                        daily_frames.append(daily)
+                        audit_frames.append(audit)
+                        metrics_frames.append(
+                            pd.DataFrame(
+                                [
+                                    summarize_arm(
+                                        daily,
+                                        audit,
+                                        cfg,
+                                        arm,
+                                        walk_depth,
+                                        cost_profile,
+                                        threshold,
+                                        panel_id,
+                                    )
+                                ]
+                            )
+                        )
 
     metrics = pd.concat(metrics_frames, ignore_index=True)
     daily_all = pd.concat(daily_frames, ignore_index=True)
@@ -547,27 +620,88 @@ def normalize_dates(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
 def add_tail_risk_reasons(candidates: pd.DataFrame) -> pd.DataFrame:
     out = candidates.copy()
     out["tail_risk_reason"] = [tail_risk_reason(row) for row in out.to_dict("records")]
+    out["tail_risk_rule_groups"] = [
+        ";".join(sorted(tail_risk_reason_groups(reason))) if reason else None
+        for reason in out["tail_risk_reason"]
+    ]
     return out
 
 
 def tail_risk_reason(row: dict[str, Any] | pd.Series) -> str | None:
     values = {field: row.get(field) for field in P1_RULE_FIELDS}
-    if any(pd.isna(value) for value in values.values()):
-        return "tail_risk:required_field_null"
     reasons: list[str] = []
-    if float(values["ret_20d"]) < -0.30:
+    for field in P1_RULE_FIELDS:
+        if pd.isna(values[field]):
+            reasons.append(f"tail_risk:null_{field}")
+    if not pd.isna(values["ret_20d"]) and float(values["ret_20d"]) < -0.30:
         reasons.append("tail_risk:ret_20d_lt_30pct")
-    if float(values["drawdown_20d"]) < -0.30:
+    if not pd.isna(values["drawdown_20d"]) and float(values["drawdown_20d"]) < -0.30:
         reasons.append("tail_risk:drawdown_20d_lt_30pct")
-    if float(values["limit_down_days_20d"]) >= 2:
+    if not pd.isna(values["limit_down_days_20d"]) and float(values["limit_down_days_20d"]) >= 2:
         reasons.append("tail_risk:limit_down_days_20d_gte_2")
-    if float(values["one_word_limit_days_20d"]) >= 1:
+    if not pd.isna(values["one_word_limit_days_20d"]) and float(values["one_word_limit_days_20d"]) >= 1:
         reasons.append("tail_risk:one_word_limit_days_20d_gte_1")
-    if float(values["total_mv_cny"]) < 30e8:
+    if not pd.isna(values["total_mv_cny"]) and float(values["total_mv_cny"]) < 30e8:
         reasons.append("tail_risk:total_mv_lt_30e8")
-    if float(values["circ_mv_cny"]) < 20e8:
+    if not pd.isna(values["circ_mv_cny"]) and float(values["circ_mv_cny"]) < 20e8:
         reasons.append("tail_risk:circ_mv_lt_20e8")
     return ";".join(reasons) if reasons else None
+
+
+def split_tail_risk_reasons(reason: Any) -> list[str]:
+    if reason is None or pd.isna(reason):
+        return []
+    return [part.strip() for part in str(reason).split(";") if part.strip()]
+
+
+def tail_risk_reason_groups(reason: Any) -> set[str]:
+    groups: set[str] = set()
+    for part in split_tail_risk_reasons(reason):
+        if part.startswith("tail_risk:null_"):
+            field = part.removeprefix("tail_risk:null_")
+            if field in P1_MARKET_CAP_FIELDS:
+                groups.add("market_cap")
+            elif field in P1_SHAPE_FIELDS:
+                groups.add("shape")
+            else:
+                groups.add("unknown")
+            continue
+        group = P1_REASON_GROUPS.get(part)
+        if group:
+            groups.add(group)
+        else:
+            groups.add("unknown")
+    return groups
+
+
+def p1_saturation_triggered(p1_marked_rate: float, threshold: float) -> bool:
+    return bool(float(p1_marked_rate) > float(threshold))
+
+
+def effective_p1_policy(arm: str, *, saturation_triggered: bool) -> str:
+    if arm == "T0":
+        return "none"
+    if arm == "T1":
+        return "full"
+    if arm == "T1a":
+        return "shape_only"
+    if arm == "T1b1":
+        return "shape_only" if saturation_triggered else "full"
+    if arm == "T1b2":
+        return "none" if saturation_triggered else "full"
+    raise ValueError(f"unsupported arm: {arm}")
+
+
+def p1_reason_blocked(reason: Any, policy: str) -> bool:
+    if not split_tail_risk_reasons(reason):
+        return False
+    if policy == "none":
+        return False
+    if policy == "full":
+        return True
+    if policy == "shape_only":
+        return "shape" in tail_risk_reason_groups(reason)
+    raise ValueError(f"unsupported P1 policy: {policy}")
 
 
 def validate_candidates(candidates: pd.DataFrame, cfg: Phase0Config, max_depth: int) -> None:
@@ -637,6 +771,8 @@ def simulate_arm(
     calendar: pd.DataFrame,
     benchmark: pd.DataFrame,
     price_book: PriceBook,
+    saturation_threshold: float = MAIN_SATURATION_THRESHOLD,
+    analysis_panel: str = MAIN_PANEL_ID,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     trading_dates = sorted(calendar["trade_date"].tolist())
     rebalance_dates = build_biweekly_rebalance_dates(calendar, cfg.start_date, cfg.end_date)
@@ -681,6 +817,7 @@ def simulate_arm(
                 cost_bps=cost_profile.cost_bps,
                 buy_cost_bps=cost_profile.buy_cost_bps,
                 sell_cost_bps=cost_profile.sell_cost_bps,
+                saturation_threshold=saturation_threshold,
                 nav_before=nav_before,
                 candidates=candidates_by_date.get(signal_date, pd.DataFrame()),
                 price_book=price_book,
@@ -697,8 +834,10 @@ def simulate_arm(
         benchmark_return = float(benchmark_by_date.get(trade_date, 0.0) or 0.0)
         daily_rows.append(
             {
+                "analysis_panel": analysis_panel,
                 "arm": arm,
                 "walk_depth": walk_depth,
+                "saturation_threshold": saturation_threshold,
                 "cost_profile_id": cost_profile.cost_profile_id,
                 "cost_bps": cost_profile.cost_bps,
                 "buy_cost_bps": cost_profile.buy_cost_bps,
@@ -731,6 +870,8 @@ def simulate_arm(
                 {
                     "arm": arm,
                     "walk_depth": walk_depth,
+                    "analysis_panel": analysis_panel,
+                    "saturation_threshold": saturation_threshold,
                     "cost_profile_id": cost_profile.cost_profile_id,
                     "cost_bps": cost_profile.cost_bps,
                     "buy_cost_bps": cost_profile.buy_cost_bps,
@@ -755,6 +896,7 @@ def rebalance_topdown(
     nav_before: float,
     candidates: pd.DataFrame,
     price_book: PriceBook,
+    saturation_threshold: float = MAIN_SATURATION_THRESHOLD,
 ) -> tuple[PortfolioState, float, float, dict[str, Any]]:
     buy_cost_bps = cost_bps if buy_cost_bps is None else buy_cost_bps
     sell_cost_bps = cost_bps if sell_cost_bps is None else sell_cost_bps
@@ -789,14 +931,23 @@ def rebalance_topdown(
     unbuyable_skip = 0
     cash_skip = 0
     evaluated_count = 0
+    p1_relaxed_candidate_count = 0
+    p1_relaxed_buy_filled_count = 0
+    p1_fallback_released_candidate_count = 0
+    p1_fallback_released_buy_filled_count = 0
     min_weight = cfg.min_position_weight
     min_cash_threshold = min_weight * nav_before * (1.0 + buy_cost_bps / 10000.0)
-    p1_marked_count = int(candidates["tail_risk_reason"].notna().sum()) if "tail_risk_reason" in candidates.columns else 0
-    market_cap_p1_count = (
-        int(candidates["tail_risk_reason"].fillna("").str.contains("total_mv|circ_mv", regex=True).sum())
+    tail_reasons = (
+        candidates["tail_risk_reason"]
         if "tail_risk_reason" in candidates.columns
-        else 0
+        else pd.Series(index=candidates.index, dtype=object)
     )
+    p1_marked_count = int(tail_reasons.notna().sum())
+    p1_marked_rate = float(p1_marked_count / len(candidates)) if len(candidates) else 0.0
+    market_cap_p1_count = int(tail_reasons.apply(lambda reason: "market_cap" in tail_risk_reason_groups(reason)).sum())
+    shape_p1_count = int(tail_reasons.apply(lambda reason: "shape" in tail_risk_reason_groups(reason)).sum())
+    saturation_active = p1_saturation_triggered(p1_marked_rate, saturation_threshold)
+    effective_policy = effective_p1_policy(arm, saturation_triggered=saturation_active)
     bought_secs: list[str] = []
     if not candidates.empty:
         for row in candidates.sort_values(["rank_raw", "sec_code"]).itertuples(index=False):
@@ -804,7 +955,16 @@ def rebalance_topdown(
             evaluated_count += 1
             if sec in retained or sec in holdings:
                 continue
-            if arm == "T1" and pd.notna(getattr(row, "tail_risk_reason", None)):
+            tail_reason = getattr(row, "tail_risk_reason", None)
+            is_marked = bool(split_tail_risk_reasons(tail_reason))
+            blocked_by_p1 = p1_reason_blocked(tail_reason, effective_policy)
+            relaxed_by_arm = arm in {"T1a", "T1b1", "T1b2"} and is_marked and not blocked_by_p1
+            released_by_fallback = arm in {"T1b1", "T1b2"} and saturation_active and relaxed_by_arm
+            if relaxed_by_arm:
+                p1_relaxed_candidate_count += 1
+            if released_by_fallback:
+                p1_fallback_released_candidate_count += 1
+            if blocked_by_p1:
                 p1_skip += 1
                 continue
             open_price = price_book.open_price(sec, trade_date)
@@ -822,6 +982,10 @@ def rebalance_topdown(
                 cost += buy_cost
                 buy_filled += 1
                 bought_secs.append(sec)
+                if relaxed_by_arm:
+                    p1_relaxed_buy_filled_count += 1
+                if released_by_fallback:
+                    p1_fallback_released_buy_filled_count += 1
             else:
                 cash_skip += 1
             if cash < min_cash_threshold:
@@ -832,13 +996,22 @@ def rebalance_topdown(
         "candidate_count": int(len(candidates)),
         "evaluated_count": int(evaluated_count),
         "p1_marked_count": int(p1_marked_count),
-        "p1_marked_rate": float(p1_marked_count / len(candidates)) if len(candidates) else 0.0,
+        "p1_marked_rate": p1_marked_rate,
         "p1_market_cap_marked_count": int(market_cap_p1_count),
         "p1_market_cap_marked_rate": float(market_cap_p1_count / len(candidates)) if len(candidates) else 0.0,
+        "p1_shape_marked_count": int(shape_p1_count),
+        "p1_shape_marked_rate": float(shape_p1_count / len(candidates)) if len(candidates) else 0.0,
+        "p1_saturation_threshold": float(saturation_threshold),
+        "p1_saturation_triggered": bool(saturation_active),
+        "effective_p1_policy": effective_policy,
         "retained_count": int(len(retained)),
         "sell_count": int(len(set(state.holdings) - set(holdings))),
         "buy_filled_count": int(buy_filled),
         "p1_skip_count": int(p1_skip),
+        "p1_relaxed_candidate_count": int(p1_relaxed_candidate_count),
+        "p1_relaxed_buy_filled_count": int(p1_relaxed_buy_filled_count),
+        "p1_fallback_released_candidate_count": int(p1_fallback_released_candidate_count),
+        "p1_fallback_released_buy_filled_count": int(p1_fallback_released_buy_filled_count),
         "unbuyable_skip_count": int(unbuyable_skip),
         "cash_insufficient_skip_count": int(cash_skip),
         "sell_price_missing_count": int(sell_price_missing_count),
@@ -923,6 +1096,8 @@ def summarize_arm(
     arm: str,
     walk_depth: int,
     cost_profile: CostProfile,
+    saturation_threshold: float = MAIN_SATURATION_THRESHOLD,
+    analysis_panel: str = MAIN_PANEL_ID,
 ) -> dict[str, Any]:
     clean_returns = daily["daily_return"].iloc[1:].fillna(0.0).astype(float)
     benchmark = daily["benchmark_return"].iloc[1:].fillna(0.0).astype(float)
@@ -942,8 +1117,10 @@ def summarize_arm(
     turnover = float(audit["turnover_cny"].sum()) if not audit.empty else 0.0
     avg_nav_cny = float(daily["net_value_cny"].mean()) if "net_value_cny" in daily.columns else cfg.initial_capital
     return {
+        "analysis_panel": analysis_panel,
         "arm": arm,
         "walk_depth": walk_depth,
+        "saturation_threshold": float(saturation_threshold),
         "cost_profile_id": cost_profile.cost_profile_id,
         "cost_bps": cost_profile.cost_bps,
         "buy_cost_bps": cost_profile.buy_cost_bps,
@@ -981,8 +1158,15 @@ def summarize_arm(
         "unbuyable_skip_count": int(audit["unbuyable_skip_count"].sum()) if "unbuyable_skip_count" in audit.columns else 0,
         "cash_insufficient_skip_count": int(audit["cash_insufficient_skip_count"].sum()) if "cash_insufficient_skip_count" in audit.columns else 0,
         "sell_price_missing_count": int(audit["sell_price_missing_count"].sum()) if "sell_price_missing_count" in audit.columns else 0,
-        "p1_saturated_rebalance_count": int((audit["p1_marked_rate"] > 0.60).sum()) if "p1_marked_rate" in audit.columns else 0,
+        "p1_saturated_rebalance_count": int(audit["p1_saturation_triggered"].sum()) if "p1_saturation_triggered" in audit.columns else 0,
         "max_p1_marked_rate": float(audit["p1_marked_rate"].max()) if "p1_marked_rate" in audit.columns and not audit.empty else np.nan,
+        "p1_relaxed_buy_filled_count": int(audit["p1_relaxed_buy_filled_count"].sum()) if "p1_relaxed_buy_filled_count" in audit.columns else 0,
+        "p1_fallback_trigger_count": int(audit["p1_saturation_triggered"].sum())
+        if arm in {"T1b1", "T1b2"} and "p1_saturation_triggered" in audit.columns
+        else 0,
+        "p1_fallback_released_buy_filled_count": int(audit["p1_fallback_released_buy_filled_count"].sum())
+        if "p1_fallback_released_buy_filled_count" in audit.columns
+        else 0,
         "return_period_count": n,
     }
 
@@ -1093,6 +1277,8 @@ def build_report(
     attribution = attribution_table(metrics, daily)
     saturation = saturation_table(audit)
     episode = saturation_episode_table(daily, audit)
+    fallback_summary = fallback_summary_table(audit)
+    threshold_sensitivity = threshold_sensitivity_table(metrics)
     worst = worst_windows_table(daily)
     p1_count = int(candidates["tail_risk_reason"].notna().sum())
     p1_in_depth = int(candidates[(candidates["rank_raw"] <= 50) & candidates["tail_risk_reason"].notna()].shape[0])
@@ -1104,22 +1290,31 @@ def build_report(
         .rename_axis("tail_risk_reason")
         .reset_index(name="row_count")
     )
+    p1_group_table = (
+        candidates["tail_risk_rule_groups"]
+        .fillna("none")
+        .value_counts()
+        .rename_axis("tail_risk_rule_groups")
+        .reset_index(name="row_count")
+    )
     lines = [
-        "# 策略1自上而下整手组合构造 Phase 0",
+        "# 策略1 P1 市值规则修复双选项 Paper 批量",
         "",
-        "> 文档维护：GPT-5.5（最近更新 2026-06-12）",
+        "> 文档维护：GPT-5.5（最近更新 2026-06-13）",
         "",
         "## 方法与边界",
         "",
         f"- prediction_run_id: `{cfg.prediction_run_id}`",
         f"- official backtest_id: `{cfg.backtest_id}`",
         f"- 窗口: `{cfg.start_date}` 至 `{cfg.end_date}`；初始资金 `{cfg.initial_capital:,.0f}` 元；整手 `100` 股。",
-        f"- `position_floor_count={cfg.position_floor_count}`，新开仓最小仓位 `{fmt_pct(cfg.min_position_weight)}`；walk_depth 敏感性 `{', '.join(map(str, cfg.walk_depths))}`。",
+        f"- `position_floor_count={cfg.position_floor_count}`，新开仓最小仓位 `{fmt_pct(cfg.min_position_weight)}`；walk_depth 主判读 `50`，`30` 为附表。",
         f"- 成本档：主判读使用 official matched 分腿费率（买 `{cfg.matched_buy_cost_bps:g}bps`，卖 `{cfg.matched_sell_cost_bps:g}bps`）；`0bps` 与 `20bps` 保留为敏感性。",
-        "- T0：自上而下整手构造，不启用 P1 个股过滤；T1：同构造，但新买入遇到本地计算的 P1 `tail_risk:*` 标记时跳过并继续走下一名。",
+        f"- 主阈值：P1 饱和定义为当次调仓 walk_depth 内 `p1_marked_rate > {cfg.saturation_threshold:.2f}`；0.50 / 0.70 仅作阈值敏感性附表，不进入主判读。",
+        "- 五臂：T0 无 P1；T1 完整六条；T1a 仅形态组（剔除市值组）；T1b1 饱和时回退到 T1a；T1b2 饱和时回退到 T0。",
+        "- 字段级 NULL reason 已细化为 `tail_risk:null_<field>`：市值字段 NULL 归市值组，形态字段 NULL 归形态组。T1 仍拦截任意 reason，T0 仍不拦截。",
         "- P1 标记在本地从 `dws_stock_feature_daily_v0` 六条规则现算；source candidate 当前没有 `tail_risk:*` 标记。该处理是 research-only helper artifact，不是模型重训。",
         "- paper 原型模拟买入可交易性和整手/现金约束；卖出失败与 `PENDING_SELL_CARRY` 不模拟，超深度持仓按当日 open/valuation 假定卖出。Phase 2 真实 ledger 需量化这部分偏差。",
-        "- 价格沿用 official v1 ledger 的未复权口径与恒定股数约定；绝对收益可能含约 `0.5~1.5pp/年` 下偏，但与 official v1 对照同口径。PRD_09 L3 对照为 hfq paper 口径，仅作量级参考。",
+        "- paper 为 raw 价格口径，不模拟分红送转和卖出失败降级；五臂共享同一口径，臂间对比内部一致，但绝对数字不可与 CA-on official ledger 直接互比。",
         "- Phase 0 在 exec 日按 signal 后下一 open 调仓并按当日 close 盯市；PRD_09 阶梯 paper 的 exec-day 隔夜口径不同，对照表只作量级参考。",
         "- `max_realized_weight` 以 NAV 为分母；旧持仓内部最大权重另列为 `max_position_weight_within_holdings`，避免高现金日伪触发。",
         "- 调仓日与候选日期集合做相等断言；卖出价格缺失会进入 `sell_price_missing_count` 审计，本次若非零需先解释再读数。",
@@ -1135,6 +1330,10 @@ def build_report(
         "",
         markdown_table(p1_reason_table),
         "",
+        "P1 规则组分布：",
+        "",
+        markdown_table(p1_group_table),
+        "",
         "## 主结果（walk_depth=50, matched official cost）",
         "",
         markdown_table(compact_metrics(primary)),
@@ -1142,19 +1341,23 @@ def build_report(
         "预登记判读：",
         f"- T1 - T0 CAGR 差: {fmt_pct(cagr_diff)}；T1 - T0 crunch 段超额差: {fmt_pct(crunch_diff)}。",
     ]
-    lines.extend(preregistered_interpretation(t0, t1, official_metrics))
+    lines.extend(preregistered_interpretation(primary, episode, official_metrics))
     lines.extend(
         [
             "",
-            "## P1 饱和机制",
+            "## 饱和与回退",
             "",
-            "T1 的失败不再解读为“替换语义成本被证伪”。matched-cost 下主要病根是 P1 两条市值规则在崩盘后顺周期饱和，导致 walk_depth 内缺少可替换标的，现金闲置复活为 #179 A1 的深度耗尽变体。",
+            "matched-cost 下的核心问题是两条市值规则在崩盘后顺周期饱和，导致 walk_depth 内缺少可替换标的；T1a/T1b1/T1b2 只在 paper 层改变新买入过滤口径，不改变历史持仓处理或默认 profile。",
             "",
-            "四通道归因（按日 effect 缩放到各成本档 `T1 - T0` CAGR 差；matched 是主判读，`single_20bps` 覆盖 review 中旧 `-14.80pp/年` gap）：",
+            "修复臂回退/放行摘要：",
+            "",
+            markdown_table(fallback_summary),
+            "",
+            "四通道归因（各修复臂 vs T0；按日 effect 缩放到对应 CAGR gap）：",
             "",
             markdown_table(attribution),
             "",
-            "P1 饱和调仓日 Top5：",
+            "P1 饱和调仓日 Top5（按 T1 标记率选日，五臂同日展开）：",
             "",
             markdown_table(saturation),
             "",
@@ -1162,13 +1365,15 @@ def build_report(
             "",
             markdown_table(episode),
             "",
+            "阈值敏感性（只作为附表，matched official cost / walk_depth=50 / T1b1-T1b2）：",
+            "",
+            markdown_table(threshold_sensitivity),
+            "",
             "最差 3 个 10 日窗口与窗口末持仓明细：",
             "",
             markdown_table(worst),
             "",
-            "给 owner 的决策问题：是否剔除两条顺周期市值规则（`total_mv_cny < 30e8`、`circ_mv_cny < 20e8`，保留崩盘形态规则），或为 P1 增加饱和回退（例如深度内标记率过高时放宽市值规则/回落到 T0 替换）。本报告不替 owner 做 P1 规则取舍，也不改默认 profile。",
-            "",
-            "## 全部 Phase 0 矩阵",
+            "## 全部 Paper 矩阵",
             "",
             markdown_table(compact_metrics(metrics)),
             "",
@@ -1193,17 +1398,26 @@ def build_report(
 
 
 def primary_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    frame = metrics
+    if "analysis_panel" in frame.columns:
+        frame = frame[frame["analysis_panel"] == MAIN_PANEL_ID]
     if "cost_profile_id" not in metrics.columns:
-        return metrics[(metrics["walk_depth"] == 50) & (metrics["cost_bps"] == 20.0)].copy()
-    return metrics[(metrics["walk_depth"] == 50) & (metrics["cost_profile_id"] == MATCHED_COST_PROFILE_ID)].copy()
+        return frame[(frame["walk_depth"] == 50) & (frame["cost_bps"] == 20.0)].copy()
+    return frame[(frame["walk_depth"] == 50) & (frame["cost_profile_id"] == MATCHED_COST_PROFILE_ID)].copy()
 
 
 def primary_daily(daily: pd.DataFrame) -> pd.DataFrame:
-    return daily[(daily["walk_depth"] == 50) & (daily["cost_profile_id"] == MATCHED_COST_PROFILE_ID)].copy()
+    frame = daily
+    if "analysis_panel" in frame.columns:
+        frame = frame[frame["analysis_panel"] == MAIN_PANEL_ID]
+    return frame[(frame["walk_depth"] == 50) & (frame["cost_profile_id"] == MATCHED_COST_PROFILE_ID)].copy()
 
 
 def primary_audit(audit: pd.DataFrame) -> pd.DataFrame:
-    return audit[(audit["walk_depth"] == 50) & (audit["cost_profile_id"] == MATCHED_COST_PROFILE_ID)].copy()
+    frame = audit
+    if "analysis_panel" in frame.columns:
+        frame = frame[frame["analysis_panel"] == MAIN_PANEL_ID]
+    return frame[(frame["walk_depth"] == 50) & (frame["cost_profile_id"] == MATCHED_COST_PROFILE_ID)].copy()
 
 
 def artifact_uri(cfg: Phase0Config, path: Path) -> str:
@@ -1212,31 +1426,111 @@ def artifact_uri(cfg: Phase0Config, path: Path) -> str:
     return str(path)
 
 
-def preregistered_interpretation(t0: dict[str, Any], t1: dict[str, Any], official: dict[str, Any]) -> list[str]:
+def threshold_sensitivity_table(metrics: pd.DataFrame) -> pd.DataFrame:
+    if "analysis_panel" not in metrics.columns:
+        return pd.DataFrame()
+    frame = metrics[
+        metrics["analysis_panel"].astype(str).str.startswith(THRESHOLD_SENSITIVITY_PREFIX)
+        & metrics["cost_profile_id"].eq(MATCHED_COST_PROFILE_ID)
+        & metrics["walk_depth"].eq(50)
+    ].copy()
+    return compact_metrics(frame.sort_values(["saturation_threshold", "arm"]))
+
+
+def fallback_summary_table(audit: pd.DataFrame) -> pd.DataFrame:
+    frame = primary_audit(audit)
+    if frame.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    for arm in REPAIR_ARMS:
+        arm_frame = frame[frame["arm"] == arm]
+        if arm_frame.empty:
+            continue
+        fallback_frame = arm_frame[arm_frame["p1_saturation_triggered"].astype(bool)]
+        rows.append(
+            {
+                "arm": arm,
+                "saturated_rebalance_count": int(arm_frame["p1_saturation_triggered"].sum()),
+                "fallback_trigger_count": int(fallback_frame.shape[0]) if arm in {"T1b1", "T1b2"} else 0,
+                "p1_relaxed_buy_filled_count": int(arm_frame["p1_relaxed_buy_filled_count"].sum()),
+                "p1_fallback_released_buy_filled_count": int(
+                    arm_frame["p1_fallback_released_buy_filled_count"].sum()
+                ),
+                "avg_cash_weight_on_trigger": float(fallback_frame["ending_cash_weight_pre_close"].mean())
+                if not fallback_frame.empty
+                else np.nan,
+                "max_p1_marked_rate": float(arm_frame["p1_marked_rate"].max()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def preregistered_interpretation(
+    primary: pd.DataFrame,
+    episode: pd.DataFrame,
+    official: dict[str, Any],
+) -> list[str]:
+    t0 = row_for(primary, "T0")
+    t1 = row_for(primary, "T1")
     if not t0 or not t1:
         return ["- T0/T1 主结果缺失，无法判读。"]
     lines: list[str] = []
-    cagr_diff = metric_diff(t1, t0, "compound_annual_return")
-    crunch_diff = metric_diff(t1, t0, "crunch_excess_return_vs_000852")
-    if pd.notna(cagr_diff) and pd.notna(crunch_diff) and abs(cagr_diff) < 0.01 and crunch_diff > 0:
-        lines.append("- 符合第一条预登记：T1 全周期 CAGR 成本 <1pp 且 crunch 改善，P1 替换语义初步成立。")
-    elif pd.notna(cagr_diff) and cagr_diff < -0.02:
-        lines.append("- 触发第二条预登记：T1 全周期 CAGR 比 T0 低超过 2pp；结合饱和归因，问题指向 P1 市值规则耗尽 walk_depth，而不是替换语义本身。")
+    verdict_rows: list[dict[str, Any]] = []
+    for arm in REPAIR_ARMS:
+        row = row_for(primary, arm)
+        episode_row = row_for(episode, arm)
+        if not row:
+            continue
+        cagr_gap = metric_diff(row, t0, "compound_annual_return")
+        maxdd_gap = metric_diff(row, t0, "max_drawdown")
+        crunch_vs_t1 = metric_diff(row, t1, "crunch_excess_return_vs_000852")
+        episode_cash = episode_row.get("avg_cash_weight", np.nan) if episode_row else np.nan
+        verdict_rows.append(
+            {
+                "arm": arm,
+                "cagr_gap_vs_t0": cagr_gap,
+                "episode_avg_cash_weight": episode_cash,
+                "maxdd_gap_vs_t0": maxdd_gap,
+                "crunch_excess_gap_vs_t1": crunch_vs_t1,
+                "cagr_gate": bool(pd.notna(cagr_gap) and cagr_gap > -0.02),
+                "cash_gate": bool(pd.notna(episode_cash) and float(episode_cash) < 0.30),
+                "maxdd_gate": bool(pd.notna(maxdd_gap) and maxdd_gap >= -0.02),
+                "crunch_gate": bool(pd.notna(crunch_vs_t1) and crunch_vs_t1 >= -0.03),
+            }
+        )
+    verdict = pd.DataFrame(verdict_rows)
+    if verdict.empty:
+        lines.append("- 修复臂主结果缺失，无法判读。")
+        return lines
+    verdict["all_gates_pass"] = verdict[["cagr_gate", "cash_gate", "maxdd_gate", "crunch_gate"]].all(axis=1)
+    lines.extend(
+        [
+            "- 预登记硬判据按 matched official cost、walk_depth=50 执行：CAGR gap > -2pp；2022-05 饱和 episode 平均现金 <30%；MaxDD 不比 T0 差超过 2pp；crunch 超额不比 T1 差超过 3pp。",
+            "",
+            markdown_table(verdict),
+            "",
+        ]
+    )
+    passed = verdict[verdict["all_gates_pass"]].copy()
+    if not passed.empty:
+        conservative_rank = {"T1b1": 3, "T1a": 2, "T1b2": 1}
+        passed["abs_cagr_gap"] = passed["cagr_gap_vs_t0"].abs()
+        passed["conservative_rank"] = passed["arm"].map(conservative_rank).fillna(0)
+        chosen = passed.sort_values(["abs_cagr_gap", "conservative_rank"], ascending=[True, False]).iloc[0]
+        lines.append(
+            f"- 结论：`{chosen['arm']}` 满足修复有效判据，按预登记规则带入 Phase 2。"
+        )
     else:
-        lines.append("- 未完全命中第一/第二条预登记，需结合成本档、walk_depth 和风险指标人工判断。")
+        lines.append(
+            "- 结论：所有修复臂均未同时满足四项硬判据，按预登记规则建议 Phase 2 以 `T0`（无 P1）口径进入；PRD_10 的 P1 绑定条款需留给 owner 修订。"
+        )
     if official:
-        t0_dd_gap = t0.get("max_drawdown", np.nan) - official.get("max_drawdown", np.nan)
-        t1_dd_gap = t1.get("max_drawdown", np.nan) - official.get("max_drawdown", np.nan)
+        t0_calmar = t0.get("calmar_ratio", np.nan)
         official_calmar = official.get("calmar_ratio", np.nan)
-        t0_calmar_gap = t0.get("calmar_ratio", np.nan) - official_calmar
-        t1_calmar_gap = t1.get("calmar_ratio", np.nan) - official_calmar
-        if pd.notna(t0_dd_gap) and pd.notna(t1_dd_gap) and t0_dd_gap < -0.15 and t1_dd_gap < -0.15 and t0_calmar_gap < -0.05 and t1_calmar_gap < -0.05:
-            lines.append("- 触发第三条预登记：双臂 MaxDD 均比 official 深超过 15pp 且 Calmar 明显恶化，Phase 1/2 前需 owner 复核。")
-        else:
-            lines.append("- 第三条预登记未按合取条件触发：matched-cost 下 T0 未同时满足“MaxDD 深 >15pp 且 Calmar 明显恶化”；T1 仍显著恶化。")
-    max_tail = max(float(t0.get("max_realized_weight", 0.0)), float(t1.get("max_realized_weight", 0.0)))
-    if max_tail > 0.40:
-        lines.append("- 触发第四条预登记但证据降温：NAV 分母下尾部集中仍超过 40%，主要来自 T1 后期净值受损后的高价单仓；不再把高现金日的持仓内 100% 当作触发证据。")
+        lines.append(
+            f"- 提示项：T0 paper Calmar `{fmt_float(t0_calmar)}` vs CA-on official `{fmt_float(official_calmar)}` 只作提示，不构成 topdown 整体缓做判定；paper raw 口径与 CA-on official ledger 不可直接互比。"
+        )
+    lines.append("- 本报告只回答 Phase 2 候选口径，不做 accepted / promotion / 默认 profile 变更。")
     return lines
 
 
@@ -1244,9 +1538,18 @@ def attribution_table(metrics: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFram
     rows: list[dict[str, Any]] = []
     profile_ids = [MATCHED_COST_PROFILE_ID, "single_20bps"]
     for profile_id in profile_ids:
-        metric_slice = metrics[(metrics["walk_depth"] == 50) & (metrics["cost_profile_id"] == profile_id)].copy()
-        daily_slice = daily[(daily["walk_depth"] == 50) & (daily["cost_profile_id"] == profile_id)].copy()
-        rows.extend(attribution_rows_for_profile(profile_id, metric_slice, daily_slice))
+        metric_slice = metrics[
+            (metrics["analysis_panel"] == MAIN_PANEL_ID)
+            & (metrics["walk_depth"] == 50)
+            & (metrics["cost_profile_id"] == profile_id)
+        ].copy()
+        daily_slice = daily[
+            (daily["analysis_panel"] == MAIN_PANEL_ID)
+            & (daily["walk_depth"] == 50)
+            & (daily["cost_profile_id"] == profile_id)
+        ].copy()
+        for compare_arm in ("T1", "T1a", "T1b1", "T1b2"):
+            rows.extend(attribution_rows_for_profile(profile_id, metric_slice, daily_slice, compare_arm))
     return pd.DataFrame(rows)
 
 
@@ -1254,29 +1557,33 @@ def attribution_rows_for_profile(
     profile_id: str,
     metrics: pd.DataFrame,
     daily: pd.DataFrame,
+    compare_arm: str,
 ) -> list[dict[str, Any]]:
     t0 = row_for(metrics, "T0")
-    t1 = row_for(metrics, "T1")
-    cagr_gap = metric_diff(t1, t0, "compound_annual_return")
+    target = row_for(metrics, compare_arm)
+    cagr_gap = metric_diff(target, t0, "compound_annual_return")
     if daily.empty or pd.isna(cagr_gap):
         return []
     t0_daily = daily[daily["arm"] == "T0"].sort_values("trade_date").copy()
-    t1_daily = daily[daily["arm"] == "T1"].sort_values("trade_date").copy()
-    merged = t0_daily.merge(t1_daily, on="trade_date", suffixes=("_t0", "_t1"))
+    target_daily = daily[daily["arm"] == compare_arm].sort_values("trade_date").copy()
+    if t0_daily.empty or target_daily.empty:
+        return []
+    merged = t0_daily.merge(target_daily, on="trade_date", suffixes=("_t0", "_target"))
     for arm in ("t0", "t1"):
-        merged[f"prev_nav_{arm}"] = merged[f"net_value_cny_{arm}"].shift(1)
+        suffix = "target" if arm == "t1" else "t0"
+        merged[f"prev_nav_{suffix}"] = merged[f"net_value_cny_{suffix}"].shift(1)
     merged = merged.iloc[1:].copy()
-    actual = merged["daily_return_t1"].astype(float) - merged["daily_return_t0"].astype(float)
+    actual = merged["daily_return_target"].astype(float) - merged["daily_return_t0"].astype(float)
     cost = (
-        -merged["cost_cny_t1"].astype(float) / merged["prev_nav_t1"].astype(float)
+        -merged["cost_cny_target"].astype(float) / merged["prev_nav_target"].astype(float)
         + merged["cost_cny_t0"].astype(float) / merged["prev_nav_t0"].astype(float)
     ).replace([np.inf, -np.inf], 0.0).fillna(0.0)
     eq_base_t0 = (
         merged["equal_name_return_t0"].astype(float)
         / merged["gross_exposure_t0"].astype(float).replace(0.0, np.nan)
     ).replace([np.inf, -np.inf], 0.0).fillna(0.0)
-    cash = (merged["gross_exposure_t1"].astype(float) - merged["gross_exposure_t0"].astype(float)) * eq_base_t0
-    concentration = merged["concentration_return_t1"].astype(float) - merged["concentration_return_t0"].astype(float)
+    cash = (merged["gross_exposure_target"].astype(float) - merged["gross_exposure_t0"].astype(float)) * eq_base_t0
+    concentration = merged["concentration_return_target"].astype(float) - merged["concentration_return_t0"].astype(float)
     composition = actual - cost - cash - concentration
     raw = {
         "持仓构成差（含交互 residual）": float(composition.sum()),
@@ -1292,6 +1599,7 @@ def attribution_rows_for_profile(
         rows.append(
             {
                 "cost_profile_id": profile_id,
+                "compare_arm": compare_arm,
                 "cagr_gap": cagr_gap,
                 "channel": channel,
                 "annualized_cagr_contribution": contribution,
@@ -1306,17 +1614,33 @@ def saturation_table(audit: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame()
     cols = [
+        "arm",
         "signal_date",
         "exec_date",
+        "effective_p1_policy",
+        "p1_saturation_triggered",
         "p1_marked_count",
         "p1_marked_rate",
         "p1_market_cap_marked_count",
         "p1_market_cap_marked_rate",
+        "p1_shape_marked_count",
+        "p1_shape_marked_rate",
         "sell_count",
         "buy_filled_count",
         "ending_cash_weight_pre_close",
+        "p1_skip_count",
+        "p1_relaxed_buy_filled_count",
+        "p1_fallback_released_buy_filled_count",
     ]
-    return frame[frame["arm"] == "T1"].sort_values(["p1_marked_rate", "signal_date"], ascending=[False, True])[cols].head(5)
+    top_signals = (
+        frame[frame["arm"] == "T1"]
+        .sort_values(["p1_marked_rate", "signal_date"], ascending=[False, True])["signal_date"]
+        .head(5)
+        .tolist()
+    )
+    return frame[frame["signal_date"].isin(top_signals)].sort_values(["signal_date", "arm"])[
+        [c for c in cols if c in frame.columns]
+    ]
 
 
 def saturation_episode_table(daily: pd.DataFrame, audit: pd.DataFrame) -> pd.DataFrame:
@@ -1336,23 +1660,44 @@ def saturation_episode_table(daily: pd.DataFrame, audit: pd.DataFrame) -> pd.Dat
     sub = frame[frame["trade_date"].isin(episode_dates)]
     t0 = sub[sub["arm"] == "T0"]
     t1 = sub[sub["arm"] == "T1"]
-    return pd.DataFrame(
-        [
+    t0_return = compound_total_return(t0["daily_return"])
+    t1_return = compound_total_return(t1["daily_return"])
+    t0_cash = float(t0["cash_weight"].mean()) if not t0.empty else np.nan
+    t1_cash = float(t1["cash_weight"].mean()) if not t1.empty else np.nan
+    signal_date = t1_aud.iloc[0]["signal_date"]
+    rows: list[dict[str, Any]] = []
+    for arm in MAIN_ARMS:
+        arm_daily = sub[sub["arm"] == arm]
+        arm_audit = aud[(aud["arm"] == arm) & (aud["signal_date"] == signal_date)]
+        if arm_daily.empty:
+            continue
+        arm_return = compound_total_return(arm_daily["daily_return"])
+        audit_row = arm_audit.iloc[0].to_dict() if not arm_audit.empty else {}
+        rows.append(
             {
-                "signal_date": t1_aud.iloc[0]["signal_date"],
+                "signal_date": signal_date,
                 "exec_start": exec_date,
                 "window_end": episode_dates[-1],
-                "t0_return": compound_total_return(t0["daily_return"]),
-                "t1_return": compound_total_return(t1["daily_return"]),
-                "t1_minus_t0": compound_total_return(t1["daily_return"]) - compound_total_return(t0["daily_return"]),
-                "t1_avg_cash_weight": float(t1["cash_weight"].mean()),
-                "p1_marked_rate": float(t1_aud.iloc[0]["p1_marked_rate"]),
-                "market_cap_marked_rate": float(t1_aud.iloc[0]["p1_market_cap_marked_rate"]),
-                "sell_count": int(t1_aud.iloc[0]["sell_count"]),
-                "buy_filled_count": int(t1_aud.iloc[0]["buy_filled_count"]),
+                "arm": arm,
+                "episode_return": arm_return,
+                "return_minus_t0": arm_return - t0_return if pd.notna(t0_return) else np.nan,
+                "return_minus_t1": arm_return - t1_return if pd.notna(t1_return) else np.nan,
+                "avg_cash_weight": float(arm_daily["cash_weight"].mean()),
+                "avg_cash_minus_t0": float(arm_daily["cash_weight"].mean()) - t0_cash if pd.notna(t0_cash) else np.nan,
+                "avg_cash_minus_t1": float(arm_daily["cash_weight"].mean()) - t1_cash if pd.notna(t1_cash) else np.nan,
+                "p1_marked_rate": float(audit_row.get("p1_marked_rate", np.nan)),
+                "market_cap_marked_rate": float(audit_row.get("p1_market_cap_marked_rate", np.nan)),
+                "p1_saturation_triggered": bool(audit_row.get("p1_saturation_triggered", False)),
+                "effective_p1_policy": audit_row.get("effective_p1_policy"),
+                "buy_filled_count": int(audit_row.get("buy_filled_count", 0)),
+                "p1_skip_count": int(audit_row.get("p1_skip_count", 0)),
+                "p1_relaxed_buy_filled_count": int(audit_row.get("p1_relaxed_buy_filled_count", 0)),
+                "p1_fallback_released_buy_filled_count": int(
+                    audit_row.get("p1_fallback_released_buy_filled_count", 0)
+                ),
             }
-        ]
-    )
+        )
+    return pd.DataFrame(rows)
 
 
 def worst_windows_table(daily: pd.DataFrame) -> pd.DataFrame:
@@ -1430,8 +1775,10 @@ def compact_metrics(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return frame
     cols = [
+        "analysis_panel",
         "arm",
         "walk_depth",
+        "saturation_threshold",
         "cost_profile_id",
         "cost_bps",
         "buy_cost_bps",
@@ -1451,6 +1798,9 @@ def compact_metrics(frame: pd.DataFrame) -> pd.DataFrame:
         "annual_turnover",
         "sell_price_missing_count",
         "p1_skip_count",
+        "p1_relaxed_buy_filled_count",
+        "p1_fallback_trigger_count",
+        "p1_fallback_released_buy_filled_count",
         "p1_saturated_rebalance_count",
         "max_p1_marked_rate",
         "return_period_count",

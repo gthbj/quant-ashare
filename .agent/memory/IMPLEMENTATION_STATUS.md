@@ -37,7 +37,7 @@ Last updated: 2026-06-13
 ### 开放主线
 
 - `OPEN_QUESTIONS.md` 只剩 OQ-010：继续寻找可 accepted 的 Cloud Run Python baseline / 组合构造 / 风控路线。
-- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；门/窗口/分级是否调整仍留 owner 决策。PRD_20260611_10 topdown Phase 0 / Phase 2、尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
+- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；门/窗口/分级是否调整仍留 owner 决策。PRD_20260613_01 已完成 topdown Phase 2 前置 P1 双选项 paper 批量；按预登记判据，修复臂均未达标，Phase 2 若继续应以 T0（无 P1）口径进入并由 owner 决策是否修订 PRD_10 的 P1 绑定条款。尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
 
@@ -48,6 +48,14 @@ Last updated: 2026-06-13
 - 关键读数：8 指数长窗 Calmar 区间 `-0.1024..0.1089`，replay 短窗 `0.6557..1.3868`；当前 true5y CA-on baseline 拼接口径长窗 Calmar `0.4103` / Sharpe `0.6685`，短窗 Calmar `1.1041` / Sharpe `1.4636`；当前 CA-on NAV 上重算的无摩擦 exposure 上界最优 `two_state_biweekly_elow0_cost0bps` Calmar `0.6455` / Sharpe `0.7478`；历史 canonical Top5 replay 仍为 `1 accepted / 24 rejected`。
 - 预登记判读：因当前 CA-on exposure 上界 `0.6455 > 0.5`，长窗“物理不可达”强判据未完全成立；但长窗 beta/baseline 均远低于 1.0，短窗/滚动窗出现 1.0 量级读数，核心结论收敛为“v3 Calmar 门高度窗口敏感，owner 需先钉死 production acceptance 窗口，再决定 A/B/C/D 门方案或分级”。本轮不做门变更、不 promotion、不标 baseline accepted。
 - 验证通过：`PYTHONPATH=src python3 -m pytest -q tests`（281 passed）；`git diff --check`；脚本实跑成功生成报告/CSV。
+
+### 最新补充（2026-06-13）：PRD_20260613_01 P1 市值规则修复双选项 paper 批量已完成
+
+- 分支 `codex/p1-rules-paper-batch` 按 PRD 扩展 `scripts/strategy1/analyze_topdown_lot_phase0.py`：P1 NULL reason 细化为字段级 `tail_risk:null_<field>`，市值字段归市值组、形态字段归形态组；T0/T1 既有过滤行为保持，新增 T1a（仅形态组）、T1b1（饱和回退到 T1a）、T1b2（饱和回退到 T0）三臂，并把 0.60 主阈值与 0.50/0.70 附表阈值固定在 paper 层。
+- 新增/更新单测覆盖规则分组、T1a 放行/拦截、`p1_marked_rate > 0.60` 严格边界、回退只影响当次调仓；metric freeze 守门未新增冻结清单内本地指标定义。
+- 只读 BigQuery + 本地 pandas 实跑完成，resolver 解析到 true5y CA-on baseline：prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`。主判读 matched official cost / walk_depth=50：T0 CAGR=`11.81%`、MaxDD=`-58.67%`、Calmar=`0.201`；T1 CAGR=`-4.14%`；T1a CAGR=`6.26%`；T1b1 CAGR=`4.24%`；T1b2 CAGR=`4.11%`。
+- 预登记判读：T1a/T1b1/T1b2 均未同时满足 “CAGR gap > -2pp / 2022-05 episode 平均现金 <30% / MaxDD 不比 T0 差超 2pp / crunch 超额不比 T1 差超 3pp”；报告结论为若进入 Phase 2，建议用 T0（无 P1）口径，PRD_10 的 P1 绑定条款需 owner 决策修订。本轮不做 accepted / promotion / 默认 profile 变更，不写任何 BigQuery 数据集，不改 ledger/runner/catalog。
+- 交付报告 `docs/分析-策略1P1市值规则修复双选项-20260613.md`；小 metrics CSV `docs/analysis_strategy1_p1_market_cap_rules_20260613_metrics.csv` 随 PR 入库；大 daily/audit CSV 已上传 `gs://ashare-artifacts/reports/strategy1/p1_market_cap_rules/analysis_date=20260613/`。
 
 ### 最新补充（2026-06-13）：ingestion meta 0 行事故复核与防复发告警已实现
 
@@ -88,11 +96,3 @@ Last updated: 2026-06-13
 - `tests/strategy1/test_package_boundaries.py` 新增 Batch 1 兼容符号快照与反向 import 计数断言，覆盖 `bq_io` / `config` shim 的跨文件引用符号和模块级常量；旧模块路径未加入 retired-lint ban-list。
 - 本轮不改训练、回测、ledger、orchestrator 调度语义，不触碰 Cloud Run job spec/args/镜像/IAM，不写 BigQuery/GCS。
 - 最终验证通过：`python3 -m pytest -q tests`（268 passed）；`python3 -m pytest -q tests/strategy1/test_package_boundaries.py`（6 passed）；`python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`（16 passed）；`PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`；`python3 -m compileall -q src scripts tests`；`git diff --check`；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`。
-
-### 最新补充（2026-06-12）：PR #202 Claude review F2-F11 已修复，F1 留 owner 数据决策
-
-- PR #202 review follow-up 已完成代码面 F2-F11：staleness watermark 不再被 `p_predict_end` 截断、catalog 声明 direct base table、`experiment_json` 对四入口保持最高优先级、SQL 同构 guard 收紧并覆盖 review seeded mutations、acceptance/selection/train_predict 纯函数测试补强、scanner/manifest path/docstring/边界 token_map 已修正。
-- F1 不执行数据补采、不写 BigQuery/GCS。Claude 实跑发现现存 CA-on baseline 对 `QA-CA-LEDGER-0` 会失败，真实缺口为 dividend 数据 `2026-05-28..2026-06-09` 未采集，`ods_tushare_dividend` 当前 max partition/date 为 `2026-05-27`；断言语义正确且未放宽，PR body 已如实说明。
-- F2 口径：当前 `source_partition_date_max` 来自 DWD dividend event 的事件/分区日期，不能作为精确 ingestion watermark；本轮改为 full-table 可见上界检查（上限 `CURRENT_DATE('Asia/Shanghai')`）。精确 ingestion watermark 需要新增 source ingestion 列或修复 ingestion meta；后者当前另有 0-row 事件，留 owner 决策。
-- §2.6 取舍：v3 contract 主路径在缺 v3 metrics 时先返回 `v3_acceptance_metrics=missing`，legacy `decide_acceptance` 主路径对 v3 contract 不强造测试；已改为测试该路由并补齐 legacy helper gate 覆盖。`select_candidate([], [], None)` 的 `IndexError` 作为当前行为被 characterization test 固定，本 PR 不改生产语义。
-- 验证通过：`python3 -m pytest -q tests`（266 passed）；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`；`git diff --check`；`cd /tmp && python3 -m pytest /Users/fisher/Desktop/git/worktrees/quant-ashare-prd04/tests --collect-only -q`（266 collected）；`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`。本轮仍未改回测/训练/组合语义，未改默认 `corporate_actions='none_v1'`，未触碰 Cloud Run job spec/镜像/IAM，未写 BigQuery 生产数据。

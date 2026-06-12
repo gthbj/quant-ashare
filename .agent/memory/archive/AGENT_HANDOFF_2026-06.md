@@ -251,6 +251,80 @@ Run ID: N/A
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 
+## 2026-06-12 GPT-5.5 - PRD_20260612_05 Batch 3 package cleanup
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd05-b3`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/prd05-batch3`
+Run ID: N/A
+相关 issue/PR: PRD `docs/prd/PRD_20260612_05_Strategy1包结构PhaseE收尾.md`；PR #206
+
+### 已完成工作
+
+- 将 `scripts/strategy1_cloudrun/feature_sets.py`、`preprocess.py`、`training_panel.py` 迁移到 `src/quant_ashare/strategy1/`，scripts 侧改为 thin re-export shim。
+- 将 src 内对 `scripts.strategy1_cloudrun.feature_sets` / `preprocess` 的 import 改为包内直连；Batch 3 后 src→`scripts.strategy1_cloudrun.*` 反向 import 为 0。
+- 新增 `src/quant_ashare/strategy1/annual_rolling_plan.py`，承载 annual rolling 计划层常量和 helper；scheduler 与脚本 orchestrator 均改从该模块 import。
+- 更新 `tests/strategy1/test_package_boundaries.py` 的 Batch 3 兼容符号快照、硬断言 src 不导入 scripts，并新增非仓库 cwd / `PYTHONPATH=src` 的 package self-contained import 测试。
+- 同步 `KNOWN_CONSTRAINTS.md` 兼容层条款、`docs/prd/PRD_20260610_02_项目结构重构方案.md` Phase E 状态注记、`IMPLEMENTATION_STATUS.md` 和 `TODO.md`。
+
+### 重要上下文
+
+- 本轮严格只做 PRD Batch 3；两个脚本 orchestrator 仍保留 CLI 主体和兼容导入面。
+- `orchestrate_annual_rolling_selection.py` 的 CLI 参数面、dry-run JSON 输出路径和非 dry-run 拒绝行为保持不变；迁出的计划函数通过脚本顶层 import 继续兼容旧测试/调用方。
+- 旧 `scripts.strategy1_cloudrun.feature_sets` / `preprocess` / `training_panel` 路径仍是合法兼容 shim，不应加入 retired-reference ban-list。
+- 本轮未改训练、回测、ledger、Cloud Run job spec、args、镜像或 IAM；未写 BigQuery/GCS。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/feature_sets.py`
+- `src/quant_ashare/strategy1/preprocess.py`
+- `src/quant_ashare/strategy1/training_panel.py`
+- `src/quant_ashare/strategy1/annual_rolling_plan.py`
+- `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`
+- `scripts/strategy1_cloudrun/feature_sets.py`
+- `scripts/strategy1_cloudrun/preprocess.py`
+- `scripts/strategy1_cloudrun/training_panel.py`
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`
+- 相关 `src/quant_ashare/strategy1/*.py` import
+- `tests/strategy1/test_package_boundaries.py`
+- `docs/prd/PRD_20260610_02_项目结构重构方案.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests`：276 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`：7 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`：16 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：passed。
+- `python3 -m compileall -q src scripts tests`：passed。
+- `git diff --check`：passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 等待 Claude review；认可的 comment 在本分支修复，不认可的在 PR comment 说明理由。
+- 若合并前 `origin/main` 有新提交，rebase 后重跑关键验证。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
 ### 测试 / 验证
 
 - `python3 -m pytest -q tests`：266 passed。

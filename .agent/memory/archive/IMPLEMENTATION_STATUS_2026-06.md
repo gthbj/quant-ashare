@@ -17,6 +17,14 @@
 - v3 gates：Sharpe 距 0.70 门 0.032、Calmar 0.4101 < 1.0——baseline ≠ accepted、不得 promotion；测量仪已修正，剩余缺口为真实 alpha/结构缺口（OQ-010）。
 - 纪律：后续实验一律显式 CA-on（代码默认 none_v1 不变）；PRD_20260611_10 Phase 2 等后续工作的对照与参数随之切换。
 
+### 最新补充（2026-06-12）：PR #202 Claude review F2-F11 已修复，F1 留 owner 数据决策
+
+- PR #202 review follow-up 已完成代码面 F2-F11：staleness watermark 不再被 `p_predict_end` 截断、catalog 声明 direct base table、`experiment_json` 对四入口保持最高优先级、SQL 同构 guard 收紧并覆盖 review seeded mutations、acceptance/selection/train_predict 纯函数测试补强、scanner/manifest path/docstring/边界 token_map 已修正。
+- F1 不执行数据补采、不写 BigQuery/GCS。Claude 实跑发现现存 CA-on baseline 对 `QA-CA-LEDGER-0` 会失败，真实缺口为 dividend 数据 `2026-05-28..2026-06-09` 未采集，`ods_tushare_dividend` 当前 max partition/date 为 `2026-05-27`；断言语义正确且未放宽，PR body 已如实说明。
+- F2 口径：当前 `source_partition_date_max` 来自 DWD dividend event 的事件/分区日期，不能作为精确 ingestion watermark；本轮改为 full-table 可见上界检查（上限 `CURRENT_DATE('Asia/Shanghai')`）。精确 ingestion watermark 需要新增 source ingestion 列或修复 ingestion meta；后者当前另有 0-row 事件，留 owner 决策。
+- §2.6 取舍：v3 contract 主路径在缺 v3 metrics 时先返回 `v3_acceptance_metrics=missing`，legacy `decide_acceptance` 主路径对 v3 contract 不强造测试；已改为测试该路由并补齐 legacy helper gate 覆盖。`select_candidate([], [], None)` 的 `IndexError` 作为当前行为被 characterization test 固定，本 PR 不改生产语义。
+- 验证通过：`python3 -m pytest -q tests`（266 passed）；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`；`git diff --check`；`cd /tmp && python3 -m pytest /Users/fisher/Desktop/git/worktrees/quant-ashare-prd04/tests --collect-only -q`（266 collected）；`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/strategy1/qa/qa_corporate_action_ledger_outputs.sql`。本轮仍未改回测/训练/组合语义，未改默认 `corporate_actions='none_v1'`，未触碰 Cloud Run job spec/镜像/IAM，未写 BigQuery 生产数据。
+
 ### 最新补充（2026-06-12）：Ledger 分红送转 Phase A 已落地并通过 QA
 
 - 分支 `codex/ledger-corporate-actions` 已按 `docs/prd/PRD_20260612_02_策略1Ledger分红送转记账修复.md` Phase A 完成事件层实现：`sql/dwd/12_dwd_stock_dividend_event.sql` 从 `ods_tushare_dividend` 已实施事件 canonical 聚合到 `(sec_code, ex_date)`；`sql/qa/14_corporate_action_event_checks.sql` 落 `ashare_meta.qa_stock_dividend_event_hfq_mismatch`，并创建 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`。
@@ -693,3 +701,10 @@
 - BigQuery 已执行并通过：`sql/meta/04_ods_field_unit_map.sql` job `bqjob_r4bf6b56437413e50_0000019ebb5cc600_1`；`sql/dwd/12_dwd_stock_dividend_event.sql` job `bqjob_r323943fdb6fe8d66_0000019ebb4706b9_1`；`sql/metadata/01_core_table_column_descriptions.sql` job `bqjob_r5bcddfc324d985c8_0000019ebb4741ce_1`；`sql/qa/05_unit_contract_checks.sql` job `bqjob_r63dbdce269a7fb79_0000019ebb5d3981_1`；`sql/qa/14_corporate_action_event_checks.sql` dry-run + real run job `bqjob_r1aadacca42b9e6_0000019ebb47ed1f_1`，`QA-CA-EVENT-1..6` 全部通过。
 - 落库结果：2010+ canonical events=`46431`、source rows=`46470`、同股同 ex_date 聚合键=`37`；2021+ QA 窗口 canonical events=`22009`、source rows=`22029`、同股同 ex_date 聚合键=`20`。mismatch 明细共 `1512` 行：event_to_factor `data_anomaly=1106`（其中 `missing_prev_price=1033`、`factor_jump_mismatch=73`）、`special_dividend=1`；factor_to_event `same_day_orphan_corporate_action=405`；`unclassified=0`。ledger-consumable view 行数=`46431`、未归类行=`0`。
 - 本阶段未改 ledger 代码，未写 ADS/research/promotion，不改变 accepted / baseline 状态。Phase B 仍需按 PRD 单独实现 `LedgerParams`、run loop CA 应用、resume/hash/QA 接线与默认逐字节回归。
+
+### 最新补充（2026-06-12）：baseline 数字切换为 CA-on 口径（DECISION-20260612-03），PRD_20260612_02 全三阶段收口
+
+- Phase C CA-on 重跑完成：backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`（execution `strategy1-backtest-report-job-dnt4b`），continuous/lot-aware/CA 三套 QA 通过，ADS 反向 0 行。新锚点：CAGR=`15.35%`、contract Sharpe=`0.6682`、Calmar=`0.4101`。
+- 六项偏差分解桥精确闭合（hfq 估计 − CA-on = 3.5066pp = 税 0.7283 + 现金滞留 2.7920 + 取整 0 + 聚合 0 + 因子残差 -0.0138，unexplained < 1e-9pp）。
+- v3 gates：Sharpe 距 0.70 门 0.032、Calmar 0.4101 < 1.0——baseline ≠ accepted、不得 promotion；测量仪已修正，剩余缺口为真实 alpha/结构缺口（OQ-010）。
+- 纪律：后续实验一律显式 CA-on（代码默认 none_v1 不变）；PRD_20260611_10 Phase 2 等后续工作的对照与参数随之切换。
