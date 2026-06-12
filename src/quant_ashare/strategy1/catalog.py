@@ -19,6 +19,23 @@ DECLARE_PARAM_RE = re.compile(
     r"(?P<type>ARRAY<STRING>|ARRAY<INT64>|STRING|INT64|FLOAT64|BOOL|DATE|TIMESTAMP)"
     r"(?:\s+DEFAULT\s+(?P<value>[^;]*))?;"
 )
+REQUIRED_ACTIVE_STEP_KEYS = {
+    "stable_name",
+    "status",
+    "execution_mode",
+    "current_path",
+    "target_path",
+    "sql_path",
+    "caller",
+    "output_dataset_role_current",
+    "output_dataset_role_target",
+    "required_params",
+    "internal_params",
+    "optional_params",
+    "inputs",
+    "outputs",
+    "partition_columns",
+}
 
 
 def repo_relative(path: str | Path) -> str:
@@ -98,6 +115,10 @@ def validate_catalog(catalog: dict[str, Any] | str | Path | None = None) -> list
         catalog = load_step_catalog(catalog)
     errors: list[str] = []
     for name, cfg in steps(catalog).items():
+        if cfg.get("status") != "retired":
+            missing_keys = sorted(REQUIRED_ACTIVE_STEP_KEYS - set(cfg))
+            if missing_keys:
+                errors.append(f"{name}: missing required catalog keys: {missing_keys}")
         target = cfg.get("target_path") or cfg.get("sql_path")
         if not target:
             errors.append(f"{name}: missing target_path/sql_path")
