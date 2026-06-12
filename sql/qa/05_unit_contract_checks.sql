@@ -45,6 +45,10 @@ ASSERT (
     SELECT 'dwd_stock_eod_price', 'low_hfq' UNION ALL
     SELECT 'dwd_stock_eod_price', 'close_hfq' UNION ALL
     SELECT 'dwd_stock_eod_price', 'adj_factor' UNION ALL
+    SELECT 'dwd_stock_dividend_event', 'cash_div_per_share_pretax' UNION ALL
+    SELECT 'dwd_stock_dividend_event', 'bonus_ratio' UNION ALL
+    SELECT 'dwd_stock_dividend_event', 'conversion_ratio' UNION ALL
+    SELECT 'dwd_stock_dividend_event', 'split_ratio' UNION ALL
     SELECT 'dwd_stock_eod_valuation', 'total_share' UNION ALL
     SELECT 'dwd_stock_eod_valuation', 'float_share' UNION ALL
     SELECT 'dwd_stock_eod_valuation', 'free_share' UNION ALL

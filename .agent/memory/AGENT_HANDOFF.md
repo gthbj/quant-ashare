@@ -1,3 +1,74 @@
+> 当前交接补充（2026-06-12，GPT-5.5，Ledger CA Phase A）
+> - `codex/ledger-corporate-actions` 已完成 PRD_20260612_01 Phase A：新增 DWD 分红送转事件表、hfq 双向 mismatch QA 明细表、ledger-consumable view、Dataform action/generated SQLX、单位契约、metadata 与重复样例 fixture 测试。
+> - OQ-015 裁决已落实：不修 `stk_co_rate`，不设人工 allowlist；容差为 abs/rel + `0.01/prev_close` floor；mismatch 自动归类为 `data_anomaly` / `special_dividend` / `same_day_orphan_corporate_action`，QA 硬门为未归类 mismatch=0。
+> - BigQuery Phase A 已执行并通过 QA：2021+ canonical events=`22009`、same-ex_date 聚合键=`20`；mismatch 分布 event_to_factor `data_anomaly=1106`、`special_dividend=1`，factor_to_event orphan=`405`，unclassified=`0`；ledger-consumable view 行数=`46431`。本轮未改 ledger 代码、未写 ADS/research/promotion。
+>
+> Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - Ledger 分红送转 Phase A 落地
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-ca-ledger`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/ledger-corporate-actions`
+Run ID: N/A
+相关 issue/PR: PR #195（PRD review/裁决）；实现 PR 待创建；PRD `docs/prd/PRD_20260612_01_策略1Ledger分红送转记账修复.md`
+
+### 已完成工作
+
+- 实现 Phase A DWD：`sql/dwd/12_dwd_stock_dividend_event.sql` 过滤 `TRIM(div_proc)='实施'`，按 `(sec_code, ex_date)` canonical 聚合 `cash_div_tax`、`stk_bo_rate`、`stk_co_rate`，保留多事件审计数组与 `source_event_count`。
+- 实现 Phase A QA：`sql/qa/14_corporate_action_event_checks.sql` 覆盖键唯一、范围、ex_date 开市日、record_date 边界、重复样例 fixture，以及 hfq factor 双向交叉校验；落 `ashare_meta.qa_stock_dividend_event_hfq_mismatch`，创建 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`。
+- OQ-015 裁决已应用：不修 `stk_co_rate` 口径；不使用人工 allowlist；容差为 abs/rel 加 `0.01 / prev_close` floor；mismatch 机制化归类，QA ASSERT 语义为 `unclassified mismatch = 0`。
+- 同步 Dataform manifest/generated SQLX、ODS dividend schema consumer、单位契约、metadata、重复样例 fixture 和 warehouse 测试。
+
+### 重要上下文
+
+- BigQuery 已执行：`04_ods_field_unit_map` job `bqjob_r4bf6b56437413e50_0000019ebb5cc600_1`；DWD event table job `bqjob_r323943fdb6fe8d66_0000019ebb4706b9_1`；metadata job `bqjob_r5bcddfc324d985c8_0000019ebb4741ce_1`；unit QA job `bqjob_r63dbdce269a7fb79_0000019ebb5d3981_1`；CA QA job `bqjob_r1aadacca42b9e6_0000019ebb47ed1f_1`。
+- 2010+ event table：canonical events=`46431`、source rows=`46470`、同股同 ex_date 聚合键=`37`。2021+ QA 窗口：canonical events=`22009`、source rows=`22029`、同股同 ex_date 聚合键=`20`。
+- mismatch 明细：event_to_factor `data_anomaly=1106`（`missing_prev_price=1033`、`factor_jump_mismatch=73`）、`special_dividend=1`；factor_to_event `same_day_orphan_corporate_action=405`；`unclassified=0`。ledger-consumable view 行数=`46431`、未归类行=`0`。
+- 本轮未改 `src/quant_ashare/strategy1/ledger.py` 或任何 ledger 代码，未写 ADS/research/promotion，不改变 accepted / baseline 状态。
+
+### 改动文件
+
+- `sql/dwd/12_dwd_stock_dividend_event.sql`
+- `sql/qa/14_corporate_action_event_checks.sql`
+- `configs/ods_schema_contracts/dividend.yml`
+- `sql/meta/04_ods_field_unit_map.sql`
+- `sql/metadata/01_core_table_column_descriptions.sql`
+- `sql/qa/05_unit_contract_checks.sql`
+- `dataform/action_manifest.json` 与 generated SQLX
+- `tests/fixtures/corporate_actions/dividend_duplicate_events.json`
+- `tests/warehouse/test_dwd_stock_dividend_event.py`
+- `.agent/memory/IMPLEMENTATION_STATUS.md` / `.agent/memory/AGENT_HANDOFF.md` / `.agent/memory/OPEN_QUESTIONS.md` / `.agent/memory/KNOWN_CONSTRAINTS.md` / `.agent/memory/ARCHITECTURE_MEMORY.md` / `TODO.md`
+
+### 测试 / 验证
+
+- `python3 -m pytest -q tests/warehouse/test_dwd_stock_dividend_event.py tests/dataform/test_generated_sqlx.py`：5 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：通过。
+- `npx --yes @dataform/cli compile dataform`：37 actions。
+- `bq query --dry_run < sql/dwd/12_dwd_stock_dividend_event.sql`：通过。
+- `bq query --dry_run < sql/qa/14_corporate_action_event_checks.sql`：通过。
+- BigQuery 实跑 `sql/qa/05_unit_contract_checks.sql` 与 `sql/qa/14_corporate_action_event_checks.sql`：全部 ASSERT successful。
+
+### 阻塞项
+
+- 无 Phase A 阻塞。
+
+### 下一步建议
+
+- Phase B 单独实现 ledger 参数、run loop “先 CA 后交易”、resume/hash/QA 接线与默认逐字节回归；不得把 Phase A 事件表直接视为策略结果或 promotion 依据。
+- Phase C 对照报告需要解释 `special_dividend`、`same_day_orphan_corporate_action`、零股取整、现金滞留与事件/adj_factor residual，不得把孤儿因子跳变静默混入 unexplained residual。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/OPEN_QUESTIONS.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/ARCHITECTURE_MEMORY.md`
+- `TODO.md`
+
 > 当前交接补充（2026-06-12，Claude Fable 5，PRD_20260612_01 执行收口）
 > - PRD 经 PR #193 三轮 Codex review 收敛合并（merge `d9963cf`）；Phase B 实现 PR #197 经 Claude review 零发现合并（merge `2312f30`，166 pytest 通过）。
 > - 三个 BigQuery 操作已执行并通过对账（证据贴 PR #197 comment）：Phase A 审计日志预检通过（30 天窗口仅 owner 与项目 compute SA 的 2026-05-24 遗留 InsertJob，2026-05-27 起零活动，无外部消费方）后删除 `ashare` @ `2026-06-12T09:41:45Z`；Phase B 删除 `ashare_qa_windowed_equivalence` @ `09:41:48Z`；两者 `bq show` 复核 Not found，项目剩 9 个数据集。

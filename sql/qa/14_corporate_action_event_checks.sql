@@ -1,0 +1,378 @@
+-- 文档维护：GPT-5.5（最近更新 2026-06-12）
+-- BigQuery Standard SQL
+-- 分红送转事件 DWD QA。用于 Phase A 物化后校验 canonical 聚合、
+-- 交易日边界，以及与后复权因子跳变的双向交叉一致性。
+
+DECLARE p_event_start_date DATE DEFAULT DATE '2021-01-04';
+DECLARE p_event_end_date DATE DEFAULT CURRENT_DATE('Asia/Shanghai');
+DECLARE p_factor_abs_tolerance FLOAT64 DEFAULT 0.02;
+DECLARE p_factor_rel_tolerance FLOAT64 DEFAULT 0.01;
+DECLARE p_orphan_factor_abs_tolerance FLOAT64 DEFAULT 0.02;
+DECLARE p_orphan_factor_rel_tolerance FLOAT64 DEFAULT 0.01;
+DECLARE p_ex_right_reference_rounding_cny FLOAT64 DEFAULT 0.01;
+DECLARE p_special_dividend_cash_ratio FLOAT64 DEFAULT 0.10;
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    SELECT sec_code, ex_date, COUNT(*) AS n
+    FROM `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
+    WHERE ex_date BETWEEN p_event_start_date AND p_event_end_date
+    GROUP BY sec_code, ex_date
+    HAVING n > 1
+  )
+) AS 'QA-CA-EVENT-1: dwd_stock_dividend_event key (sec_code, ex_date) must be unique';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
+  WHERE ex_date BETWEEN p_event_start_date AND p_event_end_date
+    AND (
+      cash_div_per_share_pretax < 0
+      OR bonus_ratio < 0
+      OR conversion_ratio < 0
+      OR split_ratio < 0
+      OR split_ratio > 10
+      OR source_event_count < 1
+    )
+) AS 'QA-CA-EVENT-2: dividend cash and split ratios must be non-negative and in sane ranges';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dwd.dwd_stock_dividend_event` AS e
+  LEFT JOIN `data-aquarium.ashare_dim.dim_trade_calendar` AS c
+    ON c.exchange = 'SSE'
+   AND c.cal_date = e.ex_date
+  WHERE e.ex_date BETWEEN p_event_start_date AND p_event_end_date
+    AND COALESCE(c.is_open, 0) != 1
+) AS 'QA-CA-EVENT-3: ex_date must be an SSE open trading day';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
+  WHERE ex_date BETWEEN p_event_start_date AND p_event_end_date
+    AND record_date IS NOT NULL
+    AND record_date > ex_date
+) AS 'QA-CA-EVENT-4: record_date must not be after ex_date';
+
+ASSERT (
+  SELECT COUNT(*) = 2
+  FROM `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
+  WHERE ex_date BETWEEN DATE '2023-07-17' AND DATE '2025-07-10'
+    AND (
+      (
+        sec_code = '600188.SH'
+        AND ex_date = DATE '2023-07-17'
+        AND source_event_count = 2
+        AND ABS(cash_div_per_share_pretax - 4.30) <= 1e-9
+        AND ABS(bonus_ratio - 0.50) <= 1e-9
+        AND ABS(conversion_ratio - 0.0) <= 1e-9
+      )
+      OR (
+        sec_code = '601966.SH'
+        AND ex_date = DATE '2025-07-10'
+        AND source_event_count = 2
+        AND ABS(cash_div_per_share_pretax - 0.084) <= 1e-12
+        AND ABS(bonus_ratio - 0.0) <= 1e-9
+        AND ABS(conversion_ratio - 0.0) <= 1e-9
+      )
+    )
+) AS 'QA-CA-EVENT-5: known same-ex_date duplicate fixtures must canonicalize by SUM';
+
+CREATE OR REPLACE TABLE `data-aquarium.ashare_meta.qa_stock_dividend_event_hfq_mismatch`
+OPTIONS (
+  description = '分红送转事件与 dwd_stock_eod_price 后复权因子跳变双向交叉校验不一致明细；QA 硬门为未归类 mismatch=0。'
+) AS
+WITH events AS (
+  SELECT *
+  FROM `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
+  WHERE ex_date BETWEEN p_event_start_date AND p_event_end_date
+),
+price_window AS (
+  SELECT
+    sec_code,
+    trade_date,
+    close,
+    adj_factor
+  FROM `data-aquarium.ashare_dwd.dwd_stock_eod_price`
+  WHERE trade_date BETWEEN DATE_SUB(p_event_start_date, INTERVAL 20 DAY) AND p_event_end_date
+),
+prev_price AS (
+  SELECT
+    e.sec_code,
+    e.ex_date,
+    p.trade_date AS prev_trade_date,
+    p.close AS prev_close,
+    p.adj_factor AS prev_adj_factor
+  FROM events AS e
+  JOIN price_window AS p
+    ON p.sec_code = e.sec_code
+   AND p.trade_date < e.ex_date
+   AND p.close IS NOT NULL
+   AND p.adj_factor IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY e.sec_code, e.ex_date
+    ORDER BY p.trade_date DESC
+  ) = 1
+),
+ex_price AS (
+  SELECT
+    e.sec_code,
+    e.ex_date,
+    p.close AS ex_close,
+    p.adj_factor AS ex_adj_factor
+  FROM events AS e
+  LEFT JOIN price_window AS p
+    ON p.sec_code = e.sec_code
+   AND p.trade_date = e.ex_date
+),
+event_factor_base AS (
+  SELECT
+    CURRENT_TIMESTAMP() AS qa_run_at,
+    'event_to_factor' AS check_direction,
+    e.sec_code,
+    e.ex_date,
+    pp.prev_trade_date,
+    e.record_date,
+    e.cash_div_per_share_pretax,
+    e.bonus_ratio,
+    e.conversion_ratio,
+    e.split_ratio,
+    e.source_event_count,
+    pp.prev_close,
+    pp.prev_adj_factor,
+    xp.ex_close,
+    xp.ex_adj_factor,
+    SAFE_DIVIDE(pp.prev_close * (1.0 + e.split_ratio), pp.prev_close - e.cash_div_per_share_pretax)
+      AS expected_adj_factor_jump,
+    SAFE_DIVIDE(xp.ex_adj_factor, pp.prev_adj_factor) AS actual_adj_factor_jump
+  FROM events AS e
+  LEFT JOIN prev_price AS pp
+    ON pp.sec_code = e.sec_code
+   AND pp.ex_date = e.ex_date
+  LEFT JOIN ex_price AS xp
+    ON xp.sec_code = e.sec_code
+   AND xp.ex_date = e.ex_date
+),
+event_factor_check AS (
+  SELECT
+    *,
+    SAFE_DIVIDE(p_ex_right_reference_rounding_cny, NULLIF(prev_close, 0)) AS rounding_rel_tolerance_floor,
+    GREATEST(
+      p_factor_rel_tolerance,
+      COALESCE(SAFE_DIVIDE(p_ex_right_reference_rounding_cny, NULLIF(prev_close, 0)), 0.0)
+    ) AS effective_rel_tolerance,
+    GREATEST(
+      p_factor_abs_tolerance,
+      ABS(expected_adj_factor_jump) * GREATEST(
+        p_factor_rel_tolerance,
+        COALESCE(SAFE_DIVIDE(p_ex_right_reference_rounding_cny, NULLIF(prev_close, 0)), 0.0)
+      )
+    ) AS effective_abs_tolerance,
+    ABS(actual_adj_factor_jump - expected_adj_factor_jump) AS factor_abs_diff,
+    ABS(SAFE_DIVIDE(actual_adj_factor_jump - expected_adj_factor_jump, expected_adj_factor_jump)) AS factor_rel_diff
+  FROM event_factor_base
+),
+event_mismatches AS (
+  SELECT
+    *,
+    CASE
+      WHEN prev_trade_date IS NULL THEN 'missing_prev_price'
+      WHEN ex_adj_factor IS NULL THEN 'missing_ex_date_adj_factor'
+      WHEN prev_adj_factor IS NULL OR prev_adj_factor <= 0 THEN 'invalid_prev_adj_factor'
+      WHEN prev_close IS NULL OR prev_close <= cash_div_per_share_pretax THEN 'invalid_prev_close_for_cash_dividend'
+      WHEN expected_adj_factor_jump IS NULL OR actual_adj_factor_jump IS NULL THEN 'missing_factor_jump'
+      WHEN factor_abs_diff > effective_abs_tolerance
+        AND factor_rel_diff > effective_rel_tolerance
+        THEN 'factor_jump_mismatch'
+      ELSE NULL
+    END AS mismatch_reason
+  FROM event_factor_check
+),
+classified_event_mismatches AS (
+  SELECT
+    *,
+    CASE
+      WHEN mismatch_reason IS NULL THEN NULL
+      WHEN mismatch_reason = 'factor_jump_mismatch'
+        AND SAFE_DIVIDE(cash_div_per_share_pretax, NULLIF(prev_close, 0)) >= p_special_dividend_cash_ratio
+        THEN 'special_dividend'
+      ELSE 'data_anomaly'
+    END AS mismatch_category,
+    CASE
+      WHEN mismatch_reason IS NULL THEN NULL
+      WHEN mismatch_reason = 'factor_jump_mismatch'
+        AND SAFE_DIVIDE(cash_div_per_share_pretax, NULLIF(prev_close, 0)) >= p_special_dividend_cash_ratio
+        THEN 'cash_dividend_ge_10pct_prev_close'
+      WHEN mismatch_reason = 'factor_jump_mismatch' THEN 'factor_jump_outside_structured_tolerance'
+      ELSE 'missing_or_invalid_factor_input'
+    END AS classification_rule
+  FROM event_mismatches
+  WHERE mismatch_reason IS NOT NULL
+),
+price_pairs AS (
+  SELECT
+    sec_code,
+    trade_date,
+    LAG(trade_date) OVER (PARTITION BY sec_code ORDER BY trade_date) AS prev_trade_date,
+    close AS ex_close,
+    LAG(close) OVER (PARTITION BY sec_code ORDER BY trade_date) AS prev_close,
+    adj_factor AS ex_adj_factor,
+    LAG(adj_factor) OVER (PARTITION BY sec_code ORDER BY trade_date) AS prev_adj_factor
+  FROM price_window
+  WHERE close IS NOT NULL
+    AND adj_factor IS NOT NULL
+),
+orphan_factor_candidates AS (
+  SELECT
+    CURRENT_TIMESTAMP() AS qa_run_at,
+    'factor_to_event' AS check_direction,
+    p.sec_code,
+    p.trade_date AS ex_date,
+    p.prev_trade_date,
+    CAST(NULL AS DATE) AS record_date,
+    CAST(NULL AS FLOAT64) AS cash_div_per_share_pretax,
+    CAST(NULL AS FLOAT64) AS bonus_ratio,
+    CAST(NULL AS FLOAT64) AS conversion_ratio,
+    CAST(NULL AS FLOAT64) AS split_ratio,
+    CAST(NULL AS INT64) AS source_event_count,
+    p.prev_close,
+    p.prev_adj_factor,
+    p.ex_close,
+    p.ex_adj_factor,
+    1.0 AS expected_adj_factor_jump,
+    SAFE_DIVIDE(p.ex_adj_factor, p.prev_adj_factor) AS actual_adj_factor_jump,
+    SAFE_DIVIDE(p_ex_right_reference_rounding_cny, NULLIF(p.prev_close, 0)) AS rounding_rel_tolerance_floor,
+    GREATEST(
+      p_orphan_factor_rel_tolerance,
+      COALESCE(SAFE_DIVIDE(p_ex_right_reference_rounding_cny, NULLIF(p.prev_close, 0)), 0.0)
+    ) AS effective_rel_tolerance
+  FROM price_pairs AS p
+  LEFT JOIN events AS e
+    ON e.sec_code = p.sec_code
+   AND e.ex_date = p.trade_date
+  WHERE p.trade_date BETWEEN p_event_start_date AND p_event_end_date
+    AND e.sec_code IS NULL
+    AND p.prev_trade_date IS NOT NULL
+    AND p.prev_adj_factor IS NOT NULL
+    AND p.prev_adj_factor > 0
+    AND p.ex_adj_factor IS NOT NULL
+),
+orphan_factor_mismatches AS (
+  SELECT
+    *,
+    GREATEST(
+      p_orphan_factor_abs_tolerance,
+      ABS(actual_adj_factor_jump) * effective_rel_tolerance
+    ) AS effective_abs_tolerance,
+    ABS(actual_adj_factor_jump - expected_adj_factor_jump) AS factor_abs_diff,
+    ABS(SAFE_DIVIDE(actual_adj_factor_jump - expected_adj_factor_jump, expected_adj_factor_jump)) AS factor_rel_diff,
+    'orphan_factor_jump_without_dividend_event' AS mismatch_reason,
+    'same_day_orphan_corporate_action' AS mismatch_category,
+    'hfq_factor_jump_without_same_day_event' AS classification_rule
+  FROM orphan_factor_candidates
+  WHERE ABS(actual_adj_factor_jump - expected_adj_factor_jump) > GREATEST(
+      p_orphan_factor_abs_tolerance,
+      ABS(actual_adj_factor_jump) * effective_rel_tolerance
+    )
+    AND ABS(SAFE_DIVIDE(actual_adj_factor_jump - expected_adj_factor_jump, expected_adj_factor_jump))
+      > effective_rel_tolerance
+),
+all_mismatches AS (
+  SELECT
+    qa_run_at,
+    check_direction,
+    sec_code,
+    ex_date,
+    prev_trade_date,
+    record_date,
+    cash_div_per_share_pretax,
+    bonus_ratio,
+    conversion_ratio,
+    split_ratio,
+    source_event_count,
+    prev_close,
+    prev_adj_factor,
+    ex_close,
+    ex_adj_factor,
+    expected_adj_factor_jump,
+    actual_adj_factor_jump,
+    factor_abs_diff,
+    factor_rel_diff,
+    rounding_rel_tolerance_floor,
+    effective_rel_tolerance,
+    effective_abs_tolerance,
+    mismatch_reason,
+    mismatch_category,
+    classification_rule
+  FROM classified_event_mismatches
+  UNION ALL
+  SELECT
+    qa_run_at,
+    check_direction,
+    sec_code,
+    ex_date,
+    prev_trade_date,
+    record_date,
+    cash_div_per_share_pretax,
+    bonus_ratio,
+    conversion_ratio,
+    split_ratio,
+    source_event_count,
+    prev_close,
+    prev_adj_factor,
+    ex_close,
+    ex_adj_factor,
+    expected_adj_factor_jump,
+    actual_adj_factor_jump,
+    factor_abs_diff,
+    factor_rel_diff,
+    rounding_rel_tolerance_floor,
+    effective_rel_tolerance,
+    effective_abs_tolerance,
+    mismatch_reason,
+    mismatch_category,
+    classification_rule
+  FROM orphan_factor_mismatches
+)
+SELECT
+  *,
+  COALESCE(mismatch_category, 'unclassified') = 'unclassified' AS is_unclassified
+FROM all_mismatches;
+
+CREATE OR REPLACE VIEW `data-aquarium.ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`
+OPTIONS (
+  description = 'ledger 可消费的分红送转事件视图；剔除未归类正向 mismatch，并披露 hfq 对账分类计数。'
+) AS
+WITH forward_summary AS (
+  SELECT
+    sec_code,
+    ex_date,
+    COUNT(*) AS hfq_mismatch_count,
+    COUNTIF(mismatch_category = 'unclassified' OR mismatch_category IS NULL) AS unclassified_mismatch_count,
+    COUNTIF(mismatch_category = 'special_dividend') AS special_dividend_mismatch_count,
+    COUNTIF(mismatch_category = 'data_anomaly') AS data_anomaly_mismatch_count,
+    ARRAY_AGG(DISTINCT mismatch_category IGNORE NULLS ORDER BY mismatch_category) AS hfq_mismatch_categories
+  FROM `data-aquarium.ashare_meta.qa_stock_dividend_event_hfq_mismatch`
+  WHERE check_direction = 'event_to_factor'
+  GROUP BY sec_code, ex_date
+)
+SELECT
+  e.*,
+  COALESCE(s.hfq_mismatch_count, 0) AS hfq_mismatch_count,
+  COALESCE(s.unclassified_mismatch_count, 0) AS unclassified_mismatch_count,
+  COALESCE(s.special_dividend_mismatch_count, 0) AS special_dividend_mismatch_count,
+  COALESCE(s.data_anomaly_mismatch_count, 0) AS data_anomaly_mismatch_count,
+  COALESCE(s.hfq_mismatch_categories, ARRAY<STRING>[]) AS hfq_mismatch_categories
+FROM `data-aquarium.ashare_dwd.dwd_stock_dividend_event` AS e
+LEFT JOIN forward_summary AS s
+  ON s.sec_code = e.sec_code
+ AND s.ex_date = e.ex_date
+WHERE e.ex_date BETWEEN DATE '2010-01-01' AND CURRENT_DATE('Asia/Shanghai')
+  AND COALESCE(s.unclassified_mismatch_count, 0) = 0;
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_meta.qa_stock_dividend_event_hfq_mismatch`
+  WHERE COALESCE(mismatch_category, 'unclassified') = 'unclassified'
+) AS 'QA-CA-EVENT-6: unclassified event/factor mismatches must be zero';

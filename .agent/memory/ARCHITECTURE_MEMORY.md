@@ -71,6 +71,7 @@ OQ-005 raw GCS canonical 路径为 `a-share/tushare/raw_data/api=<api>/endpoint=
 | dwd | dwd_stock_eod_price | daily+adj_factor+stk_limit+suspend_d | (sec_code, trade_date) |
 | dwd | dwd_stock_eod_valuation | daily_basic | (sec_code, trade_date) |
 | dwd | dwd_stock_bak_basic_daily | bak_basic | (sec_code, trade_date) |
+| dwd | dwd_stock_dividend_event | dividend | (sec_code, ex_date) |
 | dwd | dwd_fin_indicator | fina_indicator | (sec_code, report_period) PIT |
 | dwd | dwd_fin_indicator_latest | dwd_fin_indicator | (sec_code, report_period) 最新版本便捷表 |
 | dwd | dwd_index_eod | index_daily + index_dailybasic | (sec_code, trade_date) |
@@ -129,8 +130,9 @@ DWS/ADS 统一版本字段：`universe_version`、`feature_version`、`label_ver
 ## SQL 代码布局
 
 - 根目录 `sql/` 存放 P0 BigQuery Standard SQL：`00_create_datasets.sql`、`dim/*.sql`、`dwd/*.sql`、`dws/*.sql`、`ads/*.sql`。
-- 现有脚本覆盖 4 张 DIM + 5 张 DWD + 6 张策略 1 DWS + 11 张 ADS 契约表，使用 `CREATE OR REPLACE TABLE` + CTAS/DDL + 字段描述；`sql/qa/01_core_smoke_checks.sql` 存放 DIM/DWD 基础断言，`sql/qa/02_strategy1_dws_ads_checks.sql` 存放策略 1 DWS/ADS 断言，`sql/qa/03_index_benchmark_checks.sql` 存放 OQ-004 指数映射与 benchmark 覆盖断言。
+- 现有脚本覆盖 4 张 DIM + 6 张核心 DWD + 财务 DWD/latest + 6 张策略 1 DWS + 11 张 ADS 契约表，使用 `CREATE OR REPLACE TABLE` + CTAS/DDL + 字段描述；`sql/qa/01_core_smoke_checks.sql` 存放 DIM/DWD 基础断言，`sql/qa/02_strategy1_dws_ads_checks.sql` 存放策略 1 DWS/ADS 断言，`sql/qa/03_index_benchmark_checks.sql` 存放 OQ-004 指数映射与 benchmark 覆盖断言。
 - `sql/incremental/01_refresh_stock_dwd_dws_window.sql` 是 OQ-005 Phase 2.2 股票 DWD/DWS 窗口刷新脚本；`sql/qa/10_windowed_stock_refresh_checks.sql` 是对应窗口 QA；`scripts/qa/run_windowed_refresh_equivalence.py` 是已退役的历史 full-vs-window 数值等价 QA，未来如需恢复须从 git history 取回并另行评估。
+- `sql/dwd/12_dwd_stock_dividend_event.sql` 是 PRD_20260612_01 Phase A 的分红送转事件 DWD，消费键为 `(sec_code, ex_date)`，对 `ods_tushare_dividend` 已实施事件做 canonical 聚合；`sql/qa/14_corporate_action_event_checks.sql` 是对应公司行为事件 QA，落 `ashare_meta.qa_stock_dividend_event_hfq_mismatch` 双向 mismatch 明细，并生成 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`。
 - `sql/metadata/01_core_table_column_descriptions.sql` 统一维护 P0 DIM/DWD 表级和字段级中文说明；每次重建 P0 表后都应重新执行该 metadata 脚本。
 - 当前脚本是 bootstrap SQL，不关闭 OQ-005；后续仍可迁移为 dbt 或纳入 Airflow 调度。
 - 2026-05-31 P0 已物化到 BigQuery；`dwd_index_eod` 已恢复读取 `index_dailybasic`。该接口市值/股本单位为元/股，不做 `*10000` 换算。

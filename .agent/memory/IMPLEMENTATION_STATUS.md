@@ -6,6 +6,14 @@ Last updated: 2026-06-12
 
 ## 当前状态
 
+### 最新补充（2026-06-12）：Ledger 分红送转 Phase A 已落地并通过 QA
+
+- 分支 `codex/ledger-corporate-actions` 已按 `docs/prd/PRD_20260612_01_策略1Ledger分红送转记账修复.md` Phase A 完成事件层实现：`sql/dwd/12_dwd_stock_dividend_event.sql` 从 `ods_tushare_dividend` 已实施事件 canonical 聚合到 `(sec_code, ex_date)`；`sql/qa/14_corporate_action_event_checks.sql` 落 `ashare_meta.qa_stock_dividend_event_hfq_mismatch`，并创建 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`。
+- OQ-015 owner 裁决已落实：不修 `stk_co_rate` 口径、不设人工 allowlist；hfq 对账保留 abs/rel 容差并叠加 `0.01 / prev_close` 的除权参考价舍入下限；mismatch 双向落表并自动归类，QA 硬门改为 `unclassified mismatch = 0`。
+- BigQuery 已执行并通过：`sql/meta/04_ods_field_unit_map.sql` job `bqjob_r4bf6b56437413e50_0000019ebb5cc600_1`；`sql/dwd/12_dwd_stock_dividend_event.sql` job `bqjob_r323943fdb6fe8d66_0000019ebb4706b9_1`；`sql/metadata/01_core_table_column_descriptions.sql` job `bqjob_r5bcddfc324d985c8_0000019ebb4741ce_1`；`sql/qa/05_unit_contract_checks.sql` job `bqjob_r63dbdce269a7fb79_0000019ebb5d3981_1`；`sql/qa/14_corporate_action_event_checks.sql` dry-run + real run job `bqjob_r1aadacca42b9e6_0000019ebb47ed1f_1`，`QA-CA-EVENT-1..6` 全部通过。
+- 落库结果：2010+ canonical events=`46431`、source rows=`46470`、同股同 ex_date 聚合键=`37`；2021+ QA 窗口 canonical events=`22009`、source rows=`22029`、同股同 ex_date 聚合键=`20`。mismatch 明细共 `1512` 行：event_to_factor `data_anomaly=1106`（其中 `missing_prev_price=1033`、`factor_jump_mismatch=73`）、`special_dividend=1`；factor_to_event `same_day_orphan_corporate_action=405`；`unclassified=0`。ledger-consumable view 行数=`46431`、未归类行=`0`。
+- 本阶段未改 ledger 代码，未写 ADS/research/promotion，不改变 accepted / baseline 状态。Phase B 仍需按 PRD 单独实现 `LedgerParams`、run loop CA 应用、resume/hash/QA 接线与默认逐字节回归。
+
 ### 最新补充（2026-06-12）：ingestion 镜像 stale 事故修复（meta 审计静默 + 000001.SH 日更缺失）
 
 - 诊断确认：`ashare-ingest-current-scope` 等 5 个采集 Cloud Run Jobs 引用 `ingestion:latest`，自 2026-06-04 11:50 UTC（build `35bca022`，digest `351dfd99...`）后从未重建；而 status_writer 接线 commit `60fb242` 是同日 15:57 UTC——线上镜像从未包含 `IngestionStatusWriter`，live 采集成功但从不写 `ashare_meta.ingestion_run` / `ingestion_partition_status`（两表自建表起 0 行、近 7 天零 DML 的根因）。`v_ingestion_failures` / `v_ingestion_empty_returns` / `v_alert_summary` 的 `ingestion_failed` 分支因此一直读空表，采集级告警静默。

@@ -7,7 +7,8 @@ ods_table: ods_tushare_dividend
 gcs_prefix: gs://data-aquarium/a-share/tushare/raw_data/api=dividend/endpoint=dividend
 partition_field: partition_date
 priority: P1
-consumers: []
+consumers:
+  - dwd_stock_dividend_event
 fields:
   - field_name: ts_code
     bigquery_type: STRING
@@ -70,7 +71,7 @@ fields:
     pyarrow_type: float64
     nullable: true
     semantic_type: amount
-    unit_note: "元 每股现金分红税后"
+    unit_note: "元 每股现金分红税前/含税（ledger Phase A canonical 字段 cash_div_per_share_pretax 使用）"
     repair_policy: cast_preserve_value
   - field_name: record_date
     bigquery_type: STRING

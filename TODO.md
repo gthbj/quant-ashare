@@ -24,6 +24,9 @@
 - [ ] OQ-010：继续寻找 accepted 的 Cloud Run Python baseline
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
 
+- [x] OQ-010：完成 `PRD_20260612_01` Ledger 分红送转 Phase A 事件表落地
+  说明：Phase A 已完成并实跑 BigQuery：新增/替换 `ashare_dwd.dwd_stock_dividend_event`、`ashare_meta.qa_stock_dividend_event_hfq_mismatch` 与 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`，并刷新单位映射/字段说明、通过单位 QA 与 CA QA。OQ-015 裁决已落实：不修 `stk_co_rate` 口径，不设人工 allowlist；QA 使用结构化容差（abs/rel + `0.01/prev_close` 下限），双向落表并自动归类，硬门为未归类 mismatch=0。结果：2010+ canonical events=`46431`；2021+ canonical events=`22009`、same-ex_date 聚合键=`20`、source rows=`22029`；mismatch 分布为 event_to_factor data_anomaly=`1106`（含 missing_prev_price=`1033`、factor_jump_mismatch=`73`）、special_dividend=`1`、factor_to_event same_day_orphan_corporate_action=`405`，unclassified=`0`。本阶段未改 ledger 代码、未写 ADS/research/promotion。
+
 - [x] OQ-010：实现年度滚动选参回测实验
   说明：年度 walk-forward selection、final refit、synthetic continuous 与 Phase 2 candidate-only live smoke 均已完成。2021-2026 effective-window continuous 已作为研究复盘口径落地；PRD_06 又完成 2010+ 历史修复与 2021-2024 true-five-year refit 重跑，产出 true-five-year synthetic continuous 对比。PRD_07 live smoke 已验证 execution 粒度 fanout、state recovery、artifact skip 与 missing-matrix preflight。后续不再以“实现年度滚动”为 TODO；完整 2021-2026 live pipeline / Phase 3 需要 owner 另批，accepted baseline 迭代见单独 OQ-010 项。
 

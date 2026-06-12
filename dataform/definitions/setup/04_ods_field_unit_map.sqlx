@@ -72,6 +72,16 @@ VALUES
   ('tushare', 'adj_factor', 'ods_tushare_adj_factor', 'adj_factor', 'ratio', 'ratio', 'ratio', 1, 'dwd_stock_eod_price', 'adj_factor', FALSE, NULL, 'verified', NULL, NULL, 'Tushare Pro adj_factor 接口文档', DATE '2026-06-02', 'GPT-5', '后复权因子，无量纲');
 
 -- ============================================================
+-- P1 已落库字段：dwd_stock_dividend_event
+-- ============================================================
+INSERT INTO `data-aquarium.ashare_meta.ods_field_unit_map`
+VALUES
+  ('tushare', 'dividend', 'ods_tushare_dividend', 'cash_div_tax', 'per_share', '元/股', '元/股', 1, 'dwd_stock_dividend_event', 'cash_div_per_share_pretax', FALSE, NULL, 'verified', NULL, NULL, 'PRD_20260612_01 Phase A contract；BQ 只读样例 600188.SH@20230717 / 601966.SH@20250710 已验证字段可读与同日聚合', DATE '2026-06-12', 'GPT-5.5', 'ledger 消费每股税前现金分红，按 sec_code/ex_date SUM'),
+  ('tushare', 'dividend', 'ods_tushare_dividend', 'stk_bo_rate', 'ratio', 'ratio', 'ratio', 1, 'dwd_stock_dividend_event', 'bonus_ratio', FALSE, NULL, 'verified', NULL, NULL, 'PRD_20260612_01 Phase A contract；BQ 只读样例 600188.SH@20230717 已验证同日聚合', DATE '2026-06-12', 'GPT-5.5', '每股送股比例，按 sec_code/ex_date SUM'),
+  ('tushare', 'dividend', 'ods_tushare_dividend', 'stk_co_rate', 'ratio', 'ratio', 'ratio', 1, 'dwd_stock_dividend_event', 'conversion_ratio', FALSE, NULL, 'verified', NULL, NULL, 'PRD_20260612_01 Phase A contract', DATE '2026-06-12', 'GPT-5.5', '每股转增比例，按 sec_code/ex_date SUM'),
+  ('tushare', 'dividend', 'ods_tushare_dividend', 'stk_bo_rate,stk_co_rate', 'ratio', 'ratio', 'ratio', 1, 'dwd_stock_dividend_event', 'split_ratio', FALSE, NULL, 'not_applicable', NULL, NULL, '派生：bonus_ratio + conversion_ratio', DATE '2026-06-12', 'GPT-5.5', '送转总比例，非直接 ODS 换算');
+
+-- ============================================================
 -- P0 已落库字段：dwd_stock_eod_valuation（含 raw 保留字段）
 -- ============================================================
 INSERT INTO `data-aquarium.ashare_meta.ods_field_unit_map`

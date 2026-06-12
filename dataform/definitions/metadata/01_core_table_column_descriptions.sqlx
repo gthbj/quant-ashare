@@ -5,7 +5,7 @@ config {
   type: "operations",
   name: "core_table_column_descriptions",
   tags: ["metadata"],
-  dependencies: ["dim_trade_calendar", "dim_stock", "dim_stock_name_hist", "dim_index", "dwd_stock_eod_price", "dwd_stock_eod_valuation", "dwd_fin_indicator", "dwd_fin_indicator_latest", "dwd_index_eod"]
+  dependencies: ["dim_trade_calendar", "dim_stock", "dim_stock_name_hist", "dim_index", "dwd_stock_eod_price", "dwd_stock_eod_valuation", "dwd_stock_dividend_event", "dwd_fin_indicator", "dwd_fin_indicator_latest", "dwd_index_eod"]
 }
 
 -- 文档维护：GPT-5（最近更新 2026-06-01）
@@ -132,6 +132,32 @@ ALTER COLUMN has_suspend_event_data SET OPTIONS (description = '是否匹配到 
 ALTER COLUMN source_system SET OPTIONS (description = '源系统标识，当前为 tushare'),
 ALTER COLUMN source_partition_date SET OPTIONS (description = '主要行情来源 ODS 分区日期，YYYYMMDD 字符串；停牌骨架行可能为空'),
 ALTER COLUMN ingested_at SET OPTIONS (description = '主要行情来源 ODS 摄入时间；停牌骨架行可能为空');
+
+ALTER TABLE `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
+SET OPTIONS (description = '股票分红送转事件 DWD。消费键为 (sec_code, ex_date)，同股同除权日多条实施事件按现金分红、送股和转增比例 canonical 聚合。');
+
+ALTER TABLE `data-aquarium.ashare_dwd.dwd_stock_dividend_event`
+ALTER COLUMN sec_code SET OPTIONS (description = '统一证券代码，Tushare ts_code 格式'),
+ALTER COLUMN ex_date SET OPTIONS (description = '除权除息日，月分区字段；ledger 在该日开盘前消费事件'),
+ALTER COLUMN record_date SET OPTIONS (description = '股权登记日；同股同除权日多事件取最新非空登记日，并保留 source_record_dates 审计数组'),
+ALTER COLUMN ann_date SET OPTIONS (description = '最早公告日，用于 PIT 审计，不作为 ledger 消费日期'),
+ALTER COLUMN cash_div_per_share_pretax SET OPTIONS (description = '每股现金分红税前金额，元/股；同股同除权日按 cash_div_tax 求和'),
+ALTER COLUMN bonus_ratio SET OPTIONS (description = '每股送股比例；同股同除权日按 stk_bo_rate 求和'),
+ALTER COLUMN conversion_ratio SET OPTIONS (description = '每股转增比例；同股同除权日按 stk_co_rate 求和'),
+ALTER COLUMN split_ratio SET OPTIONS (description = '送转总比例，bonus_ratio + conversion_ratio'),
+ALTER COLUMN has_cash_dividend SET OPTIONS (description = '是否有现金分红事件'),
+ALTER COLUMN has_split_event SET OPTIONS (description = '是否有送股或转增事件'),
+ALTER COLUMN source_event_count SET OPTIONS (description = '聚合前同 sec_code/ex_date 的实施事件行数'),
+ALTER COLUMN source_end_dates SET OPTIONS (description = '聚合前报告期数组，用于多事件审计'),
+ALTER COLUMN source_ann_dates SET OPTIONS (description = '聚合前公告日数组，用于多事件审计'),
+ALTER COLUMN source_record_dates SET OPTIONS (description = '聚合前股权登记日数组，用于多事件审计'),
+ALTER COLUMN source_pay_dates SET OPTIONS (description = '聚合前派息日数组，用于多事件审计'),
+ALTER COLUMN source_imp_ann_dates SET OPTIONS (description = '聚合前实施公告日数组，用于多事件审计'),
+ALTER COLUMN source_base_dates SET OPTIONS (description = '聚合前基准日数组，用于多事件审计'),
+ALTER COLUMN source_system SET OPTIONS (description = '源系统标识，当前为 tushare'),
+ALTER COLUMN source_partition_date_min SET OPTIONS (description = '聚合前来源 ODS 最小分区日期，YYYYMMDD 字符串'),
+ALTER COLUMN source_partition_date_max SET OPTIONS (description = '聚合前来源 ODS 最大分区日期，YYYYMMDD 字符串'),
+ALTER COLUMN ingested_at SET OPTIONS (description = '聚合前来源 ODS 最大摄入时间');
 
 ALTER TABLE `data-aquarium.ashare_dwd.dwd_stock_eod_valuation`
 SET OPTIONS (description = '股票日频估值与股本 DWD。来自 Tushare daily_basic，默认全量/日常路径写入 2019-01-01 之后数据；owner 显式 backfill 可写入指定历史训练窗口。统一输出元和股口径。');
