@@ -1,0 +1,11 @@
+window_id,step_order,step,entity,calmar_low,calmar_high,calmar_ratio,note
+long_2021_2026,1,8_index_calmar_range,all_benchmark_candidate_indexes,-0.10242941774507948,0.1089460395790434,,dim_index has_daily/is_benchmark_candidate eight-index range
+long_2021_2026,2,full_hold_000852,000852.SH,,,0.08453207952209567,full investment index hold
+long_2021_2026,3,current_true5y_ca_on_baseline,stitched research NAV,,,0.41030930550903105,current CA-on baseline with dividend resume segment when available
+long_2021_2026,4,best_zero_cost_exposure_upper_bound,two_state_biweekly_elow0_cost0bps,,,0.645535781700015,"48-variant NAV-level best-of-grid, in-sample and frictionless"
+long_2021_2026,9,v3_absolute_calmar_gate,contract,,,1.0,operator is > 1.0
+replay_2024_2026,1,8_index_calmar_range,all_benchmark_candidate_indexes,0.6557069792022219,1.3868145238134186,,dim_index has_daily/is_benchmark_candidate eight-index range
+replay_2024_2026,2,full_hold_000852,000852.SH,,,0.6557069792022219,full investment index hold
+replay_2024_2026,3,current_true5y_ca_on_baseline,stitched research NAV,,,1.104120425866135,current CA-on baseline with dividend resume segment when available
+replay_2024_2026,5,historical_candidate_best_short_window,s1_lgbm_s1_cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01__lgbm_b34_l15_lr005_n100_leaf800_ff07_bf10_l1_1_l2_0__lgbm_b34_l15_lr005_n100_leaf800_ff07_bf10_l1_1_l2_0,,,1.7250947325258967,search=cloudrun_python_lgbm_pvfq_n30_bw_h5_20260605_01 rank=2
+replay_2024_2026,9,v3_absolute_calmar_gate,contract,,,1.0,operator is > 1.0
