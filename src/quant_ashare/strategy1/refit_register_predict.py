@@ -28,7 +28,7 @@ from .config import (
     load_runner_config,
 )
 from .dataset_roles import TableResolver
-from scripts.strategy1_cloudrun.preprocess import build_preprocessor, feature_frame_from_panel
+from .preprocess import build_preprocessor, feature_frame_from_panel
 
 from quant_ashare.strategy1.train_predict import (
     CandidateResult,

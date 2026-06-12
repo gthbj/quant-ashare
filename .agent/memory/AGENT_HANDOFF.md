@@ -1,10 +1,84 @@
-> 当前交接摘要（2026-06-12，GPT-5.5，dividend backfill + CA resume）
-> - `codex/dividend-backfill-resume` 已完成 dividend 独立 backfill manifest / endpoint group，`current_scope` 显式排除 `dividend_backfill`，每日调度行为不变。
-> - 已通过 `ashare-ingest-current-scope` 补采 `ods_tushare_dividend` 开市日 `2026-05-28..2026-06-12` 共 12 个分区，重建 dwd/12 与 qa/14，QA-CA-EVENT-1..6 通过。
-> - 已从 CA-on parent `2026-05-27` state resume child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`；research-only 输出，lot-aware QA / CA ledger QA 通过，ADS 与 promotion 反查为 0。
-> - 差异归因闭合：两条新增现金分红净现金 `+68.4` CNY，position/share 差异 0；拼接指标 CAGR `0.15357789449949522`、contract Sharpe `0.668539787795112`、Calmar `0.41030930550903105`。Claude review 已通过 PR #205 技术面，owner 预先决策影响很小则采纳；展示数字修正已采纳，未改 `DECISION-20260612-03` 文本。
+> 当前交接摘要（2026-06-12，GPT-5.5，PRD_20260612_05 Batch 3）
+> - `codex/prd05-batch3` 已完成 Batch 3 代码与测试：`feature_sets.py` / `preprocess.py` / `training_panel.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径保留兼容 shim。
+> - `annual_pipeline_scheduler.py` 不再 import 脚本 orchestrator；年度滚动计划层已抽到 `quant_ashare.strategy1.annual_rolling_plan`，旧 `orchestrate_annual_rolling_selection.py` 保留 CLI 主体并 re-export 计划函数。
+> - `tests/strategy1/test_package_boundaries.py` 已把 src→`scripts.strategy1_cloudrun.*` 反向 import 改为硬断言 0，并新增非仓库 cwd / `PYTHONPATH=src` 的全包 import 自洽测试。
+> - 本轮未触碰 Cloud Run job spec/args/镜像/IAM，未写 BigQuery/GCS；全量验证已通过，PR #206 已创建。
 >
 > Model: GPT-5.5
+
+## 2026-06-12 GPT-5.5 - PRD_20260612_05 Batch 3 package cleanup
+
+日期: 2026-06-12
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd05-b3`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/prd05-batch3`
+Run ID: N/A
+相关 issue/PR: PRD `docs/prd/PRD_20260612_05_Strategy1包结构PhaseE收尾.md`；PR #206
+
+### 已完成工作
+
+- 将 `scripts/strategy1_cloudrun/feature_sets.py`、`preprocess.py`、`training_panel.py` 迁移到 `src/quant_ashare/strategy1/`，scripts 侧改为 thin re-export shim。
+- 将 src 内对 `scripts.strategy1_cloudrun.feature_sets` / `preprocess` 的 import 改为包内直连；Batch 3 后 src→`scripts.strategy1_cloudrun.*` 反向 import 为 0。
+- 新增 `src/quant_ashare/strategy1/annual_rolling_plan.py`，承载 annual rolling 计划层常量和 helper；scheduler 与脚本 orchestrator 均改从该模块 import。
+- 更新 `tests/strategy1/test_package_boundaries.py` 的 Batch 3 兼容符号快照、硬断言 src 不导入 scripts，并新增非仓库 cwd / `PYTHONPATH=src` 的 package self-contained import 测试。
+- 同步 `KNOWN_CONSTRAINTS.md` 兼容层条款、`docs/prd/PRD_20260610_02_项目结构重构方案.md` Phase E 状态注记、`IMPLEMENTATION_STATUS.md` 和 `TODO.md`。
+
+### 重要上下文
+
+- 本轮严格只做 PRD Batch 3；两个脚本 orchestrator 仍保留 CLI 主体和兼容导入面。
+- `orchestrate_annual_rolling_selection.py` 的 CLI 参数面、dry-run JSON 输出路径和非 dry-run 拒绝行为保持不变；迁出的计划函数通过脚本顶层 import 继续兼容旧测试/调用方。
+- 旧 `scripts.strategy1_cloudrun.feature_sets` / `preprocess` / `training_panel` 路径仍是合法兼容 shim，不应加入 retired-reference ban-list。
+- 本轮未改训练、回测、ledger、Cloud Run job spec、args、镜像或 IAM；未写 BigQuery/GCS。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/feature_sets.py`
+- `src/quant_ashare/strategy1/preprocess.py`
+- `src/quant_ashare/strategy1/training_panel.py`
+- `src/quant_ashare/strategy1/annual_rolling_plan.py`
+- `src/quant_ashare/strategy1/annual_pipeline_scheduler.py`
+- `scripts/strategy1_cloudrun/feature_sets.py`
+- `scripts/strategy1_cloudrun/preprocess.py`
+- `scripts/strategy1_cloudrun/training_panel.py`
+- `scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py`
+- 相关 `src/quant_ashare/strategy1/*.py` import
+- `tests/strategy1/test_package_boundaries.py`
+- `docs/prd/PRD_20260610_02_项目结构重构方案.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests`：276 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`：7 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`：16 passed。
+- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：passed。
+- `python3 -m compileall -q src scripts tests`：passed。
+- `git diff --check`：passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- 等待 Claude review；认可的 comment 在本分支修复，不认可的在 PR comment 说明理由。
+- 若合并前 `origin/main` 有新提交，rebase 后重跑关键验证。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/KNOWN_CONSTRAINTS.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
 
 ## 2026-06-12 GPT-5.5 - dividend ODS backfill and CA resume
 
@@ -145,72 +219,6 @@ Run ID: N/A
 - `.agent/memory/MEMORY_INDEX.md`
 - `.agent/memory/PROJECT_CONTEXT.md`
 - `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-## 2026-06-12 GPT-5.5 - PRD_20260612_05 Batch 1 package cleanup
-
-日期: 2026-06-12
-Agent ID: Codex
-Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-prd05-b1`
-模型: GPT-5.5
-运行环境: macOS / zsh / branch `codex/prd05-batch1`
-Run ID: N/A
-相关 issue/PR: PRD `docs/prd/PRD_20260612_05_Strategy1包结构PhaseE收尾.md`；PR #203
-
-### 已完成工作
-
-- 将 `scripts/strategy1_cloudrun/bq_io.py` 与 `config.py` 迁移到 `src/quant_ashare/strategy1/`，scripts 侧改为 thin re-export shim。
-- 新增 `src/quant_ashare/strategy1/runner_version.py`，保持 `strategy1_cloudrun_runner_v0_20260606_lot100` 值不变，并让 `scripts.strategy1_cloudrun.__version__` 从 src re-export。
-- 将 src 内对 `scripts.strategy1_cloudrun.bq_io` / `config` / `dataset_roles` / `acceptance` / `__version__` 的 import 改为包内直连。
-- 在 `tests/strategy1/test_package_boundaries.py` 固化 Batch 1 兼容符号快照与反向 import 计数断言。
-
-### 重要上下文
-
-- 本轮严格只做 PRD Batch 1；`state` / `task_fanout` / `feature_sets` / `preprocess` / `training_panel` / `orchestrate_annual_rolling_selection` 留给 Batch 2/3。
-- 旧 `scripts.strategy1_cloudrun.bq_io` / `config` 路径仍是合法兼容 shim，不应加入 retired-reference ban-list。
-- 本轮未改训练、回测、ledger、orchestrator 调度语义；未触碰 Cloud Run job spec、args、镜像或 IAM；未写 BigQuery/GCS。
-
-### 改动文件
-
-- `src/quant_ashare/strategy1/bq_io.py`
-- `src/quant_ashare/strategy1/config.py`
-- `src/quant_ashare/strategy1/runner_version.py`
-- `scripts/strategy1_cloudrun/bq_io.py`
-- `scripts/strategy1_cloudrun/config.py`
-- `scripts/strategy1_cloudrun/__init__.py`
-- 相关 `src/quant_ashare/strategy1/*.py` import
-- `tests/strategy1/test_package_boundaries.py`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-### 测试 / 验证
-
-- `python3 -m pytest -q tests`：268 passed。
-- `python3 -m pytest -q tests/strategy1/test_package_boundaries.py`：6 passed。
-- `python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`：16 passed。
-- `PYTHONPATH=src python3 -m quant_ashare.strategy1.retired_lint`：passed。
-- `python3 -m compileall -q src scripts tests`：passed。
-- `git diff --check`：passed。
-- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
-- `PYTHONPATH=src` import smoke：passed。
-
-### 阻塞项
-
-- 无。
-
-### 下一步建议
-
-- 等待 Claude review；认可的 comment 在本分支修复，不认可的在 PR comment 说明理由。若合并前 `origin/main` 有新提交，rebase 后重跑关键验证。
-
-### 已更新记忆文件
-
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
 - `.agent/memory/AGENT_HANDOFF.md`
 - `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
 - `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
