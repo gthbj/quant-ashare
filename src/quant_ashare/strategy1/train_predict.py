@@ -950,6 +950,7 @@ def write_registry(
             "estimator_params": candidate.model_params,
             "label_horizon": experiment.label_horizon,
             "feature_set_id": experiment.feature_set_id,
+            "weight_version": experiment.weight_version,
             "tail_risk_profile_id": experiment.tail_risk_profile_id,
             "preprocess_version": config.preprocess_version,
             "class_weight": candidate.metrics.get("class_weight"),
