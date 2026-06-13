@@ -28,11 +28,14 @@ PRD_20260613_01 五臂 paper 批量证明：P1 全形态（完整六条 / 仅形
 
 1. **输入**：当前研究 baseline 的 synthetic prediction 流（resolver 从记忆解析，禁止硬编码；当前应为 `s1_annual_roll_synth_continuous_true5y_..._v20260611_01`）。零训练、不改 prediction。
 2. **运行**：Cloud Run `backtest_report` 一次 fresh continuous，窗口 `2021-01-04..2026-06-09`，`ledger_exec_v2_lot100_topdown` + `--use-topdown-ledger`，`tail_risk_profile_id=diagnostic_only`，显式 `corporate_actions=cash_div_and_split_v1` / `dividend_tax_mode=flat_10pct`（CA-on 纪律；staleness 断言现可过——事件可见上界已推进至 2026-06-12+）；`initial_capital=100000`；成本 profile 与 official baseline 相同；synthetic 流约束沿用：`--skip-diagnosis --skip-tail-risk --skip-qa`，外接 QA。
-3. **QA**：`qa_continuous_backtest_outputs` + `qa_lot_aware_ledger_outputs` + `qa_topdown_construction_outputs` + `qa_corporate_action_ledger_outputs`；ADS / promotion manifest 反查 0 行。
+3. **QA（外接参数表，review 后补齐）**：四件套全跑，topdown 关键参数显式覆盖默认值——
+   - `qa_continuous_backtest_outputs`：`p_run_id`=本次 continuous run id、`p_prediction_run_id`=synthetic 流 id、**`p_expected_ledger_version='ledger_exec_v2_lot100_topdown'`**、**`p_resume_policy_id='cloudrun_lot100_topdown_resume_v1'`**（QA-CONT-7/12 按此断言，不得沿用 v1 默认值）、CA 参数同 run；
+   - `qa_lot_aware_ledger_outputs` / `qa_topdown_construction_outputs` / `qa_corporate_action_ledger_outputs`：同 run 参数 + CA-on，topdown QA 走 §1.3 条件化后的断言集（`diagnostic_only`）；
+   - 全部 QA 以 research dataset role 渲染执行；ADS / promotion manifest 反查 0 行。
 4. **三方对比报告**（`docs/分析-topdownPhase2三方对比-<date>.md`，小 CSV 入库）：
    - topdown v2 real ledger vs **v1 official baseline**（CAGR 15.36% / Sharpe 0.6685 / Calmar 0.4103 / MaxDD -37.43% / 现金权重 ~29% / 换手 / 集中度 / crunch 段超额）——同口径首次可直接互比；
    - topdown v2 real vs **Phase 0 paper T0 读数**——量化 paper 简化（卖出失败 / pending sell / raw vs CA）偏差，校准 paper 工具；
-   - 双窗口披露：长窗（全窗）与 2024-01-02..2026-04-30 近窗各报一组指标（服务 PRD_20260613_05 的窗口语义决策，不预设哪个是判定窗）。
+   - 双窗口披露：长窗（全窗）与 **`2024-01-02..2026-04-30` 静态近窗**各报一组指标。注明：该近窗是 v3 replay 既定静态口径（保证与历史候选可比），**不是** PRD_20260613_05 提案的动态 YTD 窗；v4 若获批，对已落库 NAV 按 v4 窗口只读复算即可（零额外成本），本报告不预设判定窗。
 
 ## 3. 预登记判读（先写后跑）
 
