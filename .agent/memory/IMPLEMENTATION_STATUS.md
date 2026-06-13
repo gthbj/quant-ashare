@@ -42,6 +42,13 @@ Last updated: 2026-06-13
 
 ## 最近补充（最近 7 条）
 
+### 最新补充（2026-06-14）：PRD_20260613_06 大盘价值 long-only P0 live 完成——预登记证伪（STOP）
+
+- P0 主 arm（`pv_fin_quality + label_horizon=20 + weight_version=logmv_xs_monotone_v0 + n20/w075 + biweekly + CA-on + diagnostic_only + market_state_v1`）已 live 跑完：6 年逐年 selection+final-refit→`synthetic_continuous` 合成（prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_h20_wvlmv_largecap_value_v01`，2.64M 行）→ CA-on continuous backtest（`bt_..._h20_wvlmv_..._ca01`，NAV 1314 行 2021-01-04..2026-06-09，单一连续、无 resume）。一次性镜像 `strategy1-cloudrun-runner:largecap-value-prd06-1c6ce44`，4 个 Strategy1 job 跑时 pin、跑后已还原 `:latest`。
+- 对照（contract，replay helper）：**长窗 Sharpe 0.6685→0.7499（+0.0814）/ CAGR 15.36%→15.15% / Calmar 0.4103→0.4048 / MaxDD −37.43% 持平**；近窗 Sharpe 1.4636→**1.1060**（变差）/ CAGR 38.28%→28.54%。回测可信：NAV 连续、单日收益 [−9.08%,+7.13%]、无极端跳变、长窗 MaxDD 与 v1 持平。
+- **预登记判读 = STOP（机制未兑现）**：主判据长窗 contract Sharpe +0.0814 **< 预登记停做线 +0.10**；远未达 1.5、也不在 [0.9,1.2] 降级区间；近窗反而更差（2024-2026 偏小盘/反转，大盘价值倾斜让出超额）；长窗 MaxDD 持平印证 alpha/构造不动满仓系统性回撤。证伪与探针 caveat 吻合（long-only 连 1.2 大概率都需融券空头腿）。
+- 预登记机制有效（可证伪、被证伪、无事后挑窗）；按预登记**不跑对照 arm**（n10/消融/w2），除非 owner 重新决策。下一步留 owner：是否解禁大盘融券空头腿（脱离 long-only，§1.3 降级路径）。research-only、不 promotion、不标 accepted；v1 黄金 hash / 默认语义 / 既有 set 未变。报告 `docs/分析-大盘价值倾斜LongOnly重训对照-20260614.md`。
+
 ### 最新补充（2026-06-13）：PRD_20260613_06 大盘价值倾斜 long-only P0 代码实现完成（live 待跑）
 
 - 分支 `experiment/largecap-value-longonly-prd06`（PR #224，模式 B：Claude 实现、Codex 审），PRD 经 Codex 6 轮 review 定稿后实现 P0：① `label_horizon`(=20) 一等参数贯通 orchestrate/annual_pipeline_scheduler CLI、Experiment(to_params/from_b64)、CV embargo(task_fanout 注入)、label-safe 窗口截断、synthetic_continuous；② `weight_version` 全链路（CLI→Experiment→training_panel→panel SQL CASE→run_id→write_registry→synthetic_continuous 派生），panel `build_training_panel_risk_feature.sql` sample_weight 由 `p_weight_version` 驱动（constant_1p0_v0 恒 1.0=v1；logmv_xs_monotone_v0/_w2_v0 按每日截面 log_total_mv min-max 倾斜 [1.0,3.0]/[1.0,2.0]）；③ 选模型 6 处 evaluate_scores topn 对齐 holdings（非默认 arm），model_quality_parity 对 n30/h5 bqml reference 口径错配降级 `skipped_caliber_mismatch`（QA 枚举允许集已加）；④ label-safe 年末截断 retire `subtract_weekdays`、改 `LABEL_SAFE_YEAR_END_BY_HORIZON` 冻结派生表（dim_trade_calendar SSE 开市日 + trade_date_seq，2015-2025×h{5,10,20}）+ fail-fast + 对账测试；⑤ synthetic_continuous 去硬编码（horizon=5/feature_set=pv_fin_risk/feature_version=pv_v0）→ 从 source registry 派生唯一 lineage + 不一致 fail-fast，新增 `--emit-backtest-experiment-json` 把 CA-on(cash_div_and_split_v1/flat_10pct)+ diagnostic_only 烤进 base64 Experiment payload（因 backtest_report `--experiment-json` 路径忽略 CLI override）。

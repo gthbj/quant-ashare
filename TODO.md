@@ -6,8 +6,10 @@
 
 - [x] OQ-010 / PRD_20260613_06：大盘价值倾斜 long-only 重训 **P0 代码实现**（branch `experiment/largecap-value-longonly-prd06`，PR #224，Codex(xhigh) review 可合并）
   说明：label_horizon=20 一等参数贯通、weight_version 驱动 size-aware sample_weight、选模型 topn 对齐、label-safe 截断改真实日历、synthetic_continuous 去硬编码派生 lineage + CA-on payload helper。全仓库 309 passed / 1 skipped；v1 复现红线保住（默认 h5/constant 不变、ledger 黄金 hash 不变）；research-only。
-- [ ] OQ-010 / PRD_20260613_06：跑 P0 主 arm live 训练/回测 + 外接 QA + 对照报告
-  说明：owner 选「Codex review 过即自动跑主 arm」。先做 PRD §10 BQ 核验（baseline 存在性 / fin 列单位 / v1 label_horizon / 价值因子 NULL 覆盖率）→ 从分支重建 Strategy1 runner 镜像 → 主 arm `pv_fin_quality + h20 + logmv_xs_monotone_v0 + n20`（≈74 execution，11 并发，CA-on，research-only，`p_require_model_quality_parity_passed=FALSE`）→ `qa_continuous_backtest_outputs` + `qa_lot_aware_ledger_outputs` → 与 v1 逐窗对照（长窗 contract Sharpe 主判据，停做线相对 v1 0.6685 提升 <+0.10）。对照 arm（n10 / weight=constant 消融 / w2）出主结果后单独请 owner 批。
+- [x] OQ-010 / PRD_20260613_06：跑 P0 主 arm live 训练/回测 + 对照报告 —— **预登记证伪（STOP）**
+  说明：6 年逐年 + synthetic_continuous + CA-on backtest 已 live 跑完(prediction/backtest `..._h20_wvlmv_..._ca01`)。对照(contract):长窗 Sharpe 0.6685→**0.7499**(+0.0814,**< 预登记停做线 +0.10**)、MaxDD −37.43% 持平;近窗 Sharpe 1.4636→1.1060(变差)。预登记判读 = STOP(机制未兑现),按预登记不跑对照 arm。报告 `docs/分析-大盘价值倾斜LongOnly重训对照-20260614.md`。research-only、不 promotion/accepted。
+- [ ] OQ-010：owner 决策——是否探索「大盘融券空头腿」(脱离 long-only,§1.3 降级路径)
+  说明：探针证据指向多空做强是把 Sharpe 推向 1.2+ 的更可信路径;long-only 大盘价值倾斜已证伪(本轮)。待 owner 启动(脱离当前 PRD 的 long-only 约束,需新 PRD)。
 - [x] OQ-005：验证 2026-06-12 20:00 CST scheduled 采集后 ingestion 审计链路恢复
   说明：2026-06-13 已复核完成（见 `docs/分析-ingestion-meta-0行事故排查-20260613.md`）：2026-06-12 scheduled current_scope execution 使用重建后 digest `5c78e8624584e9ee47471be087ba7e4090d00477a37ec276920f8696810c3f3b`，`ashare_meta.ingestion_run` 落 27 行、`ingestion_partition_status` 落 27 行，`v_ingestion_failures` / `v_ingestion_empty_returns` 有真实 meta 数据源。`daily_current` 窗口刷新暴露下游 SSE Composite 覆盖 QA 失败，已从 ingestion 审计链路恢复中拆出为单独跟进项。
 
