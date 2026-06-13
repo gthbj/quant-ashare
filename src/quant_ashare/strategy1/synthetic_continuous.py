@@ -24,8 +24,22 @@ from .bq_io import (
     upload_directory_to_gcs,
     write_json,
 )
-from .config import add_common_args, apply_cli_overrides, load_runner_config
+from .annual_rolling_plan import horizon_natural_frequency_for
+from .config import (
+    Experiment,
+    add_common_args,
+    apply_cli_overrides,
+    experiment_to_b64,
+    load_runner_config,
+)
 from .dataset_roles import TableResolver, validate_output_dataset_role
+
+# Official CA-on continuous backtest 口径（DECISION-20260612-03）。
+# 与 ledger.py 的 CORPORATE_ACTIONS_CASH_DIV_AND_SPLIT / DIVIDEND_TAX_FLAT_10PCT 一致，
+# 这里用字面量避免把重量级 ledger 依赖拖进合成工具的 import 路径。
+CA_ON_CORPORATE_ACTIONS = "cash_div_and_split_v1"
+CA_ON_DIVIDEND_TAX_MODE = "flat_10pct"
+SYNTH_BACKTEST_TAIL_RISK_PROFILE_ID = "diagnostic_only"
 
 
 @dataclass(frozen=True)
@@ -43,6 +57,10 @@ def main() -> int:
     config = apply_cli_overrides(load_runner_config(args.config), args)
     if validate_output_dataset_role(config.output_dataset_role) != "research":
         raise ValueError("synthetic continuous merge is research-only; promotion is a separate owner-approved flow")
+    if args.emit_backtest_experiment_json:
+        payload_b64 = emit_backtest_experiment_json(config, args)
+        print(payload_b64)
+        return 0
     manifest = load_synthetic_manifest(Path(args.manifest_json))
     synthetic_model_id = args.synthetic_model_id or default_synthetic_model_id(manifest["synthetic_run_id"])
     plan = {
@@ -88,7 +106,65 @@ def parse_args() -> argparse.Namespace:
         help="Require every source registry row to carry model_params_json.refit=true",
     )
     parser.add_argument("--skip-gcs-upload", action="store_true")
+    parser.add_argument(
+        "--emit-backtest-experiment-json",
+        action="store_true",
+        help=(
+            "Emit a base64 CA-on Experiment payload for the official synthetic continuous "
+            "backtest (backtest_report --experiment-json). Derives label_horizon/feature_set_id/"
+            "feature_version/weight_version from the source registry rows and bakes in "
+            "corporate_actions=cash_div_and_split_v1 / dividend_tax_mode=flat_10pct."
+        ),
+    )
+    parser.add_argument("--backtest-id", default=None, help="Required with --emit-backtest-experiment-json")
+    parser.add_argument(
+        "--backtest-experiment-id",
+        default=None,
+        help="Optional experiment_id for the emitted backtest payload (defaults to synthetic_run_id)",
+    )
+    parser.add_argument("--rebalance-frequency", default="biweekly")
+    parser.add_argument("--target-holdings", type=int, default=20)
+    parser.add_argument("--max-single-weight", type=float, default=0.075)
+    parser.add_argument("--market-state-version", default="market_state_v0_20260606")
     return parser.parse_args()
+
+
+def emit_backtest_experiment_json(config, args: argparse.Namespace) -> str:
+    """Resolve the synthetic source lineage from the registry and emit the CA-on payload.
+
+    Uses the same source registry derivation as the merge path so the emitted payload's
+    label_horizon / feature_set_id / feature_version / weight_version exactly match the
+    synthetic registry written by run_synthetic_merge.
+    """
+    if not args.backtest_id:
+        raise ValueError("--emit-backtest-experiment-json requires --backtest-id")
+    manifest = load_synthetic_manifest(Path(args.manifest_json))
+    synthetic_run_id = manifest["synthetic_run_id"]
+    years: list[YearSlice] = manifest["years"]
+    client = make_client(config.project, config.region)
+    resolver = TableResolver(dataset_role=config.output_dataset_role, project=config.project)
+    registry_table = resolver.fqn("model_registry")
+    source_rows = load_source_registry_rows(
+        client,
+        config,
+        registry_table=registry_table,
+        years=years,
+        require_source_refit=args.require_source_refit,
+    )
+    source_lineage = unify_source_lineage(years, source_rows)
+    experiment = build_synthetic_backtest_experiment(
+        synthetic_run_id=synthetic_run_id,
+        backtest_id=args.backtest_id,
+        predict_start=years[0].predict_start.isoformat(),
+        predict_end=years[-1].predict_end.isoformat(),
+        source_lineage=source_lineage,
+        rebalance_frequency=args.rebalance_frequency,
+        target_holdings=args.target_holdings,
+        max_single_weight=args.max_single_weight,
+        market_state_version=args.market_state_version,
+        experiment_id=args.backtest_experiment_id,
+    )
+    return experiment_to_b64(experiment)
 
 
 def load_synthetic_manifest(path: Path) -> dict[str, Any]:
@@ -163,6 +239,7 @@ def run_synthetic_merge(
         require_source_refit=require_source_refit,
     )
     year_slices = build_year_slices(years, source_rows)
+    source_lineage = unify_source_lineage(years, source_rows)
     artifact_uri = join_gs_uri(
         config.model_artifact_base_uri,
         "ml_pv_clf_v0",
@@ -225,6 +302,7 @@ def run_synthetic_merge(
         input_manifest_sha256=input_manifest_sha256,
         resolved_manifest_sha256=resolved_manifest_sha256,
         year_slices=year_slices,
+        source_lineage=source_lineage,
         require_source_refit=require_source_refit,
         predict_start=years[0].predict_start,
         predict_end=years[-1].predict_end,
@@ -319,7 +397,10 @@ def load_source_registry_rows(
           metrics_json,
           model_uri,
           artifact_uri,
-          created_at
+          created_at,
+          JSON_VALUE(model_params_json, '$.feature_set_id') AS params_feature_set_id,
+          JSON_VALUE(model_params_json, '$.label_horizon') AS params_label_horizon,
+          JSON_VALUE(model_params_json, '$.weight_version') AS params_weight_version
         FROM `{registry_table}`
         WHERE strategy_id = @strategy_id
           AND status = 'selected'
@@ -341,12 +422,23 @@ def load_source_registry_rows(
             metrics = json.loads(row["metrics_json"] or "{}")
             if require_source_refit and params.get("refit") is not True:
                 raise RuntimeError(f"source run {source_run_id} is not a refit registry row")
+            horizon_col = int(row["horizon"])
+            # label_horizon 与 registry horizon 列同源（write_registry: horizon=label_horizon），
+            # 优先取 model_params_json.$.label_horizon，缺失时回退 horizon 列。
+            label_horizon = _coerce_optional_int(row.get("params_label_horizon"))
+            if label_horizon is None:
+                label_horizon = horizon_col
+            # 旧 source 行无 weight_version JSON 键时默认 constant_1p0_v0（等价 v1）。
+            weight_version = _normalize_str(row.get("params_weight_version")) or "constant_1p0_v0"
             rows[source_run_id] = {
                 "source_run_id": source_run_id,
                 "source_selection_run_id": params.get("source_run_id") if params.get("refit") is True else source_run_id,
                 "source_model_id": row["model_id"],
                 "model_family": row["model_family"],
-                "horizon": int(row["horizon"]),
+                "horizon": horizon_col,
+                "label_horizon": label_horizon,
+                "feature_set_id": _normalize_str(row.get("params_feature_set_id")),
+                "weight_version": weight_version,
                 "feature_version": row["feature_version"],
                 "label_version": row["label_version"],
                 "preprocess_version": row["preprocess_version"],
@@ -457,6 +549,119 @@ def load_selection_valid_windows(
     return rows
 
 
+def unify_source_lineage(
+    years: list[YearSlice],
+    source_rows: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Derive the single (label_horizon, feature_set_id, feature_version, weight_version)
+    lineage shared by every source run, fail-fast if the source runs disagree.
+
+    The synthetic registry historically hard-coded label_horizon=5 /
+    feature_set_id=strategy1_pv_fin_risk_v0_20260606 / feature_version=
+    strategy1_pv_v0_20260601. We now derive those from the source registry rows so a
+    20d / large-cap-value arm produces a synthetic registry that matches its real
+    prediction horizon instead of silently inheriting v1 constants.
+    """
+    # 每个维度收集 (source_run_id -> 值)；feature_version 与 feature_set_id 是两回事，分别派生。
+    label_horizon: dict[str, int | None] = {}
+    feature_set_id: dict[str, str | None] = {}
+    feature_version: dict[str, str | None] = {}
+    weight_version: dict[str, str] = {}
+    for item in years:
+        source = source_rows[item.source_run_id]
+        label_horizon[item.source_run_id] = source.get("label_horizon")
+        feature_set_id[item.source_run_id] = source.get("feature_set_id")
+        feature_version[item.source_run_id] = source.get("feature_version")
+        # weight_version 缺失已在 load_source_registry_rows 归一为 constant_1p0_v0。
+        weight_version[item.source_run_id] = source.get("weight_version") or "constant_1p0_v0"
+
+    def _unique(field: str, mapping: dict[str, Any]) -> Any:
+        distinct = sorted({json.dumps(value, sort_keys=True) for value in mapping.values()})
+        if len(distinct) != 1:
+            detail = ", ".join(f"{run_id}={mapping[run_id]!r}" for run_id in sorted(mapping))
+            raise RuntimeError(
+                f"source runs disagree on {field}; synthetic registry cannot derive a unique value: {detail}"
+            )
+        return next(iter(mapping.values()))
+
+    lineage = {
+        "label_horizon": _unique("label_horizon", label_horizon),
+        "feature_set_id": _unique("feature_set_id", feature_set_id),
+        "feature_version": _unique("feature_version", feature_version),
+        "weight_version": _unique("weight_version", weight_version),
+    }
+    # 必填 lineage 不能为空，否则 synth registry 会写出 NULL horizon / feature_set / feature_version。
+    missing_required = [
+        field for field in ("label_horizon", "feature_set_id", "feature_version")
+        if lineage[field] in (None, "")
+    ]
+    if missing_required:
+        raise RuntimeError(
+            "source registry rows are missing required lineage fields "
+            f"{missing_required}; synthetic registry cannot derive them"
+        )
+    return lineage
+
+
+def build_synthetic_backtest_experiment(
+    *,
+    synthetic_run_id: str,
+    backtest_id: str,
+    predict_start: str,
+    predict_end: str,
+    source_lineage: dict[str, Any],
+    rebalance_frequency: str = "biweekly",
+    target_holdings: int = 20,
+    max_single_weight: float = 0.075,
+    market_state_version: str = "market_state_v0_20260606",
+    experiment_id: str | None = None,
+    experiment_group: str = "strategy1_annual_rolling_continuous",
+) -> Experiment:
+    """Build the CA-on continuous backtest Experiment payload for a synthetic run.
+
+    `backtest_report --experiment-json` returns the payload Experiment verbatim and
+    does NOT apply CLI overrides (experiment_resolution.py:30-33; Codex round-4 Blocker),
+    so corporate_actions / synth run+backtest ids / lineage must be encoded in the
+    payload itself. CA-on口径 is mandatory (DECISION-20260612-03): corporate_actions=
+    cash_div_and_split_v1 / dividend_tax_mode=flat_10pct. tail_risk_profile_id stays
+    diagnostic_only (default profile unchanged). Ledger defaults to v1 lot100 — that is a
+    backtest_report CLI concern (no --use-float-ledger / --use-topdown-ledger), not an
+    Experiment field, so nothing topdown-related is set here.
+    """
+    label_horizon = int(source_lineage["label_horizon"])
+    return Experiment(
+        experiment_id=experiment_id or synthetic_run_id,
+        run_id=synthetic_run_id,
+        backtest_id=backtest_id,
+        prediction_run_id=synthetic_run_id,
+        experiment_group=experiment_group,
+        rebalance_frequency=rebalance_frequency,
+        target_holdings=int(target_holdings),
+        max_single_weight=float(max_single_weight),
+        label_horizon=label_horizon,
+        horizon_natural_frequency=horizon_natural_frequency_for(label_horizon),
+        initial_state_mode="fresh",
+        corporate_actions=CA_ON_CORPORATE_ACTIONS,
+        dividend_tax_mode=CA_ON_DIVIDEND_TAX_MODE,
+        feature_set_id=str(source_lineage["feature_set_id"]),
+        feature_version=str(source_lineage["feature_version"]),
+        weight_version=str(source_lineage["weight_version"]),
+        tail_risk_profile_id=SYNTH_BACKTEST_TAIL_RISK_PROFILE_ID,
+        market_state_version=market_state_version,
+        requires_retrain=False,
+        status="planned",
+        # synthetic run 没有训练窗口；continuous 段由 predict_start/predict_end 界定。
+        train_start=predict_start,
+        train_end=predict_start,
+        valid_start=predict_start,
+        valid_end=predict_start,
+        test_start=predict_start,
+        test_end=predict_end,
+        predict_start=predict_start,
+        predict_end=predict_end,
+    )
+
+
 def build_year_slices(years: list[YearSlice], source_rows: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     for item in years:
@@ -487,12 +692,21 @@ def write_synthetic_registry(
     input_manifest_sha256: str,
     resolved_manifest_sha256: str,
     year_slices: list[dict[str, Any]],
+    source_lineage: dict[str, Any],
     require_source_refit: bool,
     predict_start: date,
     predict_end: date,
 ) -> None:
     now = datetime.now(timezone.utc)
     source_run_ids = [row["source_run_id"] for row in year_slices]
+    # 从 source registry 行派生的唯一 lineage（去硬编码，Codex round-3 High-3）。
+    # v1 复现红线：源是 h5 / strategy1_pv_fin_risk_v0_20260606 /
+    # strategy1_pv_v0_20260601 / weight_version 缺失→constant_1p0_v0 时，派生值等于旧硬编码，
+    # 故下面 label_horizon/feature_set_id/horizon/feature_version 字节级不变。
+    derived_label_horizon = source_lineage["label_horizon"]
+    derived_feature_set_id = source_lineage["feature_set_id"]
+    derived_feature_version = source_lineage["feature_version"]
+    derived_weight_version = source_lineage["weight_version"]
     year_model_map = {
         str(row["backtest_year"]): {
             "source_run_id": row["source_run_id"],
@@ -518,10 +732,13 @@ def write_synthetic_registry(
         "year_model_map": year_model_map,
         "predict_start_date": predict_start.isoformat(),
         "predict_end_date": predict_end.isoformat(),
-        "label_horizon": 5,
-        "feature_set_id": "strategy1_pv_fin_risk_v0_20260606",
+        "label_horizon": derived_label_horizon,
+        "feature_set_id": derived_feature_set_id,
         "tail_risk_profile_id": "diagnostic_only",
     }
+    # weight_version 仅当为非 v1 默认时写入 params_json，保持 v1 (constant_1p0_v0) 字节级不变。
+    if derived_weight_version != "constant_1p0_v0":
+        params_json["weight_version"] = derived_weight_version
     metrics_json = {
         "synthetic_continuous": True,
         "diagnostic_only": False,
@@ -548,8 +765,8 @@ def write_synthetic_registry(
         "experiment_id": synthetic_run_id,
         "experiment_group": "strategy1_annual_rolling_continuous",
         "model_family": "synthetic_continuous",
-        "horizon": 5,
-        "feature_version": "strategy1_pv_v0_20260601",
+        "horizon": derived_label_horizon,
+        "feature_version": derived_feature_version,
         "label_version": "open_to_close_h1_5_10_20_v20260601",
         "preprocess_version": "synthetic_continuous_v1",
         "train_start_date": None,
@@ -708,6 +925,32 @@ def _date_str(value: Any) -> str | None:
 
 def _sql_string(value: str) -> str:
     return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def _is_missing(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, float):
+        # pandas 将缺失 JSON_VALUE 读成 NaN
+        return value != value
+    if isinstance(value, str):
+        return value.strip() == ""
+    return False
+
+
+def _normalize_str(value: Any) -> str | None:
+    if _is_missing(value):
+        return None
+    return str(value).strip()
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    if _is_missing(value):
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
 
 
 if __name__ == "__main__":

@@ -1,11 +1,38 @@
-> 当前交接摘要（2026-06-13，Claude Opus 4.8，freeze-allowlist 热修 + topdown 构造路线收口）
-> - 【最新】main 上 `test_metric_definition_freeze` 红：PR #222 新增 `simulate_cash_overlay_sharpe_contribution.py` 本地重定义被冻结的 `fmt_num/fmt_pct/markdown_table`，未复用既有/未更 allowlist（违反 DOC_CONVENTIONS「分析脚本指标定义」）。修复（branch `fix/freeze-allowlist-cash-overlay-fmt` off main）：抽共享模块 `src/quant_ashare/strategy1/report_format.py`（零重依赖、可安全 import），脚本改为 import 复用并删本地 4 个定义，allowlist 增 3 条共享模块路径。已验证 freeze 测试转绿 + 格式化输出 byte-identical（探针只读、计算未动、报告/CSV 数字不变）。
+> 当前交接摘要（2026-06-13，Claude Opus 4.8，大盘价值 long-only P0 实现 + freeze-allowlist 热修）
+> - 【最新】PRD_20260613_06 大盘价值倾斜 long-only 重训 **P0 已实现**（branch `experiment/largecap-value-longonly-prd06`，PR #224；模式 B：Claude 实现、Codex 审）：① `label_horizon`(=20) 一等参数贯通 orchestrate CLI/Experiment/CV embargo/label-safe 窗口/synthetic_continuous；② `weight_version` 全链路 + panel SQL 驱动 size-aware sample_weight（constant_1p0_v0=v1 恒 1.0；logmv_xs_monotone_v0/_w2_v0 按每日截面 log_total_mv 倾斜）；③ 选模型 topn 对齐 holdings（非默认 arm）+ parity 口径错配降级；④ label-safe 截断 retire subtract_weekdays、改 dim_trade_calendar 冻结派生表；⑤ synthetic_continuous 去硬编码、从 source 派生唯一 lineage + fail-fast + `--emit-backtest-experiment-json` 烤 CA-on payload。**v1 复现红线保住**（默认 h5/constant：run_id/窗口/sample_weight=1.0/topn=30/synth registry 字节级不变，未碰 ledger 黄金 hash）。全仓库 **309 passed / 1 skipped**；Codex(GPT-5.5+xhigh) review 已修 parity 枚举兼容 + annual_pipeline_scheduler 参数贯通 2 处。research-only；**live 训练/回测待执行**（owner 选「Codex review 过即自动跑主 arm」：BQ 核验 → 重建镜像 → P0 主 arm `pv_fin_quality+h20+logmv+n20` → 外接 QA → 对照报告；对照 arm n10/消融/w2 出主结果后再请批）。
+> - main 上 `test_metric_definition_freeze` 红（PR #222 遗留）已修复合并（PR #223，merge `762200e`，已 merge 进本 P0 分支）：抽共享模块 `src/quant_ashare/strategy1/report_format.py`，脚本 import 复用、allowlist 增 3 条，freeze 测试转绿 + 格式化输出 byte-identical。
 > - owner 裁决 topdown 自上而下整手构造路线**收口**（DECISION-20260613-02）：PR #217 修掉 retained 持仓销毁 ledger bug 后干净 `_v02` 已证伪 topdown（CAGR 11.96% / Calmar 0.21 / MaxDD -56.85% vs v1 15.36% / 0.4103 / -37.43%）；PR #218 严格 `max_single_weight` 单票上限只读 paper 探针证明上限也救不回（最好 Calmar 0.2018、MaxDD 未改善）。两 PR 均已合并。
 > - 核心教训：topdown 深回撤是满仓小盘篮的系统性回撤，v1 的 ~30% 现金是回撤保险而非纯拖累；下一步方向 = market-state 条件化现金/仓位管理探针（待 owner 启动）。另一条待启动线：契约窗口语义修订含 MaxDD 硬门（DECISION-20260613-01）。
 > - 保留：topdown ledger retained 修复 + QA-TOPDOWN-11/12 持仓守恒断言；paper harness opt-in `single_weight_cap`（默认关）。记忆已同步（DECISION_LOG/IMPLEMENTATION_STATUS/OPEN_QUESTIONS/TODO）。
 > - 本会话工作模式（仅当前窗口）：Claude 实现、Codex 审核；PR #218 即按此跑通（Codex 审出软上限 bug → Claude 修为严格上限重跑 → Codex 复核可合并）。
 >
 > Model: Claude Opus 4.8
+
+## 2026-06-13 Claude - PRD_20260613_06 大盘价值倾斜 long-only P0 实现
+
+日期: 2026-06-13
+Agent: Claude / 模型: Claude Opus 4.8（1M context）
+分支: experiment/largecap-value-longonly-prd06（off main，已 merge origin/main 762200e）；PR #224
+相关: PRD `docs/prd/PRD_20260613_06_策略1大盘价值倾斜LongOnly重训.md`（Codex 6 轮 review 定稿）
+
+### 已完成（代码，全仓库 309 passed / 1 skipped；sqlx --check / git diff --check PASS）
+- config.py：Experiment 加 `weight_version`（默认 constant_1p0_v0）+ to_params/from_b64。
+- orchestrate + annual_pipeline_scheduler CLI：`--label-horizon{5,10,20}` / `--weight-version{constant_1p0_v0,logmv_xs_monotone_v0,logmv_xs_monotone_w2_v0}`。
+- annual_rolling_plan.py：label_horizon 一等参数（去硬编码 5，贯通 label-safe 截断/horizon_natural_frequency）；run_id 条件追加 `_h{N}_wv{code}`（默认 h5/constant 不变）；label-safe 截断 retire subtract_weekdays、改 `LABEL_SAFE_YEAR_END_BY_HORIZON` 冻结派生表（dim_trade_calendar，2015-2025×h{5,10,20}）+ fail-fast + 对账测试。
+- task_fanout.py：work unit 注入 label_horizon（CV embargo）+ selection_topn。
+- train_predict.py：6 处 evaluate_scores 按 selection_topn；write_registry params_json 补 weight_version；parity 口径错配降级 skipped_caliber_mismatch。
+- panel SQL build_training_panel_risk_feature.sql：p_weight_version 驱动 sample_weight CASE；training_panel + catalog 透传。
+- synthetic_continuous.py：去硬编码、从 source registry 派生唯一 lineage + 不一致 fail-fast；`build_synthetic_backtest_experiment` + `--emit-backtest-experiment-json` 烤 CA-on（cash_div_and_split_v1/flat_10pct）+ diagnostic_only payload（因 --experiment-json 路径忽略 CLI override）。
+- QA：qa_cloudrun_runner_outputs / qa_sklearn_native_search_outputs 的 parity 枚举允许集加 skipped_caliber_mismatch。
+- 协作：Codex(GPT-5.5+xhigh) review（off origin refs）修了 parity 枚举 + scheduler 参数贯通 2 处；#8 synthetic_continuous 由隔离 worktree 子代理实现、主会话审 diff 后 cherry-pick。
+
+### 红线 / 不变量
+research-only；默认 corporate_actions=none_v1 / tail_risk_profile_id=diagnostic_only / market_state_v0 不变；v1 复现（默认 arm run_id/窗口/sample_weight=1.0/topn=30/synth registry 字节级不变）；未碰 ledger/portfolio/order SQL，黄金 hash 不变；不扩域；未改既有 3 个 feature set 列定义；未写任何 ADS/生产数据。
+
+### 下一步
+owner 选「Codex review 过即自动跑主 arm」。先做 PRD §10 BQ 核验（baseline 存在性、fin 列单位、v1 label_horizon、价值因子 NULL 覆盖率）→ 从本分支重建 Strategy1 runner 镜像 → P0 主 arm `pv_fin_quality+h20+logmv+n20`（≈74 execution，11 并发）→ qa_continuous_backtest_outputs + qa_lot_aware_ledger_outputs → 与 v1 逐窗对照报告（长窗 contract Sharpe 主判据，停做线 <+0.10）。对照 arm（n10/weight=constant 消融/w2）出主结果后单独请批。P0 run 须设 `p_require_model_quality_parity_passed=FALSE`（parity 对 n30/h5 reference 不可比）。
+
+Model: Claude Opus 4.8
 
 ## 2026-06-13 Claude - freeze-allowlist 热修：cash-overlay 探针格式化函数抽共享模块
 

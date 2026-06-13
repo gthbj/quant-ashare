@@ -16,6 +16,9 @@ DECLARE p_feature_set_id STRING DEFAULT 'strategy1_pv_fin_risk_v0_20260606';
 DECLARE p_fin_feature_version STRING DEFAULT 'fin_default_v0_20260602';
 DECLARE p_market_state_version STRING DEFAULT 'market_state_v0_20260606';
 DECLARE p_market_state_ffill_max_trade_days INT64 DEFAULT 5;
+-- 训练样本权重版本：constant_1p0_v0 恒 1.0(等价 v1、黄金 hash 不变);
+-- logmv_xs_monotone_v0 / _w2_v0 按每日截面 log_total_mv 做大盘倾斜(只用 t 日已知字段)。
+DECLARE p_weight_version STRING DEFAULT 'constant_1p0_v0';
 DECLARE p_label_version STRING DEFAULT 'open_to_close_h1_5_10_20_v20260601';
 DECLARE p_label_horizon INT64 DEFAULT 5;
 DECLARE p_rebalance_frequency STRING DEFAULT 'biweekly';
@@ -188,7 +191,22 @@ SELECT
       AND s.trade_date BETWEEN p_final_holdout_start AND p_final_holdout_end THEN 'final_holdout'
     ELSE 'live'
   END,
-  1.0,
+  CASE p_weight_version
+    WHEN 'constant_1p0_v0' THEN 1.0
+    WHEN 'logmv_xs_monotone_v0' THEN COALESCE(
+      1.0 + 2.0 * SAFE_DIVIDE(
+        s.log_total_mv - MIN(s.log_total_mv) OVER (PARTITION BY s.trade_date),
+        NULLIF(MAX(s.log_total_mv) OVER (PARTITION BY s.trade_date)
+               - MIN(s.log_total_mv) OVER (PARTITION BY s.trade_date), 0.0)
+      ), 1.0)
+    WHEN 'logmv_xs_monotone_w2_v0' THEN COALESCE(
+      1.0 + 1.0 * SAFE_DIVIDE(
+        s.log_total_mv - MIN(s.log_total_mv) OVER (PARTITION BY s.trade_date),
+        NULLIF(MAX(s.log_total_mv) OVER (PARTITION BY s.trade_date)
+               - MIN(s.log_total_mv) OVER (PARTITION BY s.trade_date), 0.0)
+      ), 1.0)
+    ELSE 1.0
+  END,
   CASE p_label_horizon
     WHEN 5 THEN s.label_top30_5d
     WHEN 10 THEN s.label_top30_10d

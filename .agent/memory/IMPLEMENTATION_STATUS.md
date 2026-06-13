@@ -42,6 +42,13 @@ Last updated: 2026-06-13
 
 ## 最近补充（最近 7 条）
 
+### 最新补充（2026-06-13）：PRD_20260613_06 大盘价值倾斜 long-only P0 代码实现完成（live 待跑）
+
+- 分支 `experiment/largecap-value-longonly-prd06`（PR #224，模式 B：Claude 实现、Codex 审），PRD 经 Codex 6 轮 review 定稿后实现 P0：① `label_horizon`(=20) 一等参数贯通 orchestrate/annual_pipeline_scheduler CLI、Experiment(to_params/from_b64)、CV embargo(task_fanout 注入)、label-safe 窗口截断、synthetic_continuous；② `weight_version` 全链路（CLI→Experiment→training_panel→panel SQL CASE→run_id→write_registry→synthetic_continuous 派生），panel `build_training_panel_risk_feature.sql` sample_weight 由 `p_weight_version` 驱动（constant_1p0_v0 恒 1.0=v1；logmv_xs_monotone_v0/_w2_v0 按每日截面 log_total_mv min-max 倾斜 [1.0,3.0]/[1.0,2.0]）；③ 选模型 6 处 evaluate_scores topn 对齐 holdings（非默认 arm），model_quality_parity 对 n30/h5 bqml reference 口径错配降级 `skipped_caliber_mismatch`（QA 枚举允许集已加）；④ label-safe 年末截断 retire `subtract_weekdays`、改 `LABEL_SAFE_YEAR_END_BY_HORIZON` 冻结派生表（dim_trade_calendar SSE 开市日 + trade_date_seq，2015-2025×h{5,10,20}）+ fail-fast + 对账测试；⑤ synthetic_continuous 去硬编码（horizon=5/feature_set=pv_fin_risk/feature_version=pv_v0）→ 从 source registry 派生唯一 lineage + 不一致 fail-fast，新增 `--emit-backtest-experiment-json` 把 CA-on(cash_div_and_split_v1/flat_10pct)+ diagnostic_only 烤进 base64 Experiment payload（因 backtest_report `--experiment-json` 路径忽略 CLI override）。
+- v1 复现红线保住：默认 arm（h5 + constant_1p0_v0）run_id/选参/valid/refit 窗口、sample_weight 恒 1.0、选模型 topn=30、synth registry（v1 lineage）字节级不变；未碰 ledger/portfolio/order SQL，ledger 黄金 hash 不变；不扩域；未改既有 3 个 feature set 列定义；未写任何 ADS/生产数据。
+- 验证：全仓库 `PYTHONPATH=src python3 -m pytest -q tests` **309 passed / 1 skipped**（BQ 对账 RUN_BQ_RECON=1 才跑）；`generate_sqlx_from_sql.py --check`、`git diff --check` PASS；已 merge origin/main（含 PR #223 metric-freeze 修复）。Codex(GPT-5.5+xhigh) review（off origin refs）发现并修复 2 处：parity 枚举兼容（QA-CR-4 / QA-SKN-8 加 skipped_caliber_mismatch）、`annual_pipeline_scheduler.py` 补 `--label-horizon`/`--weight-version`；复核可合并。#8 synthetic_continuous 由隔离 worktree 子代理实现、主会话审 diff 后 cherry-pick。
+- **live 待跑**：owner 选「Codex review 过即自动跑主 arm」。下一步：PRD §10 BQ 核验 → 从分支重建 Strategy1 runner 镜像 → 主 arm `pv_fin_quality+h20+logmv+n20`（≈74 execution）→ 外接 QA → 与 v1 逐窗对照报告（长窗 contract Sharpe 主判据 0.6685→1.5，停做线 <+0.10）。research-only、不 promotion、不标 accepted。
+
 ### 最新补充（2026-06-13）：PRD_20260613_04 topdown Phase 2 T0 live 修复后重跑完成
 
 - `_v01` live 结果已撤回：独立复核代码与 BigQuery 后确认根因为 `build_daily_plan_topdown` 对 rank ≤ `walk_depth` 的 retained 持仓只 `retained.add(sec)`、不输出 `PlanRow`，而主循环 `update_holdings(plan)` 只从 plan 重建持仓，导致调仓日 retained 持仓无 SELL / 无现金回款地消失；`002245.SZ` 2021-07-26 案例与全局“股数减少且无 SELL/CA 行”查询一致。旧 ceil-lot 诊断被 supersede。

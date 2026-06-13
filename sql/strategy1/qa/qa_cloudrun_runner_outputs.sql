@@ -70,7 +70,7 @@ ASSERT (
 -- QA-CR-4: model-quality parity evidence is present and passed when required.
 ASSERT (
   SELECT COUNT(*) = 1
-    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') IN ('passed', 'warning', 'failed'))
+    AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') IN ('passed', 'warning', 'failed', 'skipped_caliber_mismatch'))
     AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.model_quality_status') IN ('model_quality_equivalent', 'model_quality_not_equivalent'))
     AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.bqml_reference_run_id') IS NOT NULL)
     AND LOGICAL_AND(JSON_VALUE(reg.metrics_json, '$.sklearn_oriented_valid_rank_ic_mean') IS NOT NULL)
