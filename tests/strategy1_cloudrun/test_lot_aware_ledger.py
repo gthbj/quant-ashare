@@ -111,6 +111,38 @@ class FakePriceBook:
         return float(self.prices[sec_code].get("close", self.prices[sec_code]["open"]))
 
 
+def assert_share_conservation(
+    previous_holdings: dict[str, float],
+    current_holdings: dict[str, float],
+    trades: list[dict[str, object]],
+    corporate_action_deltas: dict[str, float] | None = None,
+) -> None:
+    corporate_action_deltas = corporate_action_deltas or {}
+    sec_codes = set(previous_holdings) | set(current_holdings) | {str(trade["sec_code"]) for trade in trades}
+    for sec_code in sec_codes:
+        filled_buys = sum(
+            float(trade["filled_shares"])
+            for trade in trades
+            if trade["sec_code"] == sec_code
+            and trade["side"] == "BUY"
+            and trade["fill_status"] in {"FILLED", "FILLED_SCALED_CASH"}
+        )
+        filled_sells = sum(
+            float(trade["filled_shares"])
+            for trade in trades
+            if trade["sec_code"] == sec_code
+            and trade["side"] == "SELL"
+            and trade["fill_status"] == "FILLED"
+        )
+        expected = (
+            float(previous_holdings.get(sec_code, 0.0))
+            - filled_sells
+            + filled_buys
+            + float(corporate_action_deltas.get(sec_code, 0.0))
+        )
+        assert current_holdings.get(sec_code, 0.0) == pytest.approx(expected)
+
+
 class LotAwareLedgerTest(unittest.TestCase):
     def test_buy_floors_to_100_share_lot_and_keeps_cash_fragment(self):
         p = params()
@@ -396,6 +428,46 @@ class LotAwareLedgerTest(unittest.TestCase):
         self.assertEqual(trades[0]["fill_status"], "FILLED")
         self.assertEqual(trades[0]["filled_shares"], 500.0)
         self.assertGreaterEqual(trades[0]["turnover_cny"] / 100_000.0, 0.05)
+
+    def test_topdown_retained_holding_noop_row_conserves_shares_and_cash(self):
+        p = topdown_params(walk_depth=3, tail_risk_profile_id="diagnostic_only")
+        price_book = FakePriceBook({
+            "000001.SZ": {"open": 10.0, "close": 10.0, "can_buy_open": True, "can_sell_open": True},
+        })
+        previous_holdings = {"000001.SZ": 100.0}
+        candidates = {
+            "000001.SZ": {"rank_raw": 2, "filter_reason": None},
+        }
+
+        plan = build_daily_plan(
+            dt.date(2026, 1, 5),
+            True,
+            1_234.0,
+            previous_holdings,
+            candidates,
+            set(),
+            set(),
+            False,
+            2_234.0,
+            price_book,
+            p,
+        )
+        cash, trades = execute_plan(dt.date(2026, 1, 5), 1_234.0, plan, p, is_rebalance=True)
+        current_holdings = update_holdings(plan)
+
+        self.assertEqual(len(plan), 1)
+        self.assertEqual(plan[0].sec_code, "000001.SZ")
+        self.assertEqual(plan[0].cur_shares, 100.0)
+        self.assertEqual(plan[0].sell_shares, 0.0)
+        self.assertEqual(plan[0].want_value, 0.0)
+        self.assertEqual(plan[0].buy_skip_value, 0.0)
+        self.assertIsNone(plan[0].buy_skip_status)
+        self.assertIsNone(plan[0].sell_skip_status)
+        self.assertEqual(trades, [])
+        self.assertEqual(cash, 1_234.0)
+        self.assertEqual(current_holdings, previous_holdings)
+        self.assertEqual(update_pending_sell(plan, True), set())
+        assert_share_conservation(previous_holdings, current_holdings, trades)
 
 
 def test_topdown_rejects_market_only_tail_risk_profile() -> None:

@@ -495,6 +495,7 @@ def build_daily_plan_topdown(
     min_weight = effective_min_position_weight(params)
     retained: set[str] = set()
     sell_rows: list[PlanRow] = []
+    retained_rows: list[PlanRow] = []
     buy_rows: list[PlanRow] = []
     audit_rows: list[PlanRow] = []
     available_cash = float(cash)
@@ -515,6 +516,10 @@ def build_daily_plan_topdown(
         keep = rank is not None and rank <= params.walk_depth
         if keep:
             retained.add(sec)
+            item = base_plan_row(sec, exec_date, float(cur_shares), 0.0, px, params, spec)
+            if item.cur_shares > 0.000001:
+                item.desired_value = item.cur_value
+                retained_rows.append(item)
             continue
         item = base_plan_row(sec, exec_date, float(cur_shares), 0.0, px, params, spec)
         if item.cur_shares <= 0.000001:
@@ -543,7 +548,7 @@ def build_daily_plan_topdown(
             item.market_risk_buy_blocked = True
             item.buy_skip_status = "BUY_SKIPPED_MARKET_RISK_OFF"
             audit_rows.append(item)
-        return sell_rows + audit_rows
+        return sell_rows + retained_rows + audit_rows
 
     for sec, spec in ranked_candidates:
         if sec in retained or sec in holdings:
@@ -587,7 +592,7 @@ def build_daily_plan_topdown(
         item.pending_noop = True
         audit_rows.append(item)
 
-    return sell_rows + buy_rows + audit_rows
+    return sell_rows + retained_rows + buy_rows + audit_rows
 
 
 def build_pending_sell_retry_plan(
