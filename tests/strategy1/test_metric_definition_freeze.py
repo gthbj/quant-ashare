@@ -59,6 +59,9 @@ ALLOWED_DEFINITIONS = {
     "scripts/strategy1/simulate_exposure_overlay_upper_bound.py:verdict_for_calmar",
     "src/quant_ashare/strategy1/acceptance.py:full_period_max_drawdown_threshold",
     "src/quant_ashare/strategy1/acceptance.py:risk_feature_max_drawdown_target",
+    "src/quant_ashare/strategy1/report_format.py:fmt_num",
+    "src/quant_ashare/strategy1/report_format.py:fmt_pct",
+    "src/quant_ashare/strategy1/report_format.py:markdown_table",
     "src/quant_ashare/strategy1/train_candidate_task.py:safe_ratio",
 }
 

@@ -1,10 +1,59 @@
-> 当前交接摘要（2026-06-13，Claude Opus 4.8，topdown 构造路线收口 + 记忆同步）
+> 当前交接摘要（2026-06-13，Claude Opus 4.8，freeze-allowlist 热修 + topdown 构造路线收口）
+> - 【最新】main 上 `test_metric_definition_freeze` 红：PR #222 新增 `simulate_cash_overlay_sharpe_contribution.py` 本地重定义被冻结的 `fmt_num/fmt_pct/markdown_table`，未复用既有/未更 allowlist（违反 DOC_CONVENTIONS「分析脚本指标定义」）。修复（branch `fix/freeze-allowlist-cash-overlay-fmt` off main）：抽共享模块 `src/quant_ashare/strategy1/report_format.py`（零重依赖、可安全 import），脚本改为 import 复用并删本地 4 个定义，allowlist 增 3 条共享模块路径。已验证 freeze 测试转绿 + 格式化输出 byte-identical（探针只读、计算未动、报告/CSV 数字不变）。
 > - owner 裁决 topdown 自上而下整手构造路线**收口**（DECISION-20260613-02）：PR #217 修掉 retained 持仓销毁 ledger bug 后干净 `_v02` 已证伪 topdown（CAGR 11.96% / Calmar 0.21 / MaxDD -56.85% vs v1 15.36% / 0.4103 / -37.43%）；PR #218 严格 `max_single_weight` 单票上限只读 paper 探针证明上限也救不回（最好 Calmar 0.2018、MaxDD 未改善）。两 PR 均已合并。
 > - 核心教训：topdown 深回撤是满仓小盘篮的系统性回撤，v1 的 ~30% 现金是回撤保险而非纯拖累；下一步方向 = market-state 条件化现金/仓位管理探针（待 owner 启动）。另一条待启动线：契约窗口语义修订含 MaxDD 硬门（DECISION-20260613-01）。
 > - 保留：topdown ledger retained 修复 + QA-TOPDOWN-11/12 持仓守恒断言；paper harness opt-in `single_weight_cap`（默认关）。记忆已同步（DECISION_LOG/IMPLEMENTATION_STATUS/OPEN_QUESTIONS/TODO）。
 > - 本会话工作模式（仅当前窗口）：Claude 实现、Codex 审核；PR #218 即按此跑通（Codex 审出软上限 bug → Claude 修为严格上限重跑 → Codex 复核可合并）。
 >
 > Model: Claude Opus 4.8
+
+## 2026-06-13 Claude - freeze-allowlist 热修：cash-overlay 探针格式化函数抽共享模块
+
+日期: 2026-06-13
+Agent ID: Claude
+Agent 实例 ID: 主仓库会话（/Users/fisher/Desktop/git/quant-ashare）
+模型: Claude Opus 4.8
+运行环境: macOS / zsh / branch `fix/freeze-allowlist-cash-overlay-fmt`（off main）
+Run ID: N/A（纯本地，只改格式化函数来源 + 测试 allowlist，无 BQ / Cloud Run）
+相关 issue/PR: 承接 PR #222（merge ecc811c 引入红测试）；本修复 PR 待开
+
+### 已完成工作
+
+- 定位 `test_metric_and_formatting_definitions_stay_on_explicit_allowlist` 红根因：PR #222 的 `scripts/strategy1/simulate_cash_overlay_sharpe_contribution.py` 本地定义 `fmt_pct/fmt_num/markdown_table`（+`_md_cell`），既未复用既有实现也未更 allowlist。
+- 按 DOC_CONVENTIONS 优先级处理：既有 `fmt_*`/`markdown_table` 全部是各脚本本地副本且都藏在 `from google.cloud import bigquery` 重 import 之后，无可安全复用的共享实现 → 走「先抽共享模块再同步 allowlist」。
+- 新建 `src/quant_ashare/strategy1/report_format.py`（仅 stdlib+numpy/pandas，零重依赖）承载 `fmt_pct/fmt_num/markdown_table`；`markdown_table` 加 `float_format` 关键字参数（默认 `{:.4f}` 与 cash-overlay 原行为一致，注：sibling `simulate_exposure_overlay_upper_bound` 用 `.6f`，故不能直接互用）。
+- 脚本改为 `from quant_ashare.strategy1.report_format import ...` 并把 `src` 加入 sys.path（沿用 `promote_research_to_ads.py` 既有 pattern），删本地 4 个定义；allowlist 增 3 条 `report_format.py` 路径。
+
+### 重要上下文
+
+- 该脚本是只读 NAV 探针（不写表/不 promotion）；本修只改格式化函数来源，未碰任何计算（`window_metrics`/`simulate_variant` 等），故复现报告/CSV 数字不变。
+- 等价性已硬验证：shared vs 原 local 实现在 NaN/inf/None/int/含 `|` 字符串等输入上 byte-identical。
+
+### 改动文件
+
+- 新增 `src/quant_ashare/strategy1/report_format.py`
+- 改 `scripts/strategy1/simulate_cash_overlay_sharpe_contribution.py`（import + 删本地定义 + sys.path 加 src）
+- 改 `tests/strategy1/test_metric_definition_freeze.py`（allowlist +3）
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_metric_definition_freeze.py` 转绿。
+- `py_compile` 通过；脚本可正常 import，三函数来源指向 `quant_ashare.strategy1.report_format`。
+- 格式化输出 byte-identical 等价测试通过。
+
+### 阻塞项
+
+- 无（待 Codex GPT-5.5+xhigh review → 修到零问题 → 合并）。
+
+### 下一步建议
+
+- 后续可将 `simulate_exposure_overlay_upper_bound.py` / `analyze_official_adj_leak.py` 等其余本地副本逐步迁到 `report_format.py`（用 `float_format` 兼容 `.6f`），收敛 allowlist；非本 PR 范围。
+
+### 已更新记忆文件
+
+- AGENT_HANDOFF.md（本条 + 摘要）、IMPLEMENTATION_STATUS.md（工程治理段补一行）。
+
+Model: Claude Opus 4.8
 
 ## 2026-06-13 Claude - topdown 构造路线收口（单票上限探针 #218）+ 记忆同步
 
