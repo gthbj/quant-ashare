@@ -80,7 +80,7 @@
   说明：分支 `codex/p1-rules-paper-batch` 已扩展 Phase 0 paper 框架并实跑五臂矩阵：T0/T1 复跑，新增 T1a（仅形态组）、T1b1（0.60 饱和回退到 T1a）、T1b2（0.60 饱和回退到 T0），并附 0.50/0.70 阈值敏感性。matched official cost / `walk_depth=50` 主判读下，T0 CAGR=`11.81%`、MaxDD=`-58.67%`、Calmar=`0.201`；T1a/T1b1/T1b2 分别为 CAGR=`6.26%`/`4.24%`/`4.11%`，Calmar=`0.105`/`0.070`/`0.064`，均未通过预登记四门槛。PR #210 low review follow-up 已补报告口径声明，说明 Phase 0 effective-window 与本轮 true5y CA-on prediction 流不同，T1-T0 gap `-13.70pp -> -15.95pp` 不应按实现差异横比。结论：P1 市值规则修复不足，若继续 Phase 2 建议以 T0 / no P1 口径进入；不改默认 profile、不 promotion、不标 accepted。
 
 - [ ] OQ-010：按 `PRD_20260611_10` 实现自上而下整手组合构造
-  说明：Phase 0 paper 与 PRD_20260613_01 P1 双选项前置判据均已完成。最新主判读显示 P1 修复三臂均未通过预登记四门槛，若继续 Phase 2，建议以 T0 / no P1 口径进入；PRD_10 原 P1 profile 绑定条款需要 owner 决策后修订。仍未做 Phase 2 research-only continuous 真实 ledger 重跑，未改 v1、未改全局默认 profile、未 promotion。
+  说明：Phase 0 paper 与 PRD_20260613_01 P1 双选项前置判据均已完成。owner 已通过 `PRD_20260613_04` 裁决 Phase 2 以 T0 / no-P1 口径进入；代码层修订已在分支 `codex/topdown-phase2-t0` 完成，放开 topdown `diagnostic_only`、条件化 QA-TOPDOWN-6/7/8，并在 PRD_10 文首加入 supersede 指针。Phase 2 research-only continuous live 重跑、外接 QA 四件套、三方对比报告和预登记判读仍需等代码 PR review 通过并合并后执行；不得 promotion / accepted。
 
 - [ ] OQ-010：基于尾部风险 Overlay A/B 结果决定下一步风控路线
   说明：A1/A3 证明确实命中 crunch 段，但常年误伤过大；A2 是全周期 MaxDD/CAGR tradeoff 对照，但也未改善 Calmar。2026-06-13 按 `PRD_20260613_02` 在当前 true5y CA-on stitched NAV 上重算 NAV 级 exposure upper-bound：最优无摩擦 `two_state_biweekly_elow0_cost0bps` Calmar=`0.6455`、Sharpe=`0.7478`，仍明显低于 v3 Calmar `>1.0`，但不满足“任何择时上界均低于 0.5”的强不可达结论；真实 exposure ledger 工程仍建议缓做/降优先级，下一步更应优先 alpha / 信号 / 组合构造；owner 仍需最终路线决策。三种 overlay 均暂不设默认。

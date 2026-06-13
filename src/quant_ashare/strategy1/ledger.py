@@ -1590,8 +1590,8 @@ def validate_ledger_params(params: LedgerParams) -> None:
             raise ValueError("min_position_weight must be positive")
         if params.walk_depth <= 0:
             raise ValueError("walk_depth must be positive")
-        if not has_individual_risk_guard(params.tail_risk_profile_id):
-            raise ValueError("topdown ledger requires individual tail-risk guard profile")
+        if not is_topdown_tail_risk_profile_allowed(params.tail_risk_profile_id):
+            raise ValueError("topdown ledger requires diagnostic_only or individual tail-risk guard profile")
 
 
 def is_lot_aware(params: LedgerParams) -> bool:
@@ -1696,6 +1696,10 @@ def has_individual_risk_guard(profile_id: str) -> bool:
 
 def has_market_risk_guard(profile_id: str) -> bool:
     return profile_id in MARKET_RISK_PROFILES
+
+
+def is_topdown_tail_risk_profile_allowed(profile_id: str) -> bool:
+    return profile_id == "diagnostic_only" or has_individual_risk_guard(profile_id)
 
 
 def slippage_sell(turnover: float, params: LedgerParams) -> float:

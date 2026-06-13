@@ -292,7 +292,7 @@ steps:
     output_dataset_role_current: research
     output_dataset_role_target: research
     required_params: [p_run_id, p_strategy_id, p_backtest_id, p_predict_start, p_predict_end, p_ledger_version, p_lot_size, p_min_buy_lot, p_position_floor_count, p_min_position_weight, p_walk_depth, p_tail_risk_profile_id, p_resume_policy_id]
-    internal_params: []
+    internal_params: [p_has_individual_risk_guard]
     optional_params: {}
     inputs: [stock_candidate_daily, backtest_trade_daily, backtest_position_daily, backtest_nav_daily, backtest_summary]
     outputs: []
