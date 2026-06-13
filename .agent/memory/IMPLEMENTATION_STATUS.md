@@ -37,7 +37,7 @@ Last updated: 2026-06-13
 ### 开放主线
 
 - `OPEN_QUESTIONS.md` 只剩 OQ-010：继续寻找可 accepted 的 Cloud Run Python baseline / 组合构造 / 风控路线。
-- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；门/窗口/分级是否调整仍留 owner 决策。PRD_20260613_04 已按 owner 裁决把 topdown Phase 2 代码口径修到 T0 / no-P1：`ledger_exec_v2_lot100_topdown` 允许 `diagnostic_only`，QA-TOPDOWN-6/7/8 按 profile 条件化，PRD_10 文首已加 supersede 指针。Phase 2 live 重跑、外接 QA 四件套、三方对比报告和预登记判读需等代码 PR 合并后执行；尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
+- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；据此形成的契约 v4 提案（PRD_20260613_05，PR #214 定稿）本版已被 owner 否决（DECISION-20260613-01：长窗 MaxDD 必须硬门，不接受 sign-off 软门），v3 仍是唯一有效契约，修订重提由 owner 决定。PRD_20260613_04 已按 owner 裁决把 topdown Phase 2 代码口径修到 T0 / no-P1：`ledger_exec_v2_lot100_topdown` 允许 `diagnostic_only`，QA-TOPDOWN-6/7/8 按 profile 条件化，PRD_10 文首已加 supersede 指针。Phase 2 live 重跑、外接 QA 四件套、三方对比报告和预登记判读需等代码 PR 合并后执行；尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
 
