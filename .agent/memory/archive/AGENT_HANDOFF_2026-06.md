@@ -315,6 +315,69 @@ Run ID: N/A
 - `.agent/memory/AGENT_HANDOFF.md`
 - `TODO.md`
 
+## 2026-06-13 GPT-5.5 - PRD_20260613_01 P1 市值规则修复双选项 paper
+
+日期: 2026-06-13
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-p1-paper`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/p1-rules-paper-batch`
+Run ID: prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`；official backtest `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01`
+相关 issue/PR: PRD `docs/prd/PRD_20260613_01_策略1P1市值规则修复双选项Paper批量.md`；PR #210
+
+### 已完成工作
+
+- 扩展 `scripts/strategy1/analyze_topdown_lot_phase0.py`：P1 null reason 从统一 `tail_risk:required_field_null` 细化为字段级 reason，市值字段归市值组、形态字段归形态组；T0/T1 原过滤语义保持不变。
+- 新增 T1a/T1b1/T1b2 三臂：T1a 仅形态组；T1b1 在当次调仓 walk_depth P1 标记率 `>0.60` 时退到 T1a；T1b2 在同阈值触发时退到 T0。回退只影响当次调仓新买入过滤。
+- 增加 0.50 / 0.70 阈值敏感性附表，主判读仍固定 matched official cost + `walk_depth=50` + `p1_marked_rate > 0.60`。
+- 生成报告 `docs/分析-策略1P1市值规则修复双选项-20260613.md` 与小 metrics CSV；大 daily / rebalance audit CSV 上传到 `gs://ashare-artifacts/reports/strategy1/p1_market_cap_rules/analysis_date=20260613/`。
+- 新增单测覆盖 P1 分组、字段级 NULL 分组、T1a/T1 语义差异、饱和阈值严格边界、回退局部性。
+- PR #210 Claude review low follow-up：报告 `方法与边界` 已补 Phase 0 对照说明，明确 Phase 0 用 effective-window prediction 流、本轮用 true5y CA-on resolver，T1-T0 gap 从 `-13.70pp` 到 `-15.95pp` 是 prediction 流切换导致，不是实现差异。
+
+### 重要上下文
+
+- 主结果 matched official cost / `walk_depth=50`：T0 CAGR=`11.81%`、MaxDD=`-58.67%`、Calmar=`0.201`；T1 CAGR=`-4.14%`、MaxDD=`-67.38%`、Calmar=`-0.061`；T1a CAGR=`6.26%`、MaxDD=`-59.80%`、Calmar=`0.105`；T1b1 CAGR=`4.24%`、MaxDD=`-60.11%`、Calmar=`0.070`；T1b2 CAGR=`4.11%`、MaxDD=`-63.99%`、Calmar=`0.064`。
+- 预登记判读：T1a/T1b1/T1b2 均未同时满足 CAGR gap、饱和 episode 现金、MaxDD 与 crunch excess 四门槛；结论为 P1 市值规则修复不足，若继续 Phase 2 建议以 T0 / no P1 口径进入，PRD_10 的 P1 profile 绑定条款需 owner 决策。
+- paper 为 raw 价格口径，不模拟 CA-on ledger 的分红送转与卖出失败降级；五臂内部对比可用，绝对值不与 CA-on official ledger 直接互比。
+- 本轮未写任何 BigQuery 数据集，未启动 Cloud Run，未改 ledger / runner / catalog / 默认 profile，未做 accepted / promotion / 默认 profile 变更。
+
+### 改动文件
+
+- `scripts/strategy1/analyze_topdown_lot_phase0.py`
+- `tests/strategy1/test_topdown_lot_phase0.py`
+- `docs/分析-策略1P1市值规则修复双选项-20260613.md`
+- `docs/analysis_strategy1_p1_market_cap_rules_20260613_metrics.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_topdown_lot_phase0.py tests/strategy1/test_metric_definition_freeze.py`：14 passed。
+- `python3 -m py_compile scripts/strategy1/analyze_topdown_lot_phase0.py tests/strategy1/test_topdown_lot_phase0.py`：passed。
+- `PYTHONPATH=src python3 scripts/strategy1/analyze_topdown_lot_phase0.py`：completed，报告与 CSV 已生成。
+- `gcloud storage cp ... gs://ashare-artifacts/reports/strategy1/p1_market_cap_rules/analysis_date=20260613/`：daily / rebalance audit 上传成功。
+- 全量 pytest 与 `git diff --check`：提交前执行。
+
+### 阻塞项
+
+- 无。
+
+### 下一步建议
+
+- owner 决定 PRD_10 Phase 2 是否改为 T0 / no P1 口径，或是否先做 CA 调整后的 paper/真实 ledger 证据。
+- 合并前如 `origin/main` 再变化，rebase 后重跑全量 pytest 与 `git diff --check`。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
+- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
+- `TODO.md`
+
 ## 2026-06-13 GPT-5.5 - PRD_20260613_02 v3 Calmar gate feasibility analysis
 
 日期: 2026-06-13

@@ -724,3 +724,11 @@
 - 六项偏差分解桥精确闭合（hfq 估计 − CA-on = 3.5066pp = 税 0.7283 + 现金滞留 2.7920 + 取整 0 + 聚合 0 + 因子残差 -0.0138，unexplained < 1e-9pp）。
 - v3 gates：Sharpe 距 0.70 门 0.032、Calmar 0.4101 < 1.0——baseline ≠ accepted、不得 promotion；测量仪已修正，剩余缺口为真实 alpha/结构缺口（OQ-010）。
 - 纪律：后续实验一律显式 CA-on（代码默认 none_v1 不变）；PRD_20260611_10 Phase 2 等后续工作的对照与参数随之切换。
+### 最新补充（2026-06-12）：dividend ODS 缺口补采与 CA-on baseline resume 补跑完成
+
+- 分支 `codex/dividend-backfill-resume` 已按 owner 批准执行 dividend 缺口补采：新增独立 manifest / endpoint group `dividend_backfill`，`current_scope` alias 显式排除该 group，`dividend` business date 请求参数使用 `ex_date`；每日调度行为不变，默认 `corporate_actions=none_v1` 不变。
+- Cloud Run job `ashare-ingest-current-scope` 补采 SSE 开市日 `2026-05-28..2026-06-12` 共 12 个分区，`ods_tushare_dividend` 新增窗口合计 `1215` 行，`ex_date` 与 partition_date 全匹配；2024/2025 同期行数分别为 `1182`/`1184`。本轮 ingestion meta 正常落 `12` 条 success。
+- 已重跑 `sql/dwd/12_dwd_stock_dividend_event.sql` 与 `sql/qa/14_corporate_action_event_checks.sql`，QA-CA-EVENT-1..6 通过；baseline resume gap `2026-05-28..2026-06-09` 得到 canonical events=`902`、source rows=`905`，ledger-consumable view `unclassified_rows=0`。
+- 已从 parent `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 的 `2026-05-27` state resume 到 child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，Cloud Run execution `strategy1-backtest-report-job-tjn4j` 成功，输出仅写 `ashare_research`。`qa_lot_aware_ledger_outputs` job `b697f4dc-1eaf-4eff-9df1-23e04fb809ac` 与 `qa_corporate_action_ledger_outputs` job `beefe3d8-0022-4aa9-a224-37eb82931760` 通过；ADS 反查和 promotion manifest 均为 0 行。
+- parent/child 差异归因闭合：新增两条 `CORPORATE_ACTION_CASH_DIVIDEND`（`002756.SZ` 2026-05-29、`001314.SZ` 2026-06-02），税前 `76.0`、税 `7.6`、净现金 `68.4` 元；position/share 差异为 0。非 CA 只有两条未成交 `BUY_SKIPPED_BELOW_LOT` planned_shares 尾差，filled/cash/turnover/fee/tax/slippage 均为 0。
+- 拼接 parent NAV `2021-01-04..2026-05-27` + child NAV `2026-05-28..2026-06-09` 后，v3 contract 口径 CAGR=`0.15357789449949522`、contract Sharpe=`0.668539787795112`、Calmar=`0.41030930550903105`、MaxDD=`-0.3742978588042647`。Claude review 已通过 PR #205 技术面，owner 预先决策影响很小则采纳；本轮采纳展示数字修正，但不改 `DECISION-20260612-03` 数字文本。

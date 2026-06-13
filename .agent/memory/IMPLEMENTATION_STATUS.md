@@ -37,9 +37,16 @@ Last updated: 2026-06-13
 ### 开放主线
 
 - `OPEN_QUESTIONS.md` 只剩 OQ-010：继续寻找可 accepted 的 Cloud Run Python baseline / 组合构造 / 风控路线。
-- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；门/窗口/分级是否调整仍留 owner 决策。PRD_20260613_01 已完成 topdown Phase 2 前置 P1 双选项 paper 批量；按预登记判据，修复臂均未达标，Phase 2 若继续应以 T0（无 P1）口径进入并由 owner 决策是否修订 PRD_10 的 P1 绑定条款。尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
+- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；门/窗口/分级是否调整仍留 owner 决策。PRD_20260613_04 已按 owner 裁决把 topdown Phase 2 代码口径修到 T0 / no-P1：`ledger_exec_v2_lot100_topdown` 允许 `diagnostic_only`，QA-TOPDOWN-6/7/8 按 profile 条件化，PRD_10 文首已加 supersede 指针。Phase 2 live 重跑、外接 QA 四件套、三方对比报告和预登记判读需等代码 PR 合并后执行；尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
+
+### 最新补充（2026-06-13）：PRD_20260613_04 topdown Phase 2 T0 代码 PR 已实现
+
+- 分支 `codex/topdown-phase2-t0` 已按 PRD §1.3 完成代码层修订：`ledger_exec_v2_lot100_topdown` 的 profile 校验允许 `diagnostic_only` 或显式 individual guard profile，仍拒绝 `market_risk_off_v0` 这类非构造 profile；`ledger_exec_v1_lot100` 默认行为和黄金 hash 不变。
+- `qa_topdown_construction_outputs.sql` 的 QA-TOPDOWN-1 会对齐 summary 实际 `tail_risk_profile_id`，QA-TOPDOWN-6 改为允许 `diagnostic_only` / individual profiles，QA-TOPDOWN-7/8 仅在 individual guard profile 下执行；catalog 将派生变量 `p_has_individual_risk_guard` 登记为 internal param，research 渲染仍要求外部显式参数表覆盖 `p_tail_risk_profile_id`。
+- 新增/更新单测覆盖 topdown + `diagnostic_only` 不再 raise、tail_risk 标记在 diagnostic-only 下自然放行买入、`cash_redistribution` 仍为 `topdown_whole_order_skip_v2`，以及 market-only profile 仍 fail-fast；`PRD_20260611_10` 文首已加入 `PRD_20260613_04` supersede 指针。
+- 本轮只交付代码 PR，未构建 Strategy1 runner 镜像、未执行 Cloud Run live、未写 BigQuery/GCS、未做 Phase 2 QA 四件套 / 三方对比报告，不 promotion、不 accepted。live 重跑需等 owner review 通过并合并后 resume 执行。
 
 ### 最新补充（2026-06-13）：PRD_20260613_03 合并后 ingestion 镜像和 window_refresh 已部署
 
@@ -87,12 +94,3 @@ Last updated: 2026-06-13
 - `annual_pipeline_scheduler.py` 所依赖的年度滚动计划层符号已抽到 `src/quant_ashare/strategy1/annual_rolling_plan.py`；`scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py` 保留 CLI 主体、参数面和 dry-run 调度行为，并从新包模块 re-export 计划函数以维持旧导入路径兼容。
 - `tests/strategy1/test_package_boundaries.py` 更新 Batch 3 shim 兼容符号快照，新增非仓库 cwd 且 `PYTHONPATH` 仅指向 `src` 的全包 import 自洽测试，并把 src→`scripts.strategy1_cloudrun.*` 反向 import 改为硬断言 `0`。
 - 本轮不改训练、回测、ledger、orchestrator CLI 语义，不触碰 Cloud Run job spec/args/镜像/IAM，不写 BigQuery/GCS。最终验证通过：`PYTHONPATH=src python3 -m pytest -q tests`（276 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`（7 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`（16 passed）；retired linter / compileall / Dataform check / `git diff --check` 均通过。
-
-### 最新补充（2026-06-12）：dividend ODS 缺口补采与 CA-on baseline resume 补跑完成
-
-- 分支 `codex/dividend-backfill-resume` 已按 owner 批准执行 dividend 缺口补采：新增独立 manifest / endpoint group `dividend_backfill`，`current_scope` alias 显式排除该 group，`dividend` business date 请求参数使用 `ex_date`；每日调度行为不变，默认 `corporate_actions=none_v1` 不变。
-- Cloud Run job `ashare-ingest-current-scope` 补采 SSE 开市日 `2026-05-28..2026-06-12` 共 12 个分区，`ods_tushare_dividend` 新增窗口合计 `1215` 行，`ex_date` 与 partition_date 全匹配；2024/2025 同期行数分别为 `1182`/`1184`。本轮 ingestion meta 正常落 `12` 条 success。
-- 已重跑 `sql/dwd/12_dwd_stock_dividend_event.sql` 与 `sql/qa/14_corporate_action_event_checks.sql`，QA-CA-EVENT-1..6 通过；baseline resume gap `2026-05-28..2026-06-09` 得到 canonical events=`902`、source rows=`905`，ledger-consumable view `unclassified_rows=0`。
-- 已从 parent `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 的 `2026-05-27` state resume 到 child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，Cloud Run execution `strategy1-backtest-report-job-tjn4j` 成功，输出仅写 `ashare_research`。`qa_lot_aware_ledger_outputs` job `b697f4dc-1eaf-4eff-9df1-23e04fb809ac` 与 `qa_corporate_action_ledger_outputs` job `beefe3d8-0022-4aa9-a224-37eb82931760` 通过；ADS 反查和 promotion manifest 均为 0 行。
-- parent/child 差异归因闭合：新增两条 `CORPORATE_ACTION_CASH_DIVIDEND`（`002756.SZ` 2026-05-29、`001314.SZ` 2026-06-02），税前 `76.0`、税 `7.6`、净现金 `68.4` 元；position/share 差异为 0。非 CA 只有两条未成交 `BUY_SKIPPED_BELOW_LOT` planned_shares 尾差，filled/cash/turnover/fee/tax/slippage 均为 0。
-- 拼接 parent NAV `2021-01-04..2026-05-27` + child NAV `2026-05-28..2026-06-09` 后，v3 contract 口径 CAGR=`0.15357789449949522`、contract Sharpe=`0.668539787795112`、Calmar=`0.41030930550903105`、MaxDD=`-0.3742978588042647`。Claude review 已通过 PR #205 技术面，owner 预先决策影响很小则采纳；本轮采纳展示数字修正，但不改 `DECISION-20260612-03` 数字文本。

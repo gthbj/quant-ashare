@@ -214,6 +214,8 @@ def test_topdown_backtest_params_render_topdown_qa() -> None:
 
     assert f"DECLARE p_ledger_version STRING DEFAULT '{LEDGER_VERSION_TOPDOWN_LOT100}';" in rendered
     assert "DECLARE p_resume_policy_id STRING DEFAULT 'cloudrun_lot100_topdown_resume_v1';" in rendered
+    assert "DECLARE p_tail_risk_profile_id STRING DEFAULT 'diagnostic_only';" in rendered
+    assert "IF p_has_individual_risk_guard THEN" in rendered
     assert "DECLARE p_walk_depth INT64 DEFAULT 50;" in rendered
     assert "data-aquarium.ashare_research.research_stock_candidate_daily" in rendered
 

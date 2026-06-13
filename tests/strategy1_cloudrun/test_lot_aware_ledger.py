@@ -339,8 +339,38 @@ class LotAwareLedgerTest(unittest.TestCase):
         self.assertEqual(trades[0]["fill_status"], "BUY_SKIPPED_TAIL_RISK")
         self.assertEqual(trades[0]["filled_shares"], 0.0)
 
+    def test_topdown_diagnostic_only_allows_tail_risk_marked_buy(self):
+        p = topdown_params(walk_depth=1, tail_risk_profile_id="diagnostic_only")
+        validate_ledger_params(p)
+        price_book = FakePriceBook({
+            "000001.SZ": {"open": 50.0, "close": 50.0, "can_buy_open": True, "can_sell_open": True},
+        })
+        candidates = {
+            "000001.SZ": {"rank_raw": 1, "filter_reason": "tail_risk:ret_20d_lt_30pct"},
+        }
 
-def test_topdown_require_individual_risk_guard_profile() -> None:
+        plan = build_daily_plan(
+            dt.date(2026, 1, 5),
+            True,
+            10_000.0,
+            {},
+            candidates,
+            set(),
+            set(),
+            False,
+            100_000.0,
+            price_book,
+            p,
+        )
+        _, trades = execute_plan(dt.date(2026, 1, 5), 10_000.0, plan, p, is_rebalance=True)
+
+        self.assertEqual(p.cash_redistribution, CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2)
+        self.assertEqual(trades[0]["fill_status"], "FILLED")
+        self.assertEqual(trades[0]["filled_shares"], 100.0)
+        self.assertEqual(update_holdings(plan), {"000001.SZ": 100.0})
+
+
+def test_topdown_rejects_market_only_tail_risk_profile() -> None:
     params = LedgerParams(
         project="data-aquarium",
         run_id="unit_run",
@@ -348,9 +378,10 @@ def test_topdown_require_individual_risk_guard_profile() -> None:
         ledger_version=LEDGER_VERSION_TOPDOWN_LOT100,
         cash_redistribution=CASH_REDISTRIBUTION_TOPDOWN_WHOLE_ORDER_SKIP_V2,
         resume_policy_id=RESUME_POLICY_CLOUDRUN_TOPDOWN_LOT100,
+        tail_risk_profile_id="market_risk_off_v0",
     )
 
-    with pytest.raises(ValueError, match="topdown ledger requires individual tail-risk guard profile"):
+    with pytest.raises(ValueError, match="topdown ledger requires diagnostic_only or individual tail-risk guard profile"):
         validate_ledger_params(params)
 
 

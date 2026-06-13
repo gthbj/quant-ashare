@@ -128,6 +128,7 @@
 - 风险标记股票仍可进入目标组合，避免候选层全量重构把已持仓风险股强制卖出；真正的 P1 拦截发生在 Ledger v1 执行层：若目标股带 `tail_risk:*` 且执行前没有持仓，则写 `BUY_SKIPPED_TAIL_RISK`，不成交、不候补、现金保留。
 - 已有持仓不因 P1 风控标记被强制卖出，仍按 Ledger v1 目标组合、实际持仓 netting 和 pending sell 语义处理。
 - P1 必须由 `10_qa_runner_outputs.sql` / `20_qa_tail_risk_outputs.sql` 验证未持仓风险目标没有真实买入成交并留下 `BUY_SKIPPED_TAIL_RISK`。
+- 2026-06-13 PRD_20260613_04 topdown Phase 2 T0 约束：`ledger_exec_v2_lot100_topdown` 默认以 `tail_risk_profile_id=diagnostic_only` 运行，不启用个股 P1 过滤；只有显式 `individual_risk_guard_v0` / `individual_and_market_risk_guard_v0` 时才执行 P1 专属 QA 与 BUY 拦截，`market_risk_off_v0` 不作为 topdown 构造 profile。
 - 2026-06-11 full-period Overlay A/B 已完成：A1/A3 能改善 2024-01~02 crunch 段 vs `000852.SH` 超额，但全周期 CAGR / Calmar 损耗过大；A2 能降低 MaxDD 但 CAGR 下降且 Calmar 未改善。
 - owner 作出新决策前，不得把 `individual_risk_guard_v0`、`market_risk_off_v0` 或组合 profile 设为默认，也不得据此 promotion。
 - sklearn native search 的 36 个 candidate task 可并发训练，但 TopK select/register/predict 会同时写 `ads_model_registry` / prediction 等 ADS 表；BigQuery 同表 load/table update 可能触发短时 429 `TooManyRequests`。Python BigQuery load helper 必须对该类限流做退避重试；TopK 排名阶段只需要 candidate metrics/status，不应下载或反序列化 `model.joblib`，避免本地 orchestrator 被不必要的模型 artifact 传输和 import 开销拖住。
