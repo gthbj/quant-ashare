@@ -6,7 +6,7 @@ import argparse
 import base64
 import dataclasses
 import sys
-from datetime import date, timedelta
+from datetime import date
 from types import SimpleNamespace
 from typing import Any
 
@@ -60,6 +60,30 @@ LAST_TRADING_DAY_BY_YEAR = {
 # this date: historical valuation rows are sparse before 2018 and
 # has_full_history_60d is false through 2019-04-02.
 FINAL_REFIT_MIN_TRAINING_DAY = "2019-04-03"
+
+# label-safe 年末截断口径（PRD_06 owner 指示：真实交易日历，retire 旧 subtract_weekdays 工作日近似）：
+# label_safe_end(Y, h) = dim_trade_calendar(exchange='SSE', is_open=1) 中
+#   trade_date_seq = (Y 年最后开市日 seq) - h 对应的开市日；与 dws_stock_label_daily 算 t+h 出场同一份日历同一 seq。
+# 下表为真实交易日历冻结派生，覆盖 2015-2025 × h∈{5,10,20}；重新派生 / 对账查询见
+# tests/strategy1/test_label_safe_calendar.py（BQ 可达时对账 dim_trade_calendar）。
+# A 股 12 月无休市，故这些值恰与旧工作日近似一致，但口径已改为真实交易日历、单一事实来源。
+LABEL_SAFE_YEAR_END_BY_HORIZON: dict[int, dict[int, str]] = {
+    5: {
+        2015: "2015-12-24", 2016: "2016-12-23", 2017: "2017-12-22", 2018: "2018-12-21",
+        2019: "2019-12-24", 2020: "2020-12-24", 2021: "2021-12-24", 2022: "2022-12-23",
+        2023: "2023-12-22", 2024: "2024-12-24", 2025: "2025-12-24",
+    },
+    10: {
+        2015: "2015-12-17", 2016: "2016-12-16", 2017: "2017-12-15", 2018: "2018-12-14",
+        2019: "2019-12-17", 2020: "2020-12-17", 2021: "2021-12-17", 2022: "2022-12-16",
+        2023: "2023-12-15", 2024: "2024-12-17", 2025: "2025-12-17",
+    },
+    20: {
+        2015: "2015-12-03", 2016: "2016-12-02", 2017: "2017-12-01", 2018: "2018-11-30",
+        2019: "2019-12-03", 2020: "2020-12-03", 2021: "2021-12-03", 2022: "2022-12-02",
+        2023: "2023-12-01", 2024: "2024-12-03", 2025: "2025-12-03",
+    },
+}
 
 
 def validate_config(config, args: argparse.Namespace) -> None:
@@ -491,26 +515,23 @@ def bounded_year_end(year: int, as_of: date) -> str:
 
 
 def label_safe_year_end(year: int, label_horizon: int) -> str:
-    end = parse_iso_date(actual_last_trading_day(year))
-    return subtract_weekdays(end, label_horizon).isoformat()
-
-
-def subtract_weekdays(value: date, count: int) -> date:
-    """Subtract weekday count from year-end label windows.
-
-    This helper is intentionally limited to December year-end windows used by
-    the annual rolling PRD. A real trading-calendar lookup is required before
-    reusing it for windows that may cross Chinese market holidays.
-    """
-    if value.month != 12:
-        raise ValueError("subtract_weekdays is only valid for December year-end label windows")
-    current = value
-    remaining = count
-    while remaining > 0:
-        current -= timedelta(days=1)
-        if current.weekday() < 5:
-            remaining -= 1
-    return current
+    """年末 label-safe 截断（真实交易日历，PRD_06 owner 指示）：返回 dim_trade_calendar 中
+    trade_date_seq = last_open_seq(year) - label_horizon 的 SSE 开市日，值取自冻结派生表
+    LABEL_SAFE_YEAR_END_BY_HORIZON。未覆盖的 (year, label_horizon) fail-fast，提示按表顶注释重新派生。
+    （retire 旧 subtract_weekdays 工作日近似：只数周一~五、跨节假日会静默错算。）"""
+    by_year = LABEL_SAFE_YEAR_END_BY_HORIZON.get(int(label_horizon))
+    if by_year is None:
+        raise ValueError(
+            f"label_safe_year_end 不支持 label_horizon={label_horizon}（仅冻结派生了 "
+            f"{sorted(LABEL_SAFE_YEAR_END_BY_HORIZON)}）"
+        )
+    safe_end = by_year.get(int(year))
+    if safe_end is None:
+        raise ValueError(
+            f"label_safe_year_end 未覆盖 year={year}（label_horizon={label_horizon}）；"
+            "按 LABEL_SAFE_YEAR_END_BY_HORIZON 顶部注释的 dim_trade_calendar 查询重新派生并补表。"
+        )
+    return safe_end
 
 
 def max_weight_code(value: float) -> str:
