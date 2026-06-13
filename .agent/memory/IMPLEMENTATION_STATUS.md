@@ -37,9 +37,19 @@ Last updated: 2026-06-13
 ### 开放主线
 
 - `OPEN_QUESTIONS.md` 只剩 OQ-010：继续寻找可 accepted 的 Cloud Run Python baseline / 组合构造 / 风控路线。
-- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；据此形成的契约 v4 提案（PRD_20260613_05，PR #214 定稿）本版已被 owner 否决（DECISION-20260613-01：长窗 MaxDD 必须硬门，不接受 sign-off 软门），v3 仍是唯一有效契约，修订重提由 owner 决定。PRD_20260613_04 已按 owner 裁决把 topdown Phase 2 代码口径修到 T0 / no-P1：`ledger_exec_v2_lot100_topdown` 允许 `diagnostic_only`，QA-TOPDOWN-6/7/8 按 profile 条件化，PRD_10 文首已加 supersede 指针。Phase 2 live 重跑、外接 QA 四件套、三方对比报告和预登记判读需等代码 PR 合并后执行；尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
+- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；据此形成的契约 v4 提案（PRD_20260613_05，PR #214 定稿）本版已被 owner 否决（DECISION-20260613-01：长窗 MaxDD 必须硬门，不接受 sign-off 软门），v3 仍是唯一有效契约，修订重提由 owner 决定。PRD_20260613_04 已完成代码口径修订与 Phase 2 live：`ledger_exec_v2_lot100_topdown` 允许 `diagnostic_only`，QA-TOPDOWN-6/7/8 按 profile 条件化；`_v01` live 结果因 topdown retained 持仓未进入 `plan` 的 ledger bug 作废，修复后 `_v02` research-only T0 重跑和外接 QA 四件套已通过。预登记判读仍为 topdown 证伪（长窗 CAGR `11.96%`、Calmar `0.2104`、MaxDD `-56.85%`、平均现金 `2.51%`），不得 promotion / accepted / default；修复后现金拖累已缓解，但 ceil-lot 单票集中仍需 owner 决定是否另立 sizing cap / 其他路线。尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
+
+### 最新补充（2026-06-13）：PRD_20260613_04 topdown Phase 2 T0 live 修复后重跑完成
+
+- `_v01` live 结果已撤回：独立复核代码与 BigQuery 后确认根因为 `build_daily_plan_topdown` 对 rank ≤ `walk_depth` 的 retained 持仓只 `retained.add(sec)`、不输出 `PlanRow`，而主循环 `update_holdings(plan)` 只从 plan 重建持仓，导致调仓日 retained 持仓无 SELL / 无现金回款地消失；`002245.SZ` 2021-07-26 案例与全局“股数减少且无 SELL/CA 行”查询一致。旧 ceil-lot 诊断被 supersede。
+- 本分支只在 `build_daily_plan_topdown` 内为 retained 持仓输出 hold/no-op `PlanRow`，保留 `cur_shares`、`sell_shares=0`、`want_value=0`、无 skip 状态；不改 v1 共用的 `update_holdings`。新增 topdown retained 持仓守恒单测，并在 `qa_topdown_construction_outputs.sql` 增加 `QA-TOPDOWN-11`（股数减少必须由 SELL/CA 解释）和 `QA-TOPDOWN-12`（单日收益 `< -50%` hard sanity）；该 QA 对旧 `_v01` 已按预期失败，job `bqjob_ra6e754e0d10734_0000019ebef0b5ce_1`。
+- 已从分支 `codex/topdown-phase2-live` 构建含修复的 one-off Strategy1 runner 镜像 `topdown-p2-retained-fix-7a70d98-20260613-04`，digest `sha256:0e3f3c7751ab4be4cbcefc94529c5ef51f663a89ef7609e4d5d4c662779cb016`，Cloud Build `a0aa7fb7-a26c-4480-bdb9-1163ed410b5d`；未更新 `latest`（仍为 `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`），`strategy1-backtest-report-job` pin 到 generation 55，boot smoke `strategy1-backtest-report-job-4hh4d` 成功。
+- 修复后正式 Phase 2 run/backtest `s1_topdown_t0_continuous_true5y_2021_2026_v20260613_02` / `bt_s1_topdown_t0_continuous_true5y_2021_2026_v20260613_02` 已用 digest `sha256:0e3f3c...` `--force-replace` 完成（execution `strategy1-backtest-report-job-2lpzn`）。参数：resolver 解析 prediction `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，fresh continuous `2021-01-04..2026-06-09`，CA-on `cash_div_and_split_v1` / `flat_10pct`，`tail_risk_profile_id=diagnostic_only`，`ledger_exec_v2_lot100_topdown`，`cloudrun_lot100_topdown_resume_v1`，`--skip-diagnosis --skip-tail-risk --skip-qa`，research-only。
+- 外接 QA 四件套全过：continuous `bqjob_r13624ec7b8c6f625_0000019ebefb96b8_1`（显式 topdown ledger/resume 覆盖）、lot-aware `bqjob_r34586777e4e7223b_0000019ebefbcda9_1`、topdown `bqjob_r4eaa32102a6d2982_0000019ebefbedf2_1`、CA ledger `bqjob_r15a60913a1b1c58c_0000019ebefc0d61_1`。持仓守恒和单日收益 sanity 只读复核均 0 行；ADS 9 张表反查 job `bqjob_r7238d2f3c49e6c60_0000019ebefca18a_1` 为 0，`ashare_research.research_promotion_manifest` 反查 0。
+- 三方对比报告 `docs/分析-topdownPhase2三方对比-20260613.md` 与小 CSV `docs/analysis_topdown_phase2_comparison_20260613.csv` 已重做。预登记判读为 **topdown 证伪**，但基于修复后真实 `_v02` 数字：长窗 CAGR `11.96%`、compound Sharpe `0.3821`、Calmar `0.2104`、MaxDD `-56.85%`、平均现金 `2.51%`，低于 v1 official baseline（CAGR `15.36%` / Sharpe `0.6685` / Calmar `0.4103` / MaxDD `-37.43%`）且与 Phase 0 paper T0 互近；本轮不 promotion、不 accepted、不改 v1/default。
+- 最终本地验证：`PYTHONPATH=src python3 -m pytest -q tests` 297 passed；`python3 scripts/dataform/generate_sqlx_from_sql.py --check` passed；`git diff --check` passed。
 
 ### 最新补充（2026-06-13）：PRD_20260613_04 topdown Phase 2 T0 代码 PR 已实现
 
@@ -87,10 +97,3 @@ Last updated: 2026-06-13
 - 新增 `ashare_meta.v_ingestion_meta_missing`，并把 `alert_type='ingestion_meta_missing'` 接入 `v_alert_summary`、`scripts/alerting/setup_alerts.py` log metric / Cloud Monitoring policy、alert README 与 runbook；历史回放显示 2026-06-09/10/11 会告警，2026-06-12 修复后 `meta_rows=27` 不会误报。
 - 2026-06-13 是周六，SSE `is_open=0`；20:00 CST scheduled workflow 应验证 `non_trading_day_gate` / `skip_non_trading_day`，不会触发 live ingestion，也不应期待 20260613 meta 行。下一次 live meta 验证应看 2026-06-15 20:00 CST 后是否使用当前 `latest` digest 并写 20260615 current_scope meta。
 - 验证通过：`bq query --dry_run --use_legacy_sql=false --location=asia-east2 < sql/observability/01_pipeline_status_views.sql`；`python3 -m pytest -q tests/alerting/test_ingestion_meta_missing_alert.py`；`python3 scripts/alerting/setup_alerts.py --dry-run`；`python3 scripts/dataform/generate_sqlx_from_sql.py --check`；`git diff --check`。本轮未改生产 job spec/IAM/Workflows/Scheduler，未补写历史 meta。
-
-### 最新补充（2026-06-12）：PRD_20260612_05 Batch 3 包结构收尾已实现
-
-- 分支 `codex/prd05-batch3` / PR #206 已按 PRD §3 Batch 3 完成 Strategy1 包结构收尾：`feature_sets.py` / `preprocess.py` / `training_panel.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径改为 thin re-export shim；src 内对三模块的反向 import 已改为包内直连。
-- `annual_pipeline_scheduler.py` 所依赖的年度滚动计划层符号已抽到 `src/quant_ashare/strategy1/annual_rolling_plan.py`；`scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py` 保留 CLI 主体、参数面和 dry-run 调度行为，并从新包模块 re-export 计划函数以维持旧导入路径兼容。
-- `tests/strategy1/test_package_boundaries.py` 更新 Batch 3 shim 兼容符号快照，新增非仓库 cwd 且 `PYTHONPATH` 仅指向 `src` 的全包 import 自洽测试，并把 src→`scripts.strategy1_cloudrun.*` 反向 import 改为硬断言 `0`。
-- 本轮不改训练、回测、ledger、orchestrator CLI 语义，不触碰 Cloud Run job spec/args/镜像/IAM，不写 BigQuery/GCS。最终验证通过：`PYTHONPATH=src python3 -m pytest -q tests`（276 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`（7 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`（16 passed）；retired linter / compileall / Dataform check / `git diff --check` 均通过。

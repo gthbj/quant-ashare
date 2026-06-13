@@ -188,3 +188,63 @@ ASSERT (
       AND bt.sec_code IS NULL
   )
 ) AS 'QA-TOPDOWN-10: over-depth holdings after rebalance must trace to sell failure';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM (
+    WITH open_days AS (
+      SELECT
+        cal.cal_date AS trade_date,
+        LAG(cal.cal_date) OVER (ORDER BY cal.trade_date_seq) AS prev_trade_date
+      FROM `data-aquarium.ashare_dim.dim_trade_calendar` AS cal
+      WHERE cal.exchange = 'SSE'
+        AND cal.is_open = 1
+        AND cal.cal_date BETWEEN p_predict_start AND p_predict_end
+    ),
+    prev_pos AS (
+      SELECT pos.trade_date, pos.sec_code, pos.shares
+      FROM `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+      WHERE pos.backtest_id = p_backtest_id
+        AND pos.trade_date BETWEEN p_predict_start AND p_predict_end
+    ),
+    curr_pos AS (
+      SELECT pos.trade_date, pos.sec_code, pos.shares
+      FROM `data-aquarium.ashare_ads.ads_backtest_position_daily` AS pos
+      WHERE pos.backtest_id = p_backtest_id
+        AND pos.trade_date BETWEEN p_predict_start AND p_predict_end
+    ),
+    trade_explanations AS (
+      SELECT
+        bt.trade_date,
+        bt.sec_code,
+        SUM(IF(bt.side = 'SELL' AND bt.fill_status = 'FILLED', bt.filled_shares, 0.0)) AS filled_sell_shares,
+        COUNTIF(STARTS_WITH(bt.fill_status, 'CORPORATE_ACTION_')) AS corporate_action_rows
+      FROM `data-aquarium.ashare_ads.ads_backtest_trade_daily` AS bt
+      WHERE bt.backtest_id = p_backtest_id
+        AND bt.trade_date BETWEEN p_predict_start AND p_predict_end
+      GROUP BY bt.trade_date, bt.sec_code
+    )
+    SELECT d.trade_date, p.sec_code
+    FROM open_days AS d
+    JOIN prev_pos AS p
+      ON p.trade_date = d.prev_trade_date
+    LEFT JOIN curr_pos AS c
+      ON c.trade_date = d.trade_date
+     AND c.sec_code = p.sec_code
+    LEFT JOIN trade_explanations AS tx
+      ON tx.trade_date = d.trade_date
+     AND tx.sec_code = p.sec_code
+    WHERE d.prev_trade_date IS NOT NULL
+      AND p.shares - COALESCE(c.shares, 0.0) > 0.000001
+      AND COALESCE(tx.filled_sell_shares, 0.0) < p.shares - COALESCE(c.shares, 0.0) - 0.000001
+      AND COALESCE(tx.corporate_action_rows, 0) = 0
+  )
+) AS 'QA-TOPDOWN-11: position share decreases must be explained by filled SELL or corporate action rows';
+
+ASSERT (
+  SELECT COUNT(*) = 0
+  FROM `data-aquarium.ashare_ads.ads_backtest_nav_daily` AS nav
+  WHERE nav.backtest_id = p_backtest_id
+    AND nav.trade_date BETWEEN p_predict_start AND p_predict_end
+    AND nav.daily_return < -0.50
+) AS 'QA-TOPDOWN-12: top-down ledger must not have single-day return below -50pct';

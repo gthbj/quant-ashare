@@ -330,6 +330,7 @@ class PlanRow:
     filter_reason: str | None = None
     buy_skip_status: str | None = None
     sell_skip_status: str | None = None
+    planned_buy_shares: float | None = None
     filled_sell_shares: float = 0.0
     filled_buy_shares: float = 0.0
     scale: float = 1.0
@@ -494,6 +495,7 @@ def build_daily_plan_topdown(
     min_weight = effective_min_position_weight(params)
     retained: set[str] = set()
     sell_rows: list[PlanRow] = []
+    retained_rows: list[PlanRow] = []
     buy_rows: list[PlanRow] = []
     audit_rows: list[PlanRow] = []
     available_cash = float(cash)
@@ -514,6 +516,10 @@ def build_daily_plan_topdown(
         keep = rank is not None and rank <= params.walk_depth
         if keep:
             retained.add(sec)
+            item = base_plan_row(sec, exec_date, float(cur_shares), 0.0, px, params, spec)
+            if item.cur_shares > 0.000001:
+                item.desired_value = item.cur_value
+                retained_rows.append(item)
             continue
         item = base_plan_row(sec, exec_date, float(cur_shares), 0.0, px, params, spec)
         if item.cur_shares <= 0.000001:
@@ -542,7 +548,7 @@ def build_daily_plan_topdown(
             item.market_risk_buy_blocked = True
             item.buy_skip_status = "BUY_SKIPPED_MARKET_RISK_OFF"
             audit_rows.append(item)
-        return sell_rows + audit_rows
+        return sell_rows + retained_rows + audit_rows
 
     for sec, spec in ranked_candidates:
         if sec in retained or sec in holdings:
@@ -569,6 +575,7 @@ def build_daily_plan_topdown(
         probe = build_buy_execution(item, desired_shares, params, "FILLED")
         if available_cash + 1e-6 >= probe.cash_required:
             item.want_value = desired_shares * item.exec_open
+            item.planned_buy_shares = desired_shares
             available_cash -= probe.cash_required
             buy_rows.append(item)
         else:
@@ -585,7 +592,7 @@ def build_daily_plan_topdown(
         item.pending_noop = True
         audit_rows.append(item)
 
-    return sell_rows + buy_rows + audit_rows
+    return sell_rows + retained_rows + buy_rows + audit_rows
 
 
 def build_pending_sell_retry_plan(
@@ -781,7 +788,10 @@ def execute_plan_lot_aware(
     buy_items = [item for item in plan if item.want_value > 0.000001]
     provisional: list[BuyExecution] = []
     for item in buy_items:
-        planned_shares = round_down_to_lot(safe_divide(item.want_value, item.exec_open), params.lot_size)
+        if is_topdown_lot100(params) and item.planned_buy_shares is not None:
+            planned_shares = item.planned_buy_shares
+        else:
+            planned_shares = round_down_to_lot(safe_divide(item.want_value, item.exec_open), params.lot_size)
         if planned_shares < min_buy_shares(params):
             rows.append(trade_row(
                 params, exec_date, item, "BUY", safe_divide(item.want_value, item.exec_open),

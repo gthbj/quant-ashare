@@ -82,8 +82,11 @@
 - [x] OQ-010：按 `PRD_20260613_01` 完成自上而下整手构造 Phase 2 前置 P1 双选项 paper
   说明：分支 `codex/p1-rules-paper-batch` 已扩展 Phase 0 paper 框架并实跑五臂矩阵：T0/T1 复跑，新增 T1a（仅形态组）、T1b1（0.60 饱和回退到 T1a）、T1b2（0.60 饱和回退到 T0），并附 0.50/0.70 阈值敏感性。matched official cost / `walk_depth=50` 主判读下，T0 CAGR=`11.81%`、MaxDD=`-58.67%`、Calmar=`0.201`；T1a/T1b1/T1b2 分别为 CAGR=`6.26%`/`4.24%`/`4.11%`，Calmar=`0.105`/`0.070`/`0.064`，均未通过预登记四门槛。PR #210 low review follow-up 已补报告口径声明，说明 Phase 0 effective-window 与本轮 true5y CA-on prediction 流不同，T1-T0 gap `-13.70pp -> -15.95pp` 不应按实现差异横比。结论：P1 市值规则修复不足，若继续 Phase 2 建议以 T0 / no P1 口径进入；不改默认 profile、不 promotion、不标 accepted。
 
-- [ ] OQ-010：按 `PRD_20260611_10` 实现自上而下整手组合构造
-  说明：Phase 0 paper 与 PRD_20260613_01 P1 双选项前置判据均已完成。owner 已通过 `PRD_20260613_04` 裁决 Phase 2 以 T0 / no-P1 口径进入；代码层修订已在分支 `codex/topdown-phase2-t0` 完成，放开 topdown `diagnostic_only`、条件化 QA-TOPDOWN-6/7/8，并在 PRD_10 文首加入 supersede 指针。Phase 2 research-only continuous live 重跑、外接 QA 四件套、三方对比报告和预登记判读仍需等代码 PR review 通过并合并后执行；不得 promotion / accepted。
+- [x] OQ-010：按 `PRD_20260611_10` / `PRD_20260613_04` 完成自上而下整手组合构造 Phase 2 live
+  说明：Phase 0 paper 与 PRD_20260613_01 P1 双选项前置判据均已完成；owner 通过 `PRD_20260613_04` 裁决 Phase 2 以 T0 / no-P1 口径进入。PR #217 的 `_v01` live 结果因 topdown retained 持仓未进入 `plan`、被 `update_holdings(plan)` 静默销毁而作废；本分支已修复 retained hold/no-op `PlanRow`，新增持仓守恒 QA 和回归单测，并用 runner digest `sha256:0e3f3c7751ab4be4cbcefc94529c5ef51f663a89ef7609e4d5d4c662779cb016` 重跑 `_v02`（execution `strategy1-backtest-report-job-2lpzn`）。外接 QA 四件套全过，ADS/promotion 反查 0。报告 `docs/分析-topdownPhase2三方对比-20260613.md` 已撤回 `_v01` 结论并以 `_v02` 真实数字重做；预登记判读仍为 topdown 证伪（长窗 CAGR `11.96%`、Sharpe `0.3821`、Calmar `0.2104`、MaxDD `-56.85%`、平均现金 `2.51%`）；不得 promotion / accepted / default。
+
+- [ ] OQ-010：topdown 证伪后决定是否处理 ceil-lot 单票集中或转其他路线
+  说明：PRD_20260613_04 Phase 2 T0 `_v02` 修复后，平均现金已降至 `2.51%`，但长窗 CAGR/Calmar/MaxDD 仍劣于 v1 official baseline，且 ceil-lot 单票集中明显（长窗最大单票权重 `46.28%`、p95 最大单票权重 `31.20%`）。后续若继续 topdown，应由 owner 决定是否单独立项 max single weight cap / sizing 语义；也可转向模型层 riskfeat、独立 overlay 或其他 alpha/组合路线。当前 topdown v2 T0 不应作为 accepted / promotion / 默认构造候选。
 
 - [ ] OQ-010：基于尾部风险 Overlay A/B 结果决定下一步风控路线
   说明：A1/A3 证明确实命中 crunch 段，但常年误伤过大；A2 是全周期 MaxDD/CAGR tradeoff 对照，但也未改善 Calmar。2026-06-13 按 `PRD_20260613_02` 在当前 true5y CA-on stitched NAV 上重算 NAV 级 exposure upper-bound：最优无摩擦 `two_state_biweekly_elow0_cost0bps` Calmar=`0.6455`、Sharpe=`0.7478`，仍明显低于 v3 Calmar `>1.0`，但不满足“任何择时上界均低于 0.5”的强不可达结论；真实 exposure ledger 工程仍建议缓做/降优先级，下一步更应优先 alpha / 信号 / 组合构造；owner 仍需最终路线决策。三种 overlay 均暂不设默认。

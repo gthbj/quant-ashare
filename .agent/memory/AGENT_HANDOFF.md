@@ -1,9 +1,75 @@
-> 当前交接摘要（2026-06-13，Claude Fable 5，v4 提案否决落档 + Phase 2 live 进行中）
-> - owner 否决 contract v4 提案本版（DECISION-20260613-01）：长窗 MaxDD 必须硬门，不接受 sign-off 软门；v3 仍是唯一有效契约，修订重提由 owner 决定。PRD_20260613_05 已标注否决留档，KNOWN_CONSTRAINTS / TODO 已同步。
-> - PR #215（topdown T0 代码）已真实合并（此前 draft 状态下 merge 静默失败 + 误删分支导致 PR 被关，已从本地 commit `aa817f50` 恢复重合，教训：ready→merge→验证 mergedAt→删分支必须 && 串联）。
-> - Codex 会话正在执行 Phase 2 live（PRD_20260613_04）：新 runner 镜像 boot smoke → research-only continuous 重跑 → 外接 QA 四件套 → 三方对比报告与预登记判读；报告不附加 v4 shadow 判定表（前提失效）。
+> 当前交接摘要（2026-06-13，GPT-5.5，topdown Phase 2 T0 live 修复重跑完成）
+> - `_v01` live 结果已撤回：根因为 topdown retained 持仓未进入 `plan`，主循环 `update_holdings(plan)` 在调仓日静默销毁持仓；旧 ceil-lot 根因诊断已 supersede。本分支修复为 retained 持仓输出 hold/no-op `PlanRow`，并新增 QA-TOPDOWN-11/12 与回归单测，v1 路径和 `update_holdings` 不改。
+> - 修复后 one-off runner 镜像 `topdown-p2-retained-fix-7a70d98-20260613-04`，digest `sha256:0e3f3c7751ab4be4cbcefc94529c5ef51f663a89ef7609e4d5d4c662779cb016`；`latest` 未更新，`strategy1-backtest-report-job` pin 到 generation 55，boot smoke `strategy1-backtest-report-job-4hh4d` 通过。
+> - 正式 research-only run/backtest `s1_topdown_t0_continuous_true5y_2021_2026_v20260613_02` / `bt_s1_topdown_t0_continuous_true5y_2021_2026_v20260613_02` 已用 generation 55 `--force-replace` 完成，formal execution `strategy1-backtest-report-job-2lpzn` 成功；外接 QA 四件套全过，ADS 反查和 `research_promotion_manifest` 均为 0。
+> - 预登记判读仍为 topdown 证伪，但基于修复后 `_v02` 真实数字：长窗 CAGR `11.96%`、Sharpe `0.3821`、Calmar `0.2104`、MaxDD `-56.85%`、平均现金 `2.51%`，低于 v1 official baseline；报告 `docs/分析-topdownPhase2三方对比-20260613.md` 与小 CSV 已重做。本轮不 promotion、不 accepted、不改 v1/default。
 >
-> Model: Claude Fable 5
+> Model: GPT-5.5
+
+## 2026-06-13 GPT-5.5 - topdown Phase 2 T0 retained ledger fix and v02 rerun
+
+日期: 2026-06-13
+Agent ID: Codex
+Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-topdown-p2-live`
+模型: GPT-5.5
+运行环境: macOS / zsh / branch `codex/topdown-phase2-live`
+Run ID: Cloud Build `a0aa7fb7-a26c-4480-bdb9-1163ed410b5d`；boot smoke `strategy1-backtest-report-job-4hh4d`；formal execution `strategy1-backtest-report-job-2lpzn`；run/backtest `s1_topdown_t0_continuous_true5y_2021_2026_v20260613_02` / `bt_s1_topdown_t0_continuous_true5y_2021_2026_v20260613_02`
+相关 issue/PR: PRD `docs/prd/PRD_20260613_04_topdownPhase2T0口径修订与重跑.md`；PR #217 live 修复与报告交付
+
+### 已完成工作
+
+- 独立复核 PR #217 两条评论和 BigQuery 只读证据：`_v01` 真正根因不是 ceil-lot，而是 `build_daily_plan_topdown` 对 rank ≤ `walk_depth` 的 retained 持仓只记录 `retained.add(sec)`、不输出 `PlanRow`；主循环 `update_holdings(plan)` 只从 plan 重建持仓，导致 retained 持仓在调仓日无 SELL / 无现金回款地归零。`002245.SZ` 2021-07-26 案例和全局“股数减少且无 SELL/CA 行”查询吻合。
+- 修复限定在 `build_daily_plan_topdown`：retained 持仓显式输出 hold/no-op `PlanRow`，保留 `cur_shares`、`sell_shares=0`、`want_value=0`、无 skip 状态；不改 v1 共用的 `update_holdings`。保留上一轮 `PlanRow.planned_buy_shares` 修复，避免 topdown ceil-lot 股数被执行层浮点回算改变。
+- 新增回归单测覆盖 retained 持仓股数、现金、phantom trade 与持仓守恒；`qa_topdown_construction_outputs.sql` 新增 `QA-TOPDOWN-11`（股数减少必须由 SELL/CA 解释）与 `QA-TOPDOWN-12`（单日收益 `< -50%` hard sanity）。旧 `_v01` 已被新增 QA 挡下，job `bqjob_ra6e754e0d10734_0000019ebef0b5ce_1` 按预期失败。
+- 从分支 `codex/topdown-phase2-live` 构建 one-off Strategy1 runner 镜像 `topdown-p2-retained-fix-7a70d98-20260613-04`，digest `sha256:0e3f3c7751ab4be4cbcefc94529c5ef51f663a89ef7609e4d5d4c662779cb016`；未更新 `latest`（仍为 `sha256:fdb61f8141e240c377b3faaa21b5e6efef9c783ebb9e04923ff3b675b8d54bc2`）。
+- `strategy1-backtest-report-job` 已 pin 到 digest / generation 55；boot smoke `strategy1-backtest-report-job-4hh4d` 成功；formal execution `strategy1-backtest-report-job-2lpzn` 成功完成。
+- Phase 2 `_v02` run 使用 resolver 解析的 synthetic prediction stream `s1_annual_roll_synth_continuous_true5y_2021_2026_n20_w075_v20260611_01`，参数为 CA-on `cash_div_and_split_v1` / `flat_10pct`、`tail_risk_profile_id=diagnostic_only`、`ledger_exec_v2_lot100_topdown`、`cloudrun_lot100_topdown_resume_v1`、fresh continuous `2021-01-04..2026-06-09`、`--skip-diagnosis --skip-tail-risk --skip-qa`、research-only。
+- 外接 QA 四件套均通过：continuous `bqjob_r13624ec7b8c6f625_0000019ebefb96b8_1`（显式 topdown ledger/resume 覆盖）、lot-aware `bqjob_r34586777e4e7223b_0000019ebefbcda9_1`、topdown `bqjob_r4eaa32102a6d2982_0000019ebefbedf2_1`、CA ledger `bqjob_r15a60913a1b1c58c_0000019ebefc0d61_1`。
+- ADS 9 张 run/backtest scoped 表反查均 0（job `bqjob_r7238d2f3c49e6c60_0000019ebefca18a_1`）；`ashare_research.research_promotion_manifest` 同 source 反查 0。
+- 重做三方对比报告 `docs/分析-topdownPhase2三方对比-20260613.md` 与小 CSV `docs/analysis_topdown_phase2_comparison_20260613.csv`，并明确撤回 `_v01` 结论。
+
+### 重要上下文
+
+- 预登记判读仍为 **topdown 证伪**，但依据是修复后 `_v02`：长窗 topdown CAGR `11.96%`、compound Sharpe `0.3821`、Calmar `0.2104`、MaxDD `-56.85%`、平均现金 `2.51%`；v1 official baseline 为 CAGR `15.36%` / Sharpe `0.6685` / Calmar `0.4103` / MaxDD `-37.43%`。
+- 静态近窗 `2024-01-02..2026-04-30`：topdown `_v02` CAGR `35.47%`、Sharpe `1.1776`、Calmar `0.8841`、MaxDD `-40.12%`；v1 为 CAGR `38.28%`、Sharpe `1.4642`、Calmar `1.1041`、MaxDD `-34.67%`；Phase 0 paper T0 为 CAGR `37.17%`、Sharpe `1.2301`、Calmar `0.9143`、MaxDD `-40.66%`。
+- 修复后平均现金已降至 `2.51%`，但 ceil-lot 单票集中仍明显：长窗最大单票权重 `46.28%`、p95 最大单票权重 `31.20%`。本 PR 不改 sizing 语义，是否加 max single weight cap 留 owner 决策。
+- 本轮不 promotion、不 accepted、不改默认 profile / 默认 CA、不改 v1 黄金 hash；Phase 0 paper daily 大 CSV 只从 GCS 临时读取复算，不入库。
+
+### 改动文件
+
+- `src/quant_ashare/strategy1/ledger.py`
+- `tests/strategy1_cloudrun/test_lot_aware_ledger.py`
+- `sql/strategy1/qa/qa_topdown_construction_outputs.sql`
+- `docs/分析-topdownPhase2三方对比-20260613.md`
+- `docs/analysis_topdown_phase2_comparison_20260613.csv`
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
+
+### 测试 / 验证
+
+- `PYTHONPATH=src python3 -m pytest -q tests/strategy1_cloudrun/test_lot_aware_ledger.py tests/strategy1/test_sql_render.py`：42 passed。
+- `PYTHONPATH=src python3 -m pytest -q tests`：297 passed。
+- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
+- `git diff --check`：passed。
+- Cloud Build `a0aa7fb7-a26c-4480-bdb9-1163ed410b5d`：success；Artifact Registry digest `sha256:0e3f3c7751ab4be4cbcefc94529c5ef51f663a89ef7609e4d5d4c662779cb016`。
+- Cloud Run boot smoke `strategy1-backtest-report-job-4hh4d`：success；formal execution `strategy1-backtest-report-job-2lpzn`：success。
+- 外接 QA 四件套与 ADS/promotion 反查见上。
+
+### 阻塞项
+
+- 无 live 阻塞；`_v01` 作废，`_v02` 已按 PRD 预登记规则判读为 topdown 路线证伪。
+
+### 下一步建议
+
+- 提交并推送到 PR #217，等待 review retained fix + QA hardening + live 报告。
+- owner 后续若继续处理 topdown，可单独评估 max single weight cap / sizing 语义；当前 topdown v2 T0 不应进入 accepted/promotion/default。
+
+### 已更新记忆文件
+
+- `.agent/memory/IMPLEMENTATION_STATUS.md`
+- `.agent/memory/AGENT_HANDOFF.md`
+- `TODO.md`
 
 ## 2026-06-13 Claude - 契约 v4 提案否决落档（DECISION-20260613-01）+ PR #215 合并事故修复
 
@@ -85,141 +151,6 @@ Run ID: N/A
 
 - PR 合并后构建包含本修订的 immutable Strategy1 runner 镜像，完成 backtest_report boot smoke。
 - 按 `PRD_20260613_04` §2 执行 research-only topdown Phase 2 fresh continuous、外接 QA 四件套、ADS/promotion 反查、三方对比报告与预登记判读。
-
-### 已更新记忆文件
-
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-## 2026-06-13 GPT-5.5 - dividend post-merge live deployment
-
-日期: 2026-06-13
-Agent ID: Codex
-Agent 实例 ID: local checkout `/Users/fisher/Desktop/git/quant-ashare`
-模型: GPT-5.5
-运行环境: macOS / zsh / branch `codex/dividend-live-deploy-note`
-Run ID: Cloud Build `9a6a778f-8942-49ac-93ec-9cb15b6596af`；Cloud Run execution `ashare-ingest-current-scope-zzbfj`；Workflow revision `ashare_warehouse_window_refresh@000013-140`
-相关 issue/PR: PRD `docs/prd/PRD_20260613_03_dividend日常采集与事件链路编排接入.md`；PR #212
-
-### 已完成工作
-
-- PR #212 合并后，从最新 `main@3f017d5` 按 `orchestration/cloud_run_jobs/cloudbuild.ingestion.yaml` 重建并推送 `asia-east2-docker.pkg.dev/data-aquarium/ashare/ingestion:latest`；Artifact Registry digest 为 `sha256:49bc7e1b59c88a78869238d3d3a8433b99fafb82a577f750eabcb797809ae493`。
-- 执行 `ashare-ingest-current-scope` 手工 smoke，参数限定为 `--manifest configs/ingestion/ods_dividend_backfill_v0.yml --endpoint-group dividend_backfill --business-date 2026-06-12 --allow-gcs-write`；execution `ashare-ingest-current-scope-zzbfj` 成功完成，解析到同一 digest。
-- 复核 `ashare_meta.ingestion_run` / `ingestion_partition_status`：dividend `partition_date=20260612`、run `ing_dividend_backfill_20260612_20260612T173304Z`、`status=success`、`row_count=94`；ODS 读取同分区 94 行且 `ex_date` 匹配。
-- 按 `deploy_workflows.sh` 的 control URL render 与 deploy 参数，单独部署 `ashare_warehouse_window_refresh` 到 revision `000013-140`。因脚本会同时部署三条 workflow，本轮为遵守红线未部署 `ashare_ods_ingestion_daily` / `ashare_pipeline_alert_checker`，其 revision 保持 `000010-141` / `000004-f7b`。
-- 更新 `orchestration/cloud_run_jobs/README.md`、`IMPLEMENTATION_STATUS.md`、`AGENT_HANDOFF.md` 与 `TODO.md`，记录 digest、smoke、workflow revision、06-15 scheduled run 核验清单和连续两个交易日全绿收口项。
-
-### 重要上下文
-
-- 本轮只动 ingestion 镜像与 `ashare_warehouse_window_refresh` workflow 部署；未改 full_rebuild opt-in、Cloud Run job spec、IAM 或 scheduler。
-- 2026-06-15 20:00 CST scheduled run 尚未发生，不能标记 live scheduled 验收完成；后续需核验 execution digest、dividend meta、`v_ingestion_meta_missing`、事件两步 task status 和 `dwd_stock_dividend_event` 可见上界。
-
-### 改动文件
-
-- `orchestration/cloud_run_jobs/README.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-### 测试 / 验证
-
-- `gcloud builds submit . --project=data-aquarium --config=orchestration/cloud_run_jobs/cloudbuild.ingestion.yaml`：Cloud Build `9a6a778f-8942-49ac-93ec-9cb15b6596af` success。
-- Artifact Registry describe：`ingestion:latest` digest `sha256:49bc7e1b59c88a78869238d3d3a8433b99fafb82a577f750eabcb797809ae493`。
-- Cloud Run smoke execution `ashare-ingest-current-scope-zzbfj`：success，digest 与新镜像一致。
-- BigQuery meta / ODS 复核：dividend `20260612` meta `row_count=94`，ODS 同分区 `ex_date` 行数 94。
-- Workflows describe：`ashare_warehouse_window_refresh` revision `000013-140`；`ashare_ods_ingestion_daily` / `ashare_pipeline_alert_checker` revision 仍为 `000010-141` / `000004-f7b`。
-
-### 阻塞项
-
-- 无部署阻塞；2026-06-15 scheduled run 和连续两个交易日收口只能在未来交易日后验证。
-
-### 下一步建议
-
-- 2026-06-15 20:00 CST scheduled run 后按 TODO 清单核验新 digest、dividend meta、`v_ingestion_meta_missing`、事件两步 task status 和可见上界。
-- 连续两个交易日 scheduled run 全绿后关闭 PRD_20260613_03 后续收口项。
-
-### 已更新记忆文件
-
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-## 2026-06-13 GPT-5.5 - dividend daily scope and event workflow
-
-日期: 2026-06-13
-Agent ID: Codex
-Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-div-daily`
-模型: GPT-5.5
-运行环境: macOS / zsh / branch `codex/dividend-daily-scope`
-Run ID: N/A
-相关 issue/PR: PRD `docs/prd/PRD_20260613_03_dividend日常采集与事件链路编排接入.md`；PR #212
-
-### 已完成工作
-
-- 将 `dividend` 加入 `configs/ingestion/ods_current_scope_v0.yml`，归入 `corporate_actions`，并把 `current_scope` alias 显式追加该组；`dividend_backfill` 保持手工历史缺口组。
-- `run_ingestion_job.py` 新增 `lookback_open_days` 支持：生产从 `ashare_dim.dim_trade_calendar` 解析最近 5 个 SSE 开市日；`build_plan` 展开为逐日 `partition_date=ex_date` plan；`endpoint_runner` 按 plan item 的 logical date 发请求与产出结果。
-- `sql/qa/09_ods_daily_partition_readiness.sql` 将 dividend 注册为 weak endpoint，空返回豁免 warning。
-- `orchestration/workflows/ashare_warehouse_window_refresh.yaml` 在 `daily_current` 链尾新增 dwd/12 与 qa/14 两步；局部 try/except 捕获失败后写 task failed 并继续主链 finalize success，`backfill` / `qa_only` 不跑事件链。
-- 同步更新 `KNOWN_CONSTRAINTS.md`、`IMPLEMENTATION_STATUS.md`、`TODO.md`、`sql/README.md`、ingestion/workflows README 与 runbook。
-
-### 重要上下文
-
-- 本轮不改 ledger 代码、不改默认 `corporate_actions=none_v1`、不写 ADS/research/promotion，不触碰 Cloud Run job spec/IAM/full_rebuild opt-in。
-- PR 合并前只做代码和 dry-run 验证；PRD 要求的 ingestion 镜像重建、digest 记录、`dividend_backfill` smoke 与 2026-06-15 live scheduled run 核验必须在合并后执行。
-- 事件链 failure 通过既有 `v_alert_summary.alert_type='task_failure'` 承载；pipeline_run 仍应为 success。消费端 staleness 断言保持不变。
-
-### 改动文件
-
-- `configs/ingestion/ods_current_scope_v0.yml`
-- `scripts/ingestion/run_ingestion_job.py`
-- `scripts/ingestion/common/endpoint_runner.py`
-- `scripts/ingestion/endpoints/corporate_actions.py`
-- `sql/qa/09_ods_daily_partition_readiness.sql`
-- `orchestration/workflows/ashare_warehouse_window_refresh.yaml`
-- `tests/ingestion/test_dividend_backfill_manifest.py`
-- `tests/ingestion/test_ods_readiness_dividend.py`
-- `tests/workflows/test_dividend_event_chain.py`
-- `scripts/ingestion/README.md`
-- `orchestration/cloud_run_jobs/README.md`
-- `orchestration/workflows/README.md`
-- `docs/Pipeline-补跑与故障恢复-Runbook.md`
-- `sql/README.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-### 测试 / 验证
-
-- `PYTHONPATH=src python3 -m pytest -q tests/ingestion/test_dividend_backfill_manifest.py tests/ingestion/test_ods_readiness_dividend.py tests/workflows/test_dividend_event_chain.py`：10 passed。
-- `PYTHONPATH=src python3 -m pytest -q tests`：294 passed。
-- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
-- `python3 -m compileall -q scripts tests`：passed。
-- `git diff --check`：passed。
-- `bq query --project_id=data-aquarium --location=asia-east2 --use_legacy_sql=false --dry_run --parameter=pipeline_run_id:STRING:dry_dividend_readiness --parameter=business_date:STRING:2026-06-16 --parameter=pipeline_dry_run:STRING:true --parameter=require_business_partition:STRING:false < sql/qa/09_ods_daily_partition_readiness.sql`：validated。
-- `bq query --project_id=data-aquarium --location=asia-east2 --use_legacy_sql=false --dry_run < sql/dwd/12_dwd_stock_dividend_event.sql`：validated。
-- `bq query --project_id=data-aquarium --location=asia-east2 --use_legacy_sql=false --dry_run < sql/qa/14_corporate_action_event_checks.sql`：validated。
-- `python3 scripts/ingestion/run_ingestion_job.py --endpoint-group corporate_actions --business-date 2026-06-16 --dry-run --output-json --project data-aquarium --bq-location asia-east2`：plan 展开为 `20260610/11/12/15/16` 五个 dividend 分区。
-- `python3 scripts/ingestion/run_ingestion_job.py --endpoint-group current_scope --business-date 2026-06-16 --dry-run --output-json --project data-aquarium --bq-location asia-east2`：current_scope dry-run 含 32 个 plan item，corporate_actions dividend 分区为 `20260610/11/12/15/16`。
-
-### 阻塞项
-
-- 无代码阻塞；生产镜像重建、Workflows 部署和 2026-06-15 live 验证需等 PR 合并后执行。
-
-### 下一步建议
-
-- 合并后立即重建 `ingestion:latest` 并记录 digest，用 `dividend_backfill` 最近开市日 smoke，随后通过 `deploy_workflows.sh` 部署 Workflows。
-- 2026-06-15 20:00 CST scheduled run 后核验 execution digest、dividend meta、`v_ingestion_meta_missing`、事件两步 task status 和 `dwd_stock_dividend_event` 可见上界；连续两个交易日全绿后收口本 PRD。
 
 ### 已更新记忆文件
 
