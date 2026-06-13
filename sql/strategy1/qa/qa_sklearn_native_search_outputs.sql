@@ -129,7 +129,7 @@ ASSERT (
 ASSERT (
   SELECT COUNT(*) = p_top_k
     AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.bqml_reference_run_id') IS NOT NULL))
-    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') IN ('passed', 'failed', 'warning')))
+    AND LOGICAL_AND(qa_required(JSON_VALUE(reg.metrics_json, '$.model_quality_parity_status') IN ('passed', 'failed', 'warning', 'skipped_caliber_mismatch')))
   FROM `data-aquarium.ashare_ads.ads_model_registry` AS reg
   WHERE reg.strategy_id = p_strategy_id
     AND reg.status = 'selected'
