@@ -917,9 +917,14 @@ def rebalance_topdown(
             if cfg.single_weight_cap is not None:
                 trim_price = price_book.open_price(sec, trade_date) or price_book.valuation_price(sec, trade_date)
                 cap_value = cfg.single_weight_cap * nav_before
-                if trim_price and trim_price > 0 and shares * trim_price > cap_value:
-                    excess_lots = math.floor(((shares * trim_price - cap_value) / trim_price) / LOT_SIZE)
-                    excess_shares = float(excess_lots * LOT_SIZE)
+                if trim_price and trim_price > 0 and shares * trim_price > cap_value + 1e-9:
+                    # Strict cap: round the sell UP to whole lots so the remaining
+                    # position is <= cap (may go below cap / fully exit if one lot alone
+                    # exceeds cap); clamp so we never sell more lots than held.
+                    sell_lots = math.ceil(((shares * trim_price - cap_value) / trim_price) / LOT_SIZE)
+                    held_lots = math.floor(shares / LOT_SIZE + 1e-9)
+                    sell_lots = min(sell_lots, held_lots)
+                    excess_shares = float(sell_lots * LOT_SIZE)
                     if excess_shares > 0:
                         gross = excess_shares * trim_price
                         sell_cost = gross * sell_cost_bps / 10000.0
@@ -927,8 +932,13 @@ def rebalance_topdown(
                         turnover += gross
                         cost += sell_cost
                         sold_secs.append(sec)
-                        holdings[sec] = shares - excess_shares
-            retained.add(sec)
+                        remaining = shares - excess_shares
+                        if remaining > 1e-9:
+                            holdings[sec] = remaining
+                        else:
+                            del holdings[sec]
+            if sec in holdings:
+                retained.add(sec)
             continue
         sell_price = price_book.open_price(sec, trade_date) or price_book.valuation_price(sec, trade_date)
         if sell_price <= 0:

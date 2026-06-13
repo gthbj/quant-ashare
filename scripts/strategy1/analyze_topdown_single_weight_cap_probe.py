@@ -108,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
 
     out_path = Path(args.out_csv)
     with out_path.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer = csv.DictWriter(fh, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     print(f"\nwrote {out_path}")
