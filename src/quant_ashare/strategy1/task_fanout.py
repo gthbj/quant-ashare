@@ -64,6 +64,13 @@ def candidate_output_uri(matrix_uri: str, unit_index: int) -> str:
 
 def build_work_units(config: RunnerConfig, experiment: Experiment, matrix_uri: str) -> dict[str, Any]:
     units = []
+    # 选模型 evaluate_scores 的 topn：v1 等价 arm(h5 + constant_1p0_v0)保持历史 topn=30 不变以保复现；
+    # 仅非默认 arm(改 horizon 或 weight_version)对齐到 target_holdings，修复 topn=30 vs holdings 错配。
+    align_topn = (
+        int(experiment.label_horizon) != 5
+        or getattr(experiment, "weight_version", "constant_1p0_v0") != "constant_1p0_v0"
+    )
+    selection_topn = int(experiment.target_holdings) if align_topn else 30
     for idx, candidate in enumerate(config.candidate_grid):
         candidate_id = str(candidate["candidate_id"])
         units.append({
@@ -71,7 +78,13 @@ def build_work_units(config: RunnerConfig, experiment: Experiment, matrix_uri: s
             "unit_id": f"candidate={candidate_id}",
             "unit_type": "candidate_train",
             "candidate_id": candidate_id,
-            "model_params": dict(candidate),
+            # 注入实验 label_horizon(供 CV embargo，候选 cfg 读否则默认 5)与 selection_topn(选模型 evaluate_scores)；
+            # lightgbm_params 按白名单取键，这些不会被当作 LightGBM 超参。
+            "model_params": {
+                **dict(candidate),
+                "label_horizon": int(experiment.label_horizon),
+                "selection_topn": selection_topn,
+            },
             "output_uri": candidate_output_uri(matrix_uri, idx),
             "experiment_id": experiment.experiment_id,
             "run_id": experiment.run_id,

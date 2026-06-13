@@ -305,12 +305,13 @@ def train_candidate_from_matrices(
 
     raw_score = score_model(model, x_valid, score_source)
 
-    raw_metrics = evaluate_scores(valid_panel, raw_score)
+    valid_topn = _selection_topn(candidate_cfg)
+    raw_metrics = evaluate_scores(valid_panel, raw_score, topn=valid_topn)
     rev_score = reverse_scores(raw_score, reverse_method)
-    rev_metrics = evaluate_scores(valid_panel, rev_score)
+    rev_metrics = evaluate_scores(valid_panel, rev_score, topn=valid_topn)
     orientation, reason = decide_orientation(raw_metrics, rev_metrics)
     oriented_score = reverse_scores(raw_score, reverse_method) if orientation == "reverse_probability" else raw_score
-    oriented_metrics = evaluate_scores(valid_panel, oriented_score)
+    oriented_metrics = evaluate_scores(valid_panel, oriented_score, topn=valid_topn)
     class_metrics = evaluate_classification(valid_panel, raw_score) if score_source.endswith("label_1") else {
         "roc_auc": math.nan,
         "log_loss": math.nan,
@@ -344,6 +345,8 @@ def train_candidate_from_matrices(
         "reversed_valid_top_minus_bottom": rev_metrics["top_minus_bottom"],
         "valid_top_minus_bottom_fwd_ret_mean": oriented_metrics["top_minus_bottom"],
         "valid_topn_fwd_ret_mean": oriented_metrics["topn_fwd_ret_mean"],
+        "selection_topn": int(valid_topn),
+        "selection_label_horizon": int(candidate_cfg.get("label_horizon") or 5),
         "roc_auc": class_metrics["roc_auc"],
         "log_loss": class_metrics["log_loss"],
         "valid_prediction_rows": int(len(valid_panel)),
@@ -514,6 +517,7 @@ def evaluate_cv_folds(
     folds = dynamic_cv_folds(panel)
     all_dates = sorted(panel["trade_date"].dropna().unique())
     rows = []
+    cv_topn = _selection_topn(candidate_cfg)
     for fold_id, train_start, train_end, eval_start, eval_end in folds:
         embargoed_train_end = embargo_end_date(all_dates, pd.Timestamp(eval_start), int(candidate_cfg.get("label_horizon") or 5))
         effective_train_end = min(pd.Timestamp(train_end), embargoed_train_end)
@@ -535,14 +539,15 @@ def evaluate_cv_folds(
         weights = panel.loc[train_mask, "sample_weight"].fillna(1.0).astype(float).to_numpy()
         model.fit(x_cv[train_mask.to_numpy()], y_fold, **build_fit_kwargs(model_family, weights))
         raw_score = score_model(model, x_cv[eval_mask.to_numpy()], score_source)
-        raw_metrics = evaluate_scores(panel.loc[eval_mask, ["trade_date", "sec_code", "target_label", "target_return"]], raw_score)
+        raw_metrics = evaluate_scores(panel.loc[eval_mask, ["trade_date", "sec_code", "target_label", "target_return"]], raw_score, topn=cv_topn)
         rev_metrics = evaluate_scores(
             panel.loc[eval_mask, ["trade_date", "sec_code", "target_label", "target_return"]],
             reverse_scores(raw_score, reverse_method),
+            topn=cv_topn,
         )
         orientation, _ = decide_orientation(raw_metrics, rev_metrics)
         oriented = reverse_scores(raw_score, reverse_method) if orientation == "reverse_probability" else raw_score
-        metrics = evaluate_scores(panel.loc[eval_mask, ["trade_date", "sec_code", "target_label", "target_return"]], oriented)
+        metrics = evaluate_scores(panel.loc[eval_mask, ["trade_date", "sec_code", "target_label", "target_return"]], oriented, topn=cv_topn)
         rows.append({
             "fold_id": fold_id,
             "status": "succeeded",
@@ -705,6 +710,15 @@ def model_complexity_rank(metrics_or_params: dict[str, Any]) -> int:
     return 9
 
 
+def _selection_topn(candidate_cfg: dict[str, Any]) -> int:
+    """选模型 evaluate_scores 的 topn：fanout 对非默认 arm 注入 selection_topn=target_holdings，
+    v1 等价 arm 不注入 / 注入 30，保持历史选模型口径不变。缺失时退回历史默认 30。"""
+    try:
+        return int(candidate_cfg.get("selection_topn") or 30)
+    except (TypeError, ValueError):
+        return 30
+
+
 def evaluate_scores(valid_panel: pd.DataFrame, scores: np.ndarray, topn: int = 30) -> dict[str, float]:
     frame = valid_panel.copy()
     frame["score"] = scores
@@ -782,7 +796,15 @@ def compute_model_quality_parity(client: bigquery.Client, config: RunnerConfig, 
     topn_tol = max(0.002, 0.20 * abs(bqml_topn)) if bqml_topn is not None else math.inf
     topn_ok = bqml_topn is None or selected.metrics["valid_topn_fwd_ret_mean"] >= bqml_topn - topn_tol
     coverage_ok = bqml_coverage is None or selected.metrics["valid_eval_coverage"] >= bqml_coverage - 0.05
-    status = "passed" if rank_ok and topn_ok and coverage_ok else "failed"
+    # bqml_reference 是 n30/h5 口径(s1_bqml_baseline_pvfq_n30_bw_h5...)。选模型 topn/horizon 与之不一致时
+    # parity 不可比(混口径)，降级为诊断性 skipped_caliber_mismatch、不作判读依据(PRD_06 Medium-1)。
+    selected_topn = int(selected.metrics.get("selection_topn") or 30)
+    selected_horizon = int(selected.metrics.get("selection_label_horizon") or 5)
+    caliber_comparable = selected_topn == 30 and selected_horizon == 5
+    if not caliber_comparable:
+        status = "skipped_caliber_mismatch"
+    else:
+        status = "passed" if rank_ok and topn_ok and coverage_ok else "failed"
     return {
         "bqml_reference_run_id": config.bqml_reference_run_id,
         "bqml_reference_model_id": reference.get("model_id"),
@@ -793,6 +815,9 @@ def compute_model_quality_parity(client: bigquery.Client, config: RunnerConfig, 
         "sklearn_valid_topn_fwd_ret_mean": selected.metrics["valid_topn_fwd_ret_mean"],
         "topn_ret_parity_delta": topn_delta,
         "prediction_coverage_parity_delta": coverage_delta,
+        "selection_topn": selected_topn,
+        "selection_label_horizon": selected_horizon,
+        "parity_caliber_comparable": caliber_comparable,
         "model_quality_parity_status": status,
     }
 
