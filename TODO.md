@@ -85,8 +85,11 @@
 - [x] OQ-010：按 `PRD_20260611_10` / `PRD_20260613_04` 完成自上而下整手组合构造 Phase 2 live
   说明：Phase 0 paper 与 PRD_20260613_01 P1 双选项前置判据均已完成；owner 通过 `PRD_20260613_04` 裁决 Phase 2 以 T0 / no-P1 口径进入。PR #217 的 `_v01` live 结果因 topdown retained 持仓未进入 `plan`、被 `update_holdings(plan)` 静默销毁而作废；本分支已修复 retained hold/no-op `PlanRow`，新增持仓守恒 QA 和回归单测，并用 runner digest `sha256:0e3f3c7751ab4be4cbcefc94529c5ef51f663a89ef7609e4d5d4c662779cb016` 重跑 `_v02`（execution `strategy1-backtest-report-job-2lpzn`）。外接 QA 四件套全过，ADS/promotion 反查 0。报告 `docs/分析-topdownPhase2三方对比-20260613.md` 已撤回 `_v01` 结论并以 `_v02` 真实数字重做；预登记判读仍为 topdown 证伪（长窗 CAGR `11.96%`、Sharpe `0.3821`、Calmar `0.2104`、MaxDD `-56.85%`、平均现金 `2.51%`）；不得 promotion / accepted / default。
 
-- [ ] OQ-010：topdown 证伪后决定是否处理 ceil-lot 单票集中或转其他路线
-  说明：PRD_20260613_04 Phase 2 T0 `_v02` 修复后，平均现金已降至 `2.51%`，但长窗 CAGR/Calmar/MaxDD 仍劣于 v1 official baseline，且 ceil-lot 单票集中明显（长窗最大单票权重 `46.28%`、p95 最大单票权重 `31.20%`）。后续若继续 topdown，应由 owner 决定是否单独立项 max single weight cap / sizing 语义；也可转向模型层 riskfeat、独立 overlay 或其他 alpha/组合路线。当前 topdown v2 T0 不应作为 accepted / promotion / 默认构造候选。
+- [x] OQ-010：topdown 证伪后决定是否处理 ceil-lot 单票集中或转其他路线
+  说明：已收口（DECISION-20260613-02）。PR #218 用只读 paper 探针（已验证 ≈ live，`cap=None` 复现 `_v02`）测试**严格** `max_single_weight` 单票上限：cap∈{0.20,0.15,0.10} 把最大单票压到 13-21%，但最好 Calmar 仅 `0.2018`（≈无上限 `0.2013`、仍是 v1 `0.41` 一半）、MaxDD `-52%~-62%` 未改善——topdown 深回撤是满仓小盘篮的系统性回撤、非单票暴雷，上限无能为力；释放现金被再分配、平均现金仍 ~2.6%，回撤缓冲建不起来。owner 裁决 topdown 自上而下整手构造路线收口，不再迭代。报告 `docs/分析-topdown单票上限探针-20260613.md` + 小 CSV；paper harness 保留 opt-in `single_weight_cap`（默认关，14 单测仍过）。topdown v2 T0 不作 accepted / promotion / 默认构造。
+
+- [ ] OQ-010：下一个 alpha/组合方向 —— market-state 条件化现金/仓位管理探针（待 owner 启动）
+  说明：topdown 收口的核心教训（DECISION-20260613-02）——v1 的 ~30% 现金是回撤保险而非纯拖累，满仓 topdown 丢了缓冲故 Calmar 只有 v1 一半。下一步方向：把现金/仓位做成 **market-state 条件化、可控**（高风险偏好降现金、深熊留缓冲），而非固定满仓或固定现金。建议先做只读 paper 探针验证方向再投入 ledger/live。未 owner 批准前不启动。
 
 - [ ] OQ-010：基于尾部风险 Overlay A/B 结果决定下一步风控路线
   说明：A1/A3 证明确实命中 crunch 段，但常年误伤过大；A2 是全周期 MaxDD/CAGR tradeoff 对照，但也未改善 Calmar。2026-06-13 按 `PRD_20260613_02` 在当前 true5y CA-on stitched NAV 上重算 NAV 级 exposure upper-bound：最优无摩擦 `two_state_biweekly_elow0_cost0bps` Calmar=`0.6455`、Sharpe=`0.7478`，仍明显低于 v3 Calmar `>1.0`，但不满足“任何择时上界均低于 0.5”的强不可达结论；真实 exposure ledger 工程仍建议缓做/降优先级，下一步更应优先 alpha / 信号 / 组合构造；owner 仍需最终路线决策。三种 overlay 均暂不设默认。

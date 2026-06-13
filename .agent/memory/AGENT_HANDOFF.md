@@ -1,10 +1,33 @@
-> 当前交接摘要（2026-06-13，GPT-5.5，topdown Phase 2 T0 live 修复重跑完成）
-> - `_v01` live 结果已撤回：根因为 topdown retained 持仓未进入 `plan`，主循环 `update_holdings(plan)` 在调仓日静默销毁持仓；旧 ceil-lot 根因诊断已 supersede。本分支修复为 retained 持仓输出 hold/no-op `PlanRow`，并新增 QA-TOPDOWN-11/12 与回归单测，v1 路径和 `update_holdings` 不改。
-> - 修复后 one-off runner 镜像 `topdown-p2-retained-fix-7a70d98-20260613-04`，digest `sha256:0e3f3c7751ab4be4cbcefc94529c5ef51f663a89ef7609e4d5d4c662779cb016`；`latest` 未更新，`strategy1-backtest-report-job` pin 到 generation 55，boot smoke `strategy1-backtest-report-job-4hh4d` 通过。
-> - 正式 research-only run/backtest `s1_topdown_t0_continuous_true5y_2021_2026_v20260613_02` / `bt_s1_topdown_t0_continuous_true5y_2021_2026_v20260613_02` 已用 generation 55 `--force-replace` 完成，formal execution `strategy1-backtest-report-job-2lpzn` 成功；外接 QA 四件套全过，ADS 反查和 `research_promotion_manifest` 均为 0。
-> - 预登记判读仍为 topdown 证伪，但基于修复后 `_v02` 真实数字：长窗 CAGR `11.96%`、Sharpe `0.3821`、Calmar `0.2104`、MaxDD `-56.85%`、平均现金 `2.51%`，低于 v1 official baseline；报告 `docs/分析-topdownPhase2三方对比-20260613.md` 与小 CSV 已重做。本轮不 promotion、不 accepted、不改 v1/default。
+> 当前交接摘要（2026-06-13，Claude Opus 4.8，topdown 构造路线收口 + 记忆同步）
+> - owner 裁决 topdown 自上而下整手构造路线**收口**（DECISION-20260613-02）：PR #217 修掉 retained 持仓销毁 ledger bug 后干净 `_v02` 已证伪 topdown（CAGR 11.96% / Calmar 0.21 / MaxDD -56.85% vs v1 15.35% / 0.41 / -37.43%）；PR #218 严格 `max_single_weight` 单票上限只读 paper 探针证明上限也救不回（最好 Calmar 0.2018、MaxDD 未改善）。两 PR 均已合并。
+> - 核心教训：topdown 深回撤是满仓小盘篮的系统性回撤，v1 的 ~30% 现金是回撤保险而非纯拖累；下一步方向 = market-state 条件化现金/仓位管理探针（待 owner 启动）。另一条待启动线：契约窗口语义修订含 MaxDD 硬门（DECISION-20260613-01）。
+> - 保留：topdown ledger retained 修复 + QA-TOPDOWN-11/12 持仓守恒断言；paper harness opt-in `single_weight_cap`（默认关）。记忆已同步（DECISION_LOG/IMPLEMENTATION_STATUS/OPEN_QUESTIONS/TODO）。
+> - 本会话工作模式（仅当前窗口）：Claude 实现、Codex 审核；PR #218 即按此跑通（Codex 审出软上限 bug → Claude 修为严格上限重跑 → Codex 复核可合并）。
 >
-> Model: GPT-5.5
+> Model: Claude Opus 4.8
+
+## 2026-06-13 Claude - topdown 构造路线收口（单票上限探针 #218）+ 记忆同步
+
+日期: 2026-06-13
+Agent ID: Claude
+Agent 实例 ID: 主仓库会话（/Users/fisher/Desktop/git/quant-ashare）
+模型: Claude Opus 4.8
+运行环境: macOS / zsh / branch `experiment/topdown-single-weight-cap`（已合并清理）
+Run ID: N/A（只读 paper 探针，无 Cloud Run）
+相关 issue/PR: PR #218（单票上限探针归档）；承接 PR #217（retained bug 修复 + `_v02`）
+
+### 已完成工作
+
+- 独立取证确认 PR #217 `_v01` 灾难根因（retained 持仓经 `update_holdings(plan)` 销毁），驱动 Codex 修复并复核（同会话 #217）。
+- 角色反转模式下亲自实现单票上限探针（PR #218）：paper harness 加 opt-in `single_weight_cap`（默认 None=行为不变）+ `analyze_topdown_single_weight_cap_probe.py`；只读、未跑 live、未改 ledger 默认。Codex 审出"软上限（floor 取卖出手数留超 cap 残仓）"阻断项，已修为严格 ceil-trim 重跑，Codex 复核"无阻断、可合并"，已合并。
+- 结论：严格单票上限也救不回 topdown（最好 Calmar 0.2018 ≈ 无上限、仍是 v1 一半，MaxDD 未改善）→ owner 裁决 topdown 收口（DECISION-20260613-02）。
+- 记忆同步：DECISION-20260613-02（含归档滚动）、IMPLEMENTATION_STATUS、OPEN_QUESTIONS（OQ-010 子路线收口）、TODO（关闭 ceil-lot 决策项 + 新增 market-state 现金管理候选）。
+
+### 下一步
+
+- 待 owner 启动：① market-state 条件化现金/仓位管理探针；② 契约窗口语义修订（含 MaxDD 硬门，DECISION-20260613-01）。OQ-010 主问题仍 open（尚无 accepted baseline）。
+
+Model: Claude Opus 4.8
 
 ## 2026-06-13 GPT-5.5 - topdown Phase 2 T0 retained ledger fix and v02 rerun
 
