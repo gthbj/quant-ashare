@@ -132,6 +132,8 @@ class Phase0Config:
     artifact_gcs_uri: str | None = DEFAULT_ARTIFACT_GCS_URI
     saturation_threshold: float = MAIN_SATURATION_THRESHOLD
     sensitivity_saturation_thresholds: tuple[float, ...] = SENSITIVITY_SATURATION_THRESHOLDS
+    # Experimental opt-in: cap realized single-name weight (None = disabled, default = unchanged behavior).
+    single_weight_cap: float | None = None
 
     @property
     def min_position_weight(self) -> float:
@@ -912,6 +914,20 @@ def rebalance_topdown(
     for sec, shares in list(holdings.items()):
         rank = rank_by_sec.get(sec)
         if rank is not None and rank <= walk_depth:
+            if cfg.single_weight_cap is not None:
+                trim_price = price_book.open_price(sec, trade_date) or price_book.valuation_price(sec, trade_date)
+                cap_value = cfg.single_weight_cap * nav_before
+                if trim_price and trim_price > 0 and shares * trim_price > cap_value:
+                    excess_lots = math.floor(((shares * trim_price - cap_value) / trim_price) / LOT_SIZE)
+                    excess_shares = float(excess_lots * LOT_SIZE)
+                    if excess_shares > 0:
+                        gross = excess_shares * trim_price
+                        sell_cost = gross * sell_cost_bps / 10000.0
+                        cash += gross - sell_cost
+                        turnover += gross
+                        cost += sell_cost
+                        sold_secs.append(sec)
+                        holdings[sec] = shares - excess_shares
             retained.add(sec)
             continue
         sell_price = price_book.open_price(sec, trade_date) or price_book.valuation_price(sec, trade_date)
@@ -972,6 +988,9 @@ def rebalance_topdown(
                 unbuyable_skip += 1
                 continue
             desired_shares = min_buy_shares(nav_before, open_price, min_weight)
+            if cfg.single_weight_cap is not None and desired_shares * open_price > cfg.single_weight_cap * nav_before:
+                # Minimum whole lot already exceeds the single-name cap -> cannot hold within cap, skip.
+                continue
             gross = desired_shares * open_price
             buy_cost = gross * buy_cost_bps / 10000.0
             required_cash = gross + buy_cost
