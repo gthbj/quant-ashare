@@ -39,6 +39,9 @@
 - [ ] OQ-010：继续寻找 accepted 的 Cloud Run Python baseline
   说明：当前 Cloud Run Python 路线可运行，但 binary / regression / risk-feature 多轮候选都未建立 accepted baseline；PR #125 分支已完成 2 候选 live v3 smoke，registry、19 QA 和 `v3_relative_gate_by_benchmark.csv` 产物链路跑通。后续继续围绕可接受模型、特征集和风险控制方案推进。
 
+- [ ] OQ-010：验收契约窗口语义修订重提（待 owner 启动，不自行推进）
+  说明：v4 提案本版已被 owner 否决（DECISION-20260613-01，PRD_20260613_05 标注否决留档）：长窗 MaxDD 必须硬门，不接受 sign-off 软门。v3 未钉死评估窗的缺陷（PR #211 证实）仍未解决；后续修订版必须含 MaxDD 硬门，阈值与适用窗口是关键开放参数，是否/何时重提由 owner 决定。在此之前 v3 是唯一有效契约。
+
 - [x] OQ-010：完成 `PRD_20260612_02` Ledger 分红送转 Phase A 事件表落地
   说明：Phase A 已完成并实跑 BigQuery：新增/替换 `ashare_dwd.dwd_stock_dividend_event`、`ashare_meta.qa_stock_dividend_event_hfq_mismatch` 与 `ashare_dwd.v_dwd_stock_dividend_event_ledger_consumable`，并刷新单位映射/字段说明、通过单位 QA 与 CA QA。OQ-015 裁决已落实：不修 `stk_co_rate` 口径，不设人工 allowlist；QA 使用结构化容差（abs/rel + `0.01/prev_close` 下限），双向落表并自动归类，硬门为未归类 mismatch=0。结果：2010+ canonical events=`46431`；2021+ canonical events=`22009`、same-ex_date 聚合键=`20`、source rows=`22029`；mismatch 分布为 event_to_factor data_anomaly=`1106`（含 missing_prev_price=`1033`、factor_jump_mismatch=`73`）、special_dividend=`1`、factor_to_event same_day_orphan_corporate_action=`405`，unclassified=`0`。本阶段未改 ledger 代码、未写 ADS/research/promotion。
 

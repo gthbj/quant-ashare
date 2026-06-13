@@ -1,10 +1,34 @@
-> 当前交接摘要（2026-06-13，GPT-5.5，topdown Phase 2 T0 code PR）
-> - 分支 `codex/topdown-phase2-t0` 已按 `PRD_20260613_04` 完成代码层修订：topdown ledger v2 允许 `diagnostic_only`，仍只允许 individual guard profiles 执行 P1 专属行为。
-> - `qa_topdown_construction_outputs.sql` 已将 QA-TOPDOWN-6/7/8 按 profile 条件化，catalog 登记内部派生参数，PRD_10 文首已加 supersede 指针。
-> - 本轮只交付代码 PR；未构建 Strategy1 runner 新镜像、未执行 Phase 2 live、未跑外接 QA 四件套、未写 BigQuery/GCS，不 promotion、不 accepted。
-> - 下一步：owner review 通过并合并后，resume 本会话执行新镜像 boot smoke、Phase 2 research-only 重跑、外接 QA 四件套、三方对比报告和预登记判读。
+> 当前交接摘要（2026-06-13，Claude Fable 5，v4 提案否决落档 + Phase 2 live 进行中）
+> - owner 否决 contract v4 提案本版（DECISION-20260613-01）：长窗 MaxDD 必须硬门，不接受 sign-off 软门；v3 仍是唯一有效契约，修订重提由 owner 决定。PRD_20260613_05 已标注否决留档，KNOWN_CONSTRAINTS / TODO 已同步。
+> - PR #215（topdown T0 代码）已真实合并（此前 draft 状态下 merge 静默失败 + 误删分支导致 PR 被关，已从本地 commit `aa817f50` 恢复重合，教训：ready→merge→验证 mergedAt→删分支必须 && 串联）。
+> - Codex 会话正在执行 Phase 2 live（PRD_20260613_04）：新 runner 镜像 boot smoke → research-only continuous 重跑 → 外接 QA 四件套 → 三方对比报告与预登记判读；报告不附加 v4 shadow 判定表（前提失效）。
 >
-> Model: GPT-5.5
+> Model: Claude Fable 5
+
+## 2026-06-13 Claude - 契约 v4 提案否决落档（DECISION-20260613-01）+ PR #215 合并事故修复
+
+日期: 2026-06-13
+Agent ID: Claude
+Agent 实例 ID: 主仓库会话（/Users/fisher/Desktop/git/quant-ashare）
+模型: Claude Fable 5
+运行环境: macOS / zsh / branch `docs/decision-20260613-01-v4-rejected`
+Run ID: N/A
+相关 issue/PR: PRD_20260613_05（提案，PR #214 定稿）、PR #215（topdown T0 代码，合并事故后恢复合并）
+
+### 已完成工作
+
+- owner 否决 contract v4 提案本版，理由"最大回撤肯定要一个硬门"：落档 DECISION-20260613-01（主文件 + 月度归档），PRD_20260613_05 文首标注否决状态，KNOWN_CONSTRAINTS 新增"后续契约修订必须含长窗 MaxDD 硬门"约束，TODO 新增"修订重提待 owner 启动"项，IMPLEMENTATION_STATUS 同步。
+- 修复 PR #215 合并事故：draft 未 ready 即 merge（静默失败）+ 删分支致 PR 自动关闭；从本地 commit `aa817f50` 重推分支 → reopen → ready → 真实 MERGED（mergedAt=2026-06-13T00:55:34Z），main 已含 T0 修订，295 tests 通过。
+
+### 进行中
+
+- topdown Phase 2 live（PRD_20260613_04）：Codex 会话（同一会话续接）执行镜像构建 + boot smoke + continuous 重跑 + 外接 QA 四件套 + 三方对比报告。
+
+### 下一步
+
+- Phase 2 交付后 review、按预登记判读整理给 owner；契约修订重提（含 MaxDD 硬门阈值/窗口设计）等 owner 启动。
+
+Model: Claude Fable 5
 
 ## 2026-06-13 GPT-5.5 - topdown Phase 2 T0 code PR
 
