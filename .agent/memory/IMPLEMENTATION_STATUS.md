@@ -33,6 +33,7 @@ Last updated: 2026-06-13
 - PRD_20260612_03 已把主记忆文件压缩为快照 / 索引 / 近期条目结构；历史编年史和决策全文原文归档到 `.agent/memory/archive/`。
 - PRD_20260612_05 Strategy1 包结构 Phase E 收尾已完成 Batch 1/2/3：`bq_io.py` / `config.py` / `state.py` / `task_fanout.py` / `feature_sets.py` / `preprocess.py` / `training_panel.py` / runner `__version__` 已迁入 `src/quant_ashare/strategy1/`，annual rolling 计划层已抽到 `annual_rolling_plan.py`；src 对 `scripts.strategy1_cloudrun.*` 的反向 import 已清零，脚本侧保留两个 orchestrator CLI 主体与 thin shim 兼容群。
 - `KNOWN_CONSTRAINTS.md` 只做保守拆行和结构化映射，操作性语义不删除；全量 before/after 映射见 `docs/prd/PRD_20260612_03_KNOWN_CONSTRAINTS映射表.md`。
+- 被冻结的指标/格式化函数（`fmt_num/fmt_pct/markdown_table` 等）新增首个共享落点 `src/quant_ashare/strategy1/report_format.py`（零重依赖、可安全 import）：PR #222 的 cash-overlay 探针曾本地重定义致 `test_metric_definition_freeze` 红，已抽共享模块复用并更 allowlist 修复（分支 `fix/freeze-allowlist-cash-overlay-fmt`）。其余脚本本地副本可后续逐步收敛到该模块（`markdown_table` 带 `float_format` 兼容 `.4f`/`.6f`）。
 
 ### 开放主线
 
