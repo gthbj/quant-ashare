@@ -38,8 +38,12 @@ from google.cloud import bigquery
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+SRC_ROOT = REPO_ROOT / "src"
+if SRC_ROOT.exists() and str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from scripts.strategy1_cloudrun.bq_io import make_client, query_dataframe
+from quant_ashare.strategy1.report_format import fmt_num, fmt_pct, markdown_table
 
 DEFAULT_PROJECT = "data-aquarium"
 DEFAULT_LOCATION = "asia-east2"
@@ -435,14 +439,6 @@ def validate_anchor(rows: list[dict[str, Any]], tol: float) -> None:
 # -------------------------------------------------------------------- reporting
 
 
-def fmt_pct(v: float) -> str:
-    return "NA" if v is None or not math.isfinite(float(v)) else f"{float(v) * 100:.2f}%"
-
-
-def fmt_num(v: float) -> str:
-    return "NA" if v is None or not math.isfinite(float(v)) else f"{float(v):.4f}"
-
-
 def best_zero_cost_by(result: pd.DataFrame, family: str, metric: str) -> pd.Series | None:
     sub = result[(result["family"] == family) & (result["cost_bps"] == 0)].copy()
     if sub.empty:
@@ -511,24 +507,6 @@ REPORT_COLUMNS = [
     "near_avg_exposure",
     "cumulative_cost_drag_pp",
 ]
-
-
-def markdown_table(frame: pd.DataFrame) -> str:
-    columns = list(frame.columns)
-    out = ["| " + " | ".join(columns) + " |", "| " + " | ".join(["---"] * len(columns)) + " |"]
-    for _, row in frame.iterrows():
-        out.append("| " + " | ".join(_md_cell(row[c]) for c in columns) + " |")
-    return "\n".join(out)
-
-
-def _md_cell(v: Any) -> str:
-    if v is None:
-        return ""
-    if isinstance(v, (float, np.floating)):
-        return "" if not math.isfinite(float(v)) else f"{float(v):.4f}"
-    if isinstance(v, (int, np.integer)):
-        return str(int(v))
-    return str(v).replace("|", "\\|")
 
 
 def build_report(result: pd.DataFrame, args: argparse.Namespace, output_csv: Path) -> str:
