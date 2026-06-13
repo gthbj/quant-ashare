@@ -97,20 +97,29 @@ def build_year_experiment(
     final_refit_start_year = backtest_year - 5
     final_refit_end_year = backtest_year - 1
     weight_code = max_weight_code(args.max_single_weight)
+    horizon = int(getattr(args, "label_horizon", 5))
+    weight_version = getattr(args, "weight_version", "constant_1p0_v0")
+    # arm 标识：仅当 horizon / weight_version 非 v1 默认(h5 + constant_1p0_v0)时追加，
+    # 保持 v1 run_id 格式与复现不变；feature_set 身份由 --run-version 承载。
+    arm_suffix = ""
+    if horizon != 5:
+        arm_suffix += f"_h{horizon}"
+    if weight_version != "constant_1p0_v0":
+        arm_suffix += f"_{weight_version_code(weight_version)}"
     run_id = (
         f"s1_annual_roll_y{backtest_year}_"
         f"train{selection_train_start_year}_{selection_train_end_year}_"
-        f"valid{valid_year}_n{args.target_holdings}_w{weight_code}_{version}"
+        f"valid{valid_year}_n{args.target_holdings}_w{weight_code}{arm_suffix}_{version}"
     )
     experiment_id = (
         f"annual_roll_y{backtest_year}_"
         f"train{selection_train_start_year}_{selection_train_end_year}_"
-        f"valid{valid_year}_n{args.target_holdings}_w{weight_code}_{version}"
+        f"valid{valid_year}_n{args.target_holdings}_w{weight_code}{arm_suffix}_{version}"
     )
     backtest_id = (
         f"bt_s1_annual_roll_y{backtest_year}_"
         f"train{selection_train_start_year}_{selection_train_end_year}_"
-        f"valid{valid_year}_n{args.target_holdings}_w{weight_code}_{version}"
+        f"valid{valid_year}_n{args.target_holdings}_w{weight_code}{arm_suffix}_{version}"
     )
     selection_train_start = (
         "2015-04-01"
@@ -118,15 +127,15 @@ def build_year_experiment(
         else actual_first_trading_day(selection_train_start_year)
     )
     backtest_end = bounded_year_end(backtest_year, as_of)
-    selection_train_end = label_safe_year_end(selection_train_end_year, 5)
+    selection_train_end = label_safe_year_end(selection_train_end_year, horizon)
     valid_start = actual_first_trading_day(valid_year)
-    valid_end = label_safe_year_end(valid_year, 5)
+    valid_end = label_safe_year_end(valid_year, horizon)
     backtest_start = actual_first_trading_day(backtest_year)
     final_refit_start = final_refit_first_training_day(
         final_refit_start_year,
         min_training_day=final_refit_min_training_day,
     )
-    final_refit_end = label_safe_year_end(final_refit_end_year, 5)
+    final_refit_end = label_safe_year_end(final_refit_end_year, horizon)
     return Experiment(
         experiment_id=experiment_id,
         run_id=run_id,
@@ -140,8 +149,8 @@ def build_year_experiment(
         rebalance_frequency=args.rebalance_frequency,
         target_holdings=args.target_holdings,
         max_single_weight=args.max_single_weight,
-        label_horizon=5,
-        horizon_natural_frequency="weekly",
+        label_horizon=horizon,
+        horizon_natural_frequency=horizon_natural_frequency_for(horizon),
         initial_state_mode="fresh",
         parent_backtest_id=None,
         state_as_of_date=None,
@@ -152,6 +161,7 @@ def build_year_experiment(
         fin_feature_version=args.fin_feature_version,
         tail_risk_profile_id=args.tail_risk_profile_id,
         market_state_version=args.market_state_version,
+        weight_version=weight_version,
         requires_retrain=True,
         status="planned",
         train_start=selection_train_start,
@@ -505,3 +515,19 @@ def subtract_weekdays(value: date, count: int) -> date:
 
 def max_weight_code(value: float) -> str:
     return f"{int(round(value * 1000)):03d}"
+
+
+def weight_version_code(weight_version: str) -> str:
+    """run_id 里的短 arm 标识；未知版本退化为字母数字前缀，避免碰撞。"""
+    known = {
+        "constant_1p0_v0": "wvc1",
+        "logmv_xs_monotone_v0": "wvlmv",
+    }
+    if weight_version in known:
+        return known[weight_version]
+    return "wv" + "".join(ch for ch in weight_version if ch.isalnum())[:6]
+
+
+def horizon_natural_frequency_for(label_horizon: int) -> str:
+    """标签 horizon 的自然频率(provenance 元数据，非硬约束)：5→weekly / 10→biweekly / 20→monthly。"""
+    return {5: "weekly", 10: "biweekly", 20: "monthly"}.get(int(label_horizon), "weekly")

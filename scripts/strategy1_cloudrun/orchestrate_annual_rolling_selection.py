@@ -149,6 +149,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fin-feature-version", default="fin_default_v0_20260602")
     parser.add_argument("--market-state-version", default="market_state_v0_20260606")
     parser.add_argument("--tail-risk-profile-id", default="diagnostic_only")
+    parser.add_argument(
+        "--label-horizon",
+        type=int,
+        default=5,
+        choices=[5, 10, 20],
+        help="标签 horizon(交易日);下游 build_candidates/portfolio/panel 仅支持 5/10/20。P0 大盘价值用 20。",
+    )
+    parser.add_argument(
+        "--weight-version",
+        default="constant_1p0_v0",
+        choices=["constant_1p0_v0", "logmv_xs_monotone_v0"],
+        help=(
+            "训练样本权重版本;constant_1p0_v0 等价 v1(物理列恒 1.0、黄金 hash 不变),"
+            "logmv_xs_monotone_v0 按每日截面 log_total_mv 做大盘倾斜加权。"
+        ),
+    )
     parser.add_argument("--candidate-set-id", default=DEFAULT_CANDIDATE_SET_ID)
     parser.add_argument("--candidate-parallelism", type=int, default=0)
     parser.add_argument("--force-replace", action="store_true")

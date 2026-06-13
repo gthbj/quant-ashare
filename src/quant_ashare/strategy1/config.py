@@ -120,6 +120,9 @@ class Experiment:
     fin_feature_version: str = "fin_default_v0_20260602"
     tail_risk_profile_id: str = "diagnostic_only"
     market_state_version: str = "market_state_v0_20260606"
+    # 训练样本权重版本：'constant_1p0_v0' 等价 v1（物理列恒 1.0，黄金 hash 不变）；
+    # 其他版本（如 'logmv_xs_monotone_v0'）在 panel SQL 按 weight_version 派生大盘倾斜权重。
+    weight_version: str = "constant_1p0_v0"
     requires_retrain: bool = True
     status: str = "planned"
     train_start: str = "2019-04-03"
@@ -173,6 +176,7 @@ class Experiment:
             "fin_feature_version": self.fin_feature_version,
             "tail_risk_profile_id": self.tail_risk_profile_id,
             "market_state_version": self.market_state_version,
+            "weight_version": self.weight_version,
             "requires_retrain": self.requires_retrain,
             "train_start": self.train_start,
             "train_end": self.train_end,
@@ -346,6 +350,7 @@ def experiment_from_b64(value: str) -> Experiment:
         fin_feature_version=raw.get("fin_feature_version", "fin_default_v0_20260602"),
         tail_risk_profile_id=raw.get("tail_risk_profile_id", "diagnostic_only"),
         market_state_version=raw.get("market_state_version", "market_state_v0_20260606"),
+        weight_version=raw.get("weight_version", "constant_1p0_v0"),
         requires_retrain=bool(raw.get("requires_retrain", True)),
         status=raw.get("status", "planned"),
         train_start=raw.get("train_start", "2019-04-03"),
