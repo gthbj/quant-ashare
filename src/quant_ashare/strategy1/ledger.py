@@ -330,6 +330,7 @@ class PlanRow:
     filter_reason: str | None = None
     buy_skip_status: str | None = None
     sell_skip_status: str | None = None
+    planned_buy_shares: float | None = None
     filled_sell_shares: float = 0.0
     filled_buy_shares: float = 0.0
     scale: float = 1.0
@@ -569,6 +570,7 @@ def build_daily_plan_topdown(
         probe = build_buy_execution(item, desired_shares, params, "FILLED")
         if available_cash + 1e-6 >= probe.cash_required:
             item.want_value = desired_shares * item.exec_open
+            item.planned_buy_shares = desired_shares
             available_cash -= probe.cash_required
             buy_rows.append(item)
         else:
@@ -781,7 +783,10 @@ def execute_plan_lot_aware(
     buy_items = [item for item in plan if item.want_value > 0.000001]
     provisional: list[BuyExecution] = []
     for item in buy_items:
-        planned_shares = round_down_to_lot(safe_divide(item.want_value, item.exec_open), params.lot_size)
+        if is_topdown_lot100(params) and item.planned_buy_shares is not None:
+            planned_shares = item.planned_buy_shares
+        else:
+            planned_shares = round_down_to_lot(safe_divide(item.want_value, item.exec_open), params.lot_size)
         if planned_shares < min_buy_shares(params):
             rows.append(trade_row(
                 params, exec_date, item, "BUY", safe_divide(item.want_value, item.exec_open),

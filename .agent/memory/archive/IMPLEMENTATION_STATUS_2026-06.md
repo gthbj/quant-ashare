@@ -732,3 +732,10 @@
 - 已从 parent `bt_s1_annual_roll_continuous_true5y_2021_2026_n20_w075_v20260611_01_ca01` 的 `2026-05-27` state resume 到 child `bt_s1_dividend_backfill_resume_20260528_20260609_v20260612_01`，Cloud Run execution `strategy1-backtest-report-job-tjn4j` 成功，输出仅写 `ashare_research`。`qa_lot_aware_ledger_outputs` job `b697f4dc-1eaf-4eff-9df1-23e04fb809ac` 与 `qa_corporate_action_ledger_outputs` job `beefe3d8-0022-4aa9-a224-37eb82931760` 通过；ADS 反查和 promotion manifest 均为 0 行。
 - parent/child 差异归因闭合：新增两条 `CORPORATE_ACTION_CASH_DIVIDEND`（`002756.SZ` 2026-05-29、`001314.SZ` 2026-06-02），税前 `76.0`、税 `7.6`、净现金 `68.4` 元；position/share 差异为 0。非 CA 只有两条未成交 `BUY_SKIPPED_BELOW_LOT` planned_shares 尾差，filled/cash/turnover/fee/tax/slippage 均为 0。
 - 拼接 parent NAV `2021-01-04..2026-05-27` + child NAV `2026-05-28..2026-06-09` 后，v3 contract 口径 CAGR=`0.15357789449949522`、contract Sharpe=`0.668539787795112`、Calmar=`0.41030930550903105`、MaxDD=`-0.3742978588042647`。Claude review 已通过 PR #205 技术面，owner 预先决策影响很小则采纳；本轮采纳展示数字修正，但不改 `DECISION-20260612-03` 数字文本。
+
+### 最新补充（2026-06-12）：PRD_20260612_05 Batch 3 包结构收尾已实现
+
+- 分支 `codex/prd05-batch3` / PR #206 已按 PRD §3 Batch 3 完成 Strategy1 包结构收尾：`feature_sets.py` / `preprocess.py` / `training_panel.py` 迁入 `src/quant_ashare/strategy1/`，scripts 同名路径改为 thin re-export shim；src 内对三模块的反向 import 已改为包内直连。
+- `annual_pipeline_scheduler.py` 所依赖的年度滚动计划层符号已抽到 `src/quant_ashare/strategy1/annual_rolling_plan.py`；`scripts/strategy1_cloudrun/orchestrate_annual_rolling_selection.py` 保留 CLI 主体、参数面和 dry-run 调度行为，并从新包模块 re-export 计划函数以维持旧导入路径兼容。
+- `tests/strategy1/test_package_boundaries.py` 更新 Batch 3 shim 兼容符号快照，新增非仓库 cwd 且 `PYTHONPATH` 仅指向 `src` 的全包 import 自洽测试，并把 src→`scripts.strategy1_cloudrun.*` 反向 import 改为硬断言 `0`。
+- 本轮不改训练、回测、ledger、orchestrator CLI 语义，不触碰 Cloud Run job spec/args/镜像/IAM，不写 BigQuery/GCS。最终验证通过：`PYTHONPATH=src python3 -m pytest -q tests`（276 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_package_boundaries.py`（7 passed）；`PYTHONPATH=src python3 -m pytest -q tests/strategy1/test_cloudrun_package_entrypoints.py`（16 passed）；retired linter / compileall / Dataform check / `git diff --check` 均通过。

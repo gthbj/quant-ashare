@@ -369,6 +369,34 @@ class LotAwareLedgerTest(unittest.TestCase):
         self.assertEqual(trades[0]["filled_shares"], 100.0)
         self.assertEqual(update_holdings(plan), {"000001.SZ": 100.0})
 
+    def test_topdown_keeps_ceil_lot_count_without_float_roundtrip(self):
+        p = topdown_params(walk_depth=1, tail_risk_profile_id="diagnostic_only")
+        price_book = FakePriceBook({
+            "000001.SZ": {"open": 11.71, "close": 11.71, "can_buy_open": True, "can_sell_open": True},
+        })
+        candidates = {
+            "000001.SZ": {"rank_raw": 1, "filter_reason": None},
+        }
+
+        plan = build_daily_plan(
+            dt.date(2026, 1, 5),
+            True,
+            10_000.0,
+            {},
+            candidates,
+            set(),
+            set(),
+            False,
+            100_000.0,
+            price_book,
+            p,
+        )
+        _, trades = execute_plan(dt.date(2026, 1, 5), 10_000.0, plan, p, is_rebalance=True)
+
+        self.assertEqual(trades[0]["fill_status"], "FILLED")
+        self.assertEqual(trades[0]["filled_shares"], 500.0)
+        self.assertGreaterEqual(trades[0]["turnover_cny"] / 100_000.0, 0.05)
+
 
 def test_topdown_rejects_market_only_tail_risk_profile() -> None:
     params = LedgerParams(
