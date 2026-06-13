@@ -33,6 +33,15 @@
 
 ## 🔴 Claude ↔ Codex 协作流程（PRD 与代码）
 
+### 协作模式选择（owner 拍板，一个对话只决策一次）
+
+本协作有两种模式，**采用哪种由 owner 决定**；owner 在一个对话中**只需指定一次**，该对话后续所有轮次都遵守选定模式，不必每轮重新确认。owner 未指定时按**模式 A（默认）**。
+
+- **模式 A（默认）**：Claude 写 PRD → Codex review PRD → **Codex 按 PRD 写代码 / 实现** → Claude review 代码并驱动 Codex 修复到零问题 → 可合并。即下文「完整闭环」描述的流程。
+- **模式 B（角色反转）**：**Claude 负责写 PRD、执行、开发等全部实现工作；Codex 只负责审核** Claude 的所有产出。闭环为 Claude 实现 → Codex review（发现写 PR comment）→ Claude 据发现修复 → Codex 复核 → 可合并（实现方与审核方对调，其余纪律不变）。
+
+无论哪种模式，「Claude 主动驱动、不在中间环节等 owner」「同一需求 / 同一 PR 用同一个 Codex 会话」「Codex 用 GPT-5.5 + xhigh」「评审只读、发现写 PR comment、只写问题」等纪律一致。下文各小节按模式 A 的角色表述；模式 B 下把"谁实现 / 谁审核"对调即可。
+
 ### 核心原则：Claude 主动驱动，不等 owner
 
 Claude 在此流程中拥有**自主驱动权**：发现问题后**直接**让 Codex 修，审完修复**直接**决定是否继续迭代，循环到零问题后才报告 owner。**不要在中间环节等 owner 拍板**——这一点优先于 AGENTS.md 通用评审协议中"发现由 owner 决定是否采纳"的规则。
