@@ -150,8 +150,33 @@ manifest 示例：
 1. merge 只写 `ashare_research`：生成 1 行 synthetic selected registry，`model_id` 统一为 `synth_<synthetic_run_id>`，prediction 行统一改写到该 synthetic model/run。
 2. manifest 必须显式列出每年 `(source_run_id, predict_start, predict_end)`；official 模式必须传 `--require-source-refit`，确保 source registry 带 `refit=true`。
 3. merge 不删除或修改任何年度 source run；若 synthetic run 已存在，必须显式 `--force-replace` 才会删除同 synthetic run 的 registry/prediction 后重写。
-4. continuous ledger 通过现有 `quant_ashare.strategy1.backtest_report` 执行，`prediction_run_id` 指向 synthetic run，且必须显式传 `--skip-diagnosis --skip-tail-risk --skip-qa`；随后单独执行 `qa_continuous_backtest_outputs` 和 `qa_lot_aware_ledger_outputs`。
-5. `qa_continuous_backtest_outputs` 必须验证 synthetic manifest hash、year→source model 溯源、source/target prediction 行数、valid 段排除、交易日历覆盖，以及 continuous summary / NAV / ledger state 不变式。不得把年度 fresh NAV 拼接成正式结论。
+4. synthetic registry 的 `label_horizon` / `feature_set_id`（params_json）与 `horizon` / `feature_version`（registry frame）以及 `weight_version`（仅非 `constant_1p0_v0` 时写入 params_json）**全部从 source registry 行派生**，不再硬编码 `label_horizon=5` / `strategy1_pv_fin_risk_v0_20260606`。各年 source 在这些维度上不一致时 merge 直接 `RuntimeError` fail-fast 并列出每个 source run 的值；`weight_version` 缺失（旧 source 行无该 JSON 键）默认 `constant_1p0_v0`（等价 v1）。v1 lineage（h5 / `strategy1_pv_fin_risk_v0_20260606` / `strategy1_pv_v0_20260601` / `constant_1p0_v0`）下派生值等于旧硬编码，synthetic registry 字节级不变。
+5. continuous ledger 通过现有 `quant_ashare.strategy1.backtest_report --experiment-json <base64 Experiment>` 执行，`prediction_run_id` 指向 synthetic run，且必须显式传 `--skip-diagnosis --skip-tail-risk --skip-qa`；随后单独执行 `qa_continuous_backtest_outputs` 和 `qa_lot_aware_ledger_outputs`。⚠ `--experiment-json` 路径下 `resolve_experiment_from_args` 直接返回 payload 内的 Experiment，`--corporate-actions` / `--dividend-tax-mode` / `--prediction-run-id` / `--backtest-id` 等 **CLI override 不生效**（仅 manifest 分支应用）；因此 **CA-on 与 synth run/backtest ids 必须写进 payload 本身**。用 `synthetic_continuous --emit-backtest-experiment-json` 产生该 payload（它复用 merge 同源的 source lineage 派生，并把 `corporate_actions=cash_div_and_split_v1` / `dividend_tax_mode=flat_10pct` / `tail_risk_profile_id=diagnostic_only` 烤进 payload）：
+
+```bash
+SYNTH_RUN_ID=s1_annual_roll_synth_continuous_2021_2026_n20_w075_vYYYYMMDD_NN
+BT_ID=bt_${SYNTH_RUN_ID}_ca01
+EXP_JSON=$(python -m quant_ashare.strategy1.synthetic_continuous \
+  --project data-aquarium \
+  --region asia-east2 \
+  --config configs/strategy1/annual_rolling_lgbm_regression_v0.yml \
+  --manifest-json /tmp/strategy1_annual_refit_manifest_vYYYYMMDD_NN.json \
+  --require-source-refit \
+  --emit-backtest-experiment-json \
+  --backtest-id "$BT_ID" \
+  --target-holdings 20 --max-single-weight 0.075 --rebalance-frequency biweekly \
+  --output-dataset-role research)
+
+python -m quant_ashare.strategy1.backtest_report \
+  --experiment-id "$SYNTH_RUN_ID" \
+  --experiment-json "$EXP_JSON" \
+  --output-dataset-role research \
+  --skip-diagnosis --skip-tail-risk --skip-qa \
+  --force-replace
+```
+
+   - `--emit-backtest-experiment-json` 默认 ledger 为 `ledger_exec_v1_lot100`（不传 `--use-float-ledger` / `--use-topdown-ledger`）；`--target-holdings` / `--max-single-weight` / `--rebalance-frequency` 必须与 source 实验一致。emit 模式只读 source registry、不写任何数据集。
+6. `qa_continuous_backtest_outputs` 必须验证 synthetic manifest hash、year→source model 溯源、source/target prediction 行数、valid 段排除、交易日历覆盖，以及 continuous summary / NAV / ledger state 不变式。不得把年度 fresh NAV 拼接成正式结论。
 
 Cloud Run ledger resume 验收 / 手工恢复：
 
