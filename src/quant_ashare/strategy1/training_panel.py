@@ -22,6 +22,7 @@ def build_training_panel_params(exp: Experiment, *, force_replace: bool) -> dict
         "p_fin_feature_version": exp.fin_feature_version,
         "p_market_state_version": exp.market_state_version,
         "p_market_state_ffill_max_trade_days": 5,
+        "p_weight_version": exp.weight_version,
         "p_label_version": "open_to_close_h1_5_10_20_v20260601",
         "p_label_horizon": exp.label_horizon,
         "p_rebalance_frequency": exp.rebalance_frequency,

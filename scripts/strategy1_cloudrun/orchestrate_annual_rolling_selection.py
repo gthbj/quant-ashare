@@ -159,7 +159,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--weight-version",
         default="constant_1p0_v0",
-        choices=["constant_1p0_v0", "logmv_xs_monotone_v0"],
+        choices=["constant_1p0_v0", "logmv_xs_monotone_v0", "logmv_xs_monotone_w2_v0"],
         help=(
             "训练样本权重版本;constant_1p0_v0 等价 v1(物理列恒 1.0、黄金 hash 不变),"
             "logmv_xs_monotone_v0 按每日截面 log_total_mv 做大盘倾斜加权。"
