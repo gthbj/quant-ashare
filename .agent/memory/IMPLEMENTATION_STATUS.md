@@ -37,7 +37,7 @@ Last updated: 2026-06-13
 ### 开放主线
 
 - `OPEN_QUESTIONS.md` 只剩 OQ-010：继续寻找可 accepted 的 Cloud Run Python baseline / 组合构造 / 风控路线。
-- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；据此形成的契约 v4 提案（PRD_20260613_05，PR #214 定稿）本版已被 owner 否决（DECISION-20260613-01：长窗 MaxDD 必须硬门，不接受 sign-off 软门），v3 仍是唯一有效契约，修订重提由 owner 决定。PRD_20260613_04 已完成代码口径修订与 Phase 2 live：`ledger_exec_v2_lot100_topdown` 允许 `diagnostic_only`，QA-TOPDOWN-6/7/8 按 profile 条件化；`_v01` live 结果因 topdown retained 持仓未进入 `plan` 的 ledger bug 作废，修复后 `_v02` research-only T0 重跑和外接 QA 四件套已通过。预登记判读仍为 topdown 证伪（长窗 CAGR `11.96%`、Calmar `0.2104`、MaxDD `-56.85%`、平均现金 `2.51%`），不得 promotion / accepted / default；修复后现金拖累已缓解，但 ceil-lot 单票集中仍需 owner 决定是否另立 sizing cap / 其他路线。尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
+- PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；据此形成的契约 v4 提案（PRD_20260613_05，PR #214 定稿）本版已被 owner 否决（DECISION-20260613-01：长窗 MaxDD 必须硬门，不接受 sign-off 软门），v3 仍是唯一有效契约，修订重提由 owner 决定。PRD_20260613_04 已完成代码口径修订与 Phase 2 live：`ledger_exec_v2_lot100_topdown` 允许 `diagnostic_only`，QA-TOPDOWN-6/7/8 按 profile 条件化；`_v01` live 结果因 topdown retained 持仓未进入 `plan` 的 ledger bug 作废，修复后 `_v02` research-only T0 重跑和外接 QA 四件套已通过。预登记判读仍为 topdown 证伪（长窗 CAGR `11.96%`、Calmar `0.2104`、MaxDD `-56.85%`、平均现金 `2.51%`），不得 promotion / accepted / default。修复后现金拖累已缓解，但 ceil-lot 单票集中仍劣于 v1；PR #218 用只读 paper 探针测试**严格** `max_single_weight` 上限证明上限也救不回（最好 Calmar `0.2018` ≈ 无上限、仍是 v1 `0.41` 一半，MaxDD `-52%~-62%` 未改善），**owner 据此裁决 topdown 自上而下整手构造路线收口（DECISION-20260613-02）**——深回撤是满仓系统性回撤、v1 的 ~30% 现金是回撤保险，下一步转 market-state 条件化现金/仓位管理（待 owner 启动）。尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
 
