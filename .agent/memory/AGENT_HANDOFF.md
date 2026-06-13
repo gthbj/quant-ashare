@@ -1,5 +1,5 @@
 > 当前交接摘要（2026-06-13，Claude Opus 4.8，topdown 构造路线收口 + 记忆同步）
-> - owner 裁决 topdown 自上而下整手构造路线**收口**（DECISION-20260613-02）：PR #217 修掉 retained 持仓销毁 ledger bug 后干净 `_v02` 已证伪 topdown（CAGR 11.96% / Calmar 0.21 / MaxDD -56.85% vs v1 15.35% / 0.41 / -37.43%）；PR #218 严格 `max_single_weight` 单票上限只读 paper 探针证明上限也救不回（最好 Calmar 0.2018、MaxDD 未改善）。两 PR 均已合并。
+> - owner 裁决 topdown 自上而下整手构造路线**收口**（DECISION-20260613-02）：PR #217 修掉 retained 持仓销毁 ledger bug 后干净 `_v02` 已证伪 topdown（CAGR 11.96% / Calmar 0.21 / MaxDD -56.85% vs v1 15.36% / 0.4103 / -37.43%）；PR #218 严格 `max_single_weight` 单票上限只读 paper 探针证明上限也救不回（最好 Calmar 0.2018、MaxDD 未改善）。两 PR 均已合并。
 > - 核心教训：topdown 深回撤是满仓小盘篮的系统性回撤，v1 的 ~30% 现金是回撤保险而非纯拖累；下一步方向 = market-state 条件化现金/仓位管理探针（待 owner 启动）。另一条待启动线：契约窗口语义修订含 MaxDD 硬门（DECISION-20260613-01）。
 > - 保留：topdown ledger retained 修复 + QA-TOPDOWN-11/12 持仓守恒断言；paper harness opt-in `single_weight_cap`（默认关）。记忆已同步（DECISION_LOG/IMPLEMENTATION_STATUS/OPEN_QUESTIONS/TODO）。
 > - 本会话工作模式（仅当前窗口）：Claude 实现、Codex 审核；PR #218 即按此跑通（Codex 审出软上限 bug → Claude 修为严格上限重跑 → Codex 复核可合并）。
@@ -119,67 +119,3 @@ Run ID: N/A
 
 Model: Claude Fable 5
 
-## 2026-06-13 GPT-5.5 - topdown Phase 2 T0 code PR
-
-日期: 2026-06-13
-Agent ID: Codex
-Agent 实例 ID: local worktree `/Users/fisher/Desktop/git/worktrees/quant-ashare-topdown-p2`
-模型: GPT-5.5
-运行环境: macOS / zsh / branch `codex/topdown-phase2-t0`
-Run ID: N/A
-相关 issue/PR: PRD `docs/prd/PRD_20260613_04_topdownPhase2T0口径修订与重跑.md`
-
-### 已完成工作
-
-- `src/quant_ashare/strategy1/ledger.py` 放宽 topdown v2 profile 校验：允许 `diagnostic_only` 或显式 individual guard profile，仍拒绝 `market_risk_off_v0` 这类非 topdown 构造 profile；v1 默认行为与黄金 hash 不变。
-- `sql/strategy1/qa/qa_topdown_construction_outputs.sql` 将 QA-TOPDOWN-6/7/8 改为 profile 条件化，并在 QA-TOPDOWN-1 对齐 summary 实际 `tail_risk_profile_id`：`diagnostic_only` 跳过 P1 专属断言，individual guard profile 仍要求 tail-risk marker 与零 filled BUY。
-- `configs/strategy1/active_step_catalog.yml` 将 `p_has_individual_risk_guard` 登记为 `qa_topdown_construction_outputs` 的 internal param，保持 SQL render 不留 unmanaged default。
-- 单测补齐 topdown + `diagnostic_only`：不再 raise、tail-risk 标记自然放行买入、`cash_redistribution` 仍为 `topdown_whole_order_skip_v2`；market-only profile 仍 fail-fast。
-- `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md` 文首加入 `PRD_20260613_04` supersede 指针。
-
-### 重要上下文
-
-- 本轮只做代码 PR；按 owner 指令，live 重跑需等代码 PR review 通过并合并后再执行。
-- 未构建 Strategy1 runner 新镜像、未执行 Cloud Run、未写 BigQuery/GCS、未跑外接 QA 四件套、未产出三方对比报告；不 promotion、不 accepted。
-- Phase 2 live 执行时仍必须显式 CA-on 参数、`tail_risk_profile_id=diagnostic_only`、`--use-topdown-ledger`、`--skip-diagnosis --skip-tail-risk --skip-qa`，并用外接 QA 参数表显式覆盖 topdown ledger / resume policy。
-
-### 改动文件
-
-- `src/quant_ashare/strategy1/ledger.py`
-- `sql/strategy1/qa/qa_topdown_construction_outputs.sql`
-- `configs/strategy1/active_step_catalog.yml`
-- `tests/strategy1_cloudrun/test_lot_aware_ledger.py`
-- `tests/strategy1/test_sql_render.py`
-- `docs/prd/PRD_20260611_10_策略1自上而下整手组合构造.md`
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
-
-### 测试 / 验证
-
-- `PYTHONPATH=src python3 -m pytest -q tests/strategy1_cloudrun/test_lot_aware_ledger.py tests/strategy1/test_sql_render.py`：40 passed。
-- `PYTHONPATH=src python3 -m pytest -q tests`：295 passed。
-- `python3 scripts/dataform/generate_sqlx_from_sql.py --check`：passed。
-- `git diff --check`：passed。
-- `bq query --project_id=data-aquarium --location=asia-east2 --use_legacy_sql=false --dry_run < sql/strategy1/qa/qa_topdown_construction_outputs.sql`：validated。
-
-### 阻塞项
-
-- 无代码阻塞；Phase 2 live 重跑等待 owner review 通过并合并代码 PR。
-
-### 下一步建议
-
-- PR 合并后构建包含本修订的 immutable Strategy1 runner 镜像，完成 backtest_report boot smoke。
-- 按 `PRD_20260613_04` §2 执行 research-only topdown Phase 2 fresh continuous、外接 QA 四件套、ADS/promotion 反查、三方对比报告与预登记判读。
-
-### 已更新记忆文件
-
-- `.agent/memory/KNOWN_CONSTRAINTS.md`
-- `.agent/memory/IMPLEMENTATION_STATUS.md`
-- `.agent/memory/archive/IMPLEMENTATION_STATUS_2026-06.md`
-- `.agent/memory/AGENT_HANDOFF.md`
-- `.agent/memory/archive/AGENT_HANDOFF_2026-06.md`
-- `TODO.md`
