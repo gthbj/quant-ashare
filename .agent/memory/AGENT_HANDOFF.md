@@ -8,6 +8,18 @@
 >
 > Model: Claude Opus 4.8
 
+## 2026-06-28 Claude Opus 4.8 — Codex 模型选取升级对齐 quant-crypto
+
+日期: 2026-06-28
+Agent: Claude / 模型: Claude Opus 4.8
+分支: experiment/largecap-value-results（**未进 main**，就地提交并 push origin HEAD）
+
+- 把 `CLAUDE.md` 的 Codex「模型 + 思考强度」选取逻辑从「固定 `gpt-5.5` + 固定 `xhigh`」整套升级并对齐 quant-crypto：改为每次派发 / resume 前请求 codexradar `current.json`、动态选当日 model_iq 智商最高的 model+effort；同分最高并列时**先选版本更低的模型**（gpt-5.4 优先 gpt-5.5）、同模型内再**选思考强度更低的一档**（low>medium>high>xhigh）；新增 bash 解析片段、CLI 显式传 `-m`/`-c`；请求失败 / 缺数据报错暂停。
+- 改了两处：第 43 行摘要引号短语 + 「### 模型要求」整段（多段文字 + bash 代码块）。仅文档/记忆改动，无代码/数据/生产变更、无密钥。
+- 决策见 **DECISION-20260628-01**（active）。
+
+Model: Claude Opus 4.8
+
 ## 2026-06-13 Claude - PRD_20260613_06 大盘价值倾斜 long-only P0 实现
 
 日期: 2026-06-13

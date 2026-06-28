@@ -2,7 +2,7 @@
 
 这是实现状态的唯一事实来源。面向「已完成/进行中/受阻的整体状态」；「下一步要做什么」见根目录 `TODO.md`。
 
-Last updated: 2026-06-13
+Last updated: 2026-06-28
 
 ## 当前状态快照
 
@@ -41,6 +41,10 @@ Last updated: 2026-06-13
 - PRD_20260613_02 v3 Calmar 门合理性分析已产出只读证据；据此形成的契约 v4 提案（PRD_20260613_05，PR #214 定稿）本版已被 owner 否决（DECISION-20260613-01：长窗 MaxDD 必须硬门，不接受 sign-off 软门），v3 仍是唯一有效契约，修订重提由 owner 决定。PRD_20260613_04 已完成代码口径修订与 Phase 2 live：`ledger_exec_v2_lot100_topdown` 允许 `diagnostic_only`，QA-TOPDOWN-6/7/8 按 profile 条件化；`_v01` live 结果因 topdown retained 持仓未进入 `plan` 的 ledger bug 作废，修复后 `_v02` research-only T0 重跑和外接 QA 四件套已通过。预登记判读仍为 topdown 证伪（长窗 CAGR `11.96%`、Calmar `0.2104`、MaxDD `-56.85%`、平均现金 `2.51%`），不得 promotion / accepted / default。修复后现金拖累已缓解，但 ceil-lot 单票集中仍劣于 v1；PR #218 用只读 paper 探针测试**严格** `max_single_weight` 上限证明上限也救不回（最好 Calmar `0.2018` ≈ 无上限、仍是 v1 `0.41` 一半，MaxDD `-52%~-62%` 未改善），**owner 据此裁决 topdown 自上而下整手构造路线收口（DECISION-20260613-02）**——深回撤是满仓系统性回撤、v1 的 ~30% 现金是回撤保险，下一步转 market-state 条件化现金/仓位管理（待 owner 启动）。尾部风险后续路线、R14 长训练窗口覆盖审计和 OQ-005 短观察窗仍是待办方向，具体下一步以 `TODO.md` 为准。
 
 ## 最近补充（最近 7 条）
+
+### 最新补充（2026-06-28）：CLAUDE.md Codex 模型/强度选取升级对齐 quant-crypto
+
+- 把 `CLAUDE.md` 的 Codex「模型 + 思考强度」选取逻辑从「固定 `gpt-5.5` + 固定 `xhigh`」升级为请求 codexradar `current.json` 动态选当日 model_iq 智商最高的 model+effort；同分最高并列时先选版本更低的模型、再选思考强度更低的一档（low>medium>high>xhigh），新增 bash 解析片段 + CLI 显式传 `-m`/`-c`，请求失败/缺数据报错暂停。仅文档/记忆改动，无代码/数据/生产变更。决策见 DECISION-20260628-01；提交在 feature 分支 `experiment/largecap-value-results`（未进 main）。
 
 ### 最新补充（2026-06-14）：PRD_20260613_06 大盘价值 long-only P0 live 完成——预登记证伪（STOP）
 
