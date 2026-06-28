@@ -122,8 +122,20 @@ Related files:
 | DECISION-20260612-03 | 2026-06-12 | 研究 baseline 数字切换为 CA-on 口径，"未复权简化"约定 superseded，后续实验一律 CA-on | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260613-01 | 2026-06-13 | 否决验收契约 v4 提案本版：后续契约修订必须含长窗 MaxDD 硬门，v3 维持唯一有效契约 | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260613-02 | 2026-06-13 | topdown 自上而下整手构造路线收口（retained bug 修复后证伪 + 严格单票上限无效） | active | archive/DECISION_LOG_2026-06.md |
+| DECISION-20260628-01 | 2026-06-28 | Codex 模型/强度选取升级对齐 quant-crypto（同分先版本更低再强度更低） | active | （正文） |
 
 ## 近期完整条目（最近 10 条，时间倒序）
+
+## DECISION-20260628-01: Codex 模型/强度选取升级对齐 quant-crypto（同分先版本更低再强度更低）
+
+Date: 2026-06-28
+Status: active
+Owner: Claude Opus 4.8
+Context: owner 要求把本仓库 Codex 模型/强度选取逻辑（原「固定 gpt-5.5 + 固定 xhigh」）升级并对齐 quant-crypto。
+Decision: ① 改为请求 codexradar `current.json`、动态选当日 model_iq 智商最高的 **model+effort**（不再固定 gpt-5.5/xhigh）；② 同分最高并列时先选版本更低的模型（gpt-5.4 优先 gpt-5.5）、同模型内再选思考强度更低的一档（low>medium>high>xhigh，越低越优先）；③ 新增 bash 解析片段、CLI 显式传 -m/-c；请求失败/缺数据报错暂停。
+Rationale: 与 quant-crypto 统一选取逻辑；owner 指定的同分取舍方向。
+Impact: 仅改 CLAUDE.md；无代码/数据/生产变更、无密钥。原在 feature 分支 experiment/largecap-value-results 提交（`1380168`），2026-06-28 cherry-pick 进 main。
+Related files: CLAUDE.md
 
 ## DECISION-20260613-02: topdown 自上而下整手构造路线收口（retained bug 修复后证伪 + 严格单票上限无效）
 
