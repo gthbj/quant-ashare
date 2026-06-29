@@ -62,14 +62,14 @@ Claude 在此流程中拥有**自主驱动权**：发现问题后**直接**让 C
 
 ### 模型要求
 
-Codex 用 codexradar 当日**智商最高的模型 + 推理强度**（**不再固定 `gpt-5.5` / `xhigh`**）。每次派发 / resume 前先请求 `https://codexradar.com/current.json`，把 `model_iq.latest` 与各 `model_iq.comparisons.*.latest`（每项带 `model` / `reasoning_effort` / `score`，`score` 在 `.latest` 这层、顶层为 `null`）横比，**取 `score` 最高那项的 `model` 和 `reasoning_effort` 一起用**（模型和强度都跟着走，别只换强度仍钉 5.5）。同分最高（两项或多项并列）时**先选版本更低的模型**（如 `gpt-5.4` 优先于 `gpt-5.5`）、同一模型内再**选思考强度更低的一档**（优先级 `low` > `medium` > `high` > `xhigh`，越低越优先）；请求失败或数据缺失时不要静默沿用旧值 / 旧模型，要明确报错并暂停。
+Codex 用 codexradar 当日**智商最高的模型 + 推理强度**（**不再固定 `gpt-5.5` / `xhigh`**）。每次派发 / resume 前先请求 `https://codexradar.com/api/v1/current`，并用本机环境变量 / secret 注入 `x-api-key`（推荐变量名 `CODEXRADAR_API_KEY`；**不要把 key 写入仓库、记忆、日志或 PR comment**），把 `model_iq.latest` 与各 `model_iq.comparisons.*.latest`（每项带 `model` / `reasoning_effort` / `score`，`score` 在 `.latest` 这层、顶层为 `null`）横比，**取 `score` 最高那项的 `model` 和 `reasoning_effort` 一起用**（模型和强度都跟着走，别只换强度仍钉 5.5）。同分最高（两项或多项并列）时**先选版本更低的模型**（如 `gpt-5.4` 优先于 `gpt-5.5`）、同一模型内再**选思考强度更低的一档**（优先级 `low` > `medium` > `high` > `xhigh`，越低越优先）；请求失败或数据缺失时不要静默沿用旧值 / 旧模型，要明确报错并暂停。
 
 CLI 显式传 `-m "$MODEL" -c model_reasoning_effort="$EFFORT"`（resume 时同样传，防止沿用旧会话的模型 / 配置）；默认值可固化在 `~/.codex/config.toml` 的 `model` / `model_reasoning_effort`，但以本段实时选择结果为准。注意：ChatGPT 账号下模型 id 直接用 codexradar 的 `model` 值（如 `gpt-5.5` / `gpt-5.4`），`-codex` 后缀 id 不可用（已实测 400）；首次选到非 `gpt-5.5` 的模型先确认该 id 在本账号可用。
 
 可用解析片段：
 
 ```bash
-read MODEL EFFORT <<<"$(curl -fsSL https://codexradar.com/current.json | python3 -c 'import json,sys,re
+read MODEL EFFORT <<<"$(curl -fsSL https://codexradar.com/api/v1/current -H "x-api-key: ${CODEXRADAR_API_KEY:?set CODEXRADAR_API_KEY}" | python3 -c 'import json,sys,re
 mi=json.load(sys.stdin).get("model_iq",{})
 rows=[mi.get("latest",{})]+[v.get("latest",{}) for v in mi.get("comparisons",{}).values()]
 order={"low":0,"medium":1,"high":2,"xhigh":3}
@@ -99,3 +99,5 @@ codex exec -m "$MODEL" -c model_reasoning_effort="$EFFORT" "<task>"
 ## 完整协议
 
 @AGENTS.md
+
+> 文档维护：GPT-5（2026-06-29）

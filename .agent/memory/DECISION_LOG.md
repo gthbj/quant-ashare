@@ -123,8 +123,20 @@ Related files:
 | DECISION-20260613-01 | 2026-06-13 | 否决验收契约 v4 提案本版：后续契约修订必须含长窗 MaxDD 硬门，v3 维持唯一有效契约 | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260613-02 | 2026-06-13 | topdown 自上而下整手构造路线收口（retained bug 修复后证伪 + 严格单票上限无效） | active | archive/DECISION_LOG_2026-06.md |
 | DECISION-20260628-01 | 2026-06-28 | Codex 模型/强度选取升级对齐 quant-crypto（同分先版本更低再强度更低） | active | （正文） |
+| DECISION-20260629-01 | 2026-06-29 | CodexRadar 模型智商取数入口改为 authenticated API | active | （正文） |
 
 ## 近期完整条目（最近 10 条，时间倒序）
+
+## DECISION-20260629-01: CodexRadar 模型智商取数入口改为 authenticated API
+
+Date: 2026-06-29
+Status: active
+Owner: GPT-5 Codex
+Context: owner 要求把本仓库及其它含 Claude/Codex 协作模型选择规则的仓库统一改为从 `https://codexradar.com/api/v1/current` 请求模型智商数据。该请求使用 `x-api-key`，但本仓库安全红线禁止在文档、记忆、代码或日志中写入任何 API key / token / 凭据。
+Decision: `CLAUDE.md` 模型要求节改为每次派发 / resume 前请求 authenticated `https://codexradar.com/api/v1/current`，通过本机环境变量 / secret 注入 `x-api-key`，推荐变量名 `CODEXRADAR_API_KEY`。模型选择语义保持 `DECISION-20260628-01`：在 `model_iq.latest` 与 `model_iq.comparisons.*.latest` 中选最高 `score` 的 `model + reasoning_effort`；同分最高时先选版本更低的模型，同一模型内再选思考强度更低的一档。
+Rationale: 新 API 是当前模型智商数据源；环境变量注入满足 API 调用需求，同时遵守不把 key 固化进 Git 历史的安全约束。
+Impact: 仅改 `CLAUDE.md` 与记忆/TODO；无代码、SQL、数据、BigQuery、Cloud Run 或生产变更。API key 值不得写入仓库、记忆、日志或 PR comment。
+Related files: `CLAUDE.md`, `.agent/memory/IMPLEMENTATION_STATUS.md`, `.agent/memory/AGENT_HANDOFF.md`, `TODO.md`
 
 ## DECISION-20260628-01: Codex 模型/强度选取升级对齐 quant-crypto（同分先版本更低再强度更低）
 

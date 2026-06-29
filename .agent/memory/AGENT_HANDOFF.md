@@ -1,4 +1,26 @@
-> 当前交接摘要（2026-06-13，Claude Opus 4.8，大盘价值 long-only P0 实现 + freeze-allowlist 热修）
+> 当前交接摘要（2026-06-29，GPT-5 Codex，CodexRadar authenticated API 入口更新）
+> - `CLAUDE.md` 已把 Codex 模型智商取数入口从旧 `current.json` 改为 authenticated `https://codexradar.com/api/v1/current`。
+> - `x-api-key` 必须从本机环境变量 / secret 注入，推荐 `CODEXRADAR_API_KEY`；不得把 key 值写入仓库、记忆、日志或 PR comment。
+> - 选择规则保持 `DECISION-20260628-01`：比较 `model_iq.latest` + `model_iq.comparisons.*.latest`，取最高 `score` 的 `model + reasoning_effort`；同分先版本更低、同模型内再强度更低。
+> - 新增 `DECISION-20260629-01`；`IMPLEMENTATION_STATUS.md` / `TODO.md` 已同步本轮文档规则变更。
+>
+> Model: GPT-5
+
+## 2026-06-29 GPT-5 Codex — CodexRadar authenticated API 入口更新
+
+日期: 2026-06-29
+Agent: Codex / 模型: GPT-5
+分支: detached `origin/main` 临时 worktree（`/Users/luna/Desktop/git/_codexradar-docs/quant-ashare`），按 owner 要求直接提交并推送 main
+
+- 把 `CLAUDE.md` 的 Codex「模型 + 思考强度」取数入口从旧 `https://codexradar.com/current.json` 改为 `https://codexradar.com/api/v1/current`。
+- 在模型要求正文与 bash 片段中要求通过 `CODEXRADAR_API_KEY` 等本机环境变量 / secret 注入 `x-api-key`。
+- 保持既有选择规则：按 `model_iq` 候选最高 `score` 选择 `model + reasoning_effort`，同分先版本更低、同模型内再强度更低。
+- 用户提供了 API key，但 AGENTS 安全红线禁止写入任何 API key / token / 凭据；因此本轮只写 endpoint、header 名和环境变量名，不写 key 值。
+- 本轮只改 `CLAUDE.md` 与记忆/TODO；没有改代码、SQL、数据、BigQuery 或生产配置。决策见 `DECISION-20260629-01`。
+
+Model: GPT-5
+
+> 历史交接摘要（2026-06-13，Claude Opus 4.8，大盘价值 long-only P0 实现 + freeze-allowlist 热修）
 > - 【最新】PRD_20260613_06 大盘价值倾斜 long-only 重训 **P0 已实现**（branch `experiment/largecap-value-longonly-prd06`，PR #224；模式 B：Claude 实现、Codex 审）：① `label_horizon`(=20) 一等参数贯通 orchestrate CLI/Experiment/CV embargo/label-safe 窗口/synthetic_continuous；② `weight_version` 全链路 + panel SQL 驱动 size-aware sample_weight（constant_1p0_v0=v1 恒 1.0；logmv_xs_monotone_v0/_w2_v0 按每日截面 log_total_mv 倾斜）；③ 选模型 topn 对齐 holdings（非默认 arm）+ parity 口径错配降级；④ label-safe 截断 retire subtract_weekdays、改 dim_trade_calendar 冻结派生表；⑤ synthetic_continuous 去硬编码、从 source 派生唯一 lineage + fail-fast + `--emit-backtest-experiment-json` 烤 CA-on payload。**v1 复现红线保住**（默认 h5/constant：run_id/窗口/sample_weight=1.0/topn=30/synth registry 字节级不变，未碰 ledger 黄金 hash）。全仓库 **309 passed / 1 skipped**；Codex(GPT-5.5+xhigh) review 已修 parity 枚举兼容 + annual_pipeline_scheduler 参数贯通 2 处。research-only；**live 训练/回测待执行**（owner 选「Codex review 过即自动跑主 arm」：BQ 核验 → 重建镜像 → P0 主 arm `pv_fin_quality+h20+logmv+n20` → 外接 QA → 对照报告；对照 arm n10/消融/w2 出主结果后再请批）。
 > - main 上 `test_metric_definition_freeze` 红（PR #222 遗留）已修复合并（PR #223，merge `762200e`，已 merge 进本 P0 分支）：抽共享模块 `src/quant_ashare/strategy1/report_format.py`，脚本 import 复用、allowlist 增 3 条，freeze 测试转绿 + 格式化输出 byte-identical。
 > - owner 裁决 topdown 自上而下整手构造路线**收口**（DECISION-20260613-02）：PR #217 修掉 retained 持仓销毁 ledger bug 后干净 `_v02` 已证伪 topdown（CAGR 11.96% / Calmar 0.21 / MaxDD -56.85% vs v1 15.36% / 0.4103 / -37.43%）；PR #218 严格 `max_single_weight` 单票上限只读 paper 探针证明上限也救不回（最好 Calmar 0.2018、MaxDD 未改善）。两 PR 均已合并。
@@ -206,4 +228,3 @@ Run ID: N/A
 - Phase 2 交付后 review、按预登记判读整理给 owner；契约修订重提（含 MaxDD 硬门阈值/窗口设计）等 owner 启动。
 
 Model: Claude Fable 5
-

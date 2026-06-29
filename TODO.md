@@ -4,6 +4,7 @@
 
 ## P0 — 当前优先
 
+- [x] 协作文档：`CLAUDE.md` Codex 模型智商取数入口改为 authenticated `https://codexradar.com/api/v1/current`，并用 `CODEXRADAR_API_KEY` 注入 `x-api-key`，不写入 key 值。
 - [x] OQ-010 / PRD_20260613_06：大盘价值倾斜 long-only 重训 **P0 代码实现**（branch `experiment/largecap-value-longonly-prd06`，PR #224，Codex(xhigh) review 可合并）
   说明：label_horizon=20 一等参数贯通、weight_version 驱动 size-aware sample_weight、选模型 topn 对齐、label-safe 截断改真实日历、synthetic_continuous 去硬编码派生 lineage + CA-on payload helper。全仓库 309 passed / 1 skipped；v1 复现红线保住（默认 h5/constant 不变、ledger 黄金 hash 不变）；research-only。
 - [ ] OQ-010 / PRD_20260613_06：跑 P0 主 arm live 训练/回测 + 外接 QA + 对照报告
